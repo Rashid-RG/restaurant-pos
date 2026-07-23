@@ -1,6 +1,6 @@
 name: CI
 
-# Gate merges: install, type-check, and run the full test suite on every push/PR.
+# Gate merges: install, type-check, run test suite, and build all apps.
 on:
   push:
     branches: [main]
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -29,8 +29,12 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build all three apps
-        run: |
-          npm run build
-          npm run customer:build
-          npm run driver:build
+      - name: Build main POS app
+        run: npm run build
+
+      - name: Build customer web app
+        run: npm run customer:build
+
+      - name: Build driver web app
+        run: npm run driver:build
+
