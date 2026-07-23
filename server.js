@@ -4131,14 +4131,14 @@ const driverDistPath = fs.existsSync(path.join(__dirname, 'apps', 'driver-web', 
   ? path.join(__dirname, 'apps', 'driver-web', 'dist')
   : path.join(__dirname, 'dist', 'driver-app');
 
-if (fs.existsSync(posDistPath)) {
-  app.use(express.static(posDistPath));
-}
 if (fs.existsSync(customerDistPath)) {
   app.use('/customer', express.static(customerDistPath));
 }
 if (fs.existsSync(driverDistPath)) {
   app.use('/driver-app', express.static(driverDistPath));
+}
+if (fs.existsSync(posDistPath)) {
+  app.use(express.static(posDistPath));
 }
 
 // Serve index.html for browser client-side navigation (non-API GET requests)
