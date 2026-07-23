@@ -493,7 +493,7 @@ export default function Settings() {
                           const currentVal = settings.find(s => s.key === 'storeOpen')?.value;
                           const nextVal = currentVal === 'true' ? 'false' : 'true';
                           await updateSetting('storeOpen', nextVal);
-                          alert(`Store status updated! Closed: ${nextVal === 'false'}`);
+                          showToast(nextVal === 'true' ? '🟢 Online store is now OPEN' : '🔴 Online orders paused', nextVal === 'true' ? 'success' : 'info');
                         }}
                       >
                         {settings.find(s => s.key === 'storeOpen')?.value === 'true' ? '🔴 Pause Online Orders' : '🟢 Open Online Store'}
@@ -714,8 +714,8 @@ export default function Settings() {
                             navigator.geolocation.getCurrentPosition(async (pos) => {
                               await updateSetting('storeLat', pos.coords.latitude.toFixed(4));
                               await updateSetting('storeLng', pos.coords.longitude.toFixed(4));
-                              alert(`📍 Store location set to ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`);
-                            }, () => alert('Could not detect location. Please enter manually.'));
+                              showToast(`📍 Store location set to ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`, 'success');
+                            }, () => showToast('Could not detect location. Please enter manually.', 'warning'));
                           }
                         }}>📡 Use Current GPS Location</button>
                     </div>
@@ -729,7 +729,7 @@ export default function Settings() {
                           const current = settings.find(s => s.key === 'isRainyWeather')?.value;
                           const next = current === 'true' ? 'false' : 'true';
                           await updateSetting('isRainyWeather', next);
-                          alert(next === 'true' ? '🌧️ Rainy Weather Mode ACTIVATED — rain surcharge will apply to all deliveries.' : '☀️ Rainy Weather Mode OFF — normal delivery pricing.');
+                          showToast(next === 'true' ? '🌧️ Rainy Weather Mode ON — rain surcharge applies to deliveries.' : '☀️ Rainy Weather Mode OFF — normal delivery pricing.', 'info');
                         }}>
                         {settings.find(s => s.key === 'isRainyWeather')?.value === 'true' ? '🌧️ Rainy Weather ACTIVE (Click to Clear)' : '☀️ Normal Weather (Click for Rain Mode)'}
                       </button>
@@ -757,7 +757,7 @@ export default function Settings() {
                         key={opt.mode}
                         onClick={async () => {
                           await updateSetting('driverDispatchMode', opt.mode);
-                          alert(`Dispatch mode set to: ${opt.label}`);
+                          showToast(`Dispatch mode set to: ${opt.label}`, 'success');
                         }}
                         style={{
                           padding: '16px',
@@ -898,10 +898,10 @@ export default function Settings() {
                       });
                       const data = await res.json();
                       if (!res.ok) throw new Error(data.error || 'Failed to provision tenant.');
-                      alert(`🎉 SaaS Tenant "${tenant.name}" provisioned at ${tenant.subdomain}.gastroflow.lk!`);
+                      showToast(`🎉 Tenant "${tenant.name}" provisioned at ${tenant.subdomain}.gastroflow.lk`, 'success');
                       form.reset();
                     } catch (err) {
-                      alert('Provisioning error: ' + err.message);
+                      showToast('Provisioning error: ' + err.message, 'error');
                     }
                   }}>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
@@ -1193,7 +1193,7 @@ function UserManagementSection() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!username || !role) return alert('Please enter username and role.');
+    if (!username || !role) return showToast('Please enter username and role.', 'warning');
     try {
       setLoading(true);
       const token = localStorage.getItem('gastroflow_token');
@@ -1204,11 +1204,11 @@ function UserManagementSection() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      alert(`User ${username} created successfully!`);
+      showToast(`User ${username} created successfully!`, 'success');
       setUsername('');
       fetchUsers();
     } catch (err) {
-      alert('Error creating user: ' + err.message);
+      showToast('Error creating user: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -1223,10 +1223,10 @@ function UserManagementSection() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Failed to delete user');
-      alert(`User ${name} deleted.`);
+      showToast(`User ${name} deleted.`, 'info');
       fetchUsers();
     } catch (err) {
-      alert('Error deleting user: ' + err.message);
+      showToast('Error deleting user: ' + err.message, 'error');
     }
   };
 

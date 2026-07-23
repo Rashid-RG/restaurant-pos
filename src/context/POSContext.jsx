@@ -123,8 +123,12 @@ export const POSProvider = ({ children }) => {
     // Live EventSource Stream for instant online order alerts
     let es;
     try {
-      const posStreamUrl = new URL('/api/stream/pos', window.location.origin).href;
-      es = new EventSource(posStreamUrl);
+      const posStreamUrl = new URL('/api/stream/pos', window.location.origin);
+      // EventSource can't set an Authorization header, so pass the JWT as a query
+      // param. The server verifies it and tenant-partitions the stream.
+      const posToken = localStorage.getItem('gastroflow_token');
+      if (posToken) posStreamUrl.searchParams.set('token', posToken);
+      es = new EventSource(posStreamUrl.href);
       es.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);

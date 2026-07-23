@@ -3,6 +3,7 @@ import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
+import { withTenant } from '../utils/tenant.js';
 
 // Render **bold** markdown in AI replies without injecting HTML (safe against XSS).
 function renderChatText(text) {
@@ -109,7 +110,7 @@ export default function MenuView({ onNavigate, toast }) {
   // No page reload needed — the POS staff action propagates in < 1 second.
   useEffect(() => {
     const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const es = new EventSource(`${API_BASE}/api/stream/store`);
+    const es = new EventSource(withTenant(`${API_BASE}/api/stream/store`));
 
     es.onmessage = (e) => {
       try {

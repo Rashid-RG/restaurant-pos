@@ -386,7 +386,7 @@ export default function POSView() {
             try {
               await openShift(float, notes);
             } catch (err) {
-              alert(err.message);
+              showToast(err.message, 'error');
             }
           }}>
             <div className="form-group">
@@ -1161,7 +1161,7 @@ export default function POSView() {
                   const summaryData = await summaryRes.json();
                   setShiftReport(summaryData);
                 } catch (err) {
-                  alert(err.message);
+                  showToast(err.message, 'error');
                 }
               }}>
                 <div style={{ marginBottom: '16px', fontSize: '13px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px' }}>

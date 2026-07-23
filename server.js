@@ -24,20 +24,70 @@ import {
   resolveAndCalculateBill as _resolveAndCalculateBill,
   allocateInvoiceNumber as _allocateInvoiceNumber
 } from './lib/billing.js';
+import {
+  validateRequest,
+  authLoginSchema,
+  shiftOpenSchema,
+  shiftCloseSchema,
+  cashMovementSchema,
+  publicOrderSchema,
+  userCreateSchema,
+  driverLoginSchema,
+  driverRegisterSchema,
+  tenantCreateSchema
+} from './lib/validation.js';
+import { getPlan, checkLimit, planList } from './lib/plans.js';
 
 dotenv.config();
 
-// Production Environment Configuration
-const JWT_SECRET = process.env.JWT_SECRET || 'gastroflow_prod_secret_998877_key_2026';
+// Normalize PayHere secret naming. The webhook signature path reads PAYHERE_MERCHANT_SECRET
+// while checkout historically read PAYHERE_SECRET. Accept either and mirror them so both work
+// no matter which name is set in the environment.
+if (!process.env.PAYHERE_MERCHANT_SECRET && process.env.PAYHERE_SECRET) {
+  process.env.PAYHERE_MERCHANT_SECRET = process.env.PAYHERE_SECRET;
+}
+if (!process.env.PAYHERE_SECRET && process.env.PAYHERE_MERCHANT_SECRET) {
+  process.env.PAYHERE_SECRET = process.env.PAYHERE_MERCHANT_SECRET;
+}
+
+// Fail-fast: never boot production with missing or insecure secrets (restores A7).
+const INSECURE_JWT_DEFAULTS = [
+  'super_secret_restaurant_pos_key_2026',
+  'gastroflow_prod_secret_998877_key_2026',
+  'super_secret_jwt_key_replace_in_production_2026'
+];
+const INSECURE_PAYHERE_DEFAULTS = ['mock_merchant_secret', '4a8b9c10d2e3f4'];
 if (process.env.NODE_ENV === 'production') {
   console.log('[Production] Booting GastroFlow Backend in production mode...');
+  if (!process.env.JWT_SECRET || INSECURE_JWT_DEFAULTS.includes(process.env.JWT_SECRET)) {
+    console.error('FATAL: JWT_SECRET is missing or using an insecure default in production mode.');
+    process.exit(1);
+  }
+  if (!process.env.PAYHERE_MERCHANT_SECRET || INSECURE_PAYHERE_DEFAULTS.includes(process.env.PAYHERE_MERCHANT_SECRET)) {
+    console.error('FATAL: PAYHERE_MERCHANT_SECRET (or PAYHERE_SECRET) is missing or using an insecure default in production mode.');
+    process.exit(1);
+  }
 }
+
+// JWT secret — dev fallback only; production is hard-gated above.
+const JWT_SECRET = process.env.JWT_SECRET || 'gastroflow_dev_only_secret_change_me';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+export { app };
 const PORT = process.env.PORT || 5000;
+
+// Error-response helper: never leak internal/DB error detail to clients in production.
+// Full detail is still logged server-side; the client gets a generic message in prod
+// and the real message only in development for debugging.
+const errMsg = (err) => {
+  try { console.error('[API error]', err && err.stack ? err.stack : err); } catch (_) {}
+  return process.env.NODE_ENV === 'production'
+    ? 'An unexpected error occurred. Please try again.'
+    : (err && err.message ? err.message : String(err));
+};
 
 app.use(helmet({
   contentSecurityPolicy: false // Allow inline scripts for local development if needed
@@ -79,9 +129,36 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' })); // Limit body size for security
 
+// ── Observability: structured request logging ──
+// One JSON line per API request (method, path, status, latency, tenant). Silenced
+// under tests to keep output clean. Swap console for pino/Sentry transport later.
+if (!process.env.VITEST) {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      if (!req.path.startsWith('/api')) return;
+      const entry = {
+        t: new Date().toISOString(),
+        lvl: res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
+        method: req.method,
+        path: req.path,
+        status: res.statusCode,
+        ms: Date.now() - start,
+        tenant: req.tenantId || req.driver?.tenant_id || undefined
+      };
+      console.log(JSON.stringify(entry));
+    });
+    next();
+  });
+}
+
 // Open SQLite Database (DATABASE_FILE overrides the default, e.g. for isolated tests)
 const dbPath = process.env.DATABASE_FILE || path.join(__dirname, 'restaurant.db');
 const sqlite = sqlite3.verbose();
+// Resolves once tables are created AND seeding completes — tests await this so they
+// never race the async seed (note: /api/health returns 200 before seeding finishes).
+let _resolveDbReady;
+export const dbReady = new Promise((resolve) => { _resolveDbReady = resolve; });
 const db = new sqlite.Database(dbPath, (err) => {
   if (err) {
     console.error('Error opening SQLite database:', err.message);
@@ -99,7 +176,7 @@ const db = new sqlite.Database(dbPath, (err) => {
       if (err) console.error('Failed to set synchronous mode:', err.message);
       else console.log('SQLite synchronous level set to NORMAL.');
     });
-    initTables();
+    initTables().then(() => _resolveDbReady && _resolveDbReady()).catch((e) => { console.error('DB init failed:', e); _resolveDbReady && _resolveDbReady(); });
   }
 });
 
@@ -158,11 +235,15 @@ app.get('/api/events', (req, res) => {
 // Initialize SQLite Schema
 async function initTables() {
   try {
-    // 1. Settings Table
+    // 1. Settings Table — per-tenant config (composite PK so each tenant has
+    //    its own restaurant name, tax, delivery fee, open/closed state, etc.).
+    //    Existing single-tenant DBs are migrated below (see settings migration).
     await dbRun(`
       CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
+        tenant_id TEXT NOT NULL DEFAULT 'default_tenant',
+        key TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (tenant_id, key)
       )
     `);
 
@@ -548,8 +629,14 @@ async function initTables() {
       )
     `);
 
-    // Add tenant_id column to core tables for multi-tenant isolation
-    const tenantTables = ['users', 'orders', 'menu_items', 'tables', 'ingredients', 'customers'];
+    // Add tenant_id column to tenant-scoped tables for multi-tenant isolation.
+    // The first six were scoped in the initial multi-tenancy pass; the rest complete
+    // per-tenant isolation of config, catalog, staff-ops and engagement data.
+    const tenantTables = [
+      'users', 'orders', 'menu_items', 'tables', 'ingredients', 'customers',
+      'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
+      'feedbacks', 'promotions', 'customer_accounts', 'drivers'
+    ];
     for (const tTable of tenantTables) {
       try {
         await dbRun(`ALTER TABLE ${tTable} ADD COLUMN tenant_id TEXT DEFAULT 'default_tenant'`);
@@ -558,9 +645,45 @@ async function initTables() {
       }
     }
 
+    // Migrate legacy single-tenant `settings` table (PK = key) to the per-tenant
+    // composite-PK schema. Idempotent: detects the old schema by the missing
+    // tenant_id column and rebuilds, stamping existing rows to default_tenant.
+    try {
+      const settingsCols = await dbAll(`PRAGMA table_info(settings)`);
+      const hasTenantCol = settingsCols.some(c => c.name === 'tenant_id');
+      if (!hasTenantCol) {
+        await dbRun('BEGIN TRANSACTION');
+        try {
+          await dbRun(`CREATE TABLE settings_new (
+            tenant_id TEXT NOT NULL DEFAULT 'default_tenant',
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (tenant_id, key)
+          )`);
+          await dbRun(`INSERT INTO settings_new (tenant_id, key, value)
+                       SELECT 'default_tenant', key, value FROM settings`);
+          await dbRun(`DROP TABLE settings`);
+          await dbRun(`ALTER TABLE settings_new RENAME TO settings`);
+          await dbRun('COMMIT');
+          console.log("Migrated 'settings' table to per-tenant composite PK.");
+        } catch (mErr) {
+          await dbRun('ROLLBACK');
+          throw mErr;
+        }
+      }
+    } catch (err) {
+      console.error('Settings tenant migration failed:', err.message);
+    }
+
     // Give staff users an email + phone so password reset can reach them.
     for (const col of [{ name: 'email', type: 'TEXT' }, { name: 'phone', type: 'TEXT' }]) {
       try { await dbRun(`ALTER TABLE users ADD COLUMN ${col.name} ${col.type}`); }
+      catch (err) { if (!err.message.includes('duplicate column name')) console.error(err.message); }
+    }
+
+    // Driver auth columns: password hash + email so drivers can log in (Phase 2).
+    for (const col of [{ name: 'passwordHash', type: 'TEXT' }, { name: 'email', type: 'TEXT' }]) {
+      try { await dbRun(`ALTER TABLE drivers ADD COLUMN ${col.name} ${col.type}`); }
       catch (err) { if (!err.message.includes('duplicate column name')) console.error(err.message); }
     }
 
@@ -713,7 +836,7 @@ async function seedDatabase() {
         { key: 'phone', value: '+94 11 234 5678' }
       ];
       for (const set of defaultSettings) {
-        await dbRun('INSERT INTO settings (key, value) VALUES (?, ?)', [set.key, set.value]);
+        await dbRun("INSERT INTO settings (tenant_id, key, value) VALUES ('default_tenant', ?, ?)", [set.key, set.value]);
       }
     }
 
@@ -738,7 +861,7 @@ async function seedDatabase() {
       { key: 'peakDinnerEnd', value: '21:30' },         // Peak dinner end
     ];
     for (const s of deliveryZoneDefaults) {
-      await dbRun('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [s.key, s.value]);
+      await dbRun("INSERT OR IGNORE INTO settings (tenant_id, key, value) VALUES ('default_tenant', ?, ?)", [s.key, s.value]);
     }
 
     // Check tables
@@ -769,7 +892,7 @@ async function seedDatabase() {
         { id: 'cust2', name: 'Jane Smith', phone: '0719876543', email: 'jane@example.lk', points: 85, orderCount: 3, totalSpent: 92.20 }
       ];
       for (const c of defaultCusts) {
-        await dbRun('INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+        await dbRun("INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'default_tenant')", [
           c.id, c.name, c.phone, c.email, c.points, c.orderCount, c.totalSpent
         ]);
       }
@@ -807,14 +930,17 @@ async function seedDatabase() {
     const driversCount = await dbGet('SELECT COUNT(*) as count FROM drivers');
     if (driversCount.count === 0) {
       console.log('Seeding default delivery drivers...');
+      // Seeded drivers get a known dev password ('driver123') so the driver app is
+      // testable out of the box. Change/disable in production.
+      const seedDriverHash = await bcrypt.hash('driver123', 10);
       const defaultDrivers = [
         { id: 'drv_1', name: 'Kamal Perera', phone: '0771234567', status: 'available', vehicleType: 'Motorbike', plateNumber: 'WP BH-1234' },
         { id: 'drv_2', name: 'Nimal Fernando', phone: '0719876543', status: 'available', vehicleType: 'TukTuk', plateNumber: 'WP QA-8899' },
         { id: 'drv_3', name: 'Sunil Silva', phone: '0755551234', status: 'busy', vehicleType: 'Motorbike', plateNumber: 'WP CXX-5521' }
       ];
       for (const d of defaultDrivers) {
-        await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber) VALUES (?, ?, ?, ?, ?, ?)', [
-          d.id, d.name, d.phone, d.status, d.vehicleType, d.plateNumber
+        await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
+          d.id, d.name, d.phone, d.status, d.vehicleType, d.plateNumber, seedDriverHash, 'default_tenant'
         ]);
       }
     }
@@ -931,9 +1057,9 @@ async function seedDatabase() {
         { key: 'restaurantLng', value: '79.8612' }
       ];
       for (const s of requiredSettings) {
-        const check = await dbGet('SELECT * FROM settings WHERE key = ?', [s.key]);
+        const check = await dbGet("SELECT * FROM settings WHERE tenant_id = 'default_tenant' AND key = ?", [s.key]);
         if (!check) {
-          await dbRun('INSERT INTO settings (key, value) VALUES (?, ?)', [s.key, s.value]);
+          await dbRun("INSERT INTO settings (tenant_id, key, value) VALUES ('default_tenant', ?, ?)", [s.key, s.value]);
         }
       }
     } catch (e) {
@@ -1006,6 +1132,22 @@ const authenticateCustomer = (req, res, next) => {
   });
 };
 
+// Middleware: Authenticate Driver JWT Token (Phase 2 — tenant-bound drivers).
+// Sets req.driver = { driverId, tenant_id, name } and req.tenantId for scoping.
+const authenticateDriver = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token || req.body?.token;
+  if (!token) return res.status(401).json({ error: 'Driver authentication required.' });
+  jwt.verify(token, process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026', (err, decoded) => {
+    if (err || !decoded || decoded.role !== 'driver' || !decoded.driverId) {
+      return res.status(403).json({ error: 'Invalid or expired driver token.' });
+    }
+    req.driver = decoded;
+    req.tenantId = decoded.tenant_id || 'default_tenant';
+    next();
+  });
+};
+
 // Middleware: Role check
 const requireRole = (allowedRoles) => {
   return (req, res, next) => {
@@ -1015,6 +1157,81 @@ const requireRole = (allowedRoles) => {
     next();
   };
 };
+
+// Resolve the tenant for a PUBLIC (unauthenticated) request. Customer/driver apps
+// identify their restaurant via ?tenantId=<id>, ?tenant=<subdomain>, or the
+// X-Tenant-Id / X-Tenant-Subdomain headers. Falls back to the default tenant so
+// existing single-tenant deployments keep working unchanged.
+async function resolvePublicTenant(req) {
+  const explicitId = req.query.tenantId || req.headers['x-tenant-id'];
+  if (explicitId) return String(explicitId);
+  const sub = req.query.tenant || req.headers['x-tenant-subdomain'];
+  if (sub) {
+    try {
+      const row = await dbGet('SELECT id FROM tenants WHERE subdomain = ? AND status = "active"', [String(sub)]);
+      if (row) return row.id;
+    } catch (_) { /* fall through to default */ }
+  }
+  return 'default_tenant';
+}
+
+// ── Per-tenant settings helpers ──────────────────────────────────────────────
+// All settings are scoped by tenant (composite PK tenant_id + key). These helpers
+// centralize access so every read/write is tenant-correct. Pass the tenant from
+// req.tenantId (authenticated) or resolvePublicTenant(req) (public).
+async function getSetting(tenantId, key, fallback = undefined) {
+  const row = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [tenantId || 'default_tenant', key]);
+  return row ? row.value : fallback;
+}
+// Return the first present value among several candidate keys (e.g. restaurantName|businessName).
+async function getSettingAny(tenantId, keys, fallback = undefined) {
+  for (const k of keys) {
+    const v = await getSetting(tenantId, k);
+    if (v !== undefined && v !== null) return v;
+  }
+  return fallback;
+}
+// Fetch several keys at once → { key: value }.
+async function getSettingsMap(tenantId, keys) {
+  if (!keys.length) return {};
+  const rows = await dbAll(
+    `SELECT key, value FROM settings WHERE tenant_id = ? AND key IN (${keys.map(() => '?').join(',')})`,
+    [tenantId || 'default_tenant', ...keys]
+  );
+  return Object.fromEntries(rows.map(r => [r.key, r.value]));
+}
+async function setSetting(tenantId, key, value) {
+  await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId || 'default_tenant', key, String(value)]);
+}
+
+// ── SaaS plan metering (Phase 5) ─────────────────────────────────────────────
+// Read a tenant's plan + status, and live usage counts, so limits can be enforced.
+async function getTenantMeta(tenantId) {
+  const row = await dbGet('SELECT plan, status FROM tenants WHERE id = ?', [tenantId || 'default_tenant']);
+  return { plan: row?.plan || 'basic', status: row?.status || 'active' };
+}
+async function countTenantUsers(tenantId) {
+  const row = await dbGet('SELECT COUNT(*) AS c FROM users WHERE tenant_id = ?', [tenantId || 'default_tenant']);
+  return row?.c || 0;
+}
+async function countTenantOrdersThisMonth(tenantId) {
+  const start = new Date();
+  start.setDate(1); start.setHours(0, 0, 0, 0);
+  const row = await dbGet('SELECT COUNT(*) AS c FROM orders WHERE tenant_id = ? AND timestamp >= ?', [tenantId || 'default_tenant', start.getTime()]);
+  return row?.c || 0;
+}
+// Returns { plan, status, limits, usage } for a tenant.
+async function getTenantUsage(tenantId) {
+  const meta = await getTenantMeta(tenantId);
+  const [users, ordersThisMonth] = await Promise.all([countTenantUsers(tenantId), countTenantOrdersThisMonth(tenantId)]);
+  const limits = getPlan(meta.plan);
+  return {
+    plan: meta.plan,
+    status: meta.status,
+    limits: { maxUsers: limits.maxUsers, maxOrdersPerMonth: limits.maxOrdersPerMonth },
+    usage: { users, ordersThisMonth }
+  };
+}
 
 // Audit logging helper
 const writeAuditLog = async (userId, username, action, details) => {
@@ -1045,7 +1262,7 @@ app.get('/api/health', async (req, res) => {
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
       database: 'disconnected',
-      error: err.message
+      error: errMsg(err)
     });
   }
 });
@@ -1053,7 +1270,7 @@ app.get('/api/health', async (req, res) => {
 // AUTH ENDPOINTS
 
 // Login
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
@@ -1086,7 +1303,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1107,15 +1324,15 @@ app.post('/api/auth/register', authenticateToken, requireRole(['owner', 'manager
     const pinHash = await bcrypt.hash(pin, 10);
     const userId = `user_${Date.now()}`;
     await dbRun(`
-      INSERT INTO users (id, username, passwordHash, role, pin)
-      VALUES (?, ?, ?, ?, ?)
-    `, [userId, username, passwordHash, role, pinHash]);
+      INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [userId, username, passwordHash, role, pinHash, req.tenantId]);
 
     await writeAuditLog(req.user.id, req.user.username, 'register_user', `Created user ${username} with role ${role}`);
 
     res.json({ success: true, user: { username, role } });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1137,7 +1354,7 @@ app.post('/api/timeclock/clock-in', authenticateToken, async (req, res) => {
     await writeAuditLog(req.user.id, req.user.username, 'clock_in', `Clocked in at ${new Date(clockInTime).toLocaleTimeString()}`);
     res.json({ success: true, id, clockIn: clockInTime });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1157,7 +1374,7 @@ app.post('/api/timeclock/clock-out', authenticateToken, async (req, res) => {
     await writeAuditLog(req.user.id, req.user.username, 'clock_out', `Clocked out after ${durationMinutes} mins`);
     res.json({ success: true, clockOut: clockOutTime, durationMinutes });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1167,7 +1384,7 @@ app.get('/api/timeclock/status', authenticateToken, async (req, res) => {
     const active = await dbGet('SELECT * FROM timeclock_entries WHERE userId = ? AND clockOut IS NULL ORDER BY clockIn DESC LIMIT 1', [req.user.id]);
     res.json({ clockedIn: !!active, session: active || null });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1177,17 +1394,17 @@ app.get('/api/timeclock/entries', authenticateToken, requireRole(['owner', 'mana
     const entries = await dbAll('SELECT * FROM timeclock_entries ORDER BY clockIn DESC LIMIT 100');
     res.json(entries);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // GET FEEDBACKS ENDPOINT (Owner / Manager POS inbox)
 app.get('/api/feedbacks', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const feedbacks = await dbAll('SELECT * FROM feedbacks ORDER BY timestamp DESC LIMIT 100');
+    const feedbacks = await dbAll('SELECT * FROM feedbacks WHERE tenant_id = ? ORDER BY timestamp DESC LIMIT 100', [req.tenantId]);
     res.json(feedbacks);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1222,7 +1439,7 @@ app.post('/api/auth/verify-pin', authenticateToken, pinLimiter, async (req, res)
 
     res.json({ success: true, authorizedBy: authorizedManager.username, role: authorizedManager.role });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1320,7 +1537,7 @@ app.post('/api/payments/payhere/webhook', async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1344,7 +1561,7 @@ app.post('/api/payments/payhere/dev-simulate', publicApiLimiter, async (req, res
     await settleOrderPaid(order);
     res.json({ success: true, status: 'paid' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1522,9 +1739,9 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const id = `ca_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     await dbRun(
-      `INSERT INTO customer_accounts (id, name, email, phone, passwordHash, loyaltyPoints, totalSpent, createdAt)
-       VALUES (?, ?, ?, ?, ?, 0, 0, ?)`,
-      [id, name.trim(), cleanEmail, cleanPhone, passwordHash, Date.now()]
+      `INSERT INTO customer_accounts (id, name, email, phone, passwordHash, loyaltyPoints, totalSpent, createdAt, tenant_id)
+       VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+      [id, name.trim(), cleanEmail, cleanPhone, passwordHash, Date.now(), await resolvePublicTenant(req)]
     );
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
     const token = jwt.sign(
@@ -1536,8 +1753,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
     // Welcome email — fire-and-forget, never blocks the response
     if (cleanEmail) {
-      const businessRow = await dbGet("SELECT value FROM settings WHERE key = 'businessName'").catch(() => null);
-      const business = businessRow?.value || 'GastroFlow Bistro';
+      const business = (await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro'));
       const welcomeHtml = buildWelcomeEmail({ name: name.trim(), loginUrl: customerAppUrl(), businessName: business });
       sendEmail({
         to: cleanEmail,
@@ -1546,7 +1762,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
       }).catch(e => console.error('[EMAIL] Welcome email failed:', e.message));
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1584,8 +1800,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
 
     // Login notification email — fire-and-forget
     if (customer.email) {
-      const businessRow = await dbGet("SELECT value FROM settings WHERE key = 'businessName'").catch(() => null);
-      const business = businessRow?.value || 'GastroFlow';
+      const business = (await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow'));
       const loginTime = new Date().toLocaleString('en-LK', { timeZone: 'Asia/Colombo', dateStyle: 'medium', timeStyle: 'short' });
       sendEmail({
         to: customer.email,
@@ -1611,7 +1826,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
       }).catch(e => console.error('[EMAIL] Login notification failed:', e.message));
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1625,7 +1840,7 @@ app.get('/api/customer/auth/me', authenticateCustomer, async (req, res) => {
     if (!customer) return res.status(404).json({ error: 'Account not found.' });
     res.json(customer);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1639,7 +1854,7 @@ app.get('/api/customer/profile', authenticateCustomer, async (req, res) => {
     if (!customer) return res.status(404).json({ error: 'Account not found.' });
     res.json(customer);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1662,7 +1877,7 @@ app.put('/api/customer/profile', authenticateCustomer, async (req, res) => {
     );
     res.json(updated);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1672,7 +1887,7 @@ app.get('/api/customer/addresses', authenticateCustomer, async (req, res) => {
     const rows = await dbAll('SELECT * FROM customer_addresses WHERE customerAccountId = ?', [req.customer.id]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1691,7 +1906,7 @@ app.post('/api/customer/addresses', authenticateCustomer, async (req, res) => {
     );
     res.json({ success: true, address: { id, addressLine, isDefault } });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1701,7 +1916,7 @@ app.get('/api/customer/cards', authenticateCustomer, async (req, res) => {
     const rows = await dbAll('SELECT id, cardType, lastFour, expiry FROM customer_cards WHERE customerAccountId = ?', [req.customer.id]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1717,7 +1932,7 @@ app.post('/api/customer/cards', authenticateCustomer, async (req, res) => {
     );
     res.json({ success: true, card: { id, cardType, lastFour, expiry } });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1735,7 +1950,7 @@ app.get('/api/customer/orders', authenticateCustomer, async (req, res) => {
     }));
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1752,7 +1967,7 @@ app.post('/api/customer/loyalty/redeem', authenticateCustomer, async (req, res) 
     const discount = Math.floor(points / 100);
     res.json({ discount, pointsUsed: points, remainingPoints: customer.loyaltyPoints - points });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 // ======================================================
@@ -1772,28 +1987,33 @@ function haversineDistanceKm(lat1, lng1, lat2, lng2) {
 }
 
 // ── Peak hour detection (Sri Lanka lunch & dinner rush) ──
-async function isPeakHour() {
+async function isPeakHour(tenantId = 'default_tenant') {
   const now = new Date();
   const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const lunchStart = (await dbGet("SELECT value FROM settings WHERE key = 'peakLunchStart'"))?.value || '11:30';
-  const lunchEnd = (await dbGet("SELECT value FROM settings WHERE key = 'peakLunchEnd'"))?.value || '14:00';
-  const dinnerStart = (await dbGet("SELECT value FROM settings WHERE key = 'peakDinnerStart'"))?.value || '18:30';
-  const dinnerEnd = (await dbGet("SELECT value FROM settings WHERE key = 'peakDinnerEnd'"))?.value || '21:30';
+  const s = await getSettingsMap(tenantId, ['peakLunchStart', 'peakLunchEnd', 'peakDinnerStart', 'peakDinnerEnd']);
+  const lunchStart = s.peakLunchStart || '11:30';
+  const lunchEnd = s.peakLunchEnd || '14:00';
+  const dinnerStart = s.peakDinnerStart || '18:30';
+  const dinnerEnd = s.peakDinnerEnd || '21:30';
   return (hhmm >= lunchStart && hhmm <= lunchEnd) || (hhmm >= dinnerStart && hhmm <= dinnerEnd);
 }
 
 // ── Server-authoritative delivery fee calculator ──
-async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0) {
-  const storeLat = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'storeLat'"))?.value || 6.9271);
-  const storeLng = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'storeLng'"))?.value || 79.8612);
-  const baseFee = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'deliveryBaseFee'"))?.value || 99);
-  const freeRadius = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'deliveryFreeRadiusKm'"))?.value || 2);
-  const perKmRate = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'deliveryPerKmRate'"))?.value || 50);
-  const maxRadius = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'deliveryMaxRadiusKm'"))?.value || 15);
-  const peakSurchargeAmt = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'deliveryPeakSurcharge'"))?.value || 50);
-  const rainSurchargeAmt = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'deliveryRainSurcharge'"))?.value || 75);
-  const freeThreshold = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'deliveryFreeThreshold'"))?.value || 3000);
-  const isRainy = (await dbGet("SELECT value FROM settings WHERE key = 'isRainyWeather'"))?.value === 'true';
+async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0, tenantId = 'default_tenant') {
+  const s = await getSettingsMap(tenantId, [
+    'storeLat', 'storeLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
+    'deliveryMaxRadiusKm', 'deliveryPeakSurcharge', 'deliveryRainSurcharge', 'deliveryFreeThreshold', 'isRainyWeather'
+  ]);
+  const storeLat = parseFloat(s.storeLat || 6.9271);
+  const storeLng = parseFloat(s.storeLng || 79.8612);
+  const baseFee = parseFloat(s.deliveryBaseFee || 99);
+  const freeRadius = parseFloat(s.deliveryFreeRadiusKm || 2);
+  const perKmRate = parseFloat(s.deliveryPerKmRate || 50);
+  const maxRadius = parseFloat(s.deliveryMaxRadiusKm || 15);
+  const peakSurchargeAmt = parseFloat(s.deliveryPeakSurcharge || 50);
+  const rainSurchargeAmt = parseFloat(s.deliveryRainSurcharge || 75);
+  const freeThreshold = parseFloat(s.deliveryFreeThreshold || 3000);
+  const isRainy = s.isRainyWeather === 'true';
 
   const distanceKm = haversineDistanceKm(storeLat, storeLng, customerLat, customerLng);
   const roundedDistance = Math.round(distanceKm * 10) / 10; // 1 decimal
@@ -1825,7 +2045,7 @@ async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0) {
   // Distance-based pricing
   const chargeableKm = Math.max(0, distanceKm - freeRadius);
   const distanceCharge = Math.round(chargeableKm * perKmRate);
-  const peak = await isPeakHour();
+  const peak = await isPeakHour(tenantId);
   const peakSurcharge = peak ? peakSurchargeAmt : 0;
   const rainSurcharge = isRainy ? rainSurchargeAmt : 0;
   const totalFee = Math.round(baseFee + distanceCharge + peakSurcharge + rainSurcharge);
@@ -1858,9 +2078,9 @@ async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0) {
 // ── Hybrid Auto-Dispatch Engine ──
 // Finds nearest available driver using Haversine from their last GPS ping.
 // Auto-assigns and notifies. In hybrid mode, sets a timeout for POS escalation.
-async function autoDispatchDriver(orderId) {
+async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
   try {
-    const dispatchMode = (await dbGet("SELECT value FROM settings WHERE key = 'driverDispatchMode'"))?.value || 'hybrid';
+    const dispatchMode = (await getSetting(tenantId, 'driverDispatchMode')) || 'hybrid';
     if (dispatchMode === 'manual') return; // manager handles it
 
     const order = await dbGet('SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ?', [orderId]);
@@ -1874,8 +2094,9 @@ async function autoDispatchDriver(orderId) {
     );
 
     // Get store location for fallback
-    const storeLat = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'storeLat'"))?.value || 6.9271);
-    const storeLng = parseFloat((await dbGet("SELECT value FROM settings WHERE key = 'storeLng'"))?.value || 79.8612);
+    const dispatchStore = await getSettingsMap(tenantId, ['storeLat', 'storeLng']);
+    const storeLat = parseFloat(dispatchStore.storeLat || 6.9271);
+    const storeLng = parseFloat(dispatchStore.storeLng || 79.8612);
 
     // Calculate distance from each driver to the STORE (pickup point)
     const driversWithDistance = driverPings.map(d => ({
@@ -1895,7 +2116,7 @@ async function autoDispatchDriver(orderId) {
       if (!activeDelivery) {
         // Auto-assign this driver
         await dbRun('UPDATE orders SET driverId = ?, dispatchMode = ? WHERE id = ?', [driver.driverName, 'auto', orderId]);
-        notifyPOS({ type: 'driver_auto_assigned', orderId, driverId: driver.driverName, distanceKm: Math.round(driver.distToStore * 10) / 10 });
+        notifyPOS({ type: 'driver_auto_assigned', orderId, driverId: driver.driverName, distanceKm: Math.round(driver.distToStore * 10) / 10 }, tenantId);
         console.log(`[Auto-Dispatch] Assigned ${driver.driverName} to order ${orderId} (${driver.distToStore.toFixed(1)} km from store)`);
         return;
       }
@@ -1903,9 +2124,9 @@ async function autoDispatchDriver(orderId) {
 
     // No available driver found
     if (dispatchMode === 'hybrid') {
-      const timeoutSec = parseInt((await dbGet("SELECT value FROM settings WHERE key = 'autoDispatchTimeoutSec'"))?.value || 180);
+      const timeoutSec = parseInt((await getSetting(tenantId, 'autoDispatchTimeoutSec')) || 180);
       // Notify POS for manual escalation
-      notifyPOS({ type: 'dispatch_escalation', orderId, reason: 'No available drivers for auto-dispatch', customerName: order.customerName });
+      notifyPOS({ type: 'dispatch_escalation', orderId, reason: 'No available drivers for auto-dispatch', customerName: order.customerName }, tenantId);
       console.log(`[Auto-Dispatch] No drivers available for ${orderId}. Escalated to POS manager (hybrid mode).`);
     }
   } catch (err) {
@@ -1925,10 +2146,11 @@ app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {
     if (isNaN(customerLat) || isNaN(customerLng)) {
       return res.status(400).json({ error: 'Invalid lat/lng values.' });
     }
-    const result = await calculateDeliveryFee(customerLat, customerLng, parseFloat(subtotal || 0));
+    const tenantId = await resolvePublicTenant(req);
+    const result = await calculateDeliveryFee(customerLat, customerLng, parseFloat(subtotal || 0), tenantId);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1939,13 +2161,12 @@ app.get('/api/public/delivery-zone-info', publicApiLimiter, async (req, res) => 
                   'deliveryPeakSurcharge', 'deliveryRainSurcharge', 'deliveryFreeThreshold',
                   'storeLat', 'storeLng', 'isRainyWeather', 'driverDispatchMode',
                   'peakLunchStart', 'peakLunchEnd', 'peakDinnerStart', 'peakDinnerEnd'];
-    const rows = await dbAll(`SELECT key, value FROM settings WHERE key IN (${keys.map(() => '?').join(',')})`, keys);
-    const config = {};
-    rows.forEach(r => { config[r.key] = r.value; });
-    config.isPeakHour = await isPeakHour();
+    const tenantId = await resolvePublicTenant(req);
+    const config = await getSettingsMap(tenantId, keys);
+    config.isPeakHour = await isPeakHour(tenantId);
     res.json(config);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1960,11 +2181,12 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
   const msg = message.trim().toLowerCase();
 
   try {
-    // 1. Fetch live menu items and store settings from database
-    const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock FROM menu_items WHERE stock IS NULL OR stock > 0');
-    const storeName = (await dbGet("SELECT value FROM settings WHERE key = 'businessName' OR key = 'restaurantName'"))?.value || 'GastroFlow Bistro';
-    const baseFee = (await dbGet("SELECT value FROM settings WHERE key = 'deliveryBaseFee'"))?.value || '99';
-    const freeThreshold = (await dbGet("SELECT value FROM settings WHERE key = 'deliveryFreeThreshold'"))?.value || '3000';
+    // 1. Fetch live menu items and store settings from database (tenant-scoped)
+    const tenantId = await resolvePublicTenant(req);
+    const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock FROM menu_items WHERE tenant_id = ? AND (stock IS NULL OR stock > 0)', [tenantId]);
+    const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
+    const baseFee = (await getSetting(tenantId, 'deliveryBaseFee')) || '99';
+    const freeThreshold = (await getSetting(tenantId, 'deliveryFreeThreshold')) || '3000';
 
     let reply = '';
     let recommendedItems = [];
@@ -1988,7 +2210,7 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
         orderId: extractedOrderId,
         message: message,
         timestamp: Date.now()
-      });
+      }, tenantId);
 
       const waText = encodeURIComponent(`🚨 URGENT CUSTOMER ISSUE (${ticketId}): ${message} (Order: ${extractedOrderId || 'N/A'})`);
       const waLink = `https://wa.me/94112345678?text=${waText}`;
@@ -2157,25 +2379,30 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
       action
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 // GET /api/orders — Fetch all orders with order_items for POS & Admin
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const orders = await dbAll('SELECT * FROM orders ORDER BY timestamp DESC');
+    const orders = await dbAll('SELECT * FROM orders WHERE tenant_id = ? ORDER BY timestamp DESC', [req.tenantId]);
     for (const order of orders) {
       const items = await dbAll('SELECT * FROM order_items WHERE orderId = ?', [order.id]);
       order.items = items || [];
     }
     res.json(orders);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // GET /api/db/inspect — Full database inspection endpoint for Owner only
 app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), async (req, res) => {
+  // Cross-tenant DB dump — restricted to the platform tenant so a customer tenant owner
+  // can never inspect other tenants' data.
+  if (req.tenantId !== 'default_tenant') {
+    return res.status(403).json({ error: 'Not available for this account.' });
+  }
   try {
     const tables = ['settings', 'users', 'customers', 'menu_items', 'orders', 'tables', 'drivers', 'tenants', 'support_tickets', 'audit_logs', 'shifts'];
     const summary = {};
@@ -2195,17 +2422,17 @@ app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), async (req
       tables: summary
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // GET /api/customers — Fetch real customers list for Customers & Loyalty view
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
-    const customers = await dbAll('SELECT * FROM customers ORDER BY totalSpent DESC');
+    const customers = await dbAll('SELECT * FROM customers WHERE tenant_id = ? ORDER BY totalSpent DESC', [req.tenantId]);
     res.json(customers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2215,41 +2442,46 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
   if (!name || !phone) return res.status(400).json({ error: 'Name and phone are required.' });
   try {
     const id = 'cust_' + Date.now();
-    await dbRun('INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-      id, name, phone, email || '', 50, 0, 0
+    await dbRun('INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
+      id, name, phone, email || '', 50, 0, 0, req.tenantId
     ]);
     res.json({ success: true, id, message: `Customer ${name} registered!` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // ── ADMIN USER MANAGEMENT ENDPOINTS ──
 app.get('/api/users', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const users = await dbAll('SELECT id, username, role, pin, createdAt FROM users');
+    const users = await dbAll('SELECT id, username, role, pin, createdAt FROM users WHERE tenant_id = ?', [req.tenantId]);
     res.json(users);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/users', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+app.post('/api/users', authenticateToken, requireRole(['owner', 'manager']), validateRequest(userCreateSchema), async (req, res) => {
   const { username, role, pin, password } = req.body;
   if (!username || !role) return res.status(400).json({ error: 'Username and role are required.' });
   try {
     const existing = await dbGet('SELECT id FROM users WHERE username = ?', [username]);
     if (existing) return res.status(400).json({ error: 'Username already exists.' });
 
+    // Enforce per-plan seat limit.
+    const { plan } = await getTenantMeta(req.tenantId);
+    const seatCheck = checkLimit(plan, 'users', await countTenantUsers(req.tenantId));
+    if (!seatCheck.allowed) return res.status(402).json({ error: seatCheck.reason, code: 'plan_limit', limit: seatCheck.limit });
+
     const id = 'usr_' + Date.now();
     const hash = await bcrypt.hash(password || '123456', 10);
-    await dbRun('INSERT INTO users (id, username, passwordHash, role, pin) VALUES (?, ?, ?, ?, ?)', [
-      id, username, hash, role, pin || '1234'
+    await dbRun('INSERT INTO users (id, username, passwordHash, role, pin, tenant_id) VALUES (?, ?, ?, ?, ?, ?)', [
+      id, username, hash, role, pin || '1234', req.tenantId
     ]);
     await writeAuditLog(req.user.id, req.user.username, 'create_user', `Created user ${username} with role ${role}`);
     res.json({ success: true, id, message: `User ${username} created successfully!` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2260,17 +2492,17 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
     await writeAuditLog(req.user.id, req.user.username, 'delete_user', `Deleted user ${id}`);
     res.json({ success: true, message: 'User deleted successfully.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // ── DELIVERY DRIVERS & ASSIGNMENT ENDPOINTS ──
 app.get('/api/delivery/drivers', authenticateToken, async (req, res) => {
   try {
-    const drivers = await dbAll('SELECT * FROM drivers');
+    const drivers = await dbAll('SELECT id, name, phone, status, vehicleType, plateNumber, email FROM drivers WHERE tenant_id = ?', [req.tenantId]);
     res.json(drivers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2279,29 +2511,62 @@ app.post('/api/delivery/drivers', authenticateToken, async (req, res) => {
   if (!name || !phone) return res.status(400).json({ error: 'Driver name and phone are required.' });
   try {
     const id = 'drv_' + Date.now();
-    await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber) VALUES (?, ?, ?, ?, ?, ?)', [
-      id, name, phone, 'available', vehicleType || 'Motorbike', plateNumber || 'WP BH-1234'
+    await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+      id, name, phone, 'available', vehicleType || 'Motorbike', plateNumber || 'WP BH-1234', req.tenantId
     ]);
     await writeAuditLog(req.user.id, req.user.username, 'create_driver', `Registered driver ${name} (${phone})`);
     res.json({ success: true, id, message: `Driver ${name} registered successfully!` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-// Public Driver Self-Registration Endpoint
-app.post('/api/public/drivers/register', async (req, res) => {
-  const { name, phone, vehicleType, plateNumber } = req.body;
+// Public Driver Self-Registration Endpoint (Phase 2: password + tenant-bound)
+app.post('/api/public/drivers/register', validateRequest(driverRegisterSchema), async (req, res) => {
+  const { name, phone, password, email, vehicleType, plateNumber } = req.body;
   if (!name || !phone) return res.status(400).json({ error: 'Full name and phone number are required.' });
+  if (!password || String(password).length < 6) return res.status(400).json({ error: 'A password of at least 6 characters is required.' });
   try {
+    const tenantId = await resolvePublicTenant(req);
+    const cleanPhone = String(phone).replace(/[\s-]/g, '');
+    const existing = await dbGet('SELECT id FROM drivers WHERE phone = ? AND tenant_id = ?', [cleanPhone, tenantId]);
+    if (existing) return res.status(400).json({ error: 'A driver with this phone number is already registered.' });
     const id = 'drv_' + Date.now();
-    await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber) VALUES (?, ?, ?, ?, ?, ?)', [
-      id, name, phone, 'pending_approval', vehicleType || 'Motorbike', plateNumber || 'Unassigned'
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+      id, name, cleanPhone, 'pending_approval', vehicleType || 'Motorbike', plateNumber || 'Unassigned', passwordHash, email || null, tenantId
     ]);
-    broadcastEvent('driver_registered', { id, name, phone, vehicleType, plateNumber });
+    broadcastEvent('driver_registered', { id, name, phone: cleanPhone, vehicleType, plateNumber });
     res.json({ success: true, id, message: 'Driver registration submitted! Awaiting admin approval.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/driver/auth/login — Driver login → tenant-bound JWT { driverId, tenant_id, role:'driver' }
+app.post('/api/driver/auth/login', publicApiLimiter, validateRequest(driverLoginSchema), async (req, res) => {
+  const { phone, password } = req.body || {};
+  if (!phone || !password) return res.status(400).json({ error: 'Phone and password are required.' });
+  try {
+    const tenantId = await resolvePublicTenant(req);
+    const cleanPhone = String(phone).replace(/[\s-]/g, '');
+    const driver = await dbGet('SELECT * FROM drivers WHERE phone = ? AND tenant_id = ?', [cleanPhone, tenantId]);
+    if (!driver || !driver.passwordHash) return res.status(401).json({ error: 'Invalid phone or password.' });
+    const match = await bcrypt.compare(String(password), driver.passwordHash);
+    if (!match) return res.status(401).json({ error: 'Invalid phone or password.' });
+    if (driver.status === 'pending_approval') return res.status(403).json({ error: 'Your account is awaiting admin approval.' });
+    if (driver.status === 'rejected') return res.status(403).json({ error: 'Your driver account has been rejected.' });
+    const token = jwt.sign(
+      { driverId: driver.id, tenant_id: driver.tenant_id || 'default_tenant', role: 'driver', name: driver.name },
+      process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026',
+      { expiresIn: '7d' }
+    );
+    res.json({
+      token,
+      driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicleType, plateNumber: driver.plateNumber, status: driver.status }
+    });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2312,23 +2577,23 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
   const newStatus = status === 'rejected' ? 'rejected' : 'available';
 
   try {
-    await dbRun('UPDATE drivers SET status = ? WHERE id = ?', [newStatus, id]);
+    await dbRun('UPDATE drivers SET status = ? WHERE id = ? AND tenant_id = ?', [newStatus, id, req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'approve_driver', `Updated driver ${id} status to ${newStatus}`);
     broadcastEvent('driver_updated', { id, status: newStatus });
     res.json({ success: true, message: `Driver status updated to ${newStatus}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 app.delete('/api/delivery/drivers/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    await dbRun('DELETE FROM drivers WHERE id = ?', [id]);
+    await dbRun('DELETE FROM drivers WHERE id = ? AND tenant_id = ?', [id, req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'delete_driver', `Deleted driver ${id}`);
     res.json({ success: true, message: 'Driver deleted successfully.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2345,7 +2610,7 @@ app.post('/api/delivery/assign', authenticateToken, async (req, res) => {
     await writeAuditLog(req.user.id, req.user.username, 'assign_driver', `Assigned driver ${driverName || driverId} to order ${orderId}`);
     res.json({ success: true, message: `Assigned driver to Order #${orderId}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2355,7 +2620,7 @@ app.get('/api/tickets', authenticateToken, async (req, res) => {
     const tickets = await dbAll('SELECT * FROM support_tickets ORDER BY timestamp DESC');
     res.json(tickets);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2365,45 +2630,19 @@ app.post('/api/tickets/:id/resolve', authenticateToken, async (req, res) => {
     await dbRun("UPDATE support_tickets SET status = 'resolved' WHERE id = ?", [id]);
     res.json({ success: true, message: `Ticket #${id} marked as resolved.` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // POST /api/public/orders/:id/cancel — Customer 1-Tap Order Cancellation
-app.post('/api/public/orders/:id/cancel', publicApiLimiter, async (req, res) => {
-  const { id } = req.params;
-  try {
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [id]);
-    if (!order) return res.status(404).json({ error: 'Order not found.' });
-
-    if (order.status !== 'pending' && order.status !== 'hold') {
-      return res.status(400).json({ error: `Order cannot be cancelled because it is already ${order.status.toUpperCase()}.` });
-    }
-
-    await dbRun("UPDATE orders SET status = 'cancelled' WHERE id = ?", [id]);
-
-    // Restore item stock
-    const items = await dbAll('SELECT itemId, quantity FROM order_items WHERE orderId = ?', [id]);
-    for (const it of items) {
-      await dbRun('UPDATE menu_items SET stock = stock + ? WHERE id = ?', [it.quantity, it.itemId]);
-    }
-
-    await writeAuditLog('customer', 'customer_web', 'order_cancelled_customer', `Customer cancelled order ${id}`);
-
-    // REAL-TIME INSTANT BROADCAST TO POS CASHIERS & KITCHEN KDS
-    broadcastEvent('order_updated', { orderId: id, status: 'cancelled', message: `Order #${id} CANCELLED by customer` });
-
-    res.json({ success: true, status: 'cancelled', message: 'Order cancelled successfully.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// NOTE: duplicate cancel handler removed here. The robust transactional version
+// (correct menuItemId column, table free, audit log + SSE) is defined later and is
+// the single source of truth for customer order cancellation.
 
 app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
   try {
     const dbTenants = await dbAll('SELECT id, name FROM tenants WHERE status = "active"');
-    const nameSetting = await dbGet("SELECT value FROM settings WHERE key = 'restaurantName' OR key = 'businessName'");
-    const mainStoreName = nameSetting?.value || 'GastroFlow Bistro Main';
+    const mainStoreName = await getSettingAny('default_tenant', ['restaurantName', 'businessName'], 'GastroFlow Bistro Main');
 
     const defaultStores = [
       {
@@ -2488,20 +2727,22 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
 
     res.json(defaultStores);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // GET /api/public/menu
 app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
-    const categories = await dbAll('SELECT id, name, emoji FROM categories ORDER BY name');
+    const tenantId = await resolvePublicTenant(req);
+    const categories = await dbAll('SELECT id, name, emoji FROM categories WHERE tenant_id = ? ORDER BY name', [tenantId]);
     const items = await dbAll(
       `SELECT id, name, price, category, emoji, stock, description, dietaryTags, imageUrl, isAvailable FROM menu_items
-       WHERE isAvailable = 1 ORDER BY name`
+       WHERE isAvailable = 1 AND tenant_id = ? ORDER BY name`,
+      [tenantId]
     );
 
-    const rawModifiers = await dbAll('SELECT id, menuItemId, groupName, name, priceDelta, isMultiSelect, isRequired FROM modifiers');
+    const rawModifiers = await dbAll('SELECT id, menuItemId, groupName, name, priceDelta, isMultiSelect, isRequired FROM modifiers WHERE tenant_id = ?', [tenantId]);
     const modifiersMap = {};
     rawModifiers.forEach(mod => {
       if (!modifiersMap[mod.menuItemId]) {
@@ -2515,27 +2756,21 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
       modifiers: modifiersMap[item.id] || []
     }));
 
-    const nameSetting = await dbGet("SELECT value FROM settings WHERE key = 'restaurantName' OR key = 'businessName'");
-    const logoSetting = await dbGet("SELECT value FROM settings WHERE key = 'logo'");
-    const storeOpenSetting = await dbGet("SELECT value FROM settings WHERE key = 'storeOpen'");
-    const defaultPrepSetting = await dbGet("SELECT value FROM settings WHERE key = 'defaultPrepTime'");
-    const deliveryFeeSetting = await dbGet("SELECT value FROM settings WHERE key = 'deliveryFee'");
-    const minOrderSetting = await dbGet("SELECT value FROM settings WHERE key = 'minimumOrder'");
-    const currencySetting = await dbGet("SELECT value FROM settings WHERE key = 'currencySymbol'");
+    const st = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'logo', 'storeOpen', 'defaultPrepTime', 'deliveryFee', 'minimumOrder', 'currencySymbol']);
 
     res.json({
-      restaurantName: nameSetting ? nameSetting.value : 'GastroFlow Bistro',
-      logo: logoSetting ? logoSetting.value : null,
-      storeOpen: storeOpenSetting ? storeOpenSetting.value === 'true' : true,
-      defaultPrepTime: parseInt(defaultPrepSetting?.value || 20, 10),
-      deliveryFee: parseFloat(deliveryFeeSetting?.value || 0),
-      minimumOrder: parseFloat(minOrderSetting?.value || 0),
-      currencySymbol: currencySetting?.value || 'Rs.',
+      restaurantName: st.restaurantName || st.businessName || 'GastroFlow Bistro',
+      logo: st.logo || null,
+      storeOpen: st.storeOpen !== undefined ? st.storeOpen === 'true' : true,
+      defaultPrepTime: parseInt(st.defaultPrepTime || 20, 10),
+      deliveryFee: parseFloat(st.deliveryFee || 0),
+      minimumOrder: parseFloat(st.minimumOrder || 0),
+      currencySymbol: st.currencySymbol || 'Rs.',
       categories,
       items: itemsWithModifiers
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2547,17 +2782,18 @@ const posSSESubscribers = new Set(); // Set(res) — POS staff SSE
 const publicSSESubscribers = new Set(); // Set(res) — customer app store SSE
 
 // Broadcast a store-level event (storeOpen toggle, 86-item, prep-time change)
-// to all connected customer app subscribers.
-function notifyPublicStore(eventData) {
+// to connected customer app subscribers of the SAME tenant only.
+function notifyPublicStore(eventData, tenantId) {
   const payload = `data: ${JSON.stringify(eventData)}\n\n`;
   publicSSESubscribers.forEach(res => {
+    if (tenantId && res._tenantId && res._tenantId !== tenantId) return; // tenant partition
     try { res.write(payload); } catch (e) {}
   });
 }
 
 function notifyOrderUpdate(orderId, orderData) {
   notifyOrderStream(orderId, orderData);
-  notifyPOS({ type: 'order_updated', orderId, order: orderData });
+  notifyPOS({ type: 'order_updated', orderId, order: orderData }, orderData?.tenant_id);
 }
 
 // Write an arbitrary payload to a single order's live SSE subscribers (used for both
@@ -2572,24 +2808,25 @@ function notifyOrderStream(orderId, payload) {
   }
 }
 
-function notifyPOS(eventData) {
+function notifyPOS(eventData, tenantId) {
   const payload = `data: ${JSON.stringify(eventData)}\n\n`;
   posSSESubscribers.forEach(res => {
+    if (tenantId && res._tenantId && res._tenantId !== tenantId) return; // tenant partition
     try { res.write(payload); } catch (e) {}
   });
 }
 
 // Unified Billing Calculation Helper
 // Thin wrapper — delegates to lib/billing.js (injecting the local DB helpers).
-async function resolveAndCalculateBill(items, discountType, discountValue, loyaltyPointsToRedeem, tip = 0, promoCode = null, deliveryFee = 0) {
+async function resolveAndCalculateBill(items, discountType, discountValue, loyaltyPointsToRedeem, tip = 0, promoCode = null, deliveryFee = 0, tenantId = 'default_tenant') {
   return _resolveAndCalculateBill(
-    { dbGet },
+    { dbGet, tenantId },
     items, discountType, discountValue, loyaltyPointsToRedeem, tip, promoCode, deliveryFee
   );
 }
 
 // POST /api/public/orders
-app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
+app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSchema), async (req, res) => {
   const {
     items, diningType, orderType,
     customerName, customerPhone, customerEmail, deliveryAddress,
@@ -2623,6 +2860,18 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
 
   try {
     const cleanPhone = customerPhone.replace(/[\s-]/g, '');
+    const tenantId = await resolvePublicTenant(req);
+
+    // SaaS enforcement: block suspended tenants + monthly order-volume cap.
+    const meta = await getTenantMeta(tenantId);
+    if (meta.status === 'suspended') {
+      return res.status(403).json({ error: 'This store is temporarily unavailable. Please try again later.' });
+    }
+    const orderCap = checkLimit(meta.plan, 'orders', await countTenantOrdersThisMonth(tenantId));
+    if (!orderCap.allowed) {
+      return res.status(402).json({ error: 'This store has reached its order capacity for the month. Please try again later.', code: 'plan_limit' });
+    }
+
     let customerAccountId = null;
     let isAlreadyVerified = false;
 
@@ -2645,7 +2894,7 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
     if (type === 'delivery') {
       if (typeof deliveryLat === 'number' && typeof deliveryLng === 'number') {
         // Calculate real distance-based fee using Haversine
-        const feeResult = await calculateDeliveryFee(deliveryLat, deliveryLng, 0); // subtotal not known yet; checked after billing
+        const feeResult = await calculateDeliveryFee(deliveryLat, deliveryLng, 0, tenantId); // subtotal not known yet; checked after billing
         if (feeResult.isOutOfRange) {
           return res.status(400).json({
             error: `Sorry, your location is ${feeResult.distanceKm} km away — outside our delivery zone (max ${feeResult.maxRadiusKm} km). Please choose Takeaway instead.`
@@ -2656,24 +2905,22 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
         deliveryFee = feeResult.totalFee; // will be recalculated after billing for free-threshold check
       } else {
         // Fallback to flat fee if no GPS coordinates (legacy/manual address entry)
-        const feeSetting = await dbGet("SELECT value FROM settings WHERE key = 'deliveryBaseFee'");
-        deliveryFee = parseFloat(feeSetting?.value || 99);
+        deliveryFee = parseFloat((await getSetting(tenantId, 'deliveryBaseFee')) || 99);
       }
     }
 
-    const minOrderSetting = await dbGet("SELECT value FROM settings WHERE key = 'minimumOrder'");
-    const minimumOrder = parseFloat(minOrderSetting?.value || 0);
+    const minimumOrder = parseFloat((await getSetting(tenantId, 'minimumOrder')) || 0);
 
     // Calculate billing totals securely on the server (passing delivery fee + tip)
-    const bill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, deliveryFee);
+    const bill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, deliveryFee, tenantId);
 
     // Re-check delivery fee with actual subtotal for free-delivery threshold
     if (type === 'delivery' && typeof deliveryLat === 'number' && typeof deliveryLng === 'number') {
-      const finalFeeResult = await calculateDeliveryFee(deliveryLat, deliveryLng, bill.subtotal);
+      const finalFeeResult = await calculateDeliveryFee(deliveryLat, deliveryLng, bill.subtotal, tenantId);
       if (finalFeeResult.isFreeDelivery) {
         deliveryFee = 0; // Free delivery for high-value orders!
         // Recalculate bill with zero delivery fee
-        const freeBill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, 0);
+        const freeBill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, 0, tenantId);
         Object.assign(bill, freeBill);
       }
     }
@@ -2695,8 +2942,8 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
           status, timestamp, paymentMethod, source, customerAccountId, 
           deliveryAddress, orderType, customerName, customerPhone,
           scheduledTime, deliveryFee, promotionalDiscount, roundedAmount, tip,
-          customerEmail, deliveryLat, deliveryLng, deliveryDistanceKm, etaMinutes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          customerEmail, deliveryLat, deliveryLng, deliveryDistanceKm, etaMinutes, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           orderId, null, type,
           `${customerName}|${customerPhone}`,
@@ -2726,7 +2973,8 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
           (typeof deliveryLat === 'number' ? deliveryLat : null),
           (typeof deliveryLng === 'number' ? deliveryLng : null),
           deliveryDistanceKm,
-          deliveryEtaMinutes
+          deliveryEtaMinutes,
+          tenantId
         ]
       );
 
@@ -2743,7 +2991,7 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
         }
 
         // Automatic raw ingredient stock deduction via recipes
-        const recipeRows = await dbAll('SELECT ingredientId, quantityRequired FROM recipes WHERE menuItemId = ?', [item.id]);
+        const recipeRows = await dbAll('SELECT ingredientId, quantityRequired FROM recipes WHERE menuItemId = ? AND tenant_id = ?', [item.id, tenantId]);
         for (const rec of recipeRows) {
           const totalDeduct = rec.quantityRequired * item.quantity;
           await dbRun('UPDATE ingredients SET stock = MAX(0, stock - ?) WHERE id = ?', [totalDeduct, rec.ingredientId]);
@@ -2758,11 +3006,11 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
       await dbRun('COMMIT');
 
       // Real-time notification to POS staff
-      notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total, deliveryDistanceKm, deliveryFee });
+      notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total, deliveryDistanceKm, deliveryFee }, tenantId);
 
       // Trigger auto-dispatch engine for delivery orders
       if (type === 'delivery') {
-        setTimeout(() => autoDispatchDriver(orderId), 2000); // 2s delay to let order settle
+        setTimeout(() => autoDispatchDriver(orderId, tenantId), 2000); // 2s delay to let order settle
       }
 
       res.status(201).json({
@@ -2783,7 +3031,7 @@ app.post('/api/public/orders', publicApiLimiter, async (req, res) => {
       throw e;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2819,10 +3067,23 @@ app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
 
 // GET /api/stream/pos — Live SSE stream for staff POS
 app.get('/api/stream/pos', async (req, res) => {
+  // EventSource can't send an Authorization header, so the POS passes its JWT as
+  // ?token=. We verify it to (a) authenticate the stream and (b) tag the subscriber
+  // with its tenant so broadcasts never leak across tenants.
+  const token = req.query.token || (req.headers['authorization'] ? req.headers['authorization'].split(' ')[1] : null);
+  if (!token) return res.status(401).json({ error: 'Authentication token required.' });
+  let payload;
+  try {
+    payload = jwt.verify(token, process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+  } catch (e) {
+    return res.status(403).json({ error: 'Token is invalid or has expired.' });
+  }
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  res._tenantId = payload.tenant_id || 'default_tenant';
   posSSESubscribers.add(res);
   res.write(`data: ${JSON.stringify({ type: 'connected', at: Date.now() })}\n\n`);
 
@@ -2839,12 +3100,12 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
+  res._tenantId = await resolvePublicTenant(req);
   publicSSESubscribers.add(res);
   // Send current store state as the first event so a (re)connecting client
   // immediately knows the live open/closed state without an extra HTTP round-trip.
   try {
-    const rows = await dbAll("SELECT key, value FROM settings WHERE key IN ('storeOpen','defaultPrepTime','dineInPrepTime','takeawayPrepTime','deliveryPrepTime')");
-    const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const s = await getSettingsMap(res._tenantId, ['storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
     res.write(`data: ${JSON.stringify({
       type: 'store_init',
       storeOpen: (s.storeOpen ?? 'true') === 'true',
@@ -2874,7 +3135,7 @@ app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
     const driver = await dbGet('SELECT driverName, lat, lng, updatedAt FROM driver_locations WHERE orderId = ?', [order.id]);
     res.json({ ...order, items, driver: driver || null });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -2890,50 +3151,66 @@ app.get('/api/public/drivers', async (req, res) => {
     }
     res.json(drivers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // GET /api/public/driver/orders — Orders assigned to or available for a driver
-app.get('/api/public/driver/orders', async (req, res) => {
-  const { driverId } = req.query;
+// All driver action endpoints require a driver JWT and are scoped to the driver's
+// tenant (Phase 2). The driver id + tenant come from the token, never the request body.
+app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
+  const driverId = req.driver.driverId;
+  const t = req.driver.tenant_id;
   try {
     const assigned = await dbAll(
-      "SELECT * FROM orders WHERE (diningType = 'delivery' OR orderType = 'delivery') AND driverId = ? AND status NOT IN ('delivered', 'paid', 'cancelled') ORDER BY timestamp DESC",
-      [driverId]
+      "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND driverId = ? AND status NOT IN ('delivered', 'paid', 'cancelled') ORDER BY timestamp DESC",
+      [t, driverId]
     );
     const unassigned = await dbAll(
-      "SELECT * FROM orders WHERE (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') ORDER BY timestamp DESC"
+      "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') ORDER BY timestamp DESC",
+      [t]
     );
     res.json({ assigned: assigned || [], unassigned: unassigned || [] });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-// POST /api/public/driver/assign — Assign driver to a delivery ticket
-app.post('/api/public/driver/assign', async (req, res) => {
-  const { orderId, driverId } = req.body;
-  if (!orderId || !driverId) {
-    return res.status(400).json({ error: 'orderId and driverId are required.' });
-  }
+// POST /api/public/driver/assign — Driver claims a delivery ticket (own tenant only)
+app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
+  const { orderId } = req.body;
+  const driverId = req.driver.driverId;
+  const t = req.driver.tenant_id;
+  if (!orderId) return res.status(400).json({ error: 'orderId is required.' });
   try {
-    await dbRun('UPDATE orders SET driverId = ? WHERE id = ?', [driverId, orderId]);
-    notifyPOS({ type: 'driver_assigned', orderId, driverId });
+    const order = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
+    if (!order || order.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
+    await dbRun('UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ?', [driverId, orderId, t]);
+    notifyPOS({ type: 'driver_assigned', orderId, driverId }, t);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-// POST /api/public/driver/status — Driver updates order status (out_for_delivery / delivered)
-app.post('/api/public/driver/status', async (req, res) => {
-  const { orderId, driverId, status, lat, lng } = req.body;
+// POST /api/public/driver/status — Driver updates delivery status (own tenant only)
+app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
+  const { orderId, status, lat, lng } = req.body;
+  const driverId = req.driver.driverId;
+  const t = req.driver.tenant_id;
   if (!orderId || !status) {
     return res.status(400).json({ error: 'orderId and status are required.' });
   }
+  // Restrict to delivery-lifecycle transitions only, so it can never be abused to
+  // mark an order paid/cancelled/refunded.
+  const ALLOWED_DRIVER_STATUSES = ['accepted', 'preparing', 'ready', 'picked_up', 'out_for_delivery', 'arrived', 'delivered'];
+  if (!ALLOWED_DRIVER_STATUSES.includes(status)) {
+    return res.status(400).json({ error: 'Invalid delivery status.' });
+  }
   try {
-    await dbRun('UPDATE orders SET status = ?, driverId = ? WHERE id = ?', [status, driverId, orderId]);
+    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
+    if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
+    await dbRun('UPDATE orders SET status = ?, driverId = ? WHERE id = ? AND tenant_id = ?', [status, driverId, orderId, t]);
     if (typeof lat === 'number' && typeof lng === 'number') {
       await dbRun(
         'INSERT OR REPLACE INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)',
@@ -2947,25 +3224,30 @@ app.post('/api/public/driver/status', async (req, res) => {
     }
     res.json({ success: true, status });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-// POST /api/public/driver/location — Broadcast real-time driver GPS ping
-app.post('/api/public/driver/location', async (req, res) => {
-  const { orderId, driverId, driverName, lat, lng } = req.body;
+// POST /api/public/driver/location — Driver GPS ping (own tenant only)
+app.post('/api/public/driver/location', authenticateDriver, async (req, res) => {
+  const { orderId, lat, lng } = req.body;
+  const driverId = req.driver.driverId;
+  const driverName = req.driver.name || driverId;
+  const t = req.driver.tenant_id;
   if (!orderId || typeof lat !== 'number' || typeof lng !== 'number') {
     return res.status(400).json({ error: 'Valid orderId, lat, and lng are required.' });
   }
   try {
+    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
+    if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
     await dbRun(
       'INSERT OR REPLACE INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)',
-      [orderId, driverName || driverId, lat, lng, Date.now()]
+      [orderId, driverName, lat, lng, Date.now()]
     );
-    notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName: driverName || driverId });
+    notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3009,7 +3291,7 @@ app.post('/api/public/orders/:id/cancel', publicApiLimiter, async (req, res) => 
       const updated = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
       const updatedItems = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [orderId]);
       notifyOrderUpdate(orderId, { ...updated, items: updatedItems });
-      notifyPOS({ type: 'order_cancelled', orderId });
+      notifyPOS({ type: 'order_cancelled', orderId }, updated?.tenant_id);
 
       res.json({ success: true, status: 'cancelled' });
     } catch (e) {
@@ -3017,7 +3299,7 @@ app.post('/api/public/orders/:id/cancel', publicApiLimiter, async (req, res) => 
       throw e;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3059,7 +3341,7 @@ app.post('/api/payments/payhere/checkout', publicApiLimiter, async (req, res) =>
       notifyUrl: process.env.PAYHERE_NOTIFY_URL || ''
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3076,7 +3358,7 @@ app.get('/api/public/group-cart/:id', publicApiLimiter, async (req, res) => {
     }
     res.json({ id: cart.id, status: cart.status, items: JSON.parse(cart.items) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3122,14 +3404,14 @@ app.post('/api/public/group-cart/:id/items', publicApiLimiter, async (req, res) 
       await dbRun('UPDATE group_carts SET items = ? WHERE id = ?', [JSON.stringify(items), id]);
       await dbRun('COMMIT');
 
-      notifyPOS({ type: 'group_cart_updated', cartId: id });
+      notifyPOS({ type: 'group_cart_updated', cartId: id }, await resolvePublicTenant(req));
       res.json({ success: true, items });
     } catch (e) {
       await dbRun('ROLLBACK');
       throw e;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3160,20 +3442,21 @@ app.post('/api/public/group-cart/:id/checkout', publicApiLimiter, async (req, re
       selectedModifiers: gi.selectedModifiers
     }));
 
-    // Calculate billing totals
-    const bill = await resolveAndCalculateBill(items, null, 0, 0, 0, null);
+    // Calculate billing totals (tenant-scoped)
+    const tenantId = await resolvePublicTenant(req);
+    const bill = await resolveAndCalculateBill(items, null, 0, 0, 0, null, 0, tenantId);
 
     const orderId = `ord_group_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    
+
     await dbRun('BEGIN TRANSACTION');
     try {
       await dbRun(
         `INSERT INTO orders (
-          id, tableId, diningType, customerId, items, subtotal, 
-          discountType, discountValue, discount, serviceCharge, tax, total, 
-          status, timestamp, paymentMethod, source, customerAccountId, 
-          deliveryAddress, orderType, customerName, customerPhone, roundedAmount
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, tableId, diningType, customerId, items, subtotal,
+          discountType, discountValue, discount, serviceCharge, tax, total,
+          status, timestamp, paymentMethod, source, customerAccountId,
+          deliveryAddress, orderType, customerName, customerPhone, roundedAmount, tenant_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           orderId, null, 'delivery',
           `${customerName}|${customerPhone}`,
@@ -3192,7 +3475,8 @@ app.post('/api/public/group-cart/:id/checkout', publicApiLimiter, async (req, re
           'delivery',
           customerName,
           customerPhone,
-          bill.roundedAmount
+          bill.roundedAmount,
+          tenantId
         ]
       );
 
@@ -3214,14 +3498,14 @@ app.post('/api/public/group-cart/:id/checkout', publicApiLimiter, async (req, re
 
       await dbRun('COMMIT');
 
-      notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total });
+      notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total }, tenantId);
       res.json({ success: true, orderId, total: bill.total });
     } catch (e) {
       await dbRun('ROLLBACK');
       throw e;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3233,21 +3517,24 @@ app.post('/api/public/feedback', publicApiLimiter, async (req, res) => {
   }
   try {
     const id = `fb_${Date.now()}`;
+    // Derive tenant from the referenced order so feedback lands in the right inbox.
+    const fbOrder = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
+    const fbTenant = fbOrder?.tenant_id || await resolvePublicTenant(req);
     await dbRun(
-      'INSERT INTO feedbacks (id, orderId, rating, comment, timestamp) VALUES (?, ?, ?, ?, ?)',
-      [id, orderId, parseInt(rating, 10), comment || '', Date.now()]
+      'INSERT INTO feedbacks (id, orderId, rating, comment, timestamp, tenant_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, orderId, parseInt(rating, 10), comment || '', Date.now(), fbTenant]
     );
     res.json({ success: true, message: 'Thank you for your feedback!' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // GET /api/public/store-info — public store metadata for the customer app
 app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
   try {
-    const rows = await dbAll("SELECT key, value FROM settings WHERE key IN ('businessName','restaurantName','address','phone','storeOpen','defaultPrepTime','dineInPrepTime','takeawayPrepTime','deliveryPrepTime','restaurantLat','restaurantLng','deliveryFee','minimumOrder')");
-    const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const tenantId = await resolvePublicTenant(req);
+    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder']);
     res.json({
       name: s.businessName || s.restaurantName || 'GastroFlow',
       address: s.address || '',
@@ -3265,7 +3552,7 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       vapidPublicKey: 'BEl62iUYgUivxIkv69yViEuiBIa1-Zpe5-93Aae7lUab6l3e5Jq9l14X_2-Wd5x-J8f90X26m5V0X9Z8m5V0X9Z'
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3384,8 +3671,7 @@ function posAppUrl() {
 // Send an order confirmation via email + SMS (best-effort; never blocks the response path).
 async function sendOrderConfirmation(order) {
   try {
-    const nameRow = await dbGet("SELECT value FROM settings WHERE key = 'businessName'");
-    const business = nameRow?.value || 'GastroFlow';
+    const business = await getSettingAny(order.tenant_id || 'default_tenant', ['businessName', 'restaurantName'], 'GastroFlow');
     const inv = order.invoiceNumber ? `INV-${String(order.invoiceNumber).padStart(6, '0')}` : order.id;
     const total = Number(order.total || 0).toFixed(2);
     const subtotal = Number(order.subtotal || 0).toFixed(2);
@@ -3468,8 +3754,7 @@ app.post('/api/otp/send', otpLimiter, async (req, res) => {
       [id, channel, cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
     );
 
-    const businessRow = await dbGet("SELECT value FROM settings WHERE key = 'businessName'").catch(() => null);
-    const business = businessRow?.value || 'GastroFlow Bistro';
+    const business = await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro');
 
     let devHint = false;
     if (channel === 'email' || cleanDest.includes('@')) {
@@ -3499,7 +3784,7 @@ app.post('/api/otp/send', otpLimiter, async (req, res) => {
     });
   } catch (err) {
     console.error('[OTP SEND ERROR]', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3571,8 +3856,8 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
       const custEmail = isEmail ? actualDest : '';
 
       await dbRun(
-        `INSERT INTO customer_accounts (id, name, phone, email, loyaltyPoints, createdAt) VALUES (?, ?, ?, ?, 0, ?)`,
-        [newCustId, custName, custPhone, custEmail, Date.now()]
+        `INSERT INTO customer_accounts (id, name, phone, email, loyaltyPoints, createdAt, tenant_id) VALUES (?, ?, ?, ?, 0, ?, ?)`,
+        [newCustId, custName, custPhone, custEmail, Date.now(), await resolvePublicTenant(req)]
       );
       customer = { id: newCustId, name: custName, phone: custPhone, email: custEmail, points: 0 };
     }
@@ -3591,7 +3876,7 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
     });
   } catch (err) {
     console.error('[OTP VERIFY ERROR]', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3605,8 +3890,7 @@ app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
     if (acct) {
       const { token, code } = await createPasswordReset('customer', acct.id);
       const link = `${customerAppUrl()}/?reset=${token}`;
-      const businessRow = await dbGet("SELECT value FROM settings WHERE key = 'businessName'").catch(() => null);
-      const business = businessRow?.value || 'GastroFlow Bistro';
+      const business = await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro');
       const resetHtml = buildPasswordResetEmail({
         userType: 'customer',
         resetUrl: link,
@@ -3622,7 +3906,7 @@ app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
     }
     res.json({ ok: true, message: 'If that email is registered, a reset link has been sent.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3638,7 +3922,7 @@ app.post('/api/customer/auth/reset-password', otpLimiter, async (req, res) => {
     await dbRun('UPDATE password_resets SET consumedAt = ? WHERE id = ?', [Date.now(), reset.id]);
     res.json({ ok: true, message: 'Password updated. You can now sign in.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3647,13 +3931,12 @@ app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
   const { username } = req.body || {};
   if (!username) return res.status(400).json({ error: 'username is required.' });
   try {
-    const user = await dbGet('SELECT id, username, email, phone FROM users WHERE username = ?', [username]);
+    const user = await dbGet('SELECT id, username, email, phone, tenant_id FROM users WHERE username = ?', [username]);
     if (user && (user.email || user.phone)) {
       const { token, code } = await createPasswordReset('staff', user.id);
       const link = `${posAppUrl()}/?reset=${token}`;
       if (user.email) {
-        const businessRow = await dbGet("SELECT value FROM settings WHERE key = 'businessName'").catch(() => null);
-        const business = businessRow?.value || 'GastroFlow Bistro';
+        const business = await getSettingAny(user.tenant_id || 'default_tenant', ['businessName', 'restaurantName'], 'GastroFlow Bistro');
         const resetHtml = buildPasswordResetEmail({
           name: user.username,
           userType: 'staff POS',
@@ -3671,7 +3954,7 @@ app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
     }
     res.json({ ok: true, message: 'If that account exists and has contact details, a reset has been sent. Otherwise ask an owner to reset it.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3688,7 +3971,7 @@ app.post('/api/auth/reset-password', otpLimiter, async (req, res) => {
     await writeAuditLog(reset.userId, username || 'unknown', 'password_reset', `Staff password reset completed`);
     res.json({ ok: true, message: 'Password updated. You can now sign in.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3767,7 +4050,7 @@ app.post('/api/public/orders/:id/driver-location', publicApiLimiter, async (req,
     notifyOrderStream(order.id, { type: 'driver_location', lat, lng, driverName: driverName || 'Driver', updatedAt: Date.now() });
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3796,7 +4079,7 @@ app.post('/api/public/payment/payhere/hash', (req, res) => {
       sandbox: process.env.PAYHERE_SANDBOX !== 'false'
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3871,23 +4154,32 @@ app.get('*', (req, res, next) => {
   res.status(200).send('GastroFlow Backend API is running.');
 });
 
+// GET /api/saas/plans — available subscription tiers (public, for the pricing/upgrade UI).
+app.get('/api/saas/plans', (req, res) => {
+  res.json(planList().map(p => ({
+    ...p,
+    maxUsers: p.maxUsers === Infinity ? null : p.maxUsers,
+    maxOrdersPerMonth: p.maxOrdersPerMonth === Infinity ? null : p.maxOrdersPerMonth
+  })));
+});
+
 // Protect all following endpoints (staff only)
 app.use(authenticateToken);
 
 // 1. Settings Routes
 app.get('/api/settings', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT * FROM settings');
+    const rows = await dbAll('SELECT key, value FROM settings WHERE tenant_id = ?', [req.tenantId]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 app.post('/api/settings', requireRole(['owner', 'manager']), async (req, res) => {
   const { key, value } = req.body;
   try {
-    await dbRun('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, String(value)]);
+    await setSetting(req.tenantId, key, value);
     await writeAuditLog(req.user.id, req.user.username, 'update_setting', `Updated setting ${key} = ${value}`);
     res.json({ key, value });
 
@@ -3898,8 +4190,7 @@ app.post('/api/settings', requireRole(['owner', 'manager']), async (req, res) =>
     ]);
     if (STORE_CONTROL_KEYS.has(key)) {
       // Re-read all prep-time settings so the SSE payload is always consistent.
-      const rows = await dbAll("SELECT key, value FROM settings WHERE key IN ('storeOpen','defaultPrepTime','dineInPrepTime','takeawayPrepTime','deliveryPrepTime')");
-      const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
+      const s = await getSettingsMap(req.tenantId, ['storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
       notifyPublicStore({
         type: 'store_update',
         storeOpen: (s.storeOpen ?? 'true') === 'true',
@@ -3908,20 +4199,20 @@ app.post('/api/settings', requireRole(['owner', 'manager']), async (req, res) =>
           takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
           delivery: Number(s.deliveryPrepTime || s.defaultPrepTime || 35)
         }
-      });
+      }, req.tenantId);
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // 2. Category Routes
 app.get('/api/categories', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT * FROM categories');
+    const rows = await dbAll('SELECT * FROM categories WHERE tenant_id = ?', [req.tenantId]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3948,7 +4239,7 @@ app.post('/api/orders/:id/accept', requireRole(['owner', 'manager', 'cashier']),
     notifyOrderUpdate(orderId, orderData);
     res.json({ success: true, order: orderData });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -3965,10 +4256,8 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
     const existing = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
     if (!existing) return res.status(404).json({ error: 'Order not found.' });
 
-    // Fetch settings for pricing calculation
-    const settingsRows = await dbAll('SELECT key, value FROM settings');
-    const settingsObj = {};
-    settingsRows.forEach(s => { settingsObj[s.key] = s.value; });
+    // Fetch settings for pricing calculation (tenant-scoped)
+    const settingsObj = await getSettingsMap(req.tenantId, ['taxRate', 'serviceChargeRate']);
 
     // Pricer helper
     const subtotal = items.reduce((acc, item) => acc + ((parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1)), 0);
@@ -4004,12 +4293,12 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
     await dbRun('COMMIT');
 
     await writeAuditLog(req.user.id, req.user.username, 'modify_order', `Modified items for order ${orderId}. New total: LKR ${total}`);
-    notifyPOS({ type: 'order_updated', orderId });
+    notifyPOS({ type: 'order_updated', orderId }, req.tenantId);
 
     res.json({ success: true, orderId, subtotal, total });
   } catch (err) {
     await dbRun('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4042,38 +4331,38 @@ app.post('/api/orders/:id/reject', requireRole(['owner', 'manager', 'cashier']),
     notifyOrderUpdate(orderId, orderData);
     res.json({ success: true, order: orderData });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 app.post('/api/categories', requireRole(['owner', 'manager']), async (req, res) => {
   const { id, name, emoji } = req.body;
   try {
-    await dbRun('INSERT OR REPLACE INTO categories (id, name, emoji) VALUES (?, ?, ?)', [id, name, emoji]);
+    await dbRun('INSERT OR REPLACE INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?)', [id, name, emoji, req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'create_category', `Created/updated category ${name} (${id})`);
     res.json({ id, name, emoji });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 app.delete('/api/categories/:id', requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    await dbRun('DELETE FROM categories WHERE id = ?', [req.params.id]);
+    await dbRun('DELETE FROM categories WHERE id = ? AND tenant_id = ?', [req.params.id, req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'delete_category', `Deleted category ${req.params.id}`);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // 3. Menu Item Routes
 app.get('/api/menu_items', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT * FROM menu_items');
+    const rows = await dbAll('SELECT * FROM menu_items WHERE tenant_id = ?', [req.tenantId]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4085,11 +4374,11 @@ app.post('/api/menu_items', requireRole(['owner', 'manager']), async (req, res) 
     const newAvail = isAvailable !== undefined ? parseInt(isAvailable, 10) : 1;
 
     await dbRun(`
-      INSERT OR REPLACE INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, imageUrl, dietaryTags, isAvailable)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, imageUrl, dietaryTags, isAvailable, tenant_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       id, name, price, cost, category, emoji, stock, minStock, description,
-      imageUrl || null, dietaryTags || null, newAvail
+      imageUrl || null, dietaryTags || null, newAvail, req.tenantId
     ]);
     await writeAuditLog(req.user.id, req.user.username, 'save_menu_item', `Created/updated menu item ${name} (${id}) to price=${price}, stock=${stock}`);
     const saved = { id, name, price, cost, category, emoji, stock, minStock, description, imageUrl, dietaryTags, isAvailable: newAvail };
@@ -4098,57 +4387,144 @@ app.post('/api/menu_items', requireRole(['owner', 'manager']), async (req, res) 
     // If availability changed, push a live update so the customer app hides/shows
     // the item instantly without a page reload ("86-item" SSE propagation).
     if (prevAvail !== undefined && prevAvail !== newAvail) {
-      notifyPublicStore({ type: 'item_availability', itemId: id, isAvailable: newAvail === 1 });
-      notifyPOS({ type: 'item_availability_changed', itemId: id, name, isAvailable: newAvail === 1 });
+      notifyPublicStore({ type: 'item_availability', itemId: id, isAvailable: newAvail === 1 }, req.tenantId);
+      notifyPOS({ type: 'item_availability_changed', itemId: id, name, isAvailable: newAvail === 1 }, req.tenantId);
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 app.delete('/api/menu_items/:id', requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    await dbRun('DELETE FROM menu_items WHERE id = ?', [req.params.id]);
+    await dbRun('DELETE FROM menu_items WHERE id = ? AND tenant_id = ?', [req.params.id, req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'delete_menu_item', `Deleted menu item ${req.params.id}`);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // 3b. Ingredients & Recipe Routes
 app.get('/api/ingredients', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT * FROM ingredients ORDER BY name');
+    const rows = await dbAll('SELECT * FROM ingredients WHERE tenant_id = ? ORDER BY name', [req.tenantId]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // SaaS Super-Admin Tenants Management Endpoints
-app.get('/api/saas/tenants', requireRole(['owner']), async (req, res) => {
+// Platform super-admin guard: only the platform tenant's owner may manage tenants.
+const requirePlatformAdmin = (req, res, next) => {
+  if (req.tenantId !== 'default_tenant') {
+    return res.status(403).json({ error: 'Platform administrator access only.' });
+  }
+  next();
+};
+
+app.get('/api/saas/tenants', requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
   try {
     const rows = await dbAll('SELECT * FROM tenants ORDER BY createdAt DESC');
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/saas/tenants', requireRole(['owner']), async (req, res) => {
-  const { name, subdomain, ownerEmail, plan } = req.body;
+app.post('/api/saas/tenants', requireRole(['owner']), requirePlatformAdmin, validateRequest(tenantCreateSchema), async (req, res) => {
+  const { name, subdomain, ownerEmail, plan, ownerUsername, ownerPassword, ownerPin } = req.body;
   if (!name || !subdomain || !ownerEmail) {
     return res.status(400).json({ error: 'Name, subdomain, and ownerEmail are required.' });
   }
+  const cleanSub = String(subdomain).toLowerCase().replace(/[^a-z0-9-]/g, '');
+  if (!cleanSub) {
+    return res.status(400).json({ error: 'Subdomain must contain letters or numbers.' });
+  }
   const id = `tenant_${Date.now()}`;
   try {
-    await dbRun('INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-      id, name, subdomain, ownerEmail, plan || 'pro', 'active', Date.now()
-    ]);
-    res.status(201).json({ id, name, subdomain, ownerEmail, plan: plan || 'pro', status: 'active' });
+    const existing = await dbGet('SELECT id FROM tenants WHERE subdomain = ?', [cleanSub]);
+    if (existing) {
+      return res.status(409).json({ error: 'That subdomain is already taken.' });
+    }
+
+    await dbRun('BEGIN TRANSACTION');
+    try {
+      await dbRun('INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+        id, name, cleanSub, ownerEmail, plan || 'pro', 'active', Date.now()
+      ]);
+
+      // Seed an owner user for the new tenant so they can immediately sign in.
+      const uname = (ownerUsername || `${cleanSub}-owner`).toLowerCase();
+      const dupUser = await dbGet('SELECT id FROM users WHERE username = ?', [uname]);
+      if (dupUser) {
+        throw new Error(`A user named "${uname}" already exists; pass a different ownerUsername.`);
+      }
+      const tempPassword = ownerPassword || crypto.randomBytes(6).toString('hex');
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+      const pinHash = await bcrypt.hash(String(ownerPin || '1234'), 10);
+      const uid = `user_${Date.now()}`;
+      await dbRun(
+        'INSERT INTO users (id, username, passwordHash, role, pin, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [uid, uname, passwordHash, 'owner', pinHash, ownerEmail, id]
+      );
+
+      await dbRun('COMMIT');
+      await writeAuditLog(req.user.id, req.user.username, 'provision_tenant', `Provisioned tenant ${name} (${id}) with owner user ${uname}`);
+      res.status(201).json({
+        id, name, subdomain: cleanSub, ownerEmail, plan: plan || 'pro', status: 'active',
+        ownerCredentials: {
+          username: uname,
+          password: ownerPassword ? '(as provided)' : tempPassword,
+          pin: ownerPin ? '(as provided)' : '1234',
+          note: 'Share securely. The owner should change the password and PIN on first login.'
+        }
+      });
+    } catch (e) {
+      await dbRun('ROLLBACK');
+      throw e;
+    }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/saas/usage — the caller's own tenant plan + live usage vs limits.
+app.get('/api/saas/usage', requireRole(['owner', 'manager']), async (req, res) => {
+  try {
+    const u = await getTenantUsage(req.tenantId);
+    res.json({
+      ...u,
+      limits: {
+        maxUsers: u.limits.maxUsers === Infinity ? null : u.limits.maxUsers,
+        maxOrdersPerMonth: u.limits.maxOrdersPerMonth === Infinity ? null : u.limits.maxOrdersPerMonth
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// PATCH /api/saas/tenants/:id — platform admin changes a tenant's plan/status.
+// (Billing provider integration lives here — see docs; this endpoint records the
+// plan the platform admin sets after payment is confirmed out-of-band.)
+app.patch('/api/saas/tenants/:id', requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
+  const { plan, status } = req.body || {};
+  const validPlans = planList().map(p => p.id);
+  const validStatus = ['active', 'suspended', 'trial'];
+  if (plan && !validPlans.includes(plan)) return res.status(400).json({ error: 'Invalid plan.' });
+  if (status && !validStatus.includes(status)) return res.status(400).json({ error: 'Invalid status.' });
+  try {
+    const tenant = await dbGet('SELECT id FROM tenants WHERE id = ?', [req.params.id]);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found.' });
+    if (plan) await dbRun('UPDATE tenants SET plan = ? WHERE id = ?', [plan, req.params.id]);
+    if (status) await dbRun('UPDATE tenants SET status = ? WHERE id = ?', [status, req.params.id]);
+    await writeAuditLog(req.user.id, req.user.username, 'update_tenant_plan', `Tenant ${req.params.id} → plan=${plan || '(unchanged)'} status=${status || '(unchanged)'}`);
+    const updated = await dbGet('SELECT id, name, subdomain, plan, status FROM tenants WHERE id = ?', [req.params.id]);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4157,13 +4533,13 @@ app.post('/api/ingredients', requireRole(['owner', 'manager']), async (req, res)
   const ingId = id || `ing_${Date.now()}`;
   try {
     await dbRun(`
-      INSERT OR REPLACE INTO ingredients (id, name, unit, costPerUnit, stock, minStock, supplier)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [ingId, name, unit, parseFloat(costPerUnit) || 0, parseFloat(stock) || 0, parseFloat(minStock) || 0, supplier || null]);
+      INSERT OR REPLACE INTO ingredients (id, name, unit, costPerUnit, stock, minStock, supplier, tenant_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [ingId, name, unit, parseFloat(costPerUnit) || 0, parseFloat(stock) || 0, parseFloat(minStock) || 0, supplier || null, req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'save_ingredient', `Saved ingredient ${name} (${ingId})`);
     res.json({ id: ingId, name, unit, costPerUnit, stock, minStock, supplier });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4173,11 +4549,11 @@ app.get('/api/recipes/:menuItemId', async (req, res) => {
       SELECT r.id, r.menuItemId, r.ingredientId, r.quantityRequired, i.name as ingredientName, i.unit, i.costPerUnit
       FROM recipes r
       JOIN ingredients i ON r.ingredientId = i.id
-      WHERE r.menuItemId = ?
-    `, [req.params.menuItemId]);
+      WHERE r.menuItemId = ? AND r.tenant_id = ?
+    `, [req.params.menuItemId, req.tenantId]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4188,11 +4564,11 @@ app.post('/api/recipes', requireRole(['owner', 'manager']), async (req, res) => 
   }
   await dbRun('BEGIN TRANSACTION');
   try {
-    await dbRun('DELETE FROM recipes WHERE menuItemId = ?', [menuItemId]);
+    await dbRun('DELETE FROM recipes WHERE menuItemId = ? AND tenant_id = ?', [menuItemId, req.tenantId]);
     for (const item of ingredients) {
       const recId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-      await dbRun('INSERT INTO recipes (id, menuItemId, ingredientId, quantityRequired) VALUES (?, ?, ?, ?)', [
-        recId, menuItemId, item.ingredientId, parseFloat(item.quantityRequired) || 0
+      await dbRun('INSERT INTO recipes (id, menuItemId, ingredientId, quantityRequired, tenant_id) VALUES (?, ?, ?, ?, ?)', [
+        recId, menuItemId, item.ingredientId, parseFloat(item.quantityRequired) || 0, req.tenantId
       ]);
     }
     await writeAuditLog(req.user.id, req.user.username, 'save_recipe', `Updated recipe for menu item ${menuItemId}`);
@@ -4200,30 +4576,30 @@ app.post('/api/recipes', requireRole(['owner', 'manager']), async (req, res) => 
     res.json({ success: true, menuItemId, count: ingredients.length });
   } catch (err) {
     await dbRun('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // 4. Tables Routes
 app.get('/api/tables', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT * FROM tables');
+    const rows = await dbAll('SELECT * FROM tables WHERE tenant_id = ?', [req.tenantId]);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 app.post('/api/tables', requireRole(['owner', 'manager']), async (req, res) => {
   const { id, number, capacity, status, currentOrderId } = req.body;
   try {
-    await dbRun('INSERT OR REPLACE INTO tables (id, number, capacity, status, currentOrderId) VALUES (?, ?, ?, ?, ?)', [
-      id, number, capacity, status, currentOrderId
+    await dbRun('INSERT OR REPLACE INTO tables (id, number, capacity, status, currentOrderId, tenant_id) VALUES (?, ?, ?, ?, ?, ?)', [
+      id, number, capacity, status, currentOrderId, req.tenantId
     ]);
     await writeAuditLog(req.user.id, req.user.username, 'save_table', `Created/updated table ${number} (${id})`);
     res.json({ id, number, capacity, status, currentOrderId });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4233,7 +4609,7 @@ app.delete('/api/tables/:id', requireRole(['owner', 'manager']), async (req, res
     await writeAuditLog(req.user.id, req.user.username, 'delete_table', `Deleted table ${req.params.id}`);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4273,11 +4649,11 @@ app.post('/api/tables/transfer', requireRole(['owner', 'manager', 'cashier']), a
     await writeAuditLog(req.user.id, req.user.username, 'transfer_table', `Transferred Order ${orderId} from Table ${fromTable.number} to Table ${toTable.number}`);
     await dbRun('COMMIT');
 
-    notifyPOS({ type: 'table_transferred', fromTableId, toTableId, orderId });
+    notifyPOS({ type: 'table_transferred', fromTableId, toTableId, orderId }, req.tenantId);
     res.json({ success: true, fromTableId, toTableId, orderId });
   } catch (err) {
     await dbRun('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4331,11 +4707,11 @@ app.post('/api/tables/merge', requireRole(['owner', 'manager', 'cashier']), asyn
     await writeAuditLog(req.user.id, req.user.username, 'merge_table', `Merged Order ${sourceOrderId} (Table ${sourceTable.number}) into Order ${targetOrderId} (Table ${targetTable.number})`);
     await dbRun('COMMIT');
 
-    notifyPOS({ type: 'table_merged', sourceTableId, targetTableId, targetOrderId });
+    notifyPOS({ type: 'table_merged', sourceTableId, targetTableId, targetOrderId }, req.tenantId);
     res.json({ success: true, targetOrderId, targetTotal: newTotal });
   } catch (err) {
     await dbRun('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4345,11 +4721,11 @@ app.get('/api/shifts/active', async (req, res) => {
     const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
     res.json(shift || null);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/shifts/open', async (req, res) => {
+app.post('/api/shifts/open', validateRequest(shiftOpenSchema), async (req, res) => {
   const { startFloat, notes } = req.body;
   try {
     const existing = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
@@ -4358,18 +4734,18 @@ app.post('/api/shifts/open', async (req, res) => {
     const shiftId = `shift_${Date.now()}`;
     const floatVal = parseFloat(startFloat) || 0;
     await dbRun(`
-      INSERT INTO shifts (id, userId, username, startTime, startFloat, status, notes)
-      VALUES (?, ?, ?, ?, ?, "open", ?)
-    `, [shiftId, req.user.id, req.user.username, Date.now(), floatVal, notes || '']);
+      INSERT INTO shifts (id, userId, username, startTime, startFloat, status, notes, tenant_id)
+      VALUES (?, ?, ?, ?, ?, "open", ?, ?)
+    `, [shiftId, req.user.id, req.user.username, Date.now(), floatVal, notes || '', req.tenantId]);
 
     await writeAuditLog(req.user.id, req.user.username, 'open_shift', `Opened shift with float LKR ${floatVal}`);
     res.json({ id: shiftId, startFloat: floatVal, status: 'open' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/shifts/close', async (req, res) => {
+app.post('/api/shifts/close', validateRequest(shiftCloseSchema), async (req, res) => {
   const { actualCash, notes } = req.body;
   try {
     const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
@@ -4377,9 +4753,9 @@ app.post('/api/shifts/close', async (req, res) => {
 
     // Calculate expected cash: startFloat + cash sales + cash_in movements - cash_out movements
     const cashSales = await dbGet(`
-      SELECT SUM(total) as cashTotal FROM orders 
-      WHERE status = 'paid' AND paymentMethod = 'cash' AND timestamp >= ?
-    `, [shift.startTime]);
+      SELECT SUM(total) as cashTotal FROM orders
+      WHERE status = 'paid' AND paymentMethod = 'cash' AND timestamp >= ? AND tenant_id = ?
+    `, [shift.startTime, req.tenantId]);
 
     const cashIn = await dbGet(`
       SELECT SUM(amount) as inTotal FROM cash_movements 
@@ -4408,12 +4784,12 @@ app.post('/api/shifts/close', async (req, res) => {
     await writeAuditLog(req.user.id, req.user.username, 'close_shift', `Closed shift. Expected: ${expectedCash}, Actual: ${endCash}`);
     res.json({ id: shift.id, expectedCash, actualCash: endCash, discrepancy: endCash - expectedCash });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // POST /api/cash-movements — Cash In / Cash Out (Paid-Outs)
-app.post('/api/cash-movements', async (req, res) => {
+app.post('/api/cash-movements', validateRequest(cashMovementSchema), async (req, res) => {
   const { type, amount, reason } = req.body;
   if (!['cash_in', 'cash_out'].includes(type)) {
     return res.status(400).json({ error: 'Type must be cash_in or cash_out.' });
@@ -4427,31 +4803,19 @@ app.post('/api/cash-movements', async (req, res) => {
     const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
     const movementId = `cm_${Date.now()}`;
     await dbRun(`
-      INSERT INTO cash_movements (id, shiftId, userId, type, amount, reason, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [movementId, shift?.id || null, req.user.id, type, amt, reason || '', Date.now()]);
+      INSERT INTO cash_movements (id, shiftId, userId, type, amount, reason, timestamp, tenant_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [movementId, shift?.id || null, req.user.id, type, amt, reason || '', Date.now(), req.tenantId]);
 
     await writeAuditLog(req.user.id, req.user.username, type, `${type === 'cash_in' ? 'Cash In' : 'Paid-Out'} LKR ${amt}. Reason: ${reason}`);
     res.json({ success: true, id: movementId, type, amount: amt, reason });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // 5. Orders Routes
-app.get('/api/orders', async (req, res) => {
-  try {
-    const rows = await dbAll('SELECT * FROM orders ORDER BY timestamp DESC');
-    // Parse order items JSON string back to array object
-    const parsedRows = rows.map((r) => ({
-      ...r,
-      items: JSON.parse(r.items)
-    }));
-    res.json(parsedRows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// NOTE: duplicate GET /api/orders removed — the earlier authenticated definition wins in Express.
 
 app.post('/api/orders', async (req, res) => {
   const {
@@ -4581,7 +4945,7 @@ app.post('/api/orders', async (req, res) => {
       }
 
       // 2. Calculate billing totals on the server using unified billing helper
-      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode);
+      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode, 0, req.tenantId);
 
       // Begin SQLite transaction
       await dbRun('BEGIN TRANSACTION');
@@ -4593,13 +4957,13 @@ app.post('/api/orders', async (req, res) => {
             id, tableId, diningType, customerId, items, subtotal,
             discountType, discountValue, discount, tax, total, status,
             timestamp, paymentMethod, paymentTimestamp,
-            serviceCharge, tip, roundedAmount, cashierId, promotionalDiscount
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            serviceCharge, tip, roundedAmount, cashierId, promotionalDiscount, tenant_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           id, tableId || null, diningType, customerId || null, JSON.stringify(bill.resolvedItems), bill.subtotal,
           discountType || 'percent', parseFloat(discountValue) || 0, bill.totalDiscount, bill.tax, bill.total, status || 'pending',
           timestamp || Date.now(), paymentMethod || null, paymentTimestamp || null,
-          bill.serviceCharge, bill.tip, bill.roundedAmount, req.user.id, bill.promoDiscount
+          bill.serviceCharge, bill.tip, bill.roundedAmount, req.user.id, bill.promoDiscount, req.tenantId
         ]);
 
         // Insert items into order_items & update menu item stock
@@ -4636,7 +5000,7 @@ app.post('/api/orders', async (req, res) => {
       }
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4644,7 +5008,7 @@ app.post('/api/orders', async (req, res) => {
 
 app.get('/api/shifts/summary/:id', async (req, res) => {
   try {
-    const shift = await dbGet('SELECT * FROM shifts WHERE id = ?', [req.params.id]);
+    const shift = await dbGet('SELECT * FROM shifts WHERE id = ? AND tenant_id = ?', [req.params.id, req.tenantId]);
     if (!shift) {
       return res.status(404).json({ error: 'Shift not found' });
     }
@@ -4685,7 +5049,7 @@ app.get('/api/shifts/summary/:id', async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4757,7 +5121,7 @@ app.post('/api/orders/:id/refund', async (req, res) => {
       throw err;
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4767,7 +5131,7 @@ app.get('/api/support/tickets', async (req, res) => {
     const tickets = await dbAll('SELECT * FROM support_tickets ORDER BY createdAt DESC');
     res.json(tickets);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4776,53 +5140,52 @@ app.post('/api/support/tickets/:id/resolve', async (req, res) => {
     await dbRun('UPDATE support_tickets SET status = "resolved", resolvedAt = ? WHERE id = ?', [Date.now(), req.params.id]);
     res.json({ success: true, ticketId: req.params.id, status: 'resolved' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 
 // Database maintenance backup endpoints
-app.post('/api/database/import', databaseLimiter, requireRole(['owner']), async (req, res) => {
+app.post('/api/database/import', databaseLimiter, requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
   const backup = req.body;
   try {
     // Begin transaction
     await dbRun('BEGIN TRANSACTION');
-    
-    // Clear all tables
-    await dbRun('DELETE FROM settings');
-    await dbRun('DELETE FROM categories');
-    await dbRun('DELETE FROM menu_items');
-    await dbRun('DELETE FROM tables');
-    await dbRun('DELETE FROM orders');
-    await dbRun('DELETE FROM order_items');
-    await dbRun('DELETE FROM customers');
-    await dbRun('DELETE FROM audit_logs');
+
+    // Clear only the platform (default) tenant's data — never wipe paying tenants.
+    await dbRun("DELETE FROM order_items WHERE orderId IN (SELECT id FROM orders WHERE tenant_id = 'default_tenant')");
+    await dbRun("DELETE FROM settings WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM categories WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM menu_items WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM tables WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM orders WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM customers WHERE tenant_id = 'default_tenant'");
 
     // Restore Settings
     if (backup.settings) {
       for (const set of backup.settings) {
-        await dbRun('INSERT INTO settings (key, value) VALUES (?, ?)', [set.key, String(set.value)]);
+        await dbRun("INSERT INTO settings (tenant_id, key, value) VALUES ('default_tenant', ?, ?)", [set.key, String(set.value)]);
       }
     }
     // Restore Categories
     if (backup.categories) {
       for (const cat of backup.categories) {
-        await dbRun('INSERT INTO categories (id, name, emoji) VALUES (?, ?, ?)', [cat.id, cat.name, cat.emoji]);
+        await dbRun("INSERT INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, 'default_tenant')", [cat.id, cat.name, cat.emoji]);
       }
     }
     // Restore Items
     if (backup.menu_items) {
       for (const item of backup.menu_items) {
         await dbRun(`
-          INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, tenant_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'default_tenant')
         `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description]);
       }
     }
     // Restore Tables
     if (backup.tables) {
       for (const t of backup.tables) {
-        await dbRun('INSERT INTO tables (id, number, capacity, status, currentOrderId) VALUES (?, ?, ?, ?, ?)', [
+        await dbRun("INSERT INTO tables (id, number, capacity, status, currentOrderId, tenant_id) VALUES (?, ?, ?, ?, ?, 'default_tenant')", [
           t.id, t.number, t.capacity, t.status, t.currentOrderId
         ]);
       }
@@ -4835,8 +5198,8 @@ app.post('/api/database/import', databaseLimiter, requireRole(['owner']), async 
           INSERT INTO orders (
             id, tableId, diningType, customerId, items, subtotal,
             discountType, discountValue, discount, tax, total, status,
-            timestamp, paymentMethod, paymentTimestamp
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            timestamp, paymentMethod, paymentTimestamp, tenant_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'default_tenant')
         `, [
           o.id, o.tableId, o.diningType, o.customerId, itemsStr, o.subtotal,
           o.discountType, o.discountValue, o.discount, o.tax, o.total, o.status,
@@ -4863,7 +5226,7 @@ app.post('/api/database/import', databaseLimiter, requireRole(['owner']), async 
     // Restore Customers
     if (backup.customers) {
       for (const c of backup.customers) {
-        await dbRun('INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+        await dbRun("INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'default_tenant')", [
           c.id, c.name, c.phone, c.email, c.points, c.orderCount, c.totalSpent
         ]);
       }
@@ -4874,30 +5237,30 @@ app.post('/api/database/import', databaseLimiter, requireRole(['owner']), async 
     res.json({ success: true });
   } catch (err) {
     await dbRun('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/database/reset', databaseLimiter, requireRole(['owner']), async (req, res) => {
+app.post('/api/database/reset', databaseLimiter, requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
   try {
-    await dbRun('DELETE FROM settings');
-    await dbRun('DELETE FROM categories');
-    await dbRun('DELETE FROM menu_items');
-    await dbRun('DELETE FROM tables');
-    await dbRun('DELETE FROM orders');
-    await dbRun('DELETE FROM order_items');
-    await dbRun('DELETE FROM customers');
-    await dbRun('DELETE FROM audit_logs');
+    // Factory reset affects only the platform (default) tenant — paying tenants untouched.
+    await dbRun("DELETE FROM order_items WHERE orderId IN (SELECT id FROM orders WHERE tenant_id = 'default_tenant')");
+    await dbRun("DELETE FROM settings WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM categories WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM menu_items WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM tables WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM orders WHERE tenant_id = 'default_tenant'");
+    await dbRun("DELETE FROM customers WHERE tenant_id = 'default_tenant'");
     await seedDatabase();
     await writeAuditLog(req.user.id, req.user.username, 'reset_database', 'Reset database to factory seeds');
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // ── Driver COD Cash Reconciliation & Shift Settlement API ──
-app.get('/api/driver/cash-reconciliation', async (req, res) => {
+app.get('/api/driver/cash-reconciliation', requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
   const { driverId } = req.query;
   try {
     const uncollected = await dbAll(
@@ -4910,11 +5273,11 @@ app.get('/api/driver/cash-reconciliation', async (req, res) => {
     const totalCashToHandover = uncollected.reduce((acc, o) => acc + (o.total || 0), 0);
     res.json({ uncollectedOrders: uncollected, totalCashToHandover });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/driver/cash-reconciliation/handover', async (req, res) => {
+app.post('/api/driver/cash-reconciliation/handover', requireRole(['owner', 'manager']), async (req, res) => {
   const { driverId, orderIds, amountHandedOver, managerPin } = req.body;
   if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
     return res.status(400).json({ error: 'orderIds array is required.' });
@@ -4930,15 +5293,14 @@ app.post('/api/driver/cash-reconciliation/handover', async (req, res) => {
     res.json({ success: true, orderCount: orderIds.length, amountHandedOver });
   } catch (err) {
     await dbRun('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // ── Multi-Tenant Partner Payouts & Commission Analytics ──
-app.get('/api/marketplace/partner-earnings', async (req, res) => {
+app.get('/api/marketplace/partner-earnings', requireRole(['owner']), async (req, res) => {
   try {
-    const commissionRateSetting = await dbGet("SELECT value FROM settings WHERE key = 'platformCommissionRate'");
-    const commissionRate = parseFloat(commissionRateSetting?.value || 15);
+    const commissionRate = parseFloat((await getSetting('default_tenant', 'platformCommissionRate')) || 15);
 
     const partnerSales = await dbAll(
       `SELECT tenant_id, COUNT(id) as orderCount, SUM(total) as grossSales, SUM(subtotal) as grossSubtotal
@@ -4967,7 +5329,7 @@ app.get('/api/marketplace/partner-earnings', async (req, res) => {
 
     res.json({ commissionRate, earnings });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -4990,15 +5352,15 @@ app.get('/api/reports/x-report', authenticateToken, requireRole(['owner', 'manag
         SUM(discount) as totalDiscounts,
         SUM(serviceCharge) as totalServiceCharge,
         SUM(tax) as totalTax
-      FROM orders 
-      WHERE timestamp >= ? AND status = 'paid'
-    `, [activeShift.startTime]);
+      FROM orders
+      WHERE tenant_id = ? AND timestamp >= ? AND status = 'paid'
+    `, [req.tenantId, activeShift.startTime]);
 
     const voids = await dbGet(`
       SELECT COUNT(id) as voidCount, SUM(total) as voidTotal
-      FROM orders 
-      WHERE timestamp >= ? AND status = 'cancelled'
-    `, [activeShift.startTime]);
+      FROM orders
+      WHERE tenant_id = ? AND timestamp >= ? AND status = 'cancelled'
+    `, [req.tenantId, activeShift.startTime]);
 
     res.json({
       shiftId: activeShift.id,
@@ -5020,7 +5382,7 @@ app.get('/api/reports/x-report', authenticateToken, requireRole(['owner', 'manag
       expectedCashDrawer: activeShift.startFloat + (sales?.cashSales || 0)
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -5036,8 +5398,8 @@ app.get('/api/reports/vat', authenticateToken, requireRole(['owner', 'manager'])
         SUM(tax) as vatCollected,
         COUNT(id) as invoiceCount
       FROM orders
-      WHERE timestamp >= ? AND timestamp <= ? AND status = 'paid'
-    `, [startTime, endTime]);
+      WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ? AND status = 'paid'
+    `, [req.tenantId, startTime, endTime]);
 
     res.json({
       jurisdiction: 'Sri Lanka (18% Standard VAT Rate)',
@@ -5048,51 +5410,51 @@ app.get('/api/reports/vat', authenticateToken, requireRole(['owner', 'manager'])
       invoiceCount: summary?.invoiceCount || 0
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 app.get('/api/reports/cogs', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const items = await dbAll('SELECT id, name, price, cost, category, stock FROM menu_items');
-    const analysis = items.map(item => {
-      const margin = item.price - (item.cost || 0);
-      const marginPct = item.price > 0 ? (margin / item.price) * 100 : 0;
+    const items = await dbAll('SELECT id, name, price, cost, category, stock FROM menu_items WHERE tenant_id = ?', [req.tenantId]);
+    const cogsReport = items.map(item => {
+      const profitMargin = item.price - (item.cost || 0);
+      const marginPercentage = item.price > 0 ? (profitMargin / item.price) * 100 : 0;
       return {
         ...item,
         profitMargin,
-        marginPercentage: parseFloat(marginPercentage)
+        marginPercentage: parseFloat(marginPercentage.toFixed(2))
       };
     });
 
     res.json(cogsReport);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // ── 3.2 Inventory Depth (Purchase Orders, Suppliers & Waste Logging) ──
-app.get('/api/inventory/suppliers', async (req, res) => {
+app.get('/api/inventory/suppliers', requireRole(['owner', 'manager']), async (req, res) => {
   try {
     const suppliers = await dbAll('SELECT * FROM suppliers ORDER BY name ASC').catch(() => []);
     res.json(suppliers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/inventory/suppliers', async (req, res) => {
+app.post('/api/inventory/suppliers', requireRole(['owner', 'manager']), async (req, res) => {
   const { name, phone, email, address } = req.body;
   const id = `sup_${Date.now()}`;
   try {
     await dbRun('INSERT INTO suppliers (id, name, phone, email, address) VALUES (?, ?, ?, ?, ?)', [id, name, phone || '', email || '', address || '']);
     res.json({ id, name, phone, email, address });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/inventory/waste', async (req, res) => {
+app.post('/api/inventory/waste', requireRole(['owner', 'manager']), async (req, res) => {
   const { menuItemId, ingredientId, quantity, reason } = req.body;
   try {
     if (menuItemId) {
@@ -5104,12 +5466,12 @@ app.post('/api/inventory/waste', async (req, res) => {
     await writeAuditLog(req.user.id, req.user.username, 'waste_logged', `Logged waste qty ${quantity}: ${reason}`);
     res.json({ success: true, message: 'Waste logged and inventory deducted.' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
 // ── 3.4 Staff & Permissions API ──
-app.get('/api/staff/performance', async (req, res) => {
+app.get('/api/staff/performance', requireRole(['owner', 'manager']), async (req, res) => {
   try {
     const staffSales = await dbAll(`
       SELECT 
@@ -5120,26 +5482,47 @@ app.get('/api/staff/performance', async (req, res) => {
         AVG(o.total) as avgTicketSize
       FROM orders o
       LEFT JOIN users u ON o.cashierId = u.id
-      WHERE o.status = 'paid'
+      WHERE o.status = 'paid' AND o.tenant_id = ?
       GROUP BY o.cashierId
-    `);
+    `, [req.tenantId]);
 
     res.json(staffSales);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
-// Start Server
-const server = app.listen(PORT, () => {
-  console.log(`===============================================`);
-  console.log(`GastroFlow POS Backend running on port ${PORT}`);
-  console.log(`Access endpoint directly at http://localhost:${PORT}/api`);
-  console.log(`===============================================`);
+// ── Observability: 404 + centralized error handler (must be after all routes) ──
+// Unknown API routes return JSON, not the SPA fallback.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not found.' });
 });
+
+// Final safety net: any error thrown/next(err)'d in a handler lands here. Details
+// are logged structured; the client gets a generic message in production.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error(JSON.stringify({
+    t: new Date().toISOString(), lvl: 'error', method: req.method, path: req.path,
+    status: 500, msg: err?.message, stack: process.env.NODE_ENV === 'production' ? undefined : err?.stack
+  }));
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: process.env.NODE_ENV === 'production' ? 'Internal server error.' : (err?.message || 'Internal server error.') });
+});
+
+// Start Server — skip when imported by the test runner (supertest drives `app` directly).
+const server = process.env.VITEST
+  ? null
+  : app.listen(PORT, () => {
+      console.log(`===============================================`);
+      console.log(`GastroFlow POS Backend running on port ${PORT}`);
+      console.log(`Access endpoint directly at http://localhost:${PORT}/api`);
+      console.log(`===============================================`);
+    });
 
 // Graceful Shutdown Handler
 const handleGracefulShutdown = (signal) => {
+  if (!server) return;
   console.log(`\n[Server] ${signal} signal received. Initiating graceful shutdown...`);
   
   server.close(() => {

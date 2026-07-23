@@ -37,7 +37,10 @@
       "Bash(curl -s \"http://localhost:3001/src/components/LocationPicker.jsx\")",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST -H \"Origin: http://localhost:3001\" -H \"Content-Type: application/json\" -d '{\"message\":\"recommend something vegetarian\"}' http://localhost:5000/api/ai/chat)",
       "Bash(curl -s -X POST -H \"Origin: http://localhost:3001\" -H \"Content-Type: application/json\" -d '{\"message\":\"recommend something\"}' http://localhost:5000/api/ai/chat)",
-      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST -H \"Origin: http://localhost:3001\" -H \"Content-Type: application/json\" -d '{}' http://localhost:5000/api/ai/chat)"
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST -H \"Origin: http://localhost:3001\" -H \"Content-Type: application/json\" -d '{}' http://localhost:5000/api/ai/chat)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")",
+      "Bash(npm -v)",
+      "Bash(echo \"---exit $?---\")"
     ]
   }
 }

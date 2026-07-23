@@ -7,9 +7,9 @@ import MenuView from './views/MenuView.jsx';
 import CartCheckoutView from './views/CartCheckoutView.jsx';
 import OrderTrackingView from './views/OrderTrackingView.jsx';
 import ProfileView from './views/ProfileView.jsx';
-import DriverView from './views/DriverView.jsx';
 import RestaurantsView from './views/RestaurantsView.jsx';
 import LegalPoliciesView from './views/LegalPoliciesView.jsx';
+import { setActiveTenant } from './utils/tenant.js';
 
 // ── Error Boundary ───────────────────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -105,6 +105,7 @@ function InstallPrompt() {
   const [deferred, setDeferred] = useState(null);
   const [visible, setVisible] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
 
   useEffect(() => {
     // Check if already in standalone/installed mode
@@ -158,18 +159,17 @@ function InstallPrompt() {
       setDeferred(null);
       setVisible(false);
     } else {
-      // Direct instruction fallback if no native prompt is available
-      if (isIOS) {
-        alert("To Install GastroFlow on iPhone:\n\n1. Tap the Share button (📤) at the bottom.\n2. Scroll down and tap 'Add to Home Screen'.");
-      } else {
-        alert("To Install GastroFlow:\n\n1. Tap the browser menu (⁝ or ⋯) in the top-right.\n2. Select 'Add to Home Screen' or 'Install App'.");
-      }
-      dismiss();
+      // No native prompt available — reveal the manual steps inline (no blocking alert()).
+      setShowSteps((s) => !s);
     }
   };
 
+  const steps = isIOS
+    ? ['Tap the Share button (📤) at the bottom.', "Scroll down and tap 'Add to Home Screen'."]
+    : ['Open the browser menu (⁝ or ⋯) in the top-right.', "Select 'Add to Home Screen' or 'Install App'."];
+
   return (
-    <div className="install-banner" role="dialog" aria-label="Install GastroFlow">
+    <div className="install-banner" role="dialog" aria-label="Install GastroFlow" style={{ flexWrap: 'wrap' }}>
       <span style={{ fontSize: '1.6rem' }}>📲</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 800, fontSize: '0.88rem', color: 'var(--text-1)' }}>{t('installTitle')}</div>
@@ -178,9 +178,14 @@ function InstallPrompt() {
         </div>
       </div>
       <button className="btn btn-brand" style={{ width: 'auto', padding: '6px 14px', fontSize: '0.8rem', fontWeight: 700 }} onClick={install}>
-        {deferred ? t('install') : 'Guide'}
+        {deferred ? t('install') : (showSteps ? 'Hide' : 'Guide')}
       </button>
       <button aria-label="Dismiss" onClick={dismiss} style={{ fontSize: '1.2rem', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px 8px' }}>✕</button>
+      {showSteps && (
+        <ol style={{ flexBasis: '100%', margin: '8px 0 0', paddingLeft: 20, fontSize: '0.78rem', color: 'var(--text-1)', lineHeight: 1.6 }}>
+          {steps.map((s, i) => <li key={i}>{s}</li>)}
+        </ol>
+      )}
     </div>
   );
 }
@@ -196,7 +201,8 @@ function InnerApp() {
   const { t, lang, setLang, languages } = useLang();
 
   // Deep links & Mode detection:
-  // ?mode=driver, #driver, or persistent localStorage launches GastroDriver directly.
+  // ?mode=driver / #driver now redirect to the standalone GastroDriver app
+  // (the driver UI was consolidated into apps/driver-web/ — see openDriverApp()).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const track = params.get('track');
@@ -204,11 +210,10 @@ function InnerApp() {
     const mode = params.get('mode') || params.get('driver');
     const legal = params.get('legal') || params.get('policies');
     const hash = window.location.hash;
-    const isDriverSaved = localStorage.getItem('gastroflow_driver_app') === 'true';
 
-    if (mode === 'driver' || mode === '1' || mode === 'true' || hash === '#driver' || isDriverSaved) {
-      localStorage.setItem('gastroflow_driver_app', 'true');
-      setView('driver');
+    if (mode === 'driver' || mode === '1' || mode === 'true' || hash === '#driver') {
+      openDriverApp();
+      return;
     } else if (track) {
       setTrackingOrderId(track);
       setView('track');
@@ -231,53 +236,23 @@ function InnerApp() {
   );
 
   const navigate = (v) => {
-    if (v === 'driver') {
-      localStorage.setItem('gastroflow_driver_app', 'true');
-    } else {
-      localStorage.removeItem('gastroflow_driver_app');
-    }
     setView(v);
+  };
+
+  // Redirect to the standalone GastroDriver PWA. Dev: customer runs on :3001, driver on :3002.
+  // Production: set VITE_DRIVER_URL to the driver app's host.
+  const openDriverApp = () => {
+    const url = import.meta.env.VITE_DRIVER_URL
+      || (window.location.port === '3001'
+        ? `${window.location.protocol}//${window.location.hostname}:3002`
+        : '/driver-app');
+    window.location.href = url;
   };
 
   const handleOrderPlaced = (orderId) => {
     setTrackingOrderId(orderId);
     setView('track');
   };
-
-  // Dedicated Standalone Driver App View
-  if (view === 'driver') {
-    return (
-      <div className="app-shell" style={{ background: '#0a0f1d', color: '#f8fafc', minHeight: '100dvh' }}>
-        <Toast messages={messages} />
-        <header className="top-header" style={{ background: '#111827', borderBottom: '1px solid #1f2937' }}>
-          <img src="/driver-logo.png" alt="GastroDriver Logo" style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover' }} />
-          <span className="restaurant-name" style={{ color: '#10b981', fontWeight: 800, fontSize: '1.1rem', marginLeft: 8 }}>GastroDriver</span>
-          <button
-            onClick={() => {
-              localStorage.removeItem('gastroflow_driver_app');
-              setView('menu');
-            }}
-            style={{
-              fontSize: '0.78rem',
-              background: '#1f2937',
-              color: '#10b981',
-              border: '1px solid #10b98150',
-              padding: '6px 12px',
-              borderRadius: 14,
-              fontWeight: 700,
-              marginLeft: 'auto',
-              cursor: 'pointer'
-            }}
-          >
-            🍔 Switch to Food App
-          </button>
-        </header>
-        <main className="main-content" style={{ padding: '16px 12px 32px' }}>
-          <DriverView toast={toast} />
-        </main>
-      </div>
-    );
-  }
 
   return (
     <div className="app-shell">
@@ -293,7 +268,7 @@ function InnerApp() {
           </span>
         </div>
         <div className="header-actions">
-          <button className="icon-btn" onClick={() => navigate('driver')} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
+          <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
             🛵
           </button>
           <select
@@ -322,6 +297,7 @@ function InnerApp() {
         {view === 'restaurants' && (
           <RestaurantsView
             onSelectRestaurant={(rest) => {
+              if (rest && rest.id) setActiveTenant(rest.id);
               setView('menu');
             }}
             toast={toast}

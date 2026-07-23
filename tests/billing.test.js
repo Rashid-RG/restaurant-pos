@@ -58,9 +58,10 @@ function makeDbGet({ menuItems = {}, modifiers = {}, settings = {}, promos = {} 
       const key = `${modId}:${itemId}`;
       return modifiers[key] ?? null;
     }
-    if (/FROM settings WHERE key/.test(sql)) {
-      // The key may be a param OR embedded in the SQL string (e.g. WHERE key = "serviceChargeRate")
-      const settingKey = params[0] ?? sql.match(/key\s*=\s*["']([^"']+)["']/)?.[1];
+    if (/FROM settings/.test(sql) && /key/.test(sql)) {
+      // The key may be embedded in the SQL (WHERE key = "serviceChargeRate") or passed as
+      // the last param. Tenant-scoped queries pass [tenantId, key]; legacy passed [key].
+      const settingKey = sql.match(/key\s*=\s*["']([^"']+)["']/)?.[1] ?? params[params.length - 1];
       return settings[settingKey] !== undefined ? { value: String(settings[settingKey]) } : null;
     }
     if (/FROM promotions WHERE code/.test(sql)) {
