@@ -1,6 +1,6 @@
 name: CI
 
-# Gate merges: install, type-check, run test suite, and build all apps.
+# Gate merges: install, type-check, and run the full test suite on every push/PR.
 on:
   push:
     branches: [main]
@@ -29,12 +29,9 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build main POS app
-        run: npm run build
-
-      - name: Build customer web app
-        run: npm run customer:build
-
-      - name: Build driver web app
-        run: npm run driver:build
+      - name: Build all three apps
+        run: |
+          npm run build
+          npm run customer:build
+          npm run driver:build
 
