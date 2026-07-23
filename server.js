@@ -24,6 +24,8 @@ import {
   resolveAndCalculateBill as _resolveAndCalculateBill,
   allocateInvoiceNumber as _allocateInvoiceNumber
 } from './lib/billing.js';
+import { buildEscPosReceipt, sendToNetworkPrinter } from './lib/printer.js';
+import { normalizePickMeOrder, normalizeUberEatsOrder } from './lib/aggregators.js';
 import {
   validateRequest,
   authLoginSchema,
@@ -4163,8 +4165,166 @@ app.get('/api/saas/plans', (req, res) => {
   })));
 });
 
+// ── 3.6 Aggregator Webhooks (PickMe / UberEats) ──────────────────────────────
+app.post('/api/public/webhooks/aggregators/:provider', publicApiLimiter, async (req, res) => {
+  try {
+    const provider = String(req.params.provider).toLowerCase();
+    const tenantId = req.query.tenant || req.headers['x-tenant-id'] || 'default_tenant';
+
+    let normalized;
+    if (provider === 'pickme') {
+      normalized = normalizePickMeOrder(req.body, tenantId);
+    } else if (provider === 'ubereats' || provider === 'uber') {
+      normalized = normalizeUberEatsOrder(req.body, tenantId);
+    } else {
+      return res.status(400).json({ error: `Unsupported aggregator provider '${provider}'.` });
+    }
+
+    // Check for duplicate webhook submission
+    const existing = await dbGet('SELECT id FROM orders WHERE id = ? AND tenant_id = ?', [normalized.orderId, tenantId]);
+    if (existing) {
+      return res.json({ ok: true, duplicate: true, orderId: normalized.orderId });
+    }
+
+    // Settle aggregator order into DB
+    await dbRun(
+      `INSERT INTO orders (id, source, orderType, status, paymentMethod, customerName, customerPhone, deliveryAddress, subtotal, deliveryFee, tax, total, timestamp, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        normalized.orderId, normalized.source, normalized.orderType, normalized.status,
+        normalized.paymentMethod, normalized.customerName,
+        normalized.customerPhone, normalized.deliveryAddress, normalized.subtotal,
+        normalized.deliveryFee, normalized.tax, normalized.total, normalized.timestamp, normalized.tenant_id
+      ]
+    );
+
+    for (const item of normalized.items) {
+      const itemId = `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      await dbRun(
+        'INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity) VALUES (?, ?, ?, ?, ?, ?)',
+        [itemId, normalized.orderId, item.menuItemId, item.name, item.price, item.quantity]
+      );
+    }
+
+    notifyPOS({ type: 'new_online_order', orderId: normalized.orderId, source: normalized.source, total: normalized.total }, tenantId);
+    res.json({ ok: true, orderId: normalized.orderId });
+  } catch (err) {
+    console.error('[Aggregator Webhook Error]', err);
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/tables/:id/qr — Table QR code URL resolution
+app.get('/api/tables/:id/qr', publicApiLimiter, async (req, res) => {
+  try {
+    const tableId = req.params.id;
+    const tenantId = req.query.tenant || 'default_tenant';
+    const table = await dbGet('SELECT * FROM tables WHERE id = ? AND tenant_id = ?', [tableId, tenantId]);
+    if (!table) return res.status(404).json({ error: 'Table not found.' });
+
+    const customerAppUrl = process.env.CUSTOMER_APP_URL || 'http://localhost:3001';
+    const qrUrl = `${customerAppUrl}/?table=${table.number}&tenant=${tenantId}`;
+    res.json({ tableId: table.id, number: table.number, qrUrl });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
 // Protect all following endpoints (staff only)
 app.use(authenticateToken);
+
+// ── ESC/POS Thermal Printing Spooler Endpoints ──────────────────────────────
+app.post('/api/print/receipt', async (req, res) => {
+  try {
+    const { orderId, printerIp, paperWidth = 80 } = req.body || {};
+    if (!orderId) return res.status(400).json({ error: 'orderId is required.' });
+
+    const order = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [orderId, req.tenantId]);
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+    const items = await dbAll('SELECT menuItemId, name, price, quantity FROM order_items WHERE orderId = ?', [order.id]);
+    const businessName = await getSetting(req.tenantId, 'restaurantName', 'GastroFlow Bistro');
+
+    const buffer = buildEscPosReceipt({
+      restaurantName: businessName,
+      orderId: order.id,
+      invoiceNumber: order.invoiceNumber,
+      orderType: order.orderType,
+      customerName: order.customerName,
+      items,
+      subtotal: order.subtotal || order.total,
+      tax: order.tax || 0,
+      serviceCharge: order.serviceCharge || 0,
+      deliveryFee: order.deliveryFee || 0,
+      total: order.total,
+      paymentMethod: order.paymentMethod || 'cash',
+      timestamp: order.timestamp,
+      paperWidth
+    });
+
+    if (printerIp) {
+      await sendToNetworkPrinter(printerIp, 9100, buffer);
+      return res.json({ ok: true, printedTo: printerIp });
+    }
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// ── Offline Sales Bulk Sync Engine ──────────────────────────────────────────
+app.post('/api/orders/offline-sync', async (req, res) => {
+  try {
+    const { orders = [] } = req.body || {};
+    if (!Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({ error: 'No orders provided for sync.' });
+    }
+
+    let syncedCount = 0;
+    for (const offOrder of orders) {
+      const orderId = offOrder.offlineId || `ord_off_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      
+      const existing = await dbGet('SELECT id FROM orders WHERE id = ? AND tenant_id = ?', [orderId, req.tenantId]);
+      if (existing) continue; // Deduplicate already synced offline sales
+
+      await dbRun(
+        `INSERT INTO orders (id, orderType, total, status, paymentMethod, cashierId, timestamp, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          offOrder.orderType || 'dine_in',
+          Number(offOrder.total || 0),
+          'paid',
+          offOrder.paymentMethod || 'cash',
+          req.user.id,
+          offOrder.createdAt || Date.now(),
+          req.tenantId
+        ]
+      );
+      syncedCount++;
+    }
+
+    await writeAuditLog(req.user.id, req.user.username, 'offline_sync', `Synced ${syncedCount} offline cash sales`);
+    res.json({ ok: true, syncedCount });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// ── Purchase Orders & Low Stock Reordering ───────────────────────────────────
+app.get('/api/inventory/purchase-orders', requireRole(['owner', 'manager']), async (req, res) => {
+  try {
+    const lowStockIngredients = await dbAll(
+      `SELECT id, name, stock, unit, minStock, supplier FROM ingredients WHERE tenant_id = ? AND stock <= COALESCE(minStock, 10)`,
+      [req.tenantId]
+    );
+    res.json({ lowStockIngredients });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
 
 // 1. Settings Routes
 app.get('/api/settings', async (req, res) => {
