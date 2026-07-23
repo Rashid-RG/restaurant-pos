@@ -13,6 +13,8 @@
     "driver:dev": "vite apps/driver-web --port 3002 --host",
     "driver:build": "vite build apps/driver-web",
     "build": "vite build",
+    "build:all": "vite build && vite build apps/customer-web --outDir apps/customer-web/dist && vite build apps/driver-web --outDir apps/driver-web/dist",
+    "postinstall": "vite build && vite build apps/customer-web --outDir apps/customer-web/dist && vite build apps/driver-web --outDir apps/driver-web/dist",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
