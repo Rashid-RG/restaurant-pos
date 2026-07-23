@@ -24,3 +24,15 @@ dist-ssr/
 .system_generated/
 .DS_Store
 Thumbs.db
+
+# Personal files & office documents (do not push to git)
+*.docx
+*.doc
+*.pdf
+*.xlsx
+*.xls
+*.pptx
+*.ppt
+personal/
+*.personal.*
+
