@@ -1,0 +1,19 @@
+{
+  "short_name": "GastroPOS",
+  "name": "GastroFlow POS Manager & Terminal",
+  "description": "Enterprise Restaurant POS, Kitchen Display & Inventory Suite",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/pos-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

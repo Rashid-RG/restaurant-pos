@@ -1,0 +1,168 @@
+// GastroFlow customer app — shared translation dictionary (English / Sinhala / Tamil).
+// `t` is built as { ...en, ...<lang> } so any missing key falls back to English.
+
+export const LANGUAGES = [
+  { code: 'en', label: 'English', short: 'EN' },
+  { code: 'si', label: 'සිංහල', short: 'SI' },
+  { code: 'ta', label: 'தமிழ்', short: 'TA' }
+];
+
+export const TRANSLATIONS = {
+  en: {
+    // ── App chrome / nav ──
+    navMenu: 'Menu', navCart: 'Cart', navTrack: 'Track', navAccount: 'Account', navSignIn: 'Sign In',
+    language: 'Language',
+    installTitle: 'Install GastroFlow', installBody: 'Add to your home screen for faster ordering.', install: 'Install',
+    loading: 'Loading…',
+
+    // ── Menu ──
+    searchPlaceholder: 'Search dishes, drinks, or ingredients...',
+    all: 'All', soldOut: 'Sold Out', onlyLeft: 'Only {count} left!',
+    viewCart: 'View Cart', addToCart: 'Add to Cart',
+    customizerTitle: 'Customize Item', quantity: 'Quantity', instructions: 'Special Instructions / Notes',
+    aiAssistant: 'AI Ordering Assistant',
+    groupOrder: 'Group Ordering', startGroup: 'Start Group Order', shareLink: 'Copy Share Link',
+    activeGroup: 'Group Order Active', enterParticipant: 'Enter your name to join group cart', join: 'Join Group',
+    close: 'Close', dietaryFilters: 'Dietary Filters',
+    veg: 'Vegetarian 🥗', spicy: 'Spicy 🌶️', gf: 'Gluten Free 🌾', halal: 'Halal 🕌', nutFree: 'Nut Free 🥜',
+    welcome: 'Welcome to GastroFlow Bistro', recommend: 'Recommended Items',
+    personalizedTitle: '⚡ Reorder Your Favorites',
+    aboutChat: "Ask me to find spicy food, vegetarian, halal, or gluten-free options, or type 'add [item name]' to order!",
+    groupDesc: 'Order together with friends in real-time. Share the link, add items, and checkout once!',
+    storeClosed: 'We are currently CLOSED for Online Orders',
+    storeClosedDesc: 'Our kitchen is closed. You can browse the menu, but placing orders is temporarily disabled.',
+
+    // ── Checkout ──
+    checkout: 'Checkout', orderDetails: 'Order Details', yourDetails: 'Your Details',
+    orderType: 'Order Type', dineIn: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery',
+    fullName: 'Full Name', phoneNumber: 'Phone Number', deliveryAddress: 'Delivery Address',
+    paymentMethod: 'Payment Method', cash: 'Cash', card: 'Card / PayHere',
+    scheduleOrder: 'Schedule Order', orderNow: 'Order Now', scheduleForLater: 'Schedule for Later',
+    addTip: 'Add a tip', tipNote: '100% of tips go to the restaurant team.',
+    tipNone: 'None', tipCustom: 'Custom', enterTipAmount: 'Enter tip amount (Rs.)',
+    billSummary: 'Bill Summary', subtotal: 'Subtotal', discountsApplied: 'Discounts Applied',
+    serviceCharge: 'Service Charge (10%)', taxes: 'Taxes (10%)', deliveryFee: 'Delivery Fee',
+    tip: 'Tip', rounding: 'Rounding Adjustment', totalPayable: 'Total Payable',
+    placeOrder: 'Place Order', processing: 'Processing Order…',
+    minSpend: 'Min spend for delivery is Rs. {min}. (Currently: Rs. {current})',
+    promoCode: 'Promo Code', apply: 'Apply', redeemPoints: 'Redeem Loyalty Points',
+
+    // ── Order tracking ──
+    trackOrder: 'Track Your Order', orderReference: 'Order Reference', invoiceNo: 'Invoice No',
+    totalAmount: 'Total Amount', cancelOrder: 'Cancel Order', cancelling: 'Cancelling…',
+    cancelHint: 'You can cancel until the kitchen accepts your order.',
+    cancelConfirm: 'Cancel this order? This cannot be undone.', orderCancelled: 'Your order has been cancelled.',
+    statusPending: 'Pending', statusPreparing: 'Preparing', statusReady: 'Ready', statusCompleted: 'Completed',
+    statusCancelled: 'Cancelled', rateOrder: 'Rate your order', submitFeedback: 'Submit Feedback',
+
+    // ── Profile / auth ──
+    myAccount: 'My Account', editProfile: 'Edit Profile', savedAddresses: 'Saved Addresses',
+    savedCards: 'Saved Cards', orderHistory: 'Order History', logout: 'Log Out',
+    loyaltyPoints: 'Loyalty Points', save: 'Save', cancel: 'Cancel', add: 'Add',
+    signIn: 'Sign In', register: 'Register', createAccount: 'Create Account',
+    email: 'Email', password: 'Password', confirmPassword: 'Confirm Password',
+    alreadyHaveAccount: 'Already have an account?', noAccount: "Don't have an account?"
+  },
+
+  si: {
+    navMenu: 'මෙනුව', navCart: 'කරත්තය', navTrack: 'ලුහුබැඳීම', navAccount: 'ගිණුම', navSignIn: 'පිවිසෙන්න',
+    language: 'භාෂාව',
+    installTitle: 'GastroFlow ස්ථාපනය කරන්න', installBody: 'ඉක්මන් ඇණවුම් සඳහා මුල් තිරයට එක් කරන්න.', install: 'ස්ථාපනය',
+    loading: 'පූරණය වෙමින්…',
+
+    searchPlaceholder: 'කෑම, බීම හෝ ද්‍රව්‍ය සොයන්න...',
+    all: 'සියල්ල', soldOut: 'අවසන් වී ඇත', onlyLeft: '{count} ක් ඉතිරිව ඇත!',
+    viewCart: 'කරත්තය බලන්න', addToCart: 'එක් කරන්න',
+    customizerTitle: 'කෑම සකසන්න', quantity: 'ප්‍රමාණය', instructions: 'විශේෂ සටහන්',
+    aiAssistant: 'AI ඇණවුම් සහායකයා',
+    groupOrder: 'කණ්ඩායම් ඇණවුම්', startGroup: 'කණ්ඩායම් ඇණවුම අරඹන්න', shareLink: 'සබැඳිය පිටපත් කරන්න',
+    activeGroup: 'කණ්ඩායම් ඇණවුම ක්‍රියාත්මකයි', enterParticipant: 'කණ්ඩායමට එකතු වීමට ඔබේ නම ඇතුළත් කරන්න', join: 'එක්වන්න',
+    close: 'වසා දමන්න', dietaryFilters: 'ආහාර පෙරහන්',
+    veg: 'නිර්මාංශ 🥗', spicy: 'සැර 🌶️', gf: 'ග්ලූටන් රහිත 🌾', halal: 'හලාල් 🕌', nutFree: 'කජු/ඇට වර්ග රහිත 🥜',
+    welcome: 'GastroFlow වෙත සාදරයෙන් පිළිගනිමු', recommend: 'නිර්දේශිත ආහාර',
+    personalizedTitle: '⚡ ඔබේ ප්‍රියතම ආහාර නැවත ඇණවුම් කරන්න',
+    aboutChat: "සැර කෑම, නිර්මාංශ, හලාල් හෝ ග්ලූටන් රහිත ආහාර සෙවීමට අසන්න, නැතහොත් 'add [dish]' ලෙස ලියන්න!",
+    groupDesc: 'යහළුවන් සමඟ එක්ව ඇණවුම් කරන්න. ලින්ක් එක ශෙයා කර, කෑම එක් කර, එක් වරකින් ගෙවන්න!',
+    storeClosed: 'මාර්ගගත ඇණවුම් සඳහා දැනට වසා ඇත',
+    storeClosedDesc: 'අපගේ කුස්සිය වසා ඇත. ඔබට මෙනුව බැලිය හැක, නමුත් ඇණවුම් තාවකාලිකව අක්‍රීයයි.',
+
+    checkout: 'ගෙවීම', orderDetails: 'ඇණවුම් විස්තර', yourDetails: 'ඔබේ විස්තර',
+    orderType: 'ඇණවුම් වර්ගය', dineIn: 'අවන්හලේ', takeaway: 'රැගෙන යාම', delivery: 'ගෙන්වා ගැනීම',
+    fullName: 'සම්පූර්ණ නම', phoneNumber: 'දුරකථන අංකය', deliveryAddress: 'බෙදාහැරීමේ ලිපිනය',
+    paymentMethod: 'ගෙවීමේ ක්‍රමය', cash: 'මුදල්', card: 'කාඩ්පත / PayHere',
+    scheduleOrder: 'ඇණවුම සැලසුම් කරන්න', orderNow: 'දැන් ඇණවුම් කරන්න', scheduleForLater: 'පසුවට සැලසුම් කරන්න',
+    addTip: 'ත්‍යාගයක් එක් කරන්න', tipNote: 'ත්‍යාග 100% ක්ම අවන්හල් කණ්ඩායමට යයි.',
+    tipNone: 'නැත', tipCustom: 'අභිමත', enterTipAmount: 'ත්‍යාග මුදල ඇතුළත් කරන්න (රු.)',
+    billSummary: 'බිල් සාරාංශය', subtotal: 'උප එකතුව', discountsApplied: 'වට්ටම්',
+    serviceCharge: 'සේවා ගාස්තුව (10%)', taxes: 'බදු (10%)', deliveryFee: 'බෙදාහැරීමේ ගාස්තුව',
+    tip: 'ත්‍යාගය', rounding: 'වටකුරු ගැලපීම', totalPayable: 'ගෙවිය යුතු එකතුව',
+    placeOrder: 'ඇණවුම් කරන්න', processing: 'ඇණවුම සකසමින්…',
+    minSpend: 'බෙදාහැරීම සඳහා අවම මුදල රු. {min}. (දැනට: රු. {current})',
+    promoCode: 'ප්‍රවර්ධන කේතය', apply: 'යොදන්න', redeemPoints: 'පක්ෂපාතී ලකුණු මුදවා ගන්න',
+
+    trackOrder: 'ඔබේ ඇණවුම ලුහුබඳින්න', orderReference: 'ඇණවුම් යොමුව', invoiceNo: 'ඉන්වොයිස් අංකය',
+    totalAmount: 'මුළු මුදල', cancelOrder: 'ඇණවුම අවලංගු කරන්න', cancelling: 'අවලංගු කරමින්…',
+    cancelHint: 'කුස්සිය ඇණවුම පිළිගන්නා තෙක් ඔබට අවලංගු කළ හැක.',
+    cancelConfirm: 'මෙම ඇණවුම අවලංගු කරන්නද? මෙය ආපසු හැරවිය නොහැක.', orderCancelled: 'ඔබේ ඇණවුම අවලංගු කර ඇත.',
+    statusPending: 'පොරොත්තුවෙන්', statusPreparing: 'සකසමින්', statusReady: 'සූදානම්', statusCompleted: 'සම්පූර්ණයි',
+    statusCancelled: 'අවලංගුයි', rateOrder: 'ඔබේ ඇණවුම ශ්‍රේණිගත කරන්න', submitFeedback: 'ප්‍රතිපෝෂණ යවන්න',
+
+    myAccount: 'මගේ ගිණුම', editProfile: 'පැතිකඩ සංස්කරණය', savedAddresses: 'සුරකින ලද ලිපින',
+    savedCards: 'සුරකින ලද කාඩ්පත්', orderHistory: 'ඇණවුම් ඉතිහාසය', logout: 'පිටවන්න',
+    loyaltyPoints: 'පක්ෂපාතී ලකුණු', save: 'සුරකින්න', cancel: 'අවලංගු', add: 'එක් කරන්න',
+    signIn: 'පිවිසෙන්න', register: 'ලියාපදිංචි වන්න', createAccount: 'ගිණුමක් සාදන්න',
+    email: 'ඊමේල්', password: 'මුරපදය', confirmPassword: 'මුරපදය තහවුරු කරන්න',
+    alreadyHaveAccount: 'දැනටමත් ගිණුමක් තිබේද?', noAccount: 'ගිණුමක් නැද්ද?'
+  },
+
+  ta: {
+    navMenu: 'மெனு', navCart: 'கூடை', navTrack: 'கண்காணி', navAccount: 'கணக்கு', navSignIn: 'உள்நுழை',
+    language: 'மொழி',
+    installTitle: 'GastroFlow ஐ நிறுவு', installBody: 'விரைவான ஆர்டருக்கு முகப்புத் திரையில் சேர்க்கவும்.', install: 'நிறுவு',
+    loading: 'ஏற்றுகிறது…',
+
+    searchPlaceholder: 'உணவுகள், பானங்கள் அல்லது பொருட்களைத் தேடுங்கள்...',
+    all: 'அனைத்தும்', soldOut: 'முடிந்துவிட்டது', onlyLeft: '{count} மட்டுமே மீதமுள்ளது!',
+    viewCart: 'கூடையைப் பார்க்கவும்', addToCart: 'கூடையில் சேர்க்கவும்',
+    customizerTitle: 'உணவை மாற்றுங்கள்', quantity: 'அளவு', instructions: 'சிறப்பு குறிப்புகள்',
+    aiAssistant: 'AI உதவியாளர்',
+    groupOrder: 'குழு ஒழுங்கு', startGroup: 'குழு ஒழுங்கைத் தொடங்கவும்', shareLink: 'நகலெடு',
+    activeGroup: 'குழு ஒழுங்கு செயலில் உள்ளது', enterParticipant: 'குழுவில் இணைய உங்கள் பெயரை உள்ளிடவும்', join: 'இணையுங்கள்',
+    close: 'மூடுக', dietaryFilters: 'உணவு வடிப்பான்கள்',
+    veg: 'சைவம் 🥗', spicy: 'காரமான 🌶️', gf: 'பசையம் இல்லாத 🌾', halal: 'ஹலால் 🕌', nutFree: 'கொட்டைகள் இல்லாத 🥜',
+    welcome: 'GastroFlow அன்புடன் வரவேற்கிறது', recommend: 'பரிந்துரைக்கப்பட்டவை',
+    personalizedTitle: '⚡ உங்களுக்கு பிடித்தவை',
+    aboutChat: "காரமான உணவுகள், சைவம், ஹலால் அல்லது பசையம் இல்லாத உணவுகள் பற்றி கேளுங்கள், அல்லது 'add [உணவு]' என டைப் செய்யவும்!",
+    groupDesc: 'நண்பர்களுடன் சேர்ந்து ஆர்டர் செய்யுங்கள். இணைப்பைப் பகிர்ந்து, பொருட்களைச் சேர்த்து, ஒரே நேரத்தில் பணம் செலுத்துங்கள்!',
+    storeClosed: 'ஆன்லைன் ஆர்டர்களுக்கு தற்போது மூடப்பட்டுள்ளது',
+    storeClosedDesc: 'எங்கள் சமையலறை மூடப்பட்டுள்ளது. மெனுவைப் பார்க்கலாம், ஆனால் ஆர்டர் செய்வது தற்காலிகமாக முடக்கப்பட்டுள்ளது.',
+
+    checkout: 'செக்அவுட்', orderDetails: 'ஆர்டர் விவரங்கள்', yourDetails: 'உங்கள் விவரங்கள்',
+    orderType: 'ஆர்டர் வகை', dineIn: 'உணவகத்தில்', takeaway: 'எடுத்துச் செல்', delivery: 'டெலிவரி',
+    fullName: 'முழு பெயர்', phoneNumber: 'தொலைபேசி எண்', deliveryAddress: 'டெலிவரி முகவரி',
+    paymentMethod: 'கட்டண முறை', cash: 'பணம்', card: 'கார்டு / PayHere',
+    scheduleOrder: 'ஆர்டரைத் திட்டமிடு', orderNow: 'இப்போது ஆர்டர் செய்', scheduleForLater: 'பின்னர் திட்டமிடு',
+    addTip: 'உதவித்தொகை சேர்', tipNote: 'உதவித்தொகையில் 100% உணவக ஊழியர்களுக்கு செல்கிறது.',
+    tipNone: 'இல்லை', tipCustom: 'விருப்பம்', enterTipAmount: 'உதவித்தொகையை உள்ளிடவும் (ரூ.)',
+    billSummary: 'பில் சுருக்கம்', subtotal: 'கூட்டுத்தொகை', discountsApplied: 'தள்ளுபடிகள்',
+    serviceCharge: 'சேவைக் கட்டணம் (10%)', taxes: 'வரிகள் (10%)', deliveryFee: 'டெலிவரி கட்டணம்',
+    tip: 'உதவித்தொகை', rounding: 'ரவுண்டிங் சரிசெய்தல்', totalPayable: 'செலுத்த வேண்டிய மொத்தம்',
+    placeOrder: 'ஆர்டர் செய்', processing: 'ஆர்டர் செயலாக்கம்…',
+    minSpend: 'டெலிவரிக்கான குறைந்தபட்சம் ரூ. {min}. (தற்போது: ரூ. {current})',
+    promoCode: 'ப்ரோமோ கோட்', apply: 'பயன்படுத்து', redeemPoints: 'விசுவாசப் புள்ளிகளை மீட்டெடு',
+
+    trackOrder: 'உங்கள் ஆர்டரைக் கண்காணி', orderReference: 'ஆர்டர் குறிப்பு', invoiceNo: 'இன்வாய்ஸ் எண்',
+    totalAmount: 'மொத்த தொகை', cancelOrder: 'ஆர்டரை ரத்து செய்', cancelling: 'ரத்து செய்கிறது…',
+    cancelHint: 'சமையலறை ஏற்கும் வரை நீங்கள் ரத்து செய்யலாம்.',
+    cancelConfirm: 'இந்த ஆர்டரை ரத்து செய்யவா? இதை மீட்டெடுக்க முடியாது.', orderCancelled: 'உங்கள் ஆர்டர் ரத்து செய்யப்பட்டது.',
+    statusPending: 'நிலுவையில்', statusPreparing: 'தயாராகிறது', statusReady: 'தயார்', statusCompleted: 'முடிந்தது',
+    statusCancelled: 'ரத்து செய்யப்பட்டது', rateOrder: 'உங்கள் ஆர்டரை மதிப்பிடு', submitFeedback: 'கருத்தை சமர்ப்பி',
+
+    myAccount: 'என் கணக்கு', editProfile: 'சுயவிவரத்தைத் திருத்து', savedAddresses: 'சேமித்த முகவரிகள்',
+    savedCards: 'சேமித்த கார்டுகள்', orderHistory: 'ஆர்டர் வரலாறு', logout: 'வெளியேறு',
+    loyaltyPoints: 'விசுவாசப் புள்ளிகள்', save: 'சேமி', cancel: 'ரத்து', add: 'சேர்',
+    signIn: 'உள்நுழை', register: 'பதிவு செய்', createAccount: 'கணக்கை உருவாக்கு',
+    email: 'மின்னஞ்சல்', password: 'கடவுச்சொல்', confirmPassword: 'கடவுச்சொல்லை உறுதிப்படுத்து',
+    alreadyHaveAccount: 'ஏற்கனவே கணக்கு உள்ளதா?', noAccount: 'கணக்கு இல்லையா?'
+  }
+};

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link id="app-icon" rel="icon" type="image/png" href="/food-logo.png" />
+    <link id="app-apple-icon" rel="apple-touch-icon" href="/food-logo.png" />
+    <link id="app-manifest" rel="manifest" href="/manifest.json" />
+    <!-- Allow viewport control & safe-area insets; prevent mobile auto-zoom on input focus -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta id="app-theme-color" name="theme-color" content="#ff6b35" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta id="app-mobile-title" name="apple-mobile-web-app-title" content="GastroFood" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Order your favourite meals online — fast, easy, delicious." />
+    <title id="app-page-title">GastroFlow — Food Delivery & Marketplace</title>
+    <script>
+      (function() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('mode') === 'driver' || params.get('driver') === '1') {
+          document.addEventListener('DOMContentLoaded', function() {
+            const icon = document.getElementById('app-icon');
+            const appleIcon = document.getElementById('app-apple-icon');
+            const manifest = document.getElementById('app-manifest');
+            const theme = document.getElementById('app-theme-color');
+            const title = document.getElementById('app-page-title');
+            const mobileTitle = document.getElementById('app-mobile-title');
+            
+            if (icon) icon.href = "/driver-logo.png";
+            if (appleIcon) appleIcon.href = "/driver-logo.png";
+            if (manifest) manifest.href = "/driver-manifest.json";
+            if (theme) theme.content = '#10b981';
+            if (mobileTitle) mobileTitle.content = 'GastroDriver';
+            if (title) title.innerText = 'GastroFlow — Rider Partner Portal';
+          });
+        }
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- PayHere Payment Gateway SDK -->
+    <script type="text/javascript" src="https://www.payhere.lk/lib/payhere.js"></script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check server.js)",
+      "Bash(NODE_ENV=production JWT_SECRET= PAYHERE_MERCHANT_SECRET= node server.js)",
+      "Bash(echo \"exit code: $?\")",
+      "Read(//tmp/**)",
+      "Bash(npx vite *)",
+      "Bash(bash test_invoice.sh)",
+      "Bash(cd \"C:\\\\Users\\\\DELL\\\\.claude\\\\projects\\\\C--Users-DELL-Downloads-restaurant-pos\\\\memory\" && ls -la 2>/dev/null && echo \"---\" && cat MEMORY.md 2>/dev/null || echo \"no MEMORY.md yet\")",
+      "Bash(node -e \"const s=require\\('sqlite3'\\).verbose\\(\\);const db=new s.Database\\('restaurant.db'\\);db.get\\('SELECT COUNT\\(*\\) total, COUNT\\(imageUrl\\) withImg FROM menu_items',\\(e,r\\)=>{console.log\\(r\\);db.close\\(\\);}\\);\")",
+      "Bash(bash test_b10.sh)",
+      "Bash(CREATE\" server.js | head -120)",
+      "Bash(grep -nE \"app\\\\.\\(get|post|put|patch|delete\\)\\\\\\(|app\\\\.use\\\\\\(authenticateToken|function settleOrderPaid|function resolveAndCalculateBill|const authenticateToken|function requireRole|createTable|CREATE TABLE|function notifyOrderUpdate|sse|SSE|EventSource|dbRun\\\\\\(`CREATE\" server.js | head -120)",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\('nodemailer', require\\('nodemailer/package.json'\\).version\\)\")",
+      "Bash(node --check lib/notifications.js)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"store-info: %{http_code}\\\\n\" http://localhost:5000/api/public/store-info)",
+      "Bash(curl -s -o /dev/null -w \"otp/send: %{http_code}\\\\n\" -X POST http://localhost:5000/api/otp/send -H \"Content-Type: application/json\" -d '{\"channel\":\"sms\",\"destination\":\"0771234567\"}')",
+      "Bash(taskkill //PID 23772 //F)",
+      "Bash(curl -s -o /dev/null -w \"after kill: %{http_code}\\\\n\" http://localhost:5000/api/public/store-info)",
+      "Bash(taskkill //PID 27864 //F)",
+      "Bash(curl -s http://localhost:5000/api/public/store-info)",
+      "Bash(curl -s -X POST http://localhost:5000/api/otp/send -H \"Content-Type: application/json\" -d '{\"channel\":\"sms\",\"destination\":\"0771234567\",\"purpose\":\"order_verify\"}')",
+      "Bash(curl -s -X POST http://localhost:5000/api/public/orders -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s -o /dev/null -w \"driver page HTTP: %{http_code}\\\\n\" http://localhost:5000/driver/ord_test_123)",
+      "Bash(curl -s http://localhost:5000/driver/ord_test_123)",
+      "Bash(curl -s \"http://localhost:5000/api/public/geocode?q=Anuradhapura%20Road%2C%20Galgamuwa\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(' •',x['label'][:80],'->',x['lat'],x['lng']\\) for x in d[:4]]\")",
+      "Bash(curl -s \"http://localhost:5000/api/public/geocode?q=Galgamuwa\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(' results:',len\\(d\\)\\); [print\\(' •',x['label'][:70]\\) for x in d[:2]]\")",
+      "Bash(curl -s -o /dev/null -w \"  store-info: HTTP %{http_code}\\\\n\" -H \"Origin: http://localhost:3001\" http://localhost:5000/api/public/store-info)",
+      "Bash(curl -s -o /dev/null -w \"  menu:       HTTP %{http_code}\\\\n\" -H \"Origin: http://localhost:3001\" http://localhost:5000/api/public/menu)",
+      "Bash(curl -s -D - -o /dev/null -H \"Origin: http://localhost:3001\" http://localhost:5000/api/public/store-info)",
+      "Bash(curl -s -o /dev/null -w \"  evil.com:   HTTP %{http_code}\\\\n\" -H \"Origin: http://evil.com\" http://localhost:5000/api/public/store-info)",
+      "Bash(curl -s \"http://localhost:3001/src/components/LocationPicker.jsx\")",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST -H \"Origin: http://localhost:3001\" -H \"Content-Type: application/json\" -d '{\"message\":\"recommend something vegetarian\"}' http://localhost:5000/api/ai/chat)",
+      "Bash(curl -s -X POST -H \"Origin: http://localhost:3001\" -H \"Content-Type: application/json\" -d '{\"message\":\"recommend something\"}' http://localhost:5000/api/ai/chat)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" -X POST -H \"Origin: http://localhost:3001\" -H \"Content-Type: application/json\" -d '{}' http://localhost:5000/api/ai/chat)"
+    ]
+  }
+}

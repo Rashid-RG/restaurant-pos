@@ -1,0 +1,370 @@
+import React, { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api.js';
+import { useLang } from '../context/LanguageContext.jsx';
+
+const CUISINE_CATEGORIES = [
+  { id: 'all', label: 'All', icon: '🍽️' },
+  { id: 'srilankan', label: 'Sri Lankan', icon: '🍛' },
+  { id: 'burgers', label: 'Burgers', icon: '🍔' },
+  { id: 'pizza', label: 'Pizza', icon: '🍕' },
+  { id: 'asian', label: 'Asian', icon: '🍜' },
+  { id: 'healthy', label: 'Healthy', icon: '🥗' },
+  { id: 'desserts', label: 'Desserts', icon: '🍰' }
+];
+
+export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }) {
+  const { dict: t } = useLang();
+  const [restaurants, setRestaurants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [activeCuisine, setActiveCuisine] = useState('all');
+
+  const [deliveryLocation, setDeliveryLocation] = useState(
+    localStorage.getItem('gastroflow_delivery_address') || 'Detecting Location...'
+  );
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [isDetectingGps, setIsDetectingGps] = useState(false);
+  const [customAddressInput, setCustomAddressInput] = useState('');
+
+  // Auto detect location on load if default
+  useEffect(() => {
+    const saved = localStorage.getItem('gastroflow_delivery_address');
+    if (!saved || saved === 'Detecting Location...') {
+      detectRealGpsLocation();
+    }
+  }, []);
+
+  const detectRealGpsLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setDeliveryLocation('Colombo 03, Sri Lanka');
+      toast('Geolocation not supported by browser', 'warning');
+      return;
+    }
+    setIsDetectingGps(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            const city = addr.suburb || addr.city || addr.town || addr.village || addr.county || 'Sri Lanka';
+            const state = addr.state || 'Sri Lanka';
+            const resolvedStr = `${city}, ${state}`;
+            setDeliveryLocation(resolvedStr);
+            localStorage.setItem('gastroflow_delivery_address', resolvedStr);
+            toast(`📍 Location set to ${resolvedStr}`, 'success');
+          } else {
+            const coordsStr = `GPS Location (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
+            setDeliveryLocation(coordsStr);
+            localStorage.setItem('gastroflow_delivery_address', coordsStr);
+          }
+        } catch (e) {
+          setDeliveryLocation('Colombo 03, Sri Lanka');
+        } finally {
+          setIsDetectingGps(false);
+        }
+      },
+      (err) => {
+        console.warn('Geolocation error:', err);
+        setDeliveryLocation('Colombo 03, Sri Lanka');
+        setIsDetectingGps(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleSelectPredefinedCity = (cityStr) => {
+    setDeliveryLocation(cityStr);
+    localStorage.setItem('gastroflow_delivery_address', cityStr);
+    setShowLocationModal(false);
+    toast(`Delivery location updated: ${cityStr}`, 'success');
+  };
+
+  const handleSaveCustomAddress = (e) => {
+    e.preventDefault();
+    if (!customAddressInput.trim()) return;
+    setDeliveryLocation(customAddressInput);
+    localStorage.setItem('gastroflow_delivery_address', customAddressInput);
+    setShowLocationModal(false);
+    setCustomAddressInput('');
+    toast(`Delivery address saved: ${customAddressInput}`, 'success');
+  };
+
+  useEffect(() => {
+    fetchRestaurants();
+  }, []);
+
+  const fetchRestaurants = async () => {
+    try {
+      const data = await apiFetch('/public/restaurants');
+      setRestaurants(data || []);
+    } catch (err) {
+      console.error('Error fetching restaurants:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filtered = restaurants.filter(r => {
+    const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase()) ||
+                          r.cuisine.toLowerCase().includes(search.toLowerCase());
+    const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
+    return matchesSearch && matchesCuisine;
+  });
+
+  return (
+    <div style={{ padding: '16px', maxWidth: 600, margin: '0 auto', paddingBottom: 90, fontFamily: 'system-ui, sans-serif' }}>
+      
+      {/* Top Location & Banner */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ cursor: 'pointer' }} onClick={() => setShowLocationModal(true)}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+            Delivering to
+          </div>
+          <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            📍 {isDetectingGps ? 'Detecting GPS Location...' : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
+          </div>
+        </div>
+        <div style={{ background: '#ff6b3515', color: '#ff6b35', padding: '6px 12px', borderRadius: 20, fontSize: '0.78rem', fontWeight: 700 }}>
+          🛵 15-35 Mins
+        </div>
+      </div>
+
+      {/* Location Picker Modal */}
+      {showLocationModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#111827', border: '1px solid #374151', borderRadius: 16, padding: 24, maxWidth: 440, width: '100%', color: '#f8fafc' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 Select Delivery Location</h3>
+              <button onClick={() => setShowLocationModal(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            {/* GPS Auto-detect button */}
+            <button
+              onClick={() => { detectRealGpsLocation(); setShowLocationModal(false); }}
+              disabled={isDetectingGps}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: 12,
+                background: '#10b981',
+                color: '#fff',
+                border: 'none',
+                fontWeight: 800,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                marginBottom: 16
+              }}
+            >
+              <span>🎯 {isDetectingGps ? 'Locating via GPS...' : 'Use My Current Real GPS Location'}</span>
+            </button>
+
+            <div style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', marginBottom: 10 }}>
+              Popular Sri Lankan Locations:
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+              {[
+                'Colombo 03, Western',
+                'Kandy City, Central',
+                'Galle Fort, Southern',
+                'Dehiwala, Western',
+                'Nugegoda, Western',
+                'Negombo, Western',
+                'Jaffna City, Northern',
+                'Battaramulla, Western'
+              ].map(loc => (
+                <button
+                  key={loc}
+                  onClick={() => handleSelectPredefinedCity(loc)}
+                  style={{
+                    padding: '10px',
+                    borderRadius: 8,
+                    background: '#1f2937',
+                    border: '1px solid #374151',
+                    color: '#f8fafc',
+                    fontSize: '0.82rem',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontWeight: 600
+                  }}
+                >
+                  📍 {loc}
+                </button>
+              ))}
+            </div>
+
+            {/* Manual Custom Address Form */}
+            <form onSubmit={handleSaveCustomAddress} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <label style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700 }}>Or Enter Custom Address / Landmark:</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="e.g. 45 Main Street, Kandy"
+                  value={customAddressInput}
+                  onChange={e => setCustomAddressInput(e.target.value)}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: '#1f2937', border: '1px solid #374151', color: '#fff', fontSize: '0.88rem' }}
+                />
+                <button type="submit" style={{ padding: '10px 16px', borderRadius: 8, background: '#ff6b35', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Hero Marketplace Banner Carousel */}
+      <div style={{ background: 'linear-gradient(135deg, #ff6b35 0%, #f97316 50%, #e11d48 100%)', borderRadius: 16, padding: 18, color: '#fff', marginBottom: 20, boxShadow: '0 8px 24px rgba(255,107,53,0.3)', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'relative', zIndex: 2 }}>
+          <span style={{ background: 'rgba(255,255,255,0.25)', padding: '3px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            🎉 UberEats-Style Multi-Store Marketplace
+          </span>
+          <h2 style={{ margin: '8px 0 4px', fontSize: '1.4rem', fontWeight: 900, lineHeight: 1.2 }}>
+            Craving something delicious?
+          </h2>
+          <p style={{ margin: 0, fontSize: '0.82rem', opacity: 0.9 }}>
+            Order from top local Sri Lankan & International restaurants near you!
+          </p>
+        </div>
+        <div style={{ position: 'absolute', right: -10, bottom: -10, fontSize: '5rem', opacity: 0.25, pointerEvents: 'none' }}>
+          🍔
+        </div>
+      </div>
+
+      {/* Search Input */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ position: 'relative' }}>
+          <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem', color: 'var(--text-muted)' }}>🔍</span>
+          <input
+            className="form-control"
+            placeholder="Search restaurants or cuisines (Burgers, Pizza, Rice)..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ paddingLeft: 42, height: 48, borderRadius: 24, fontSize: '16px' }}
+          />
+        </div>
+      </div>
+
+      {/* Cuisine Tag Selector */}
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 16, scrollbarWidth: 'none' }}>
+        {CUISINE_CATEGORIES.map(c => (
+          <button
+            key={c.id}
+            onClick={() => setActiveCuisine(c.id)}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 20,
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              border: activeCuisine === c.id ? 'none' : '1px solid var(--border-color)',
+              background: activeCuisine === c.id ? 'var(--brand)' : 'var(--surface-1)',
+              color: activeCuisine === c.id ? '#fff' : 'var(--text-1)',
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+          >
+            <span>{c.icon}</span>
+            <span>{c.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Restaurants List Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
+          Popular Stores Near You ({filtered.length})
+        </h3>
+        <span style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 700 }}>See All ➔</span>
+      </div>
+
+      {/* Restaurants Grid / Cards */}
+      {loading ? (
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <div className="spinner" />
+          <p style={{ marginTop: 12, color: 'var(--text-muted)' }}>Loading local restaurants...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: 32, background: 'var(--surface-1)', borderRadius: 16, border: '1px solid var(--border-color)', textAlign: 'center' }}>
+          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏪</div>
+          <h4 style={{ margin: 0, color: 'var(--text-1)' }}>No restaurants found</h4>
+          <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Try searching for another dish or cuisine type.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 18 }}>
+          {filtered.map(r => (
+            <div
+              key={r.id}
+              onClick={() => onSelectRestaurant && onSelectRestaurant(r)}
+              style={{
+                background: 'var(--surface-1)',
+                borderRadius: 16,
+                border: '1px solid var(--border-color)',
+                overflow: 'hidden',
+                boxShadow: 'var(--shadow-sm)',
+                cursor: 'pointer',
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+              }}
+            >
+              {/* Banner Cover Image / Banner */}
+              <div style={{ height: 130, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: '4rem' }}>{r.emoji || '🏬'}</span>
+                
+                {/* Promo Badge */}
+                {r.promoBadge && (
+                  <span style={{ position: 'absolute', top: 12, left: 12, background: '#10b981', color: '#fff', padding: '4px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800 }}>
+                    🏷️ {r.promoBadge}
+                  </span>
+                )}
+
+                {/* Store Open Pill */}
+                <span style={{ position: 'absolute', top: 12, right: 12, background: r.isOpen ? 'rgba(0,0,0,0.65)' : 'rgba(239,68,68,0.9)', color: '#fff', padding: '4px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 700, backdropFilter: 'blur(4px)' }}>
+                  {r.isOpen ? '🟢 Open Now' : '🔴 Closed'}
+                </span>
+              </div>
+
+              {/* Card Details */}
+              <div style={{ padding: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                  <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
+                    {r.name}
+                  </h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f59e0b15', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.8rem', fontWeight: 800 }}>
+                    ⭐ {r.rating || '4.8'} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500 }}>({r.ratingCount || '120+'})</span>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                  {r.cuisine} · 📍 {r.location || 'Colombo'}
+                </div>
+
+                {/* Delivery Stats Bar */}
+                <div style={{ display: 'flex', gap: 14, fontSize: '0.78rem', color: 'var(--text-1)', fontWeight: 600, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    ⏱️ {r.deliveryTime || '20-30 min'}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    🚚 LKR {r.deliveryFee || 150} Fee
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
+                    Min: LKR {r.minOrder || 1000}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
