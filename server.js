@@ -4124,12 +4124,8 @@ app.post('/api/public/payment/payhere/notify', express.urlencoded({ extended: tr
 
 // ── Static Frontend Assets & Single Page App (SPA) Routing ──
 const posDistPath = path.join(__dirname, 'dist');
-const customerDistPath = fs.existsSync(path.join(__dirname, 'apps', 'customer-web', 'dist'))
-  ? path.join(__dirname, 'apps', 'customer-web', 'dist')
-  : path.join(__dirname, 'dist', 'customer');
-const driverDistPath = fs.existsSync(path.join(__dirname, 'apps', 'driver-web', 'dist'))
-  ? path.join(__dirname, 'apps', 'driver-web', 'dist')
-  : path.join(__dirname, 'dist', 'driver-app');
+const customerDistPath = path.join(__dirname, 'apps', 'customer-web', 'dist');
+const driverDistPath = path.join(__dirname, 'apps', 'driver-web', 'dist');
 
 if (fs.existsSync(customerDistPath)) {
   app.use('/customer', express.static(customerDistPath));
