@@ -79,6 +79,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1); // Trust reverse proxy on Render / Cloudflare for rate-limiting
 export { app };
 const PORT = process.env.PORT || 5000;
 
@@ -2620,7 +2621,7 @@ app.post('/api/delivery/assign', authenticateToken, async (req, res) => {
 // ── SUPPORT & COMPLAINT TICKETS ENDPOINTS ──
 app.get('/api/tickets', authenticateToken, async (req, res) => {
   try {
-    const tickets = await dbAll('SELECT * FROM support_tickets ORDER BY timestamp DESC');
+    const tickets = await dbAll('SELECT * FROM support_tickets WHERE tenant_id = ? ORDER BY createdAt DESC', [req.tenantId]);
     res.json(tickets);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
