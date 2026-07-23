@@ -189,7 +189,7 @@ export default function App() {
       )}
 
       <header className="driver-header">
-        <img src="/driver-logo.png" alt="GastroDriver" className="driver-logo-img" />
+        <img src="driver-logo.png" alt="GastroDriver" className="driver-logo-img" />
         <span className="driver-title">GastroDriver</span>
         <span className="driver-badge">Fleet Partner</span>
       </header>

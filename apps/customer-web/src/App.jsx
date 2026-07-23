@@ -262,7 +262,7 @@ function InnerApp() {
       {/* Top Header */}
       <header className="top-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="/food-logo.png" alt="GastroFood Logo" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', boxShadow: '0 2px 8px rgba(255,107,53,0.25)' }} />
+          <img src="food-logo.png" alt="GastroFood Logo" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', boxShadow: '0 2px 8px rgba(255,107,53,0.25)' }} />
           <span className="restaurant-name" style={{ fontSize: '1.35rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px' }}>
             GastroFlow
           </span>
@@ -320,7 +320,7 @@ function InnerApp() {
           color: 'var(--text-muted)'
         }}>
           <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-1)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <img src="/food-logo.png" alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
+            <img src="food-logo.png" alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
             <span>GastroFlow Bistro & Marketplace Platform</span>
           </div>
 
