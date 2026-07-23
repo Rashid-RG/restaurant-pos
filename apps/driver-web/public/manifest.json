@@ -2,15 +2,15 @@
   "short_name": "GastroDriver",
   "name": "GastroFlow Driver Partner Portal",
   "description": "Standalone Delivery Rider App with Google Maps Navigation & Shift COD Handover",
-  "start_url": "/?mode=driver",
-  "scope": "/",
+  "start_url": "/driver-app",
+  "scope": "/driver-app/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#091e15",
   "theme_color": "#10b981",
   "icons": [
     {
-      "src": "/driver-logo.png",
+      "src": "driver-logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
