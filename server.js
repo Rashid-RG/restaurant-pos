@@ -3,6 +3,7 @@ import cors from 'cors';
 import sqlite3 from 'sqlite3';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
@@ -3770,6 +3771,106 @@ app.post('/api/public/orders/:id/driver-location', publicApiLimiter, async (req,
   }
 });
 
+// ── 3.5 PayHere Payment Gateway Sandbox & Live Integration (Public) ──
+app.post('/api/public/payment/payhere/hash', (req, res) => {
+  try {
+    const { orderId, amount, currency = 'LKR' } = req.body;
+    if (!orderId || !amount) {
+      return res.status(400).json({ error: 'orderId and amount are required' });
+    }
+
+    const merchantId = process.env.PAYHERE_MERCHANT_ID || '1220000';
+    const merchantSecret = process.env.PAYHERE_SECRET || '4a8b9c10d2e3f4';
+    const formattedAmount = Number(amount).toFixed(2);
+
+    const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
+    const hashStr = merchantId + orderId + formattedAmount + currency + hashedSecret;
+    const hash = crypto.createHash('md5').update(hashStr).digest('hex').toUpperCase();
+
+    res.json({
+      merchantId,
+      orderId,
+      amount: formattedAmount,
+      currency,
+      hash,
+      sandbox: process.env.PAYHERE_SANDBOX !== 'false'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PayHere Server-to-Server Instant Payment Notification (IPN) Webhook
+app.post('/api/public/payment/payhere/notify', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const {
+      merchant_id,
+      order_id,
+      payment_id,
+      payhere_amount,
+      payhere_currency,
+      status_code,
+      md5sig
+    } = req.body;
+
+    const merchantSecret = process.env.PAYHERE_SECRET || '4a8b9c10d2e3f4';
+    const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
+    const expectedHashStr = merchant_id + order_id + payhere_amount + payhere_currency + status_code + hashedSecret;
+    const expectedHash = crypto.createHash('md5').update(expectedHashStr).digest('hex').toUpperCase();
+
+    if (md5sig !== expectedHash) {
+      console.warn(`[PayHere Webhook] Invalid MD5 signature for Order #${order_id}`);
+      return res.status(400).send('Invalid Signature');
+    }
+
+    if (String(status_code) === '2') { // 2 = PayHere Paid Status
+      await dbRun(`UPDATE orders SET status = 'paid', paymentStatus = 'paid', paymentRef = ? WHERE id = ?`, [payment_id || 'PAYHERE_SUCCESS', order_id]);
+      console.log(`[PayHere Webhook] Order #${order_id} successfully marked as PAID!`);
+    }
+
+    res.status(200).send('OK');
+  } catch (err) {
+    console.error('[PayHere Webhook Error]', err);
+    res.status(500).send(err.message);
+  }
+});
+
+// ── Static Frontend Assets & Single Page App (SPA) Routing ──
+const posDistPath = path.join(__dirname, 'dist');
+const customerDistPath = path.join(__dirname, 'apps', 'customer-web', 'dist');
+const driverDistPath = path.join(__dirname, 'apps', 'driver-web', 'dist');
+
+if (fs.existsSync(posDistPath)) {
+  app.use(express.static(posDistPath));
+}
+if (fs.existsSync(customerDistPath)) {
+  app.use('/customer', express.static(customerDistPath));
+}
+if (fs.existsSync(driverDistPath)) {
+  app.use('/driver-app', express.static(driverDistPath));
+}
+
+// Serve index.html for browser client-side navigation (non-API GET requests)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/driver/')) {
+    return next();
+  }
+
+  if (req.path.startsWith('/customer') && fs.existsSync(path.join(customerDistPath, 'index.html'))) {
+    return res.sendFile(path.join(customerDistPath, 'index.html'));
+  }
+  if (req.path.startsWith('/driver-app') && fs.existsSync(path.join(driverDistPath, 'index.html'))) {
+    return res.sendFile(path.join(driverDistPath, 'index.html'));
+  }
+
+  const posIndex = path.join(posDistPath, 'index.html');
+  if (fs.existsSync(posIndex)) {
+    return res.sendFile(posIndex);
+  }
+
+  res.status(200).send('GastroFlow Backend API is running.');
+});
+
 // Protect all following endpoints (staff only)
 app.use(authenticateToken);
 
@@ -5026,72 +5127,6 @@ app.get('/api/staff/performance', async (req, res) => {
     res.json(staffSales);
   } catch (err) {
     res.status(500).json({ error: err.message });
-  }
-});
-
-// ── 3.5 PayHere Payment Gateway Sandbox & Live Integration ──
-app.post('/api/public/payment/payhere/hash', (req, res) => {
-  try {
-    const { orderId, amount, currency = 'LKR' } = req.body;
-    if (!orderId || !amount) {
-      return res.status(400).json({ error: 'orderId and amount are required' });
-    }
-
-    const merchantId = process.env.PAYHERE_MERCHANT_ID || '1220000';
-    const merchantSecret = process.env.PAYHERE_SECRET || '4a8b9c10d2e3f4';
-    const formattedAmount = Number(amount).toFixed(2);
-
-    // PayHere MD5 Hash Formula:
-    // uppercase( md5( merchant_id + order_id + amount_formatted + currency + uppercase(md5(merchant_secret)) ) )
-    const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
-    const hashStr = merchantId + orderId + formattedAmount + currency + hashedSecret;
-    const hash = crypto.createHash('md5').update(hashStr).digest('hex').toUpperCase();
-
-    res.json({
-      merchantId,
-      orderId,
-      amount: formattedAmount,
-      currency,
-      hash,
-      sandbox: process.env.PAYHERE_SANDBOX !== 'false'
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PayHere Server-to-Server Instant Payment Notification (IPN) Webhook
-app.post('/api/public/payment/payhere/notify', express.urlencoded({ extended: true }), async (req, res) => {
-  try {
-    const {
-      merchant_id,
-      order_id,
-      payment_id,
-      payhere_amount,
-      payhere_currency,
-      status_code,
-      md5sig
-    } = req.body;
-
-    const merchantSecret = process.env.PAYHERE_SECRET || '4a8b9c10d2e3f4';
-    const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
-    const expectedHashStr = merchant_id + order_id + payhere_amount + payhere_currency + status_code + hashedSecret;
-    const expectedHash = crypto.createHash('md5').update(expectedHashStr).digest('hex').toUpperCase();
-
-    if (md5sig !== expectedHash) {
-      console.warn(`[PayHere Webhook] Invalid MD5 signature for Order #${order_id}`);
-      return res.status(400).send('Invalid Signature');
-    }
-
-    if (String(status_code) === '2') { // 2 = PayHere Paid Status
-      await dbRun(`UPDATE orders SET status = 'paid', paymentStatus = 'paid', paymentRef = ? WHERE id = ?`, [payment_id || 'PAYHERE_SUCCESS', order_id]);
-      console.log(`[PayHere Webhook] Order #${order_id} successfully marked as PAID!`);
-    }
-
-    res.status(200).send('OK');
-  } catch (err) {
-    console.error('[PayHere Webhook Error]', err);
-    res.status(500).send(err.message);
   }
 });
 
