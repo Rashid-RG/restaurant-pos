@@ -198,7 +198,7 @@ function InnerApp() {
   const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
-  const { totalItems, setCartOpen } = useCart();
+  const { items, totalItems, setCartOpen } = useCart();
   const { messages, toast } = useToast();
   const { t, lang, setLang, languages } = useLang();
 
