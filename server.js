@@ -61,11 +61,13 @@ const INSECURE_JWT_DEFAULTS = [
 const INSECURE_PAYHERE_DEFAULTS = ['mock_merchant_secret', '4a8b9c10d2e3f4'];
 if (process.env.NODE_ENV === 'production') {
   console.log('[Production] Booting GastroFlow Backend in production mode...');
-  if (!process.env.JWT_SECRET || INSECURE_JWT_DEFAULTS.includes(process.env.JWT_SECRET)) {
+  if (!process.env.JWT_SECRET || INSECURE_JWT_DEFAULTS.includes(process.env.JWT_SECRET.trim())) {
     console.warn('[Production Warning] JWT_SECRET is missing or insecure. Auto-generating a secure 64-byte random secret for this session...');
     process.env.JWT_SECRET = crypto.randomBytes(64).toString('hex');
+  } else {
+    console.log('[Production Success] JWT_SECRET loaded successfully from Environment Variables.');
   }
-  if (!process.env.PAYHERE_MERCHANT_SECRET || INSECURE_PAYHERE_DEFAULTS.includes(process.env.PAYHERE_MERCHANT_SECRET)) {
+  if (!process.env.PAYHERE_MERCHANT_SECRET || INSECURE_PAYHERE_DEFAULTS.includes(process.env.PAYHERE_MERCHANT_SECRET.trim())) {
     console.warn('[Production Warning] PAYHERE_SECRET is missing or insecure. Auto-generating a random secret for sandbox testing...');
     process.env.PAYHERE_MERCHANT_SECRET = crypto.randomBytes(32).toString('hex');
     process.env.PAYHERE_SECRET = process.env.PAYHERE_MERCHANT_SECRET;
