@@ -141,6 +141,23 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
     setCartOpen(true);
   };
 
+  const handleCancelOrder = async (orderId) => {
+    if (!window.confirm('Are you sure you want to cancel this pending order? Items and stock will be restored.')) return;
+    try {
+      const res = await apiFetch(`/public/orders/${orderId}/cancel`, {
+        method: 'POST'
+      });
+      if (res && (res.success || res.status === 'cancelled')) {
+        toast('Order cancelled successfully! Stock restored. 🚫', 'success');
+        fetchOrders();
+      } else {
+        toast(res.error || 'Could not cancel order.', 'error');
+      }
+    } catch (err) {
+      toast(err.message || 'Failed to cancel order.', 'error');
+    }
+  };
+
   if (!customer) {
     return <LoginRegisterView onSuccess={refreshProfile} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
   }
@@ -285,10 +302,29 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
               <div style={{ marginTop: 4, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 {order.items?.map(i => `${i.name} ×${i.quantity}`).join(', ')}
               </div>
-              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '0.72rem', width: 'auto' }} onClick={() => handleReorder(order)}>
                   🔄 Reorder
                 </button>
+                {order.status === 'pending' && (
+                  <button
+                    className="btn btn-danger"
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.72rem',
+                      width: 'auto',
+                      background: '#ef4444',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => handleCancelOrder(order.id)}
+                  >
+                    🚫 Cancel Order
+                  </button>
+                )}
               </div>
             </div>
           ))
