@@ -2243,6 +2243,19 @@ Format your response as valid JSON object:
     let suggestions = [];
     let action = null;
 
+    // Parse customer JWT token for security verification
+    let authedCustomer = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7);
+      try {
+        const decoded = jwt.verify(token, process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+        authedCustomer = decoded;
+      } catch (_) {}
+    }
+
+    const orderIdMatch = msg.match(/ord_[a-zA-Z0-9_]+/i);
+
     // Detect Customer Complaint / Issue Escalation Intent
     const isComplaint = /complain|issue|problem|cold|late|wrong|bad|delay|refund|mistake|help|support|කවුරුත්|අවුල|ගැටලුව|பிரச்சனை/i.test(msg);
     if (isComplaint) {
@@ -2250,7 +2263,7 @@ Format your response as valid JSON object:
       const extractedOrderId = orderIdMatch ? orderIdMatch[0] : null;
       await dbRun(
         'INSERT INTO support_tickets (id, orderId, customerName, customerPhone, issueCategory, message, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [ticketId, extractedOrderId, 'Online Customer', null, 'customer_complaint', message, 'open', Date.now()]
+        [ticketId, extractedOrderId, authedCustomer?.name || 'Online Customer', authedCustomer?.phone || null, 'customer_complaint', message, 'open', Date.now()]
       );
 
       // Real-time escalation notification to POS staff & manager dashboard
@@ -2275,8 +2288,6 @@ Format your response as valid JSON object:
       return res.json({ reply, recommendedItems: [], suggestions, action: null });
     }
 
-    const orderIdMatch = msg.match(/ord_[a-zA-Z0-9_]+/i);
-
     // Detect Order Cancellation intent via GastroAI Bot
     if (msg.includes('cancel') || msg.includes('stop order') || msg.includes('අවලංගු') || msg.includes('රத்து')) {
       const targetId = orderIdMatch ? orderIdMatch[0] : null;
@@ -2293,13 +2304,35 @@ Format your response as valid JSON object:
         return res.json({ reply, recommendedItems: [], suggestions, action: null });
       }
 
+      // 🔒 Security Guard: Check order ownership (authenticated customer OR matching phone/email)
+      const isOwner = authedCustomer && (
+        order.customer_id === authedCustomer.id ||
+        order.customerId === authedCustomer.id ||
+        (order.customerPhone && authedCustomer.phone && normalizeLkPhone(order.customerPhone) === normalizeLkPhone(authedCustomer.phone)) ||
+        (order.customerEmail && authedCustomer.email && order.customerEmail.toLowerCase() === authedCustomer.email.toLowerCase())
+      );
+
+      if (!authedCustomer) {
+        reply = `🔒 **Security Verification Required**:\n\n` +
+          `Please **Sign In to your account** before requesting order cancellation so we can verify your identity.`;
+        suggestions = ['🔑 Sign In Now', '📞 Call Restaurant Manager'];
+        return res.json({ reply, recommendedItems: [], suggestions, action: null });
+      }
+
+      if (!isOwner) {
+        reply = `🔒 **Security Alert**: You are not authorized to cancel order #${targetId}.\n\n` +
+          `For security and privacy, customers can only cancel orders placed from their own verified account.`;
+        suggestions = ['📞 Call Store Manager', '💬 WhatsApp Support'];
+        return res.json({ reply, recommendedItems: [], suggestions, action: null });
+      }
+
       if (order.status === 'pending' || order.status === 'hold') {
         await dbRun("UPDATE orders SET status = 'cancelled' WHERE id = ?", [targetId]);
         const items = await dbAll('SELECT itemId, quantity FROM order_items WHERE orderId = ?', [targetId]);
         for (const it of items) {
           await dbRun('UPDATE menu_items SET stock = stock + ? WHERE id = ?', [it.quantity, it.itemId]);
         }
-        await writeAuditLog('customer_bot', 'customer', 'cancel_order_bot', `Cancelled order ${targetId} via AI Concierge`);
+        await writeAuditLog(authedCustomer.id, 'customer', 'cancel_order_bot', `Cancelled order ${targetId} via AI Concierge`);
 
         // REAL-TIME INSTANT SSE BROADCAST TO POS & KITCHEN
         broadcastEvent('order_updated', { orderId: targetId, status: 'cancelled', message: `Order #${targetId} CANCELLED by customer` });

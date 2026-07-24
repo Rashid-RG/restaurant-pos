@@ -330,17 +330,51 @@ export default function MenuView({ onNavigate, toast }) {
     toast('Group link copied to clipboard! 📋', 'success');
   };
 
+  // Text-To-Speech (TTS) Voice Output Helper
+  const speakTextResponse = (text) => {
+    if (!('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+      const cleanText = String(text).replace(/[*_#`~[\]()]/g, '');
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      
+      const voices = window.speechSynthesis.getVoices();
+      const isSinhala = /[අ-ෆ]/.test(cleanText);
+      const isTamil = /[அ-ஹ]/.test(cleanText);
+
+      if (isSinhala) {
+        const siVoice = voices.find(v => v.lang.includes('si'));
+        if (siVoice) utterance.voice = siVoice;
+      } else if (isTamil) {
+        const taVoice = voices.find(v => v.lang.includes('ta'));
+        if (taVoice) utterance.voice = taVoice;
+      } else {
+        const enVoice = voices.find(v => v.lang.includes('en'));
+        if (enVoice) utterance.voice = enVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('SpeechSynthesis error:', err);
+    }
+  };
+
   // Submit AI Chat Query
-  const sendChatMessage = async (msgText) => {
+  const sendChatMessage = async (msgText, fromVoice = false) => {
     if (!msgText.trim()) return;
 
     setChatHistory(prev => [...prev, { sender: 'user', text: msgText.trim() }]);
     setChatInput('');
     setChatTyping(true);
 
+    const token = getToken();
+
     try {
       const data = await apiFetch('/ai/chat', {
         method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: JSON.stringify({ message: msgText.trim(), cartItems })
       });
 
@@ -350,6 +384,11 @@ export default function MenuView({ onNavigate, toast }) {
         recommendedItems: data.recommendedItems || [],
         suggestions: data.suggestions || []
       }]);
+
+      // Speak response aloud if query came from voice mic or if voice mode active
+      if (fromVoice || isListening) {
+        speakTextResponse(data.reply);
+      }
 
       // Conversational Order Adding Action
       if (data.action && data.action.type === 'add_to_cart') {
