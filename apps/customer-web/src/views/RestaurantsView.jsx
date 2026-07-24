@@ -56,37 +56,6 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     return Number((R * c).toFixed(1));
   };
 
-  const processStoreProximity = (uLat, uLng, rawStores = restaurants) => {
-    if (!uLat || !uLng || rawStores.length === 0) return;
-
-    const updated = rawStores.map(r => {
-      const storeLat = r.lat || 6.9147;
-      const storeLng = r.lng || 79.8517;
-      const dist = calculateHaversineKm(uLat, uLng, storeLat, storeLng);
-      const radius = r.deliveryRadiusKm || 15;
-      const inRange = dist <= radius;
-      return { ...r, distanceKm: dist, isDeliverable: inRange };
-    });
-
-    updated.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
-    setRestaurants(updated);
-
-    const closest = updated[0];
-    const deliverableStores = updated.filter(s => s.isDeliverable);
-
-    if (closest) {
-      setNearestStore(closest);
-      if (deliverableStores.length === 0) {
-        setIsOutOfCoverage(true);
-        setShowOutOfCoverageModal(true);
-        toast(`⚠️ Nearest store ${closest.name} is ${closest.distanceKm} km away (outside 15 km delivery zone)`, 'warning', 8000);
-      } else {
-        setIsOutOfCoverage(false);
-        toast(`📍 Nearest Store: ${closest.name} (${closest.distanceKm} km away)`, 'success');
-      }
-    }
-  };
-
   // Auto detect location on load if default
   useEffect(() => {
     const saved = localStorage.getItem('gastroflow_delivery_address');
