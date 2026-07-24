@@ -3,7 +3,7 @@ import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
-import { withTenant } from '../utils/tenant.js';
+import { withTenant, getActiveTenant } from '../utils/tenant.js';
 
 // Render **bold** markdown in AI replies without injecting HTML (safe against XSS).
 function renderChatText(text) {
@@ -54,13 +54,55 @@ export default function MenuView({ onNavigate, toast }) {
     }
   ]);
   const [chatTyping, setChatTyping] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+
+  const startVoiceInput = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast('Voice recognition is not supported in this browser.', 'warning');
+      return;
+    }
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      setIsListening(true);
+      toast('🎙️ Listening... Speak your order query now!', 'info');
+
+      recognition.onresult = (event) => {
+        const text = event.results[0][0].transcript;
+        setChatInput(text);
+        toast(`🎙️ Heard: "${text}"`, 'success');
+        sendChatMessage(text);
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error('Speech error:', err);
+      setIsListening(false);
+    }
+  };
 
   const { items: cartItems, addItem, totalItems, setCartOpen } = useCart();
   const { customer, getToken } = useCustomerAuth();
 
+
+
   // Load Menu Data & Check URL parameters (Table bindings / Group carts)
   useEffect(() => {
-    // 1. Fetch Menu
+    const currentTenant = getActiveTenant();
+    setLoading(true);
+    // 1. Fetch Menu for active tenant
     apiFetch('/public/menu')
       .then(data => {
         setMenu({
@@ -90,7 +132,7 @@ export default function MenuView({ onNavigate, toast }) {
         setShowGroupModal(true);
       }
     }
-  }, []);
+  }, [getActiveTenant()]);
 
   // Poll Group Cart items if active
   useEffect(() => {
@@ -883,15 +925,31 @@ export default function MenuView({ onNavigate, toast }) {
             )}
           </div>
 
-          <form onSubmit={handleSendChat} style={{ padding: 10, borderTop: '1px solid var(--border-color)', display: 'flex', gap: 6 }}>
+          <form onSubmit={handleSendChat} style={{ padding: 10, borderTop: '1px solid var(--border-color)', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={startVoiceInput}
+              title="Speak to GastroAI (Voice Input)"
+              style={{
+                background: isListening ? '#ef4444' : '#6366f115',
+                color: isListening ? '#fff' : '#6366f1',
+                border: '1px solid #6366f140',
+                borderRadius: 12,
+                padding: '8px 12px',
+                fontSize: '1.1rem',
+                cursor: 'pointer'
+              }}
+            >
+              🎙️
+            </button>
             <input 
               className="form-control"
-              placeholder="Ask GastroAI (e.g. Combo under 3000)..."
+              placeholder={isListening ? 'Listening...' : 'Ask GastroAI (e.g. Combo under 3000)...'}
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
-              style={{ padding: '10px 14px', fontSize: '16px' }}
+              style={{ padding: '10px 14px', fontSize: '16px', flex: 1 }}
             />
-            <button className="btn btn-brand" style={{ padding: '8px 16px', width: 'auto', fontWeight: 700 }} type="submit" disabled={chatTyping || !chatInput.trim()}>
+            <button className="btn btn-brand" style={{ padding: '8px 14px', width: 'auto', fontWeight: 700 }} type="submit" disabled={chatTyping || !chatInput.trim()}>
               Send ✈️
             </button>
           </form>

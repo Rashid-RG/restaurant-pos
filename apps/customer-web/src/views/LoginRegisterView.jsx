@@ -23,6 +23,7 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
+  const [regOtpChannel, setRegOtpChannel] = useState('sms'); // 'sms' | 'email'
 
   // Forgot / reset password
   const [forgotEmail, setForgotEmail] = useState('');
@@ -74,20 +75,28 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
     if (regPassword !== regConfirm) { setError('Passwords do not match.'); return; }
     if (regPassword.length < 6) { setError('Password must be at least 6 characters.'); return; }
 
-    // Real phone verification: the server sends the OTP (SMS gateway or dev console).
+    // Verification via selected OTP channel (Email or SMS)
     if (!otpVerified) {
       setOtpBusy(true);
+      const isEmailChannel = regOtpChannel === 'email';
+      const dest = isEmailChannel ? regEmail.trim().toLowerCase() : cleanPhone;
+      if (isEmailChannel && (!regEmail.trim() || !regEmail.includes('@'))) {
+        setError('Please enter a valid email address for Email OTP.');
+        setOtpBusy(false);
+        return;
+      }
+
       try {
         const r = await apiFetch('/otp/send', {
           method: 'POST',
-          body: JSON.stringify({ channel: 'sms', destination: cleanPhone, purpose: 'phone_verify' })
+          body: JSON.stringify({ channel: isEmailChannel ? 'email' : 'sms', destination: dest, purpose: 'phone_verify' })
         });
-        setActiveOtpDestination(cleanPhone);
+        setActiveOtpDestination(dest);
         if (r.otpCode) {
           setEnteredOtp(r.otpCode);
           toast(`Verification code: ${r.otpCode} (Auto-filled)`, 'success', 8000);
         } else {
-          toast(`Code sent to ${regPhone}.`, 'info', 8000);
+          toast(`Code sent to ${dest}.`, 'info', 8000);
         }
         setShowOtpModal(true);
       } catch (err) {
@@ -354,9 +363,48 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
             <label>Confirm Password</label>
             <input className="form-control" type="password" required placeholder="Re-enter password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} />
           </div>
+          <div className="form-group" style={{ marginTop: 12 }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-1)' }}>Verification Method:</label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => setRegOtpChannel('sms')}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  border: regOtpChannel === 'sms' ? 'none' : '1px solid var(--border-color)',
+                  background: regOtpChannel === 'sms' ? '#ff6b35' : 'var(--surface-1)',
+                  color: regOtpChannel === 'sms' ? '#fff' : 'var(--text-1)',
+                  cursor: 'pointer'
+                }}
+              >
+                📱 Phone SMS OTP
+              </button>
+              <button
+                type="button"
+                onClick={() => setRegOtpChannel('email')}
+                style={{
+                  flex: 1,
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  border: regOtpChannel === 'email' ? 'none' : '1px solid var(--border-color)',
+                  background: regOtpChannel === 'email' ? '#ff6b35' : 'var(--surface-1)',
+                  color: regOtpChannel === 'email' ? '#fff' : 'var(--text-1)',
+                  cursor: 'pointer'
+                }}
+              >
+                📧 Email OTP
+              </button>
+            </div>
+          </div>
           <div style={{ marginTop: 16 }}>
             <button type="submit" className="btn btn-brand" disabled={loading || otpBusy} style={{ width: '100%', padding: 12 }}>
-              {loading || otpBusy ? '⏳ …' : `🎉 ${dict.createAccount || 'Create Account'}`}
+              {loading || otpBusy ? '⏳ Processing…' : `🎉 ${dict.createAccount || 'Create Account'} (${regOtpChannel === 'email' ? 'Email OTP' : 'SMS OTP'})`}
             </button>
           </div>
         </form>

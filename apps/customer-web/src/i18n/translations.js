@@ -157,7 +157,7 @@ export const TRANSLATIONS = {
     deliveryCoverageAlert: '⚠️ බෙදාහැරීමේ සීමා පණිවිඩය',
     storeNotAvailableArea: 'මෙම ප්‍රදේශයේ අවන්හල නොමැත',
     outsideDeliveryZone: 'කි.මී. 15 සීමාවෙන් පිටත',
-    orderSelfPickup: '<ctrl42> රැගෙන යාම සඳහා ඇණවුම් කරන්න',
+    orderSelfPickup: '🏬 රැගෙන යාම සඳහා ඇණවුම් කරන්න',
     selectDifferentCity: '📍 වෙනත් නගරයක් / ලිපිනයක් තෝරන්න',
     searchStorePlaceholder: 'අවන්හල් හෝ කෑම වර්ග සොයන්න...'
   },

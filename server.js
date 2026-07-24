@@ -2192,6 +2192,52 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
     const baseFee = (await getSetting(tenantId, 'deliveryBaseFee')) || '99';
     const freeThreshold = (await getSetting(tenantId, 'deliveryFreeThreshold')) || '3000';
 
+    // ── Google Gemini 1.5 Flash API LLM Engine ──
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (geminiKey) {
+      try {
+        const sysContext = `You are GastroAI, an expert Sommelier & Dining Concierge for "${storeName}".
+Menu items available: ${JSON.stringify(menuItems.slice(0, 15).map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, tags: i.dietaryTags })))}
+Customer current cart items: ${JSON.stringify(cartItems || [])}
+Customer Query: "${message}"
+
+Respond concisely and nicely in Markdown (EN, Sinhala, or Tamil as requested).
+Format your response as valid JSON object:
+{
+  "reply": "friendly markdown message...",
+  "recommendedItemIds": ["array of item ids"],
+  "suggestions": ["suggested chip 1", "suggested chip 2"],
+  "action": null or {"type": "add_to_cart", "itemId": "item_id", "quantity": 1}
+}`;
+
+        const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: sysContext }] }],
+            generationConfig: { responseMimeType: "application/json" }
+          })
+        });
+
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          const rawText = gData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawText) {
+            const parsed = JSON.parse(rawText);
+            const recs = (parsed.recommendedItemIds || []).map(id => menuItems.find(i => i.id === id)).filter(Boolean);
+            return res.json({
+              reply: parsed.reply,
+              recommendedItems: recs,
+              suggestions: parsed.suggestions || ['💡 Combo under LKR 3000', '🌶️ Spicy Dishes'],
+              action: parsed.action || null
+            });
+          }
+        }
+      } catch (gErr) {
+        console.warn('[GastroAI Gemini Fallback to Intent Engine]', gErr.message);
+      }
+    }
+
     let reply = '';
     let recommendedItems = [];
     let suggestions = [];

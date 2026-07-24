@@ -30,6 +30,7 @@ export default function App() {
   const [watchId, setWatchId] = useState(null);
   const [lastCoords, setLastCoords] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
+  const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState(null);
 
   // Login form
   const [loginPhone, setLoginPhone] = useState('');
@@ -139,13 +140,20 @@ export default function App() {
     }
   };
 
-  const handleUpdateStatus = async (orderId, newStatus) => {
+  const handleUpdateStatus = async (orderId, newStatus, proof = null) => {
     try {
       await apiFetch('/public/driver/status', {
         method: 'POST',
-        body: JSON.stringify({ orderId, status: newStatus, lat: lastCoords?.lat, lng: lastCoords?.lng })
+        body: JSON.stringify({
+          orderId,
+          status: newStatus,
+          lat: lastCoords?.lat,
+          lng: lastCoords?.lng,
+          signature: proof?.signature,
+          deliveryPhoto: proof?.photo
+        })
       });
-      showToast(newStatus === 'delivered' ? 'Delivered 🎉' : 'Out for delivery 🛵', 'success');
+      showToast(newStatus === 'delivered' ? 'Delivered with Proof of Delivery 🎉' : 'Out for delivery 🛵', 'success');
       fetchDriverOrders();
     } catch (err) {
       showToast(err.message || 'Failed to update status', 'error');
@@ -328,8 +336,8 @@ export default function App() {
                         )}
                         {ord.status !== 'delivered' && (
                           <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem' }}
-                            onClick={() => handleUpdateStatus(ord.id, 'delivered')}>
-                            ✓ Mark Delivered
+                            onClick={() => setSelectedDeliveryOrder(ord)}>
+                            ✓ Mark Delivered (Signature & Proof)
                           </button>
                         )}
                       </div>
@@ -339,6 +347,18 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Proof of Delivery Signature & Photo Modal */}
+        {selectedDeliveryOrder && (
+          <ProofOfDeliveryModal
+            order={selectedDeliveryOrder}
+            onClose={() => setSelectedDeliveryOrder(null)}
+            onConfirm={(ordId, proofData) => {
+              handleUpdateStatus(ordId, 'delivered', proofData);
+              setSelectedDeliveryOrder(null);
+            }}
+          />
         )}
 
         {/* Self-registration modal */}
@@ -372,6 +392,146 @@ export default function App() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+// ── Proof of Delivery Modal (HTML5 Canvas Signature Pad & Photo Upload) ──
+function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
+  const canvasRef = React.useRef(null);
+  const [isDrawing, setIsDrawing] = React.useState(false);
+  const [hasSignature, setHasSignature] = React.useState(false);
+  const [photoDataUri, setPhotoDataUri] = React.useState(null);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#0f172a';
+  }, []);
+
+  const startDrawing = (e) => {
+    setIsDrawing(true);
+    draw(e);
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.beginPath();
+    }
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setHasSignature(true);
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+  };
+
+  const handlePhotoCapture = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      setPhotoDataUri(evt.target.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSubmit = () => {
+    let signatureDataUri = null;
+    if (hasSignature && canvasRef.current) {
+      signatureDataUri = canvasRef.current.toDataURL('image/png');
+    }
+    onConfirm(order.id, { signature: signatureDataUri, photo: photoDataUri });
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div className="card" style={{ maxWidth: 460, width: '100%', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.3)', background: '#ffffff', color: '#0f172a' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>✍️ Proof of Delivery</h3>
+            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Order #{order.id.slice(-4).toUpperCase()} · {order.customerName || 'Customer'}</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* Customer Signature Canvas */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>Customer Signature:</label>
+            {hasSignature && (
+              <button onClick={clearCanvas} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
+                Clear
+              </button>
+            )}
+          </div>
+          <canvas
+            ref={canvasRef}
+            width={400}
+            height={150}
+            onMouseDown={startDrawing}
+            onMouseUp={stopDrawing}
+            onMouseMove={draw}
+            onTouchStart={startDrawing}
+            onTouchEnd={stopDrawing}
+            onTouchMove={draw}
+            style={{ width: '100%', height: 150, border: '2px dashed #cbd5e1', borderRadius: 12, background: '#f8fafc', cursor: 'crosshair', touchAction: 'none' }}
+          />
+        </div>
+
+        {/* Photo Proof Upload */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: 6 }}>Attach Delivery Photo Proof (Optional):</label>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handlePhotoCapture}
+            style={{ fontSize: '0.82rem', width: '100%' }}
+          />
+          {photoDataUri && (
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <img src={photoDataUri} alt="Delivery proof preview" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover', border: '1px solid #cbd5e1' }} />
+              <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 700 }}>✓ Photo attached</span>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button type="button" className="btn-outline" onClick={onClose} style={{ flex: 1, padding: 12 }}>
+            Cancel
+          </button>
+          <button type="button" className="btn-emerald" onClick={handleSubmit} style={{ flex: 2, padding: 12, fontWeight: 800 }}>
+            ✓ Confirm Delivered
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

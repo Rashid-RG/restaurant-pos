@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import L from 'leaflet';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 
@@ -78,17 +79,32 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           const lng = pos.coords.longitude;
           const accuracy = Math.round(pos.coords.accuracy || 0);
 
+          // Country & Distance Sanity Check: Sri Lanka bounds (Lat 5.0 - 10.0 N, Lng 79.0 - 82.0 E)
+          const isInsideSriLanka = lat >= 5.0 && lat <= 10.0 && lng >= 79.0 && lng <= 82.0;
+
+          if (!isInsideSriLanka) {
+            console.warn(`[GPS Guard] Coordinates (${lat}, ${lng}) outside local coverage bounds. Defaulting to Colombo 03.`);
+            const defaultCoords = CITY_COORDS['Colombo 03, Western'];
+            setUserCoords(defaultCoords);
+            setUserAccuracy(accuracy);
+            setDeliveryLocation('Colombo 03, Western');
+            localStorage.setItem('gastroflow_delivery_address', 'Colombo 03, Western');
+            processStoreProximity(defaultCoords.lat, defaultCoords.lng);
+            toast('📍 IP/GPS detected outside delivery zone. Defaulted to Colombo 03 pin.', 'info');
+            return;
+          }
+
           setUserCoords({ lat, lng });
           setUserAccuracy(accuracy);
 
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&countrycodes=lk`);
           if (res.ok) {
             const data = await res.json();
             const addr = data.address || {};
             const city = addr.suburb || addr.city || addr.town || addr.village || addr.county || 'Detected Pin';
-            const country = addr.country || '';
+            const country = addr.country || 'Sri Lanka';
             const state = addr.state || country || 'GPS Location';
-            const resolvedStr = country ? `${city}, ${country}` : `${city}, ${state}`;
+            const resolvedStr = `${city}, ${state}`;
             setDeliveryLocation(resolvedStr);
             localStorage.setItem('gastroflow_delivery_address', resolvedStr);
           } else {
@@ -125,14 +141,98 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     }
   };
 
-  const handleSaveCustomAddress = (e) => {
-    e.preventDefault();
-    if (!customAddressInput.trim()) return;
-    setDeliveryLocation(customAddressInput);
-    localStorage.setItem('gastroflow_delivery_address', customAddressInput);
+  const [addressSearchResults, setAddressSearchResults] = useState([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const mapContainerRef = useRef(null);
+
+  // Live forward geocoding address autocomplete search
+  useEffect(() => {
+    if (!customAddressInput || customAddressInput.trim().length < 3) {
+      setAddressSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearchingAddress(true);
+      try {
+        const query = encodeURIComponent(customAddressInput.trim());
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=lk&limit=5`);
+        if (res.ok) {
+          const data = await res.json();
+          setAddressSearchResults(data || []);
+        }
+      } catch (err) {
+        console.warn('Forward geocoding search error:', err);
+      } finally {
+        setIsSearchingAddress(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [customAddressInput]);
+
+  const handleSelectAddressSuggestion = (item) => {
+    const lat = parseFloat(item.lat);
+    const lng = parseFloat(item.lon);
+    const displayParts = (item.display_name || '').split(',');
+    const shortAddr = displayParts.slice(0, 3).join(', ').trim() || 'Custom Pin';
+
+    setUserCoords({ lat, lng });
+    setDeliveryLocation(shortAddr);
+    localStorage.setItem('gastroflow_delivery_address', shortAddr);
+    localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng }));
+
+    processStoreProximity(lat, lng);
     setShowLocationModal(false);
     setCustomAddressInput('');
-    toast(`Delivery address saved: ${customAddressInput}`, 'success');
+    setAddressSearchResults([]);
+    toast(`📍 Delivery location set: ${shortAddr}`, 'success');
+  };
+
+  const handleSaveCustomAddress = async (e) => {
+    e.preventDefault();
+    if (!customAddressInput.trim()) return;
+
+    setIsSearchingAddress(true);
+    try {
+      const query = encodeURIComponent(customAddressInput.trim());
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=lk&limit=1`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          handleSelectAddressSuggestion(data[0]);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Geocoding submit error:', err);
+    } finally {
+      setIsSearchingAddress(false);
+    }
+
+    // Fallback if search returns no exact geocode match
+    const manualAddr = customAddressInput.trim();
+    setDeliveryLocation(manualAddr);
+    localStorage.setItem('gastroflow_delivery_address', manualAddr);
+    setShowLocationModal(false);
+    setCustomAddressInput('');
+    toast(`Delivery address saved: ${manualAddr}`, 'success');
+  };
+
+  const handlePinLocationChange = async (lat, lng) => {
+    setUserCoords({ lat, lng });
+    processStoreProximity(lat, lng);
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&countrycodes=lk`);
+      if (res.ok) {
+        const data = await res.json();
+        const addr = data.address || {};
+        const shortStr = `${addr.suburb || addr.road || addr.village || 'Custom Pin'}, ${addr.city || addr.town || addr.county || 'Sri Lanka'}`;
+        setDeliveryLocation(shortStr);
+        localStorage.setItem('gastroflow_delivery_address', shortStr);
+      }
+    } catch (_) {}
   };
 
   useEffect(() => {
@@ -289,11 +389,47 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               <span>🎯 {isDetectingGps ? (t('locatingGps') || 'Locating via GPS...') : (t('useMyGps') || 'Use My Current Real GPS Location')}</span>
             </button>
 
-            <div style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', marginBottom: 10 }}>
-              Select City Pin:
+            {/* Live Search & Autocomplete Form */}
+            <form onSubmit={handleSaveCustomAddress} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14, position: 'relative' }}>
+              <label style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700 }}>🔍 Search Address or Landmark (Live Autocomplete):</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="e.g. 45 Main Street, Kandy or Galle Road"
+                  value={customAddressInput}
+                  onChange={e => setCustomAddressInput(e.target.value)}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: '#1f2937', border: '1px solid #374151', color: '#fff', fontSize: '0.88rem' }}
+                />
+                <button type="submit" style={{ padding: '10px 16px', borderRadius: 8, background: '#ff6b35', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
+                  {isSearchingAddress ? '...' : (t('save') || 'Save')}
+                </button>
+              </div>
+
+              {/* Autocomplete Suggestions Dropdown */}
+              {addressSearchResults.length > 0 && (
+                <div style={{ background: '#1f2937', border: '1px solid #ff6b35', borderRadius: 8, marginTop: 4, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 10 }}>
+                  {addressSearchResults.map((item, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => handleSelectAddressSuggestion(item)}
+                      style={{ padding: '10px 12px', borderBottom: '1px solid #374151', cursor: 'pointer', fontSize: '0.82rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <span>📍</span>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.display_name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </form>
+
+            {/* Interactive Leaflet Pin Picker Map */}
+            <InteractiveMapPicker userCoords={userCoords} onPinLocationChange={handlePinLocationChange} />
+
+            <div style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', marginBottom: 10, marginTop: 14 }}>
+              Or Select Quick City Pin:
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
               {[
                 'Colombo 03, Western',
                 'Kandy City, Central',
@@ -323,23 +459,6 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 </button>
               ))}
             </div>
-
-            {/* Manual Custom Address Form */}
-            <form onSubmit={handleSaveCustomAddress} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700 }}>Or Enter Custom Address / Landmark:</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  placeholder="e.g. 45 Main Street, Kandy"
-                  value={customAddressInput}
-                  onChange={e => setCustomAddressInput(e.target.value)}
-                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: '#1f2937', border: '1px solid #374151', color: '#fff', fontSize: '0.88rem' }}
-                />
-                <button type="submit" style={{ padding: '10px 16px', borderRadius: 8, background: '#ff6b35', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
-                  {t('save') || 'Save'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -659,6 +778,79 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Interactive Leaflet Drag & Drop Map Pin Picker Component ──
+function InteractiveMapPicker({ userCoords, onPinLocationChange }) {
+  const mapContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    const initialLat = userCoords?.lat || 6.9147;
+    const initialLng = userCoords?.lng || 79.8517;
+
+    const map = L.map(mapContainerRef.current, {
+      center: [initialLat, initialLng],
+      zoom: 14,
+      zoomControl: true
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    const pinIcon = L.divIcon({
+      className: 'custom-pin-emoji',
+      html: `<div style="font-size: 2.2rem; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5)); transform: translate(-50%, -100%);">📍</div>`,
+      iconSize: [30, 30],
+      iconAnchor: [15, 30]
+    });
+
+    const marker = L.marker([initialLat, initialLng], { draggable: true, icon: pinIcon }).addTo(map);
+
+    const updatePin = (lat, lng) => {
+      onPinLocationChange && onPinLocationChange(lat, lng);
+    };
+
+    marker.on('dragend', (e) => {
+      const { lat, lng } = e.target.getLatLng();
+      updatePin(lat, lng);
+    });
+
+    map.on('click', (e) => {
+      const { lat, lng } = e.latlng;
+      marker.setLatLng([lat, lng]);
+      updatePin(lat, lng);
+    });
+
+    setTimeout(() => map.invalidateSize(), 250);
+
+    return () => {
+      map.remove();
+    };
+  }, []);
+
+  return (
+    <div style={{ marginTop: 10, marginBottom: 10 }}>
+      <div style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 700, marginBottom: 6 }}>
+        🗺️ Drag Pin or Tap Map to Set Exact Entrance:
+      </div>
+      <div
+        ref={mapContainerRef}
+        style={{
+          height: 180,
+          width: '100%',
+          borderRadius: 12,
+          border: '1px solid #374151',
+          overflow: 'hidden',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+          position: 'relative',
+          zIndex: 1
+        }}
+      />
     </div>
   );
 }
