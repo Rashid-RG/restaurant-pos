@@ -92,21 +92,49 @@ export const POSProvider = ({ children }) => {
     }
   };
 
+  // High-Professional Multi-Tone Commercial POS Order Ringtone (UberEats/Toast Style)
   const playNewOrderChime = () => {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.5);
-    } catch (e) {}
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+      }
+
+      // Professional 4-Note Acoustic Harmonic Bell Pattern (E5 -> G#5 -> B5 -> E6)
+      const notes = [
+        { freq: 659.25, time: 0, duration: 0.18 },   // E5
+        { freq: 830.61, time: 0.15, duration: 0.18 },  // G#5
+        { freq: 987.77, time: 0.30, duration: 0.22 },  // B5
+        { freq: 1318.51, time: 0.48, duration: 0.40 }  // E6
+      ];
+
+      // Play 2 cycles for high visibility in loud environment
+      [0, 0.9].forEach((cycleOffset) => {
+        notes.forEach(({ freq, time, duration }) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc.type = 'triangle'; // Warm commercial bell timbre
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + cycleOffset + time);
+
+          // Acoustic bell envelope
+          gain.gain.setValueAtTime(0.001, ctx.currentTime + cycleOffset + time);
+          gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + cycleOffset + time + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + cycleOffset + time + duration);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(ctx.currentTime + cycleOffset + time);
+          osc.stop(ctx.currentTime + cycleOffset + time + duration);
+        });
+      });
+    } catch (e) {
+      console.warn('Ringtone audio chime error:', e);
+    }
   };
 
   useEffect(() => {
@@ -678,8 +706,9 @@ export const POSProvider = ({ children }) => {
         importDatabase,
         resetAllDatabase,
 
-        // Toast
+        // Toast & Audio Ringer
         showToast,
+        playNewOrderChime,
       }}
     >
       {children}
