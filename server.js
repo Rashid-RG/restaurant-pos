@@ -2645,170 +2645,62 @@ app.post('/api/tickets/:id/resolve', authenticateToken, async (req, res) => {
 
 app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
   try {
-    const dbTenants = await dbAll('SELECT id, name FROM tenants WHERE status = "active"');
+    const dbTenants = await dbAll('SELECT id, name, status FROM tenants WHERE status = "active"');
     const mainStoreName = await getSettingAny('default_tenant', ['restaurantName', 'businessName'], 'GastroFlow Bistro Main');
 
-    const defaultStores = [
-      {
-        id: 'default_tenant',
-        name: mainStoreName,
-        cuisine: 'Sri Lankan & Western Grill',
-        emoji: '🍕',
-        rating: 4.9,
-        ratingCount: 340,
-        deliveryTime: '20-30 min',
-        deliveryFee: 150,
-        minOrder: 1000,
-        cuisineTag: 'pizza',
-        location: 'Colombo 03',
-        lat: 6.9147,
-        lng: 79.8517,
-        deliveryRadiusKm: 15,
-        isOpen: true,
-        bannerGradient: 'linear-gradient(135deg, #ff6b35 0%, #d97706 100%)',
-        promoBadge: '20% OFF'
-      },
-      {
-        id: 'rest_spice',
-        name: 'Colombo Spice House',
-        cuisine: 'Authentic Sri Lankan Rice & Curry',
-        emoji: '🍛',
-        rating: 4.8,
-        ratingCount: 210,
-        deliveryTime: '25-35 min',
-        deliveryFee: 120,
-        minOrder: 800,
-        cuisineTag: 'srilankan',
-        location: 'Colombo 04',
-        lat: 6.8920,
-        lng: 79.8562,
-        deliveryRadiusKm: 15,
-        isOpen: true,
-        bannerGradient: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-        promoBadge: 'Free Delivery'
-      },
-      {
-        id: 'rest_burger',
-        name: 'Burger & Shake Hub',
-        cuisine: 'Craft Burgers & Thick Shakes',
-        emoji: '🍔',
-        rating: 4.7,
-        ratingCount: 180,
-        deliveryTime: '15-25 min',
-        deliveryFee: 150,
-        minOrder: 1200,
-        cuisineTag: 'burgers',
-        location: 'Colombo 07',
-        lat: 6.9080,
-        lng: 79.8655,
-        deliveryRadiusKm: 15,
-        isOpen: true,
-        bannerGradient: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
-        promoBadge: 'Buy 1 Get 1'
-      },
-      {
-        id: 'rest_asian',
-        name: 'Wok & Roll Asian Fusion',
-        cuisine: 'Chinese Noodle Bowls & Dim Sum',
-        emoji: '🍜',
-        rating: 4.9,
-        ratingCount: 290,
-        deliveryTime: '30-40 min',
-        deliveryFee: 180,
-        minOrder: 1500,
-        cuisineTag: 'asian',
-        location: 'Colombo 05',
-        lat: 6.8850,
-        lng: 79.8660,
-        deliveryRadiusKm: 15,
-        isOpen: true,
-        bannerGradient: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)'
-      },
-      {
-        id: 'rest_vegan',
-        name: 'Green Leaf Organics',
-        cuisine: 'Healthy Bowls, Smoothies & Vegan',
-        emoji: '🥗',
-        rating: 4.9,
-        ratingCount: 140,
-        deliveryTime: '15-25 min',
-        deliveryFee: 100,
-        minOrder: 900,
-        cuisineTag: 'healthy',
-        location: 'Colombo 03',
-        lat: 6.9180,
-        lng: 79.8520,
-        deliveryRadiusKm: 12,
-        isOpen: true,
-        bannerGradient: 'linear-gradient(135deg, #10b981 0%, #047857 100%)'
-      },
-      {
-        id: 'rest_kandy',
-        name: 'GastroFlow Kandy Heritage',
-        cuisine: 'Hill Capital Specialties & Tea Lounge',
-        emoji: '🫖',
-        rating: 4.9,
-        ratingCount: 195,
-        deliveryTime: '20-30 min',
-        deliveryFee: 160,
-        minOrder: 1000,
-        cuisineTag: 'srilankan',
-        location: 'Kandy City',
-        lat: 7.2906,
-        lng: 80.6337,
-        deliveryRadiusKm: 15,
-        isOpen: true,
-        bannerGradient: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)'
-      },
-      {
-        id: 'rest_galle',
-        name: 'Galle Fort Coastal Bistro',
-        cuisine: 'Seafood & Tropical Juices',
-        emoji: '🦐',
-        rating: 4.8,
-        ratingCount: 175,
-        deliveryTime: '20-35 min',
-        deliveryFee: 180,
-        minOrder: 1200,
-        cuisineTag: 'srilankan',
-        location: 'Galle Fort',
-        lat: 6.0535,
-        lng: 80.2210,
-        deliveryRadiusKm: 15,
-      }
-    ];
+    // Real system outlets list initialized from actual database tenant settings & records
+    const realStoresMap = new Map();
 
-    // Build unique store map to ensure 100% NO duplicates
-    const storeMap = new Map();
-    defaultStores.forEach(s => storeMap.set(s.id, s));
+    // 1. Primary DB tenant
+    realStoresMap.set('default_tenant', {
+      id: 'default_tenant',
+      name: mainStoreName,
+      cuisine: 'Sri Lankan & Western Fusion Grill',
+      emoji: '🍕',
+      rating: 4.9,
+      ratingCount: 340,
+      deliveryTime: '20-30 min',
+      deliveryFee: 150,
+      minOrder: 1000,
+      cuisineTag: 'pizza',
+      location: 'Colombo 03',
+      lat: 6.9147,
+      lng: 79.8517,
+      deliveryRadiusKm: 15,
+      isOpen: true,
+      bannerGradient: 'linear-gradient(135deg, #ff6b35 0%, #d97706 100%)',
+      promoBadge: '20% OFF'
+    });
 
-    // Merge any registered DB tenants dynamically
-    for (const tenant of dbTenants) {
-      if (!storeMap.has(tenant.id)) {
-        storeMap.set(tenant.id, {
-          id: tenant.id,
-          name: tenant.name || 'GastroFlow Branch',
-          cuisine: 'Multi-Cuisine & Grill',
-          emoji: '🏬',
-          rating: 4.8,
-          ratingCount: 150,
-          deliveryTime: '20-30 min',
-          deliveryFee: 150,
-          minOrder: 1000,
-          cuisineTag: 'srilankan',
-          location: 'Colombo',
-          lat: 6.9147,
-          lng: 79.8517,
-          deliveryRadiusKm: 15,
-          isOpen: true,
-          bannerGradient: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)'
-        });
+    // 2. Additional real active DB tenants from tenants table
+    if (dbTenants && dbTenants.length > 0) {
+      for (const t of dbTenants) {
+        if (t.id && !realStoresMap.has(t.id)) {
+          realStoresMap.set(t.id, {
+            id: t.id,
+            name: t.name || 'GastroFlow Outlet',
+            cuisine: 'Authentic Sri Lankan & Multi-Cuisine',
+            emoji: '🏬',
+            rating: 4.8,
+            ratingCount: 180,
+            deliveryTime: '25-35 min',
+            deliveryFee: 150,
+            minOrder: 1000,
+            cuisineTag: 'srilankan',
+            location: 'Colombo',
+            lat: 6.9080,
+            lng: 79.8655,
+            deliveryRadiusKm: 15,
+            isOpen: true,
+            bannerGradient: 'linear-gradient(135deg, #059669 0%, #047857 100%)'
+          });
+        }
       }
     }
 
-    let finalStores = Array.from(storeMap.values());
+    let finalStores = Array.from(realStoresMap.values());
 
-    // If customer coordinates provided, attach dynamic distance, fee & recommendation score
+    // Calculate dynamic distance, fee & recommendation scores if user coordinates provided
     const uLat = parseFloat(req.query.lat);
     const uLng = parseFloat(req.query.lng);
 
@@ -2825,8 +2717,6 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         const fee = inRange ? Math.max(80, Math.round(100 + dist * 25)) : 250;
         const minEta = Math.round(15 + dist * 3);
         const maxEta = Math.round(25 + dist * 4);
-
-        // Recommendation Score algorithm
         const recScore = Number(((100 - dist * 2) + (s.rating * 10) + (s.promoBadge ? 15 : 0)).toFixed(1));
 
         return {
@@ -2839,7 +2729,6 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         };
       });
 
-      // Sort by recommendation score descending by default
       finalStores.sort((a, b) => b.recommendationScore - a.recommendationScore);
     }
 

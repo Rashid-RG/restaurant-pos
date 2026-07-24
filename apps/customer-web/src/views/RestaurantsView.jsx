@@ -97,7 +97,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const detectRealGpsLocation = () => {
     if (!('geolocation' in navigator)) {
-      setDeliveryLocation('Colombo 03, Sri Lanka');
+      setDeliveryLocation('Colombo 03, Western');
       toast('Geolocation not supported by browser', 'warning');
       return;
     }
@@ -116,27 +116,28 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           if (res.ok) {
             const data = await res.json();
             const addr = data.address || {};
-            const city = addr.suburb || addr.city || addr.town || addr.village || addr.county || 'Sri Lanka';
-            const state = addr.state || 'Sri Lanka';
-            const resolvedStr = `${city}, ${state}`;
+            const city = addr.suburb || addr.city || addr.town || addr.village || addr.county || 'Detected Pin';
+            const country = addr.country || '';
+            const state = addr.state || country || 'GPS Location';
+            const resolvedStr = country ? `${city}, ${country}` : `${city}, ${state}`;
             setDeliveryLocation(resolvedStr);
             localStorage.setItem('gastroflow_delivery_address', resolvedStr);
           } else {
-            const coordsStr = `GPS Location (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
+            const coordsStr = `GPS Pin (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
             setDeliveryLocation(coordsStr);
             localStorage.setItem('gastroflow_delivery_address', coordsStr);
           }
 
           processStoreProximity(lat, lng);
         } catch (e) {
-          setDeliveryLocation('Colombo 03, Sri Lanka');
+          setDeliveryLocation('Colombo 03, Western');
         } finally {
           setIsDetectingGps(false);
         }
       },
       (err) => {
         console.warn('Geolocation error:', err);
-        setDeliveryLocation('Colombo 03, Sri Lanka');
+        setDeliveryLocation('Colombo 03, Western');
         setIsDetectingGps(false);
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
@@ -275,10 +276,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ cursor: 'pointer' }} onClick={() => setShowLocationModal(true)}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
-            Delivering to
+            {t('deliveringTo') || 'Delivering to'}
           </div>
           <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            📍 {isDetectingGps ? 'Detecting GPS Location...' : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
+            📍 {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
           </div>
         </div>
         <div style={{ background: '#ff6b3515', color: '#ff6b35', padding: '6px 12px', borderRadius: 20, fontSize: '0.78rem', fontWeight: 700 }}>
@@ -291,7 +292,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: '#111827', border: '1px solid #374151', borderRadius: 16, padding: 24, maxWidth: 440, width: '100%', color: '#f8fafc' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 Select Delivery Location</h3>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 {t('selectDeliveryLocation') || 'Select Delivery Location'}</h3>
               <button onClick={() => setShowLocationModal(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
             </div>
 
@@ -316,11 +317,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 marginBottom: 16
               }}
             >
-              <span>🎯 {isDetectingGps ? 'Locating via GPS...' : 'Use My Current Real GPS Location'}</span>
+              <span>🎯 {isDetectingGps ? (t('locatingGps') || 'Locating via GPS...') : (t('useMyGps') || 'Use My Current Real GPS Location')}</span>
             </button>
 
             <div style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', marginBottom: 10 }}>
-              Popular Sri Lankan Locations:
+              Select City Pin:
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
@@ -366,7 +367,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                   style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: '#1f2937', border: '1px solid #374151', color: '#fff', fontSize: '0.88rem' }}
                 />
                 <button type="submit" style={{ padding: '10px 16px', borderRadius: 8, background: '#ff6b35', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
-                  Save
+                  {t('save') || 'Save'}
                 </button>
               </div>
             </form>
@@ -382,8 +383,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: '2.2rem' }}>📍</span>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#f59e0b' }}>Store Not Available in Area</h3>
-                  <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 600 }}>Outside 15 km Delivery Zone</span>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#f59e0b' }}>{t('storeNotAvailableArea') || 'Store Not Available in Area'}</h3>
+                  <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 600 }}>{t('outsideDeliveryZone') || 'Outside 15 km Delivery Zone'}</span>
                 </div>
               </div>
               <button onClick={() => setShowOutOfCoverageModal(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
@@ -401,14 +402,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 onClick={() => { setShowOutOfCoverageModal(false); onSelectRestaurant && onSelectRestaurant(nearestStore); }}
                 style={{ width: '100%', padding: '14px', borderRadius: 14, background: 'linear-gradient(135deg, #ff6b35 0%, #f97316 100%)', color: '#fff', border: 'none', fontWeight: 800, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(255,107,53,0.4)' }}
               >
-                <span>🏬 Order for Self-Pickup / Takeaway Instead</span>
+                <span>{t('orderSelfPickup') || '🏬 Order for Self-Pickup / Takeaway Instead'}</span>
               </button>
 
               <button
                 onClick={() => { setShowOutOfCoverageModal(false); setShowLocationModal(true); }}
                 style={{ width: '100%', padding: '12px', borderRadius: 14, background: '#374151', color: '#f8fafc', border: '1px solid #4b5563', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
               >
-                <span>📍 Select Different City / Address Pin</span>
+                <span>{t('selectDifferentCity') || '📍 Select Different City / Address Pin'}</span>
               </button>
             </div>
           </div>

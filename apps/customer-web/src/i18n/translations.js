@@ -61,7 +61,31 @@ export const TRANSLATIONS = {
     loyaltyPoints: 'Loyalty Points', save: 'Save', cancel: 'Cancel', add: 'Add',
     signIn: 'Sign In', register: 'Register', createAccount: 'Create Account',
     email: 'Email', password: 'Password', confirmPassword: 'Confirm Password',
-    alreadyHaveAccount: 'Already have an account?', noAccount: "Don't have an account?"
+    alreadyHaveAccount: 'Already have an account?', noAccount: "Don't have an account?",
+
+    // ── Marketplace / Restaurants ──
+    deliveringTo: 'Delivering to',
+    selectDeliveryLocation: 'Select Delivery Location',
+    useMyGps: 'Use My Current Real GPS Location',
+    detectingGps: 'Detecting GPS Location...',
+    locatingGps: 'Locating via GPS...',
+    popularOutletsNearYou: 'Popular Stores Near You',
+    topPicks: 'Top Picks',
+    fastest: 'Fastest',
+    topRated: 'Top Rated',
+    nearest: 'Nearest',
+    openNow: 'Open Now',
+    closed: 'Closed',
+    away: 'away',
+    inRange: 'In Range',
+    outOfZone: 'Out of Zone',
+    nearestBranchFound: 'Nearest Branch Found',
+    deliveryCoverageAlert: 'Delivery Coverage Alert',
+    storeNotAvailableArea: 'Store Not Available in Area',
+    outsideDeliveryZone: 'Outside 15 km Delivery Zone',
+    orderSelfPickup: 'Order for Self-Pickup / Takeaway',
+    selectDifferentCity: 'Select Different City / Address Pin',
+    searchStorePlaceholder: 'Search restaurants or cuisines (Burgers, Pizza, Rice)...'
   },
 
   si: {
@@ -112,7 +136,30 @@ export const TRANSLATIONS = {
     loyaltyPoints: 'පක්ෂපාතී ලකුණු', save: 'සුරකින්න', cancel: 'අවලංගු', add: 'එක් කරන්න',
     signIn: 'පිවිසෙන්න', register: 'ලියාපදිංචි වන්න', createAccount: 'ගිණුමක් සාදන්න',
     email: 'ඊමේල්', password: 'මුරපදය', confirmPassword: 'මුරපදය තහවුරු කරන්න',
-    alreadyHaveAccount: 'දැනටමත් ගිණුමක් තිබේද?', noAccount: 'ගිණුමක් නැද්ද?'
+    alreadyHaveAccount: 'දැනටමත් ගිණුමක් තිබේද?', noAccount: 'ගිණුමක් නැද්ද?',
+
+    deliveringTo: 'බෙදාහැරින්නේ',
+    selectDeliveryLocation: 'බෙදාහැරීමේ ස්ථානය තෝරන්න',
+    useMyGps: 'මගේ වත්මන් GPS ස්ථානය භාවිතා කරන්න',
+    detectingGps: 'GPS ස්ථානය පරීක්ෂා කරමින්...',
+    locatingGps: 'GPS මගින් ස්ථානය සොයමින්...',
+    popularOutletsNearYou: 'ඔබ අසල ඇති ජනප්‍රිය අවන්හල්',
+    topPicks: '🎯 විශේෂ තේරීම්',
+    fastest: '⚡ ඉක්මන්ම',
+    topRated: '⭐ ඉහළම ඇගයීම්',
+    nearest: '📍 ළඟම ඇති',
+    openNow: '🟢 දැන් විවෘතයි',
+    closed: '🔴 වසා ඇත',
+    away: 'දුරින්',
+    inRange: 'සීමාව තුළ',
+    outOfZone: 'සීමාවෙන් පිටත',
+    nearestBranchFound: '🟢 ළඟම ඇති අවන්හල හමු විය',
+    deliveryCoverageAlert: '⚠️ බෙදාහැරීමේ සීමා පණිවිඩය',
+    storeNotAvailableArea: 'මෙම ප්‍රදේශයේ අවන්හල නොමැත',
+    outsideDeliveryZone: 'කි.මී. 15 සීමාවෙන් පිටත',
+    orderSelfPickup: '<ctrl42> රැගෙන යාම සඳහා ඇණවුම් කරන්න',
+    selectDifferentCity: '📍 වෙනත් නගරයක් / ලිපිනයක් තෝරන්න',
+    searchStorePlaceholder: 'අවන්හල් හෝ කෑම වර්ග සොයන්න...'
   },
 
   ta: {
@@ -163,6 +210,29 @@ export const TRANSLATIONS = {
     loyaltyPoints: 'விசுவாசப் புள்ளிகள்', save: 'சேமி', cancel: 'ரத்து', add: 'சேர்',
     signIn: 'உள்நுழை', register: 'பதிவு செய்', createAccount: 'கணக்கை உருவாக்கு',
     email: 'மின்னஞ்சல்', password: 'கடவுச்சொல்', confirmPassword: 'கடவுச்சொல்லை உறுதிப்படுத்து',
-    alreadyHaveAccount: 'ஏற்கனவே கணக்கு உள்ளதா?', noAccount: 'கணக்கு இல்லையா?'
+    alreadyHaveAccount: 'ஏற்கனவே கணக்கு உள்ளதா?', noAccount: 'கணக்கு இல்லையா?',
+
+    deliveringTo: 'டெலிவரி செய்வது',
+    selectDeliveryLocation: 'டெலிவரி இடத்தை தேர்ந்தெடுக்கவும்',
+    useMyGps: 'என் தற்போதைய ஜிபிஎஸ் இடத்தை பயன்படுத்தவும்',
+    detectingGps: 'ஜிபிஎஸ் இடத்தை கண்டறிகிறது...',
+    locatingGps: 'ஜிபிஎஸ் மூலம் இடத்தை தேடுகிறது...',
+    popularOutletsNearYou: 'உங்களுக்கு அருகிலுள்ள உணவகங்கள்',
+    topPicks: '🎯 சிறப்புத்ர்வுகள்',
+    fastest: '⚡ வேகமான',
+    topRated: '⭐ உயர்மதிப்பீடு',
+    nearest: '📍 அருகிலுள்ள',
+    openNow: '🟢 இப்போது திறக்கப்பட்டுள்ளது',
+    closed: '🔴 மூடப்பட்டுள்ளது',
+    away: 'தொலைவில்',
+    inRange: 'எல்லைக்குள்',
+    outOfZone: 'எல்லைக்கு வெளியே',
+    nearestBranchFound: '🟢 அருகிலுள்ள கிளை கண்டறியப்பட்டது',
+    deliveryCoverageAlert: '⚠️ டெலிவரி எல்லை எச்சரிக்கை',
+    storeNotAvailableArea: 'இந்த பகுதியில் உணவகம் இல்லை',
+    outsideDeliveryZone: '15 கி.மீ எல்லைக்கு வெளியே',
+    orderSelfPickup: '🏬 எடுத்துச் செல்ல ஆர்டர் செய்',
+    selectDifferentCity: '📍 வேறு நகரம் / முகவரியை தேர்ந்தெடு',
+    searchStorePlaceholder: 'உணவகங்கள் அல்லது உணவுகளைத் தேடுங்கள்...'
   }
 };
