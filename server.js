@@ -627,11 +627,25 @@ async function initTables() {
         orderId TEXT,
         customerName TEXT,
         customerPhone TEXT,
+        customerEmail TEXT,
         issueCategory TEXT DEFAULT 'general',
         message TEXT NOT NULL,
         status TEXT DEFAULT 'open',         -- 'open' | 'in_progress' | 'resolved'
         createdAt INTEGER NOT NULL,
         resolvedAt INTEGER
+      )
+    `);
+
+    // 25. Support Ticket Messages Table (Chat thread history)
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS support_ticket_messages (
+        id TEXT PRIMARY KEY,
+        ticketId TEXT NOT NULL,
+        senderType TEXT NOT NULL,           -- 'customer' | 'staff' | 'ai'
+        senderName TEXT,
+        message TEXT NOT NULL,
+        createdAt INTEGER NOT NULL,
+        FOREIGN KEY(ticketId) REFERENCES support_tickets(id) ON DELETE CASCADE
       )
     `);
 
@@ -839,7 +853,9 @@ async function seedDatabase() {
         { key: 'taxRate', value: '10' },
         { key: 'serviceChargeRate', value: '10' },
         { key: 'address', value: '12 Galle Road, Colombo 03, Sri Lanka' },
-        { key: 'phone', value: '+94 11 234 5678' }
+        { key: 'phone', value: '+94 76 013 0922' },
+        { key: 'whatsapp', value: '+94760130922' },
+        { key: 'supportEmail', value: 'gastroflowadmin@gmail.com' }
       ];
       for (const set of defaultSettings) {
         await dbRun("INSERT INTO settings (tenant_id, key, value) VALUES ('default_tenant', ?, ?)", [set.key, set.value]);
@@ -1051,7 +1067,9 @@ async function seedDatabase() {
         { key: 'taxRate', value: '10' },
         { key: 'serviceChargeRate', value: '10' },
         { key: 'address', value: '12 Galle Road, Colombo 03, Sri Lanka' },
-        { key: 'phone', value: '+94 11 234 5678' },
+        { key: 'phone', value: '+94 76 013 0922' },
+        { key: 'whatsapp', value: '+94760130922' },
+        { key: 'supportEmail', value: 'gastroflowadmin@gmail.com' },
         { key: 'storeOpen', value: 'true' },
         { key: 'defaultPrepTime', value: '20' },
         { key: 'dineInPrepTime', value: '15' },       // per-type prep times (B9)
@@ -1674,40 +1692,125 @@ async function sendSMS(to, message) {
   }
 }
 
-function verifyOTP(phone, code) {
-  const cleanPhone = phone.replace(/[\s-]/g, '');
-  const entry = otpStore.get(cleanPhone);
-  
+function verifyOTP(destination, code) {
+  if (!destination || !code) return false;
+  const cleanDest = destination.includes('@')
+    ? destination.toLowerCase().trim()
+    : destination.replace(/[\s-]/g, '');
+
+  const entry = otpStore.get(cleanDest);
   if (!entry) return false;
   if (entry.expiresAt < Date.now()) {
-    otpStore.delete(cleanPhone);
+    otpStore.delete(cleanDest);
     return false;
   }
   if (entry.code !== String(code).trim()) {
     return false;
   }
   
-  otpStore.delete(cleanPhone);
+  otpStore.delete(cleanDest);
   return true;
 }
 
-// POST /api/auth/send-otp
-app.post('/api/auth/send-otp', publicApiLimiter, async (req, res) => {
-  const { phone } = req.body;
-  if (!phone || !isValidSriLankanPhone(phone)) {
-    return res.status(400).json({ error: 'A valid Sri Lankan phone number is required.' });
-  }
-
-  const cleanPhone = phone.replace(/[\s-]/g, '');
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  
-  otpStore.set(cleanPhone, { code, expiresAt: Date.now() + 5 * 60 * 1000 }); // Valid for 5 minutes
-
+// POST /api/otp/send — Unified OTP generation (Email or SMS)
+app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, res) => {
   try {
-    await sendSMS(cleanPhone, `GastroFlow Verification Code: ${code}. Valid for 5 minutes.`);
-    res.json({ success: true, message: 'Verification code sent successfully!' });
+    const { channel, destination, phone, email, purpose } = req.body;
+    const target = destination || email || phone;
+    if (!target) {
+      return res.status(400).json({ error: 'Email address or phone number is required.' });
+    }
+
+    const isEmail = (channel === 'email') || target.includes('@');
+    const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
+
+    if (!isEmail && !isValidSriLankanPhone(cleanDest)) {
+      return res.status(400).json({ error: 'A valid Sri Lankan phone number is required (e.g. 0771234567).' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    otpStore.set(cleanDest, { code, expiresAt: Date.now() + 5 * 60 * 1000, channel: isEmail ? 'email' : 'sms', purpose: purpose || 'phone_verify' });
+
+    const tenantId = await resolvePublicTenant(req);
+    const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
+
+    if (isEmail) {
+      const html = buildOtpEmail({ code, purpose: purpose || 'phone_verify', destination: cleanDest, businessName: storeName });
+      const sendRes = await sendEmail({
+        to: cleanDest,
+        subject: `GastroFlow - Verification Code ${code}`,
+        html,
+        text: `Your GastroFlow verification code is ${code}. Valid for 5 minutes.`
+      });
+
+      console.log(`[OTP EMAIL] Sent to ${cleanDest} | Result:`, sendRes);
+      return res.json({
+        success: true,
+        message: `Verification code sent to email: ${cleanDest}`,
+        otpCode: process.env.NODE_ENV !== 'production' ? code : undefined
+      });
+    } else {
+      await sendSMS(cleanDest, `GastroFlow Verification Code: ${code}. Valid for 5 minutes.`);
+      return res.json({
+        success: true,
+        message: `Verification code sent via SMS to ${cleanDest}`,
+        otpCode: process.env.NODE_ENV !== 'production' ? code : undefined
+      });
+    }
   } catch (err) {
-    res.status(500).json({ error: 'Failed to send SMS: ' + err.message });
+    console.error('[OTP SEND ERROR]', err);
+    res.status(500).json({ error: 'Failed to send verification code: ' + err.message });
+  }
+});
+
+// POST /api/otp/verify — Verify OTP code and login existing customer or return verification status
+app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
+  try {
+    const { destination, code, phone, email } = req.body;
+    const target = destination || email || phone;
+    if (!target || !code) {
+      return res.status(400).json({ error: 'Destination and code are required.' });
+    }
+
+    const isEmail = target.includes('@');
+    const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
+
+    const isValid = verifyOTP(cleanDest, code);
+    if (!isValid) {
+      return res.status(400).json({ error: 'Invalid or expired verification code.' });
+    }
+
+    // Check if account already exists
+    const customer = await dbGet(
+      'SELECT * FROM customer_accounts WHERE email = ? OR phone = ?',
+      [cleanDest, cleanDest]
+    );
+
+    if (customer) {
+      const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
+      const token = jwt.sign(
+        { id: customer.id, phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
+        secret,
+        { expiresIn: '7d' }
+      );
+      return res.json({
+        verified: true,
+        loggedIn: true,
+        token,
+        customer: {
+          id: customer.id,
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          loyaltyPoints: customer.loyaltyPoints || 0,
+          totalSpent: customer.totalSpent || 0
+        }
+      });
+    }
+
+    return res.json({ verified: true, loggedIn: false, destination: cleanDest });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
   }
 });
 
@@ -1732,9 +1835,10 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   const cleanPhone = phone.replace(/[\s-]/g, '');
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
-  // Verify OTP
-  if (!verifyOTP(cleanPhone, otpCode)) {
-    return res.status(400).json({ error: 'Invalid or expired phone verification code.' });
+  // Verify OTP (allow either phone or email verification)
+  const isOtpValid = verifyOTP(cleanPhone, otpCode) || (cleanEmail && verifyOTP(cleanEmail, otpCode));
+  if (!isOtpValid) {
+    return res.status(400).json({ error: 'Invalid or expired verification code.' });
   }
 
   try {
@@ -2198,18 +2302,24 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     if (geminiKey) {
       try {
-        const sysContext = `You are GastroAI, an expert Sommelier & Dining Concierge for "${storeName}".
-Menu items available: ${JSON.stringify(menuItems.slice(0, 15).map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, tags: i.dietaryTags })))}
-Customer current cart items: ${JSON.stringify(cartItems || [])}
+        const sysContext = `You are GastroAI, the official 24/7 Intelligent Customer Assistant & Dining Concierge for "${storeName}".
+Your goal is to help customers politely, cleanly, and professionally with ALL questions:
+1. Food recommendations, prices, dietary options (veg, vegan, halal, gluten-free), combos, beverages.
+2. Order status, live delivery tracking, prep times, cancellation rules.
+3. Customer Care, Support & Career Inquiries: When the user asks about contacting support, customer care, careers, jobs (e.g. "conductcareer", "contact care", "agent", "call manager"), understand their intent immediately and present clean escalation options.
+4. Location, opening hours, payment methods, feedback.
+
+Available menu items: ${JSON.stringify(menuItems.slice(0, 20).map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, tags: i.dietaryTags })))}
+Customer Cart: ${JSON.stringify(cartItems || [])}
 Customer Query: "${message}"
 
-Respond concisely and nicely in Markdown (EN, Sinhala, or Tamil as requested).
-Format your response as valid JSON object:
+Respond cleanly and professionally in Markdown (EN, Sinhala, or Tamil as requested).
+Return valid JSON:
 {
-  "reply": "friendly markdown message...",
-  "recommendedItemIds": ["array of item ids"],
-  "suggestions": ["suggested chip 1", "suggested chip 2"],
-  "action": null or {"type": "add_to_cart", "itemId": "item_id", "quantity": 1}
+  "reply": "clean professional markdown message...",
+  "recommendedItemIds": ["array of item ids if recommending food"],
+  "suggestions": ["suggested chip 1", "suggested chip 2", "suggested chip 3"],
+  "action": null or {"type": "add_to_cart", "itemId": "item_id", "quantity": 1} or {"type": "connect_support"}
 }`;
 
         const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
@@ -2230,7 +2340,7 @@ Format your response as valid JSON object:
             return res.json({
               reply: parsed.reply,
               recommendedItems: recs,
-              suggestions: parsed.suggestions || ['💡 Combo under LKR 3000', '🌶️ Spicy Dishes'],
+              suggestions: parsed.suggestions || ['💬 Connect with Live Agent', '📞 Call 0760130922', '🌶️ Spicy Dishes'],
               action: parsed.action || null
             });
           }
@@ -2258,36 +2368,36 @@ Format your response as valid JSON object:
 
     const orderIdMatch = msg.match(/ord_[a-zA-Z0-9_]+/i);
 
-    // Detect Customer Complaint / Issue Escalation Intent
-    const isComplaint = /complain|issue|problem|cold|late|wrong|bad|delay|refund|mistake|help|support|කවුරුත්|අවුල|ගැටලුව|பிரச்சனை/i.test(msg);
-    if (isComplaint) {
+    // Detect Support, Career, Contact & Customer Care Intent (including typos like "conductcareer")
+    const isSupportOrCareer = /conductcareer|career|job|work|hire|support|contact|care|agent|human|manager|help|complain|issue|problem|cold|late|wrong|bad|delay|refund|mistake|කවුරුත්|අවුල|ගැටලුව|பிரச்சனை/i.test(msg);
+    if (isSupportOrCareer) {
       const ticketId = `tkt_${Date.now()}`;
-      const extractedOrderId = orderIdMatch ? orderIdMatch[0] : null;
-      await dbRun(
-        'INSERT INTO support_tickets (id, orderId, customerName, customerPhone, issueCategory, message, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [ticketId, extractedOrderId, authedCustomer?.name || 'Online Customer', authedCustomer?.phone || null, 'customer_complaint', message, 'open', Date.now()]
-      );
+      const waText = encodeURIComponent(`Hi GastroFlow Support, I need assistance (Ticket #${ticketId}): "${message}"`);
+      const waLink = `https://wa.me/94760130922?text=${waText}`;
 
-      // Real-time escalation notification to POS staff & manager dashboard
-      notifyPOS({
-        type: 'support_ticket_escalated',
-        ticketId,
-        orderId: extractedOrderId,
-        message: message,
-        timestamp: Date.now()
-      }, tenantId);
+      if (msg.includes('career') || msg.includes('job') || msg.includes('work') || msg.includes('conductcareer') || msg.includes('hire')) {
+        reply = `💼 **GastroFlow Careers & Recruitment Desk**\n\n` +
+          `Thank you for your interest in joining the **${storeName}** team!\n\n` +
+          `We are always looking for passionate chefs, service staff, and delivery partners.\n\n` +
+          `📞 **Direct Contact Options**:\n` +
+          `• Call HR / Manager: **+94 76 013 0922**\n` +
+          `• WhatsApp HR: [Chat on WhatsApp](${waLink})\n` +
+          `• Email: **gastroflowadmin@gmail.com**\n\n` +
+          `You can also open a support inquiry below so our manager receives your details immediately!`;
+        suggestions = ['💬 Connect with Live Agent', '📞 Call 0760130922', '📲 WhatsApp Support', '🍽️ Browse Menu'];
+        return res.json({ reply, recommendedItems: [], suggestions, action: { type: 'connect_support' } });
+      }
 
-      const waText = encodeURIComponent(`🚨 URGENT CUSTOMER ISSUE (${ticketId}): ${message} (Order: ${extractedOrderId || 'N/A'})`);
-      const waLink = `https://wa.me/94112345678?text=${waText}`;
-
-      reply = `🚨 *I have registered an urgent Support Ticket (#${ticketId}) for you!*\n\n` +
-        `Our Restaurant Manager has been alerted on the POS system and will prioritize your order immediately.\n\n` +
-        `📞 *Direct Escalation Options*:\n` +
-        `• Call Store Manager: +94 11 234 5678\n` +
-        `• Direct WhatsApp Manager: [Chat on WhatsApp](${waLink})`;
-
-      suggestions = ['📞 Call Store Manager', '💬 WhatsApp Manager', '🔍 Check Order Status'];
-      return res.json({ reply, recommendedItems: [], suggestions, action: null });
+      reply = `🎧 **GastroFlow Customer Support Desk**\n\n` +
+        `I am here to assist you right away!\n\n` +
+        `Our Store Manager & POS Support Team are available to help you.\n\n` +
+        `📞 **Contact Options**:\n` +
+        `• Call Support Hotline: **+94 76 013 0922**\n` +
+        `• WhatsApp Manager: [Chat on WhatsApp](${waLink})\n` +
+        `• Email Support: **gastroflowadmin@gmail.com**\n\n` +
+        `Select an option below to connect with live support or track your order:`;
+      suggestions = ['💬 Connect with Live Agent', '📞 Call 0760130922', '📲 WhatsApp Support', '🔍 Track Order Status'];
+      return res.json({ reply, recommendedItems: [], suggestions, action: { type: 'connect_support' } });
     }
 
     // Detect Order Cancellation intent via GastroAI Bot
@@ -5808,6 +5918,164 @@ app.get('/api/staff/performance', requireRole(['owner', 'manager']), async (req,
     `, [req.tenantId]);
 
     res.json(staffSales);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// ── Customer Support Desk & Live Chat Thread API Endpoints ──
+
+// GET /api/tickets — Fetch support tickets for staff/admin POS view
+app.get(['/api/tickets', '/api/support/tickets'], authenticateToken, requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
+  try {
+    const tenantId = req.tenantId || 'default_tenant';
+    const tickets = await dbAll('SELECT * FROM support_tickets WHERE tenant_id = ? ORDER BY createdAt DESC', [tenantId]);
+    res.json(tickets);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/tickets/:id/resolve — Resolve a ticket (POS staff)
+app.post(['/api/tickets/:id/resolve', '/api/support/tickets/:id/resolve'], authenticateToken, requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    await dbRun("UPDATE support_tickets SET status = 'resolved', resolvedAt = ? WHERE id = ?", [Date.now(), id]);
+    broadcastEvent('support_ticket_updated', { ticketId: id, status: 'resolved' });
+    res.json({ success: true, message: `Ticket #${id} marked as resolved.` });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/tickets/:id/messages — Fetch message history for a ticket thread
+app.get(['/api/tickets/:id/messages', '/api/support/tickets/:id/messages'], publicApiLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const messages = await dbAll('SELECT * FROM support_ticket_messages WHERE ticketId = ? ORDER BY createdAt ASC', [id]);
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/tickets/:id/messages — Append reply message to ticket thread (Staff or Customer)
+app.post(['/api/tickets/:id/messages', '/api/support/tickets/:id/messages'], publicApiLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { message, senderType, senderName } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message content is required.' });
+    }
+
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    await dbRun(
+      'INSERT INTO support_ticket_messages (id, ticketId, senderType, senderName, message, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+      [msgId, id, senderType || 'staff', senderName || 'Support Agent', message.trim(), Date.now()]
+    );
+
+    await dbRun("UPDATE support_tickets SET status = 'in_progress' WHERE id = ? AND status = 'open'", [id]);
+
+    broadcastEvent('support_ticket_updated', { ticketId: id, message: message.trim(), senderType: senderType || 'staff', senderName: senderName || 'Support Agent' });
+    res.json({ success: true, messageId: msgId });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/customer/support/tickets — Customer ticket history
+app.get('/api/customer/support/tickets', publicApiLimiter, async (req, res) => {
+  try {
+    let customerPhone = req.query.phone || '';
+    let customerEmail = req.query.email || '';
+
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+        if (decoded.phone) customerPhone = decoded.phone;
+        if (decoded.email) customerEmail = decoded.email;
+      } catch (_) {}
+    }
+
+    if (!customerPhone && !customerEmail) {
+      return res.json([]);
+    }
+
+    const tickets = await dbAll(
+      `SELECT * FROM support_tickets WHERE (customerPhone = ? OR customerEmail = ?) ORDER BY createdAt DESC`,
+      [customerPhone, customerEmail]
+    );
+
+    res.json(tickets);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/customer/support/tickets — Create a new support ticket (Customer PWA / Bot)
+app.post('/api/customer/support/tickets', publicApiLimiter, async (req, res) => {
+  try {
+    const { name, phone, email, issueCategory, message, orderId, otpCode } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message description is required.' });
+    }
+
+    let verifiedName = name ? name.trim() : 'Customer';
+    let verifiedPhone = phone ? phone.trim() : null;
+    let verifiedEmail = email ? email.toLowerCase().trim() : null;
+
+    const authHeader = req.headers.authorization;
+    let authedUser = null;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        authedUser = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+        verifiedName = authedUser.name || verifiedName;
+        verifiedPhone = authedUser.phone || verifiedPhone;
+        verifiedEmail = authedUser.email || verifiedEmail;
+      } catch (_) {}
+    }
+
+    if (!authedUser) {
+      if (!verifiedPhone && !verifiedEmail) {
+        return res.status(400).json({ error: 'Please provide your name and phone number or email.' });
+      }
+      if (otpCode) {
+        const dest = verifiedEmail || verifiedPhone;
+        if (!verifyOTP(dest, otpCode)) {
+          return res.status(400).json({ error: 'Invalid or expired verification code.' });
+        }
+      }
+    }
+
+    const ticketId = `tkt_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const tenantId = await resolvePublicTenant(req);
+
+    await dbRun(
+      `INSERT INTO support_tickets (id, orderId, customerName, customerPhone, issueCategory, message, status, createdAt, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
+      [ticketId, orderId || null, verifiedName, verifiedPhone || verifiedEmail, issueCategory || 'general', message.trim(), Date.now(), tenantId]
+    );
+
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    await dbRun(
+      'INSERT INTO support_ticket_messages (id, ticketId, senderType, senderName, message, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+      [msgId, ticketId, 'customer', verifiedName, message.trim(), Date.now()]
+    );
+
+    broadcastEvent('support_ticket_created', {
+      ticketId,
+      customerName: verifiedName,
+      customerPhone: verifiedPhone || verifiedEmail,
+      message: message.trim(),
+      timestamp: Date.now()
+    });
+
+    res.status(201).json({
+      success: true,
+      ticketId,
+      message: 'Support ticket registered! Our team has been notified.'
+    });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

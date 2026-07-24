@@ -1288,7 +1288,7 @@ export default function POSView() {
             )}
             <h3 style={{ margin: '0 0 2px 0', fontSize: '15px' }}>{settings.businessName || 'GastroFlow Bistro'}</h3>
             <p style={{ margin: '0 0 2px 0' }}>{settings.address || '12 Galle Road, Colombo 03, Sri Lanka'}</p>
-            <p style={{ margin: '0 0 2px 0' }}>Tel: {settings.phone || '+94 11 234 5678'}</p>
+            <p style={{ margin: '0 0 2px 0' }}>Tel: {settings.phone || '+94 76 013 0922'}</p>
           </div>
           <div className="receipt-divider"></div>
           <p>Date: {new Date(printReceiptOrder.timestamp || Date.now()).toLocaleString()}</p>

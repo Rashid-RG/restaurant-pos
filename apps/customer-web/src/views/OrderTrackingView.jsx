@@ -302,14 +302,14 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           {/* First-Class Contact & Conduct Action Buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '12px 0' }}>
             <a
-              href="tel:+94112345678"
+              href="tel:+94760130922"
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, textDecoration: 'none', padding: '10px 8px', fontSize: '0.82rem', fontWeight: 700 }}
             >
               📞 Call Restaurant
             </a>
             <a
-              href={`https://wa.me/94112345678?text=${encodeURIComponent(`Hi GastroFlow Support, I need help with my Order #${order?.id}`)}`}
+              href={`https://wa.me/94760130922?text=${encodeURIComponent(`Hi GastroFlow Support, I need help with my Order #${order?.id}`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-secondary"
@@ -431,7 +431,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </a>
 
               <a
-                href="tel:+94112345678"
+                href="tel:+94760130922"
                 style={{ textDecoration: 'none' }}
               >
                 <button

@@ -107,8 +107,8 @@ export default function LegalPoliciesView({ onBack }) {
               <p style={{ margin: '0 0 6px 0' }}>🏢 <strong>Merchant Legal Entity:</strong> GastroFlow Bistro (Pvt) Ltd</p>
               <p style={{ margin: '0 0 6px 0' }}>📋 <strong>Company Reg. No:</strong> PV 00234912 / Sri Lanka</p>
               <p style={{ margin: '0 0 6px 0' }}>📍 <strong>Merchant Registered Address:</strong> No. 12 Galle Road, Colombo 03, Sri Lanka</p>
-              <p style={{ margin: '0 0 6px 0' }}>📞 <strong>Support Hotline:</strong> +94 11 234 5678 / +94 77 123 4567</p>
-              <p style={{ margin: '0 0 6px 0' }}>✉️ <strong>Support Email:</strong> support@gastroflow.lk</p>
+              <p style={{ margin: '0 0 6px 0' }}>📞 <strong>Support Hotline:</strong> +94 76 013 0922</p>
+              <p style={{ margin: '0 0 6px 0' }}>✉️ <strong>Support Email:</strong> gastroflowadmin@gmail.com</p>
               <p style={{ margin: '0 0 6px 0' }}>💳 <strong>Payment Gateway Partner:</strong> PayHere Payment Gateway (PCI-DSS Level 1 Compliant)</p>
             </div>
           </div>

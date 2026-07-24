@@ -397,6 +397,14 @@ export default function MenuView({ onNavigate, toast }) {
           handleAddToCart(matched, data.action.quantity || 1, [], '');
         }
       }
+
+      // Connect Support Action
+      if (data.action && data.action.type === 'connect_support') {
+        setTimeout(() => {
+          setChatOpen(false);
+          onNavigate && onNavigate('support');
+        }, 1500);
+      }
     } catch (err) {
       setChatHistory(prev => [...prev, { sender: 'ai', text: "Sorry, I am having trouble connecting right now. Please try again." }]);
     } finally {
@@ -882,9 +890,9 @@ export default function MenuView({ onNavigate, toast }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: '1.3rem' }}>🤖</span>
               <div>
-                <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>GastroAI Concierge</div>
+                <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>GastroAI Assistant & Concierge</div>
                 <div style={{ fontSize: '0.68rem', color: '#e0e7ff', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e' }} /> Menu & Sommelier Expert
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e' }} /> 24/7 Support & Food Sommelier
                 </div>
               </div>
             </div>
@@ -893,7 +901,7 @@ export default function MenuView({ onNavigate, toast }) {
 
           <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center', background: 'rgba(0,0,0,0.03)', padding: '6px 12px', borderRadius: 8 }}>
-              Ask for pairings, budget combos, dietary advice, or track orders live!
+              Ask for food recommendations, support, careers, or track orders live!
             </p>
 
             {chatHistory.map((chat, idx) => (
@@ -935,7 +943,22 @@ export default function MenuView({ onNavigate, toast }) {
                     {chat.suggestions.map((sug, sIdx) => (
                       <button
                         key={sIdx}
-                        onClick={() => sendChatMessage(sug)}
+                        onClick={() => {
+                          if (sug.includes('Live Agent') || sug.includes('Support') || sug === '💬 Connect with Live Agent') {
+                            setChatOpen(false);
+                            onNavigate && onNavigate('support');
+                            return;
+                          }
+                          if (sug.includes('Call 0760130922') || sug.includes('Call Store')) {
+                            window.location.href = 'tel:+94760130922';
+                            return;
+                          }
+                          if (sug.includes('WhatsApp')) {
+                            window.open('https://wa.me/94760130922', '_blank');
+                            return;
+                          }
+                          sendChatMessage(sug);
+                        }}
                         style={{
                           background: 'rgba(99, 102, 241, 0.1)',
                           color: 'var(--brand)',

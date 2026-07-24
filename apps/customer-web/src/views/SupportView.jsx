@@ -15,16 +15,25 @@ export default function SupportView({ onBack, toast = () => {} }) {
   const [messageInput, setMessageInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // OTP Verification for Unregistered Guest Users
+  const [showOtpStep, setShowOtpStep] = useState(false);
+  const [otpCodeInput, setOtpCodeInput] = useState('');
+  const [otpSending, setOtpSending] = useState(false);
+
   const [myTickets, setMyTickets] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(false);
+  const [activeTicket, setActiveTicket] = useState(null);
+  const [threadMessages, setThreadMessages] = useState([]);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
 
   const fetchTickets = async () => {
-    const contact = customer?.phone || customer?.email || phoneInput || emailInput;
+    const contact = customer?.phone || customer?.email || phoneInput || emailInput || localStorage.getItem('gastroflow_guest_contact');
     if (!contact) return;
     setLoadingTickets(true);
     try {
       const isEmail = contact.includes('@');
-      const data = await apiFetch(`/public/support/tickets?${isEmail ? `email=${encodeURIComponent(contact)}` : `phone=${encodeURIComponent(contact)}`}`);
+      const data = await apiFetch(`/customer/support/tickets?${isEmail ? `email=${encodeURIComponent(contact)}` : `phone=${encodeURIComponent(contact)}`}`);
       setMyTickets(data || []);
     } catch (_) {
     } finally {
@@ -32,9 +41,64 @@ export default function SupportView({ onBack, toast = () => {} }) {
     }
   };
 
+  const fetchMessages = async (ticketId) => {
+    try {
+      const data = await apiFetch(`/public/support/tickets/${ticketId}/messages`);
+      setThreadMessages(data || []);
+    } catch (err) {
+      console.error('Error fetching messages:', err);
+    }
+  };
+
   useEffect(() => {
     fetchTickets();
-  }, [customer?.id]);
+
+    // Subscribe to SSE for real-time ticket & reply updates
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const es = new EventSource(`${API_BASE}/api/events`);
+
+    es.onmessage = (e) => {
+      try {
+        const payload = JSON.parse(e.data);
+        if (payload.type === 'support_ticket_updated') {
+          fetchTickets();
+          if (activeTicket && payload.data?.ticketId === activeTicket.id) {
+            fetchMessages(activeTicket.id);
+            toast(`💬 New message on Ticket #${activeTicket.id}!`, 'info');
+          }
+        }
+      } catch (_) {}
+    };
+
+    return () => es.close();
+  }, [customer?.id, activeTicket]);
+
+  const handleSendOtp = async () => {
+    const target = emailInput.trim() || phoneInput.trim();
+    if (!target) {
+      toast('Please enter your phone number or email address for verification.', 'warning');
+      return;
+    }
+    setOtpSending(true);
+    try {
+      const isEmail = target.includes('@');
+      const r = await apiFetch('/otp/send', {
+        method: 'POST',
+        body: JSON.stringify({ channel: isEmail ? 'email' : 'sms', destination: target, purpose: 'guest_support' })
+      });
+      if (r.otpCode) {
+        setOtpCodeInput(r.otpCode);
+        toast(`Verification code: ${r.otpCode} (Auto-filled)`, 'success');
+      } else {
+        toast(`Verification code sent to ${target}`, 'info');
+      }
+      setShowOtpStep(true);
+    } catch (err) {
+      toast(err.message || 'Failed to send OTP code.', 'error');
+    } finally {
+      setOtpSending(false);
+    }
+  };
 
   const handleSubmitTicket = async (e) => {
     e.preventDefault();
@@ -43,9 +107,21 @@ export default function SupportView({ onBack, toast = () => {} }) {
       return;
     }
 
+    const contact = customer?.phone || customer?.email || phoneInput.trim() || emailInput.trim();
+    if (!customer && !contact) {
+      toast('Please provide your name and phone number or email.', 'warning');
+      return;
+    }
+
+    // Guest verification requirement
+    if (!customer && !showOtpStep) {
+      await handleSendOtp();
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const res = await apiFetch('/public/support/tickets', {
+      const res = await apiFetch('/customer/support/tickets', {
         method: 'POST',
         body: JSON.stringify({
           orderId: orderIdInput.trim() || null,
@@ -53,12 +129,16 @@ export default function SupportView({ onBack, toast = () => {} }) {
           phone: phoneInput.trim() || customer?.phone || null,
           email: emailInput.trim() || customer?.email || null,
           issueCategory,
-          message: messageInput.trim()
+          message: messageInput.trim(),
+          otpCode: otpCodeInput.trim() || undefined
         })
       });
 
       toast(`✅ Support Ticket #${res.ticketId} Created!`, 'success');
+      if (contact) localStorage.setItem('gastroflow_guest_contact', contact);
       setMessageInput('');
+      setShowOtpStep(false);
+      setOtpCodeInput('');
       fetchTickets();
     } catch (err) {
       toast(err.message || 'Failed to submit support ticket', 'error');
@@ -67,8 +147,36 @@ export default function SupportView({ onBack, toast = () => {} }) {
     }
   };
 
-  const waText = encodeURIComponent(`🚨 Customer Help Request: Hi GastroFlow Support, I need assistance with my order/account.`);
-  const waLink = `https://wa.me/94112345678?text=${waText}`;
+  const handleOpenThread = (ticket) => {
+    setActiveTicket(ticket);
+    fetchMessages(ticket.id);
+  };
+
+  const handleSendThreadReply = async (e) => {
+    e.preventDefault();
+    if (!replyText.trim() || !activeTicket) return;
+    setSendingReply(true);
+    try {
+      await apiFetch(`/public/support/tickets/${activeTicket.id}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({
+          message: replyText.trim(),
+          senderType: 'customer',
+          senderName: customer?.name || nameInput || 'Customer'
+        })
+      });
+      toast('Reply sent!', 'success');
+      setReplyText('');
+      fetchMessages(activeTicket.id);
+    } catch (err) {
+      toast(err.message || 'Failed to send reply', 'error');
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
+  const waText = encodeURIComponent(`Hi GastroFlow Support, I need assistance with my order/account.`);
+  const waLink = `https://wa.me/94760130922?text=${waText}`;
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto', padding: '16px', color: 'var(--text-1)' }}>
@@ -89,12 +197,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
 
       {/* Direct Escalation Quick Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
-        <a
-          href={waLink}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ textDecoration: 'none' }}
-        >
+        <a href={waLink} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
           <div style={{ background: '#25D36615', border: '1px solid #25D36650', borderRadius: 14, padding: 16, textAlign: 'center', color: '#25D366', cursor: 'pointer' }}>
             <div style={{ fontSize: '1.8rem', marginBottom: 4 }}>💬</div>
             <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>WhatsApp Live Support</div>
@@ -102,11 +205,11 @@ export default function SupportView({ onBack, toast = () => {} }) {
           </div>
         </a>
 
-        <a href="tel:+94112345678" style={{ textDecoration: 'none' }}>
+        <a href="tel:+94760130922" style={{ textDecoration: 'none' }}>
           <div style={{ background: '#3b82f615', border: '1px solid #3b82f650', borderRadius: 14, padding: 16, textAlign: 'center', color: '#3b82f6', cursor: 'pointer' }}>
             <div style={{ fontSize: '1.8rem', marginBottom: 4 }}>📞</div>
             <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>Call Store Manager</div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>+94 11 234 5678</div>
+            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>+94 76 013 0922</div>
           </div>
         </a>
       </div>
@@ -114,7 +217,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
       {/* New Support Ticket Form */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 20, marginBottom: 24, boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>
         <h3 style={{ margin: '0 0 14px 0', fontSize: '1.1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>📩</span> Submit a Support Ticket
+          <span>📩</span> Submit a Support Ticket / Inquiry
         </h3>
 
         <form onSubmit={handleSubmitTicket} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -131,38 +234,56 @@ export default function SupportView({ onBack, toast = () => {} }) {
               <option value="food_quality">🍲 Food Quality / Wrong Item</option>
               <option value="payment_refund">💳 Payment / Refund Query</option>
               <option value="cancellation">❌ Order Cancellation Request</option>
+              <option value="careers">💼 Careers / Job Opportunity</option>
               <option value="general">❓ General Inquiry</option>
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 4 }}>Order ID (Optional):</label>
+          {!customer && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 4 }}>Your Full Name:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Kamal Perera"
+                  value={nameInput}
+                  onChange={e => setNameInput(e.target.value)}
+                  style={{ width: '100%', padding: '10px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.85rem' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 4 }}>Phone or Email:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 0760130922 or email"
+                  value={phoneInput || emailInput}
+                  onChange={e => { setPhoneInput(e.target.value); setEmailInput(e.target.value); }}
+                  style={{ width: '100%', padding: '10px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.85rem' }}
+                />
+              </div>
+            </div>
+          )}
+
+          {showOtpStep && !customer && (
+            <div style={{ background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.3)', borderRadius: 10, padding: 12 }}>
+              <label style={{ fontSize: '0.8rem', color: '#818cf8', fontWeight: 700, display: 'block', marginBottom: 4 }}>
+                🔒 Enter 6-digit OTP Verification Code:
+              </label>
               <input
                 type="text"
-                placeholder="e.g. ord_online_1234"
-                value={orderIdInput}
-                onChange={e => setOrderIdInput(e.target.value)}
-                style={{ width: '100%', padding: '10px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.85rem' }}
+                placeholder="6-digit code"
+                value={otpCodeInput}
+                onChange={e => setOtpCodeInput(e.target.value)}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid #818cf8', color: 'var(--text-1)', fontSize: '1rem', fontWeight: 800, textAlign: 'center' }}
               />
             </div>
-            <div>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 4 }}>Contact Phone / Email:</label>
-              <input
-                type="text"
-                placeholder="e.g. 0771234567 or email"
-                value={phoneInput || emailInput}
-                onChange={e => { setPhoneInput(e.target.value); setEmailInput(e.target.value); }}
-                style={{ width: '100%', padding: '10px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.85rem' }}
-              />
-            </div>
-          </div>
+          )}
 
           <div>
-            <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 4 }}>Describe Your Issue:</label>
+            <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 4 }}>Describe Your Question or Issue:</label>
             <textarea
               rows={4}
-              placeholder="Tell us what went wrong or how we can help you..."
+              placeholder="Tell us how we can help you..."
               value={messageInput}
               onChange={e => setMessageInput(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.88rem', resize: 'vertical' }}
@@ -171,7 +292,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || otpSending}
             style={{
               width: '100%',
               padding: '12px',
@@ -185,7 +306,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
               boxShadow: '0 4px 12px rgba(255,107,53,0.3)'
             }}
           >
-            {submitting ? 'Submitting Ticket...' : '📩 Send Ticket to Restaurant Manager'}
+            {submitting ? 'Submitting Ticket...' : showOtpStep ? '✅ Verify OTP & Submit Ticket' : '📩 Send Ticket to Support Team'}
           </button>
         </form>
       </div>
@@ -193,7 +314,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
       {/* My Support Tickets List */}
       <div>
         <h3 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>📋</span> My Support Tickets ({myTickets.length})
+          <span>📋</span> My Support Tickets & Live Chat ({myTickets.length})
         </h3>
 
         {loadingTickets ? (
@@ -203,9 +324,19 @@ export default function SupportView({ onBack, toast = () => {} }) {
             No support tickets submitted yet.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {myTickets.map(t => (
-              <div key={t.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+              <div
+                key={t.id}
+                onClick={() => handleOpenThread(t)}
+                style={{
+                  background: activeTicket?.id === t.id ? 'var(--bg-surface)' : 'var(--bg-card)',
+                  border: activeTicket?.id === t.id ? '2px solid #ff6b35' : '1px solid var(--border-color)',
+                  borderRadius: 12,
+                  padding: 14,
+                  cursor: 'pointer'
+                }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#ff6b35' }}>Ticket #{t.id}</span>
                   <span style={{
@@ -229,6 +360,52 @@ export default function SupportView({ onBack, toast = () => {} }) {
           </div>
         )}
       </div>
+
+      {/* Active Ticket Live Chat Modal / Drawer */}
+      {activeTicket && (
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 16, marginTop: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, borderBottom: '1px solid var(--border-color)', paddingBottom: 8 }}>
+            <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>💬 Live Chat Thread — Ticket #{activeTicket.id}</h4>
+            <button onClick={() => setActiveTicket(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 700 }}>✕ Close</button>
+          </div>
+
+          <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
+            {threadMessages.map(m => {
+              const isCust = m.senderType === 'customer';
+              return (
+                <div key={m.id} style={{ alignSelf: isCust ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textAlign: isCust ? 'right' : 'left' }}>
+                    {m.senderName} · {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <div style={{
+                    background: isCust ? '#ff6b35' : 'var(--bg-surface)',
+                    color: isCust ? '#fff' : 'var(--text-1)',
+                    padding: '8px 12px',
+                    borderRadius: 12,
+                    fontSize: '0.85rem'
+                  }}>
+                    {m.message}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <form onSubmit={handleSendThreadReply} style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <input
+              type="text"
+              placeholder="Type message to support staff..."
+              value={replyText}
+              onChange={e => setReplyText(e.target.value)}
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.85rem' }}
+              disabled={sendingReply}
+            />
+            <button type="submit" style={{ padding: '8px 14px', borderRadius: 8, background: '#ff6b35', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }} disabled={sendingReply || !replyText.trim()}>
+              Send
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
