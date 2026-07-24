@@ -2775,12 +2775,75 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         lat: 6.0535,
         lng: 80.2210,
         deliveryRadiusKm: 15,
-        isOpen: true,
-        bannerGradient: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)'
       }
     ];
 
-    res.json(defaultStores);
+    // Build unique store map to ensure 100% NO duplicates
+    const storeMap = new Map();
+    defaultStores.forEach(s => storeMap.set(s.id, s));
+
+    // Merge any registered DB tenants dynamically
+    for (const tenant of dbTenants) {
+      if (!storeMap.has(tenant.id)) {
+        storeMap.set(tenant.id, {
+          id: tenant.id,
+          name: tenant.name || 'GastroFlow Branch',
+          cuisine: 'Multi-Cuisine & Grill',
+          emoji: '🏬',
+          rating: 4.8,
+          ratingCount: 150,
+          deliveryTime: '20-30 min',
+          deliveryFee: 150,
+          minOrder: 1000,
+          cuisineTag: 'srilankan',
+          location: 'Colombo',
+          lat: 6.9147,
+          lng: 79.8517,
+          deliveryRadiusKm: 15,
+          isOpen: true,
+          bannerGradient: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)'
+        });
+      }
+    }
+
+    let finalStores = Array.from(storeMap.values());
+
+    // If customer coordinates provided, attach dynamic distance, fee & recommendation score
+    const uLat = parseFloat(req.query.lat);
+    const uLng = parseFloat(req.query.lng);
+
+    if (!isNaN(uLat) && !isNaN(uLng)) {
+      const R = 6371;
+      finalStores = finalStores.map(s => {
+        const dLat = (s.lat - uLat) * Math.PI / 180;
+        const dLon = (s.lng - uLng) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(uLat * Math.PI / 180) * Math.cos(s.lat * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const dist = Number((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1));
+        const inRange = dist <= (s.deliveryRadiusKm || 15);
+        const fee = inRange ? Math.max(80, Math.round(100 + dist * 25)) : 250;
+        const minEta = Math.round(15 + dist * 3);
+        const maxEta = Math.round(25 + dist * 4);
+
+        // Recommendation Score algorithm
+        const recScore = Number(((100 - dist * 2) + (s.rating * 10) + (s.promoBadge ? 15 : 0)).toFixed(1));
+
+        return {
+          ...s,
+          distanceKm: dist,
+          isDeliverable: inRange,
+          deliveryFee: fee,
+          deliveryTime: `${minEta}-${maxEta} min`,
+          recommendationScore: recScore
+        };
+      });
+
+      // Sort by recommendation score descending by default
+      finalStores.sort((a, b) => b.recommendationScore - a.recommendationScore);
+    }
+
+    res.json(finalStores);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

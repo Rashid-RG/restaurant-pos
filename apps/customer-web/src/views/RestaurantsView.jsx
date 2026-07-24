@@ -169,10 +169,68 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     fetchRestaurants();
   }, []);
 
+  const [sortBy, setSortBy] = useState('recommendation');
+
+  // Strict deduplication helper
+  const deduplicateStores = (storeList) => {
+    const map = new Map();
+    (storeList || []).forEach(s => {
+      if (s && s.id && !map.has(s.id)) {
+        map.set(s.id, s);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  const processStoreProximity = (uLat, uLng, rawStores = restaurants) => {
+    if (!uLat || !uLng || rawStores.length === 0) return;
+
+    const uniqueRaw = deduplicateStores(rawStores);
+    const updated = uniqueRaw.map(r => {
+      const storeLat = r.lat || 6.9147;
+      const storeLng = r.lng || 79.8517;
+      const dist = calculateHaversineKm(uLat, uLng, storeLat, storeLng);
+      const radius = r.deliveryRadiusKm || 15;
+      const inRange = dist <= radius;
+      const fee = inRange ? Math.max(80, Math.round(100 + dist * 25)) : 250;
+      const minEta = Math.round(15 + dist * 3);
+      const maxEta = Math.round(25 + dist * 4);
+      const recScore = Number(((100 - dist * 2) + (r.rating * 10) + (r.promoBadge ? 15 : 0)).toFixed(1));
+
+      return {
+        ...r,
+        distanceKm: dist,
+        isDeliverable: inRange,
+        deliveryFee: fee,
+        deliveryTime: `${minEta}-${maxEta} min`,
+        recommendationScore: recScore
+      };
+    });
+
+    setRestaurants(updated);
+
+    const deliverableStores = updated.filter(s => s.isDeliverable);
+    const sortedByDistance = [...updated].sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+    const closest = sortedByDistance[0];
+
+    if (closest) {
+      setNearestStore(closest);
+      if (deliverableStores.length === 0) {
+        setIsOutOfCoverage(true);
+        setShowOutOfCoverageModal(true);
+        toast(`⚠️ Nearest store ${closest.name} is ${closest.distanceKm} km away (outside 15 km delivery zone)`, 'warning', 8000);
+      } else {
+        setIsOutOfCoverage(false);
+        toast(`📍 Nearest Store: ${closest.name} (${closest.distanceKm} km away)`, 'success');
+      }
+    }
+  };
+
   const fetchRestaurants = async () => {
     try {
-      const data = await apiFetch('/public/restaurants');
-      const storeList = data || [];
+      const q = userCoords ? `?lat=${userCoords.lat}&lng=${userCoords.lng}` : '';
+      const data = await apiFetch(`/public/restaurants${q}`);
+      const storeList = deduplicateStores(data || []);
       setRestaurants(storeList);
 
       if (userCoords && userCoords.lat && userCoords.lng) {
@@ -188,11 +246,26 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     }
   };
 
-  const filtered = restaurants.filter(r => {
-    const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase()) ||
-                          r.cuisine.toLowerCase().includes(search.toLowerCase());
-    const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
-    return matchesSearch && matchesCuisine;
+  const filtered = deduplicateStores(
+    restaurants.filter(r => {
+      const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase()) ||
+                            r.cuisine.toLowerCase().includes(search.toLowerCase());
+      const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
+      return matchesSearch && matchesCuisine;
+    })
+  ).sort((a, b) => {
+    if (sortBy === 'fastest') {
+      const getMinTime = s => parseInt(s.deliveryTime || '30', 10);
+      return getMinTime(a) - getMinTime(b);
+    }
+    if (sortBy === 'rating') {
+      return (b.rating || 0) - (a.rating || 0);
+    }
+    if (sortBy === 'distance') {
+      return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
+    }
+    // Default AI Recommendation Score
+    return (b.recommendationScore || 0) - (a.recommendationScore || 0);
   });
 
   return (
@@ -403,7 +476,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       )}
 
       {/* Search Input */}
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 14 }}>
         <div style={{ position: 'relative' }}>
           <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem', color: 'var(--text-muted)' }}>🔍</span>
           <input
@@ -414,6 +487,35 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             style={{ paddingLeft: 42, height: 48, borderRadius: 24, fontSize: '16px' }}
           />
         </div>
+      </div>
+
+      {/* UberEats Smart Sort Filter Bar */}
+      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
+        {[
+          { id: 'recommendation', label: '🎯 Top Picks', desc: 'AI Match' },
+          { id: 'fastest', label: '⚡ Fastest', desc: '< 30 min' },
+          { id: 'rating', label: '⭐ Top Rated', desc: '4.8+' },
+          { id: 'distance', label: '📍 Nearest', desc: 'Proximity' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setSortBy(tab.id)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 16,
+              fontSize: '0.78rem',
+              fontWeight: 800,
+              border: sortBy === tab.id ? 'none' : '1px solid var(--border-color)',
+              background: sortBy === tab.id ? 'linear-gradient(135deg, #ff6b35 0%, #d97706 100%)' : 'var(--surface-1)',
+              color: sortBy === tab.id ? '#fff' : 'var(--text-1)',
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              boxShadow: sortBy === tab.id ? '0 4px 12px rgba(255,107,53,0.3)' : 'none'
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Cuisine Tag Selector */}
@@ -443,19 +545,71 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         ))}
       </div>
 
+      {/* UberEats Featured Top Picks Horizontal Carousel */}
+      {sortBy === 'recommendation' && !loading && filtered.length > 1 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>🔥 Top Picks Near You</span>
+            </h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--brand)', fontWeight: 700 }}>Curated</span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
+            {filtered.slice(0, 4).map(r => (
+              <div
+                key={`pick_${r.id}`}
+                onClick={() => onSelectRestaurant && onSelectRestaurant(r)}
+                style={{
+                  minWidth: 220,
+                  maxWidth: 220,
+                  background: 'var(--surface-1)',
+                  borderRadius: 16,
+                  border: '1px solid var(--border-color)',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  boxShadow: 'var(--shadow-sm)'
+                }}
+              >
+                <div style={{ height: 100, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: '3rem' }}>{r.emoji || '🏬'}</span>
+                  <span style={{ position: 'absolute', top: 8, left: 8, background: '#10b981', color: '#fff', padding: '2px 8px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 800 }}>
+                    🔥 Top Rated
+                  </span>
+                </div>
+                <div style={{ padding: 12 }}>
+                  <h4 style={{ margin: '0 0 2px', fontSize: '0.92rem', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {r.name}
+                  </h4>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6 }}>
+                    ⭐ {r.rating} · ⏱️ {r.deliveryTime || '20-30 min'}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
+                    📍 {r.distanceKm ? `${r.distanceKm} km away` : 'Near you'}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Restaurants List Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
-          Popular Stores Near You ({filtered.length})
+          {sortBy === 'fastest' ? '⚡ Fastest Outlets Near You' :
+           sortBy === 'rating' ? '⭐ Highest Rated Restaurants' :
+           sortBy === 'distance' ? '📍 Closest Outlets' :
+           `Popular Outlets Near You (${filtered.length})`}
         </h3>
-        <span style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 700 }}>See All ➔</span>
+        <span style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 700 }}>{filtered.length} Unique Outlets</span>
       </div>
 
       {/* Restaurants Grid / Cards */}
       {loading ? (
         <div style={{ padding: 40, textAlign: 'center' }}>
           <div className="spinner" />
-          <p style={{ marginTop: 12, color: 'var(--text-muted)' }}>Loading local restaurants...</p>
+          <p style={{ marginTop: 12, color: 'var(--text-muted)' }}>Loading real nearby restaurants...</p>
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ padding: 32, background: 'var(--surface-1)', borderRadius: 16, border: '1px solid var(--border-color)', textAlign: 'center' }}>
