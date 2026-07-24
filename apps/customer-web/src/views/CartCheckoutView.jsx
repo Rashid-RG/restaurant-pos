@@ -824,6 +824,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
               </label>
             </div>
           )}
+        </div>
+
         {/* Uber Eats Smart Recommendation Upsell Carousel */}
         {upsellItems.length > 0 && (
           <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
