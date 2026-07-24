@@ -4219,7 +4219,7 @@ app.post('/api/public/webhooks/aggregators/:provider', publicApiLimiter, async (
   }
 });
 
-// GET /api/tables/:id/qr — Table QR code URL resolution
+// GET /api/tables/:id/qr — Table QR code URL & Printable PNG Image resolution
 app.get('/api/tables/:id/qr', publicApiLimiter, async (req, res) => {
   try {
     const tableId = req.params.id;
@@ -4227,9 +4227,20 @@ app.get('/api/tables/:id/qr', publicApiLimiter, async (req, res) => {
     const table = await dbGet('SELECT * FROM tables WHERE id = ? AND tenant_id = ?', [tableId, tenantId]);
     if (!table) return res.status(404).json({ error: 'Table not found.' });
 
-    const customerAppUrl = process.env.CUSTOMER_APP_URL || 'http://localhost:3001';
-    const qrUrl = `${customerAppUrl}/?table=${table.number}&tenant=${tenantId}`;
-    res.json({ tableId: table.id, number: table.number, qrUrl });
+    const host = req.headers.host || 'localhost:3000';
+    const protocol = req.headers['x-forwarded-proto'] || 'http';
+    const baseUrl = process.env.CUSTOMER_APP_URL || `${protocol}://${host}/customer`;
+    const qrUrl = `${baseUrl}/?table=${table.number}&tenant=${tenantId}`;
+
+    let qrcodeDataUri = null;
+    try {
+      const QRCode = (await import('qrcode')).default;
+      qrcodeDataUri = await QRCode.toDataURL(qrUrl, { margin: 2, width: 300 });
+    } catch (e) {
+      console.warn('QRCode generation fallback:', e.message);
+    }
+
+    res.json({ tableId: table.id, number: table.number, qrUrl, qrcodeDataUri });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

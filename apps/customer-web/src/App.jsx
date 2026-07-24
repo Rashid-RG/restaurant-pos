@@ -211,6 +211,16 @@ function InnerApp() {
     const legal = params.get('legal') || params.get('policies');
     const hash = window.location.hash;
 
+    const table = params.get('table');
+    const tenant = params.get('tenant');
+    if (table) {
+      localStorage.setItem('gastroflow_table_number', table);
+      toast(`🪑 Seated at Table #${table}! Menu loaded for table order.`, 'success');
+    }
+    if (tenant) {
+      setActiveTenant(tenant);
+    }
+
     if (mode === 'driver' || mode === '1' || mode === 'true' || hash === '#driver') {
       openDriverApp();
       return;
@@ -266,6 +276,11 @@ function InnerApp() {
           <span className="restaurant-name" style={{ fontSize: '1.35rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px' }}>
             GastroFlow
           </span>
+          {localStorage.getItem('gastroflow_table_number') && (
+            <span style={{ background: '#10b98120', color: '#10b981', padding: '3px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, border: '1px solid #10b98150' }}>
+              🪑 Table #{localStorage.getItem('gastroflow_table_number')}
+            </span>
+          )}
         </div>
         <div className="header-actions">
           <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
