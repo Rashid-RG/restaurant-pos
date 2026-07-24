@@ -349,7 +349,19 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Email Address <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(for receipts & reset)</span></label>
-            <input className="form-control" type="email" placeholder="you@example.com" value={regEmail} onChange={e => setRegEmail(e.target.value)} />
+            <input
+              className="form-control"
+              type="email"
+              placeholder="you@example.com"
+              value={regEmail}
+              onChange={e => {
+                const val = e.target.value;
+                setRegEmail(val);
+                if (val.includes('@') && val.includes('.')) {
+                  setRegOtpChannel('email');
+                }
+              }}
+            />
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Phone Number <span style={{ color: 'var(--brand)', fontWeight: 800 }}>*</span></label>

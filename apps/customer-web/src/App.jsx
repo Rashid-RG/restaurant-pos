@@ -10,6 +10,7 @@ import ProfileView from './views/ProfileView.jsx';
 import RestaurantsView from './views/RestaurantsView.jsx';
 import LegalPoliciesView from './views/LegalPoliciesView.jsx';
 import SupportView from './views/SupportView.jsx';
+import GastroAiConcierge from './components/GastroAiConcierge.jsx';
 import { setActiveTenant } from './utils/tenant.js';
 
 // ── Error Boundary ───────────────────────────────────────────────────
@@ -393,6 +394,9 @@ function InnerApp() {
           </div>
         </footer>
       </main>
+
+      {/* Global 24/7 GastroAI Concierge Assistant */}
+      <GastroAiConcierge onNavigate={navigate} cartItems={items} />
 
       {/* Cart Sheet */}
       <CartSheet onCheckout={() => navigate('checkout')} />

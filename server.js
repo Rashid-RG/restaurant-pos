@@ -1705,11 +1705,25 @@ async function sendSMS(to, message) {
   }
 }
 
+export function normalizeOtpDestination(dest) {
+  if (!dest) return '';
+  const str = String(dest).trim();
+  if (str.includes('@')) {
+    return str.toLowerCase();
+  }
+  let digits = str.replace(/\D/g, '');
+  if (digits.startsWith('94') && digits.length === 11) {
+    digits = '0' + digits.slice(2);
+  }
+  if (digits.length === 9 && digits.startsWith('7')) {
+    digits = '0' + digits;
+  }
+  return digits;
+}
+
 function verifyOTP(destination, code) {
   if (!destination || !code) return false;
-  const cleanDest = destination.includes('@')
-    ? destination.toLowerCase().trim()
-    : destination.replace(/[\s-]/g, '');
+  const cleanDest = normalizeOtpDestination(destination);
 
   const entry = otpStore.get(cleanDest);
   if (!entry) return false;
@@ -1717,11 +1731,14 @@ function verifyOTP(destination, code) {
     otpStore.delete(cleanDest);
     return false;
   }
+  if (entry.verified) {
+    return true;
+  }
   if (entry.code !== String(code).trim()) {
     return false;
   }
   
-  otpStore.delete(cleanDest);
+  entry.verified = true;
   return true;
 }
 
@@ -1735,9 +1752,9 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
     }
 
     const isEmail = (channel === 'email') || target.includes('@');
-    const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
+    const cleanDest = normalizeOtpDestination(target);
 
-    if (!isEmail && !isValidSriLankanPhone(cleanDest)) {
+    if (!isEmail && !isValidSriLankanPhone(target)) {
       return res.status(400).json({ error: 'A valid Sri Lankan phone number is required (e.g. 0771234567).' });
     }
 
