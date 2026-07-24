@@ -51,14 +51,48 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
 
+  // ── High-Professional Customer Order Chime ──
+  const playCustomerChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const notes = [
+        { freq: 523.25, time: 0, duration: 0.20 },   // C5
+        { freq: 659.25, time: 0.15, duration: 0.20 },  // E5
+        { freq: 783.99, time: 0.30, duration: 0.40 }   // G5
+      ];
+
+      notes.forEach(({ freq, time, duration }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + time);
+        gain.gain.setValueAtTime(0.001, ctx.currentTime + time);
+        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + time + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + time + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + time);
+        osc.stop(ctx.currentTime + time + duration);
+      });
+    } catch (_) {}
+  };
+
   const fetchOrder = async (id) => {
     if (!id) return;
     setLoading(true); setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
+      if (order && order.status && data.status !== order.status) {
+        playCustomerChime();
+        toast(`🔔 Order Status Updated: ${data.status.toUpperCase()}`, 'info');
+      }
       setOrder(data);
       if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
-      setFeedbackSubmitted(false); // reset feedback when loading new order
+      setFeedbackSubmitted(false);
     } catch (err) {
       setError(err.message);
       setOrder(null);

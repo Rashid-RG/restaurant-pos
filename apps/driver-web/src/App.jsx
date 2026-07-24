@@ -77,14 +77,58 @@ export default function App() {
     localStorage.removeItem(DRIVER_KEY);
   };
 
+  // ── High-Professional Driver Delivery Ringtone Alert ──
+  const playDriverAlertRingtone = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const notes = [
+        { freq: 783.99, time: 0, duration: 0.15 },    // G5
+        { freq: 1046.50, time: 0.12, duration: 0.15 }, // C6
+        { freq: 1318.51, time: 0.25, duration: 0.35 }  // E6
+      ];
+
+      [0, 0.5, 1.0].forEach((offset) => {
+        notes.forEach(({ freq, time, duration }) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + offset + time);
+          gain.gain.setValueAtTime(0.001, ctx.currentTime + offset + time);
+          gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + offset + time + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + time + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + offset + time);
+          osc.stop(ctx.currentTime + offset + time + duration);
+        });
+      });
+    } catch (_) {}
+  };
+
+  const [prevUnassignedCount, setPrevUnassignedCount] = useState(0);
+
   // ── Orders ──
   const fetchDriverOrders = async () => {
     if (!driver) return;
     setLoading(true);
     try {
       const data = await apiFetch('/public/driver/orders');
-      setActiveOrders(data.assigned || []);
-      setAvailableOrders(data.unassigned || []);
+      const newUnassigned = data.unassigned || [];
+      const newAssigned = data.assigned || [];
+
+      // Alert driver with high-professional delivery ringtone if a new delivery is available
+      if (newUnassigned.length > prevUnassignedCount && prevUnassignedCount > 0) {
+        playDriverAlertRingtone();
+        showToast('🔔 New Delivery Ticket Available!', 'info');
+      }
+
+      setPrevUnassignedCount(newUnassigned.length);
+      setActiveOrders(newAssigned);
+      setAvailableOrders(newUnassigned);
     } catch (err) {
       if (/token/i.test(err.message)) { handleLogout(); showToast('Session expired — please sign in again', 'warning'); }
       else showToast('Failed to load delivery tickets', 'error');
