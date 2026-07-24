@@ -9,6 +9,7 @@ import OrderTrackingView from './views/OrderTrackingView.jsx';
 import ProfileView from './views/ProfileView.jsx';
 import RestaurantsView from './views/RestaurantsView.jsx';
 import LegalPoliciesView from './views/LegalPoliciesView.jsx';
+import SupportView from './views/SupportView.jsx';
 import { setActiveTenant } from './utils/tenant.js';
 
 // ── Error Boundary ───────────────────────────────────────────────────
@@ -283,6 +284,9 @@ function InnerApp() {
           )}
         </div>
         <div className="header-actions">
+          <button className="icon-btn" onClick={() => navigate('support')} title="Customer Support Desk" style={{ fontSize: '1.1rem', background: '#3b82f620', border: '1px solid #3b82f650' }}>
+            🎧
+          </button>
           <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
             🛵
           </button>
@@ -322,6 +326,7 @@ function InnerApp() {
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
+        {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
 
         {/* ── Signature Footer & Gateway Legal Policies ── */}

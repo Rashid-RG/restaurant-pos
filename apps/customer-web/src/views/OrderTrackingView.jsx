@@ -402,6 +402,61 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
+            {/* 1-Tap Direct Call Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <a
+                href={`tel:${order?.driver?.phone || order?.driverPhone || '+94770000000'}`}
+                style={{ textDecoration: 'none' }}
+              >
+                <button
+                  type="button"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: 10,
+                    background: '#10b98115',
+                    border: '1px solid #10b98150',
+                    color: '#10b981',
+                    fontWeight: 800,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6
+                  }}
+                >
+                  <span>🛵 Call Driver</span>
+                </button>
+              </a>
+
+              <a
+                href="tel:+94112345678"
+                style={{ textDecoration: 'none' }}
+              >
+                <button
+                  type="button"
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: 10,
+                    background: '#3b82f615',
+                    border: '1px solid #3b82f650',
+                    color: '#3b82f6',
+                    fontWeight: 800,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6
+                  }}
+                >
+                  <span>🎧 Call Support</span>
+                </button>
+              </a>
+            </div>
+
             <div style={{ borderTop: '1px dashed var(--border-color)', paddingTop: 10 }}>
               {order.items?.map((item, i) => (
                 <div key={i} className="flex-between" style={{ fontSize: '0.82rem', padding: '4px 0' }}>

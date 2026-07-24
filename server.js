@@ -4008,7 +4008,71 @@ app.post('/api/customer/auth/reset-password', otpLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await dbRun('UPDATE customer_accounts SET passwordHash = ? WHERE id = ?', [passwordHash, reset.userId]);
     await dbRun('UPDATE password_resets SET consumedAt = ? WHERE id = ?', [Date.now(), reset.id]);
-    res.json({ ok: true, message: 'Password updated. You can now sign in.' });
+    await writeAuditLog(reset.userId, 'customer', 'password_reset_confirmed', 'Password reset successfully');
+    res.json({ ok: true, message: 'Password updated successfully. You can now log in.' });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// ── Customer Support Desk Tickets Endpoints ──────────────────────────────
+app.post('/api/public/support/tickets', async (req, res) => {
+  try {
+    const tenantId = await resolvePublicTenant(req);
+    const { orderId, name, phone, email, issueCategory = 'general', message } = req.body || {};
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: 'Message text is required.' });
+    }
+
+    const ticketId = `tkt_${Date.now()}`;
+    await dbRun(
+      `INSERT INTO support_tickets (id, tenant_id, orderId, customerName, customerPhone, customerEmail, issueCategory, message, status, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+      [ticketId, tenantId, orderId || null, name || 'Customer', phone || null, email || null, issueCategory, String(message).trim(), Date.now()]
+    );
+
+    // Notify POS stream in real-time
+    notifyPOS({
+      type: 'support_ticket_escalated',
+      ticketId,
+      orderId,
+      customerName: name,
+      message,
+      timestamp: Date.now()
+    }, tenantId);
+
+    const business = await getSettingAny(tenantId, ['businessName', 'restaurantName'], 'GastroFlow Bistro');
+    const waText = encodeURIComponent(`🚨 URGENT CUSTOMER TICKET #${ticketId} (${business}): ${message} (Order: ${orderId || 'N/A'})`);
+
+    res.json({
+      success: true,
+      ticketId,
+      message: `Support ticket #${ticketId} created successfully. Our manager has been notified.`,
+      whatsappUrl: `https://wa.me/94112345678?text=${waText}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+app.get('/api/public/support/tickets', async (req, res) => {
+  try {
+    const tenantId = await resolvePublicTenant(req);
+    const { phone, email } = req.query;
+    let query = 'SELECT * FROM support_tickets WHERE tenant_id = ?';
+    const params = [tenantId];
+    if (phone) {
+      query += ' AND (customerPhone = ? OR customerPhone = ?)';
+      params.push(phone, normalizeLkPhone(phone));
+    } else if (email) {
+      query += ' AND LOWER(customerEmail) = ?';
+      params.push(String(email).toLowerCase());
+    } else {
+      query += ' AND 1=1';
+    }
+    query += ' ORDER BY createdAt DESC LIMIT 20';
+    const tickets = await dbAll(query, params);
+    res.json(tickets || []);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
