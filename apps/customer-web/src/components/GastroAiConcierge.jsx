@@ -12,7 +12,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     {
       id: 'welcome',
       sender: 'ai',
-      text: "👋 **Welcome to GastroFlow!**\n\nI am **GastroAI**, your 24/7 Intelligent Dining Concierge & Support Assistant.\n\nHow can I help you today?",
+      text: "👋 **Hello & Welcome to GastroFlow!**\n\nI am **GastroAssist ✨**, your 24/7 dining companion and support assistant.\n\nHow can I help you today?",
       suggestions: ['🍽️ Recommend Popular Meals', '🔍 Check Order Status', '🎧 Contact Human Support', '💡 Budget Combos']
     }
   ]);
@@ -202,48 +202,84 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
 
   return (
     <>
-      {/* 🤖 Floating GastroAI Assistant Widget Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        style={{
-          position: 'fixed',
-          bottom: 76,
-          right: 20,
-          zIndex: 9990,
-          background: 'linear-gradient(135deg, #ff6b35 0%, #d946ef 100%)',
-          color: '#ffffff',
-          border: 'none',
-          borderRadius: 30,
-          padding: '10px 18px',
-          fontWeight: 800,
-          fontSize: '0.88rem',
-          boxShadow: '0 8px 24px rgba(255, 107, 53, 0.45)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          transition: 'all 0.25s ease'
-        }}
-      >
-        <span style={{ fontSize: '1.2rem' }}>🤖</span>
-        <span>{isOpen ? 'Close AI' : 'GastroAI'}</span>
-      </button>
+      {/* ✨ Floating GastroAssist Widget Button */}
+      <div style={{ position: 'fixed', bottom: 76, right: 20, zIndex: 9990, display: 'flex', alignItems: 'center', gap: 8 }}>
+        {!isOpen && (
+          <div
+            onClick={() => setIsOpen(true)}
+            style={{
+              background: 'var(--bg-card, #1e293b)',
+              color: 'var(--text-1, #f8fafc)',
+              padding: '6px 14px',
+              borderRadius: 20,
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+              border: '1px solid var(--border-color, #334155)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+          >
+            <span style={{ color: '#ff6b35' }}>✨</span>
+            <span>Need Help? Ask GastroAssist</span>
+          </div>
+        )}
 
-      {/* 💬 GastroAI Assistant Modal Drawer */}
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          aria-label="Toggle GastroAssist Concierge"
+          style={{
+            position: 'relative',
+            width: 52,
+            height: 52,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #ff6b35 0%, #d946ef 100%)',
+            color: '#ffffff',
+            border: '2px solid rgba(255,255,255,0.8)',
+            boxShadow: '0 8px 24px rgba(255, 107, 53, 0.45)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.4rem',
+            transition: 'transform 0.2s ease'
+          }}
+        >
+          {isOpen ? '✕' : '🤖'}
+          {!isOpen && (
+            <span
+              style={{
+                position: 'absolute',
+                top: 2,
+                right: 2,
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                background: '#10b981',
+                border: '2px solid #ffffff'
+              }}
+            />
+          )}
+        </button>
+      </div>
+
+      {/* 💬 GastroAssist Concierge Drawer Modal */}
       {isOpen && (
         <div
           style={{
             position: 'fixed',
-            bottom: 130,
+            bottom: 138,
             right: 16,
             width: 'calc(100vw - 32px)',
             maxWidth: 420,
             height: 540,
-            maxHeight: 'calc(100dvh - 160px)',
+            maxHeight: 'calc(100dvh - 170px)',
             background: 'var(--bg-card, #1e293b)',
             border: '1px solid var(--border-color, #334155)',
-            borderRadius: 20,
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4)',
+            borderRadius: 22,
+            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.45)',
             zIndex: 9995,
             display: 'flex',
             flexDirection: 'column',
@@ -254,7 +290,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
           {/* Header */}
           <div
             style={{
-              background: 'linear-gradient(135deg, #ff6b35 0%, #4f46e5 100%)',
+              background: 'linear-gradient(135deg, #ff6b35 0%, #6366f1 100%)',
               color: '#ffffff',
               padding: '14px 16px',
               display: 'flex',
@@ -263,15 +299,22 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ fontSize: '1.5rem', background: 'rgba(255,255,255,0.2)', padding: 6, borderRadius: 12 }}>🤖</div>
+              <div style={{ fontSize: '1.5rem', background: 'rgba(255,255,255,0.2)', padding: '6px 8px', borderRadius: 14 }}>
+                🤖
+              </div>
               <div>
-                <div style={{ fontWeight: 800, fontSize: '0.98rem' }}>GastroAI Assistant</div>
-                <div style={{ fontSize: '0.72rem', opacity: 0.9 }}>24/7 Intelligent Concierge</div>
+                <div style={{ fontWeight: 800, fontSize: '1rem', letterSpacing: '-0.2px' }}>
+                  GastroAssist ✨
+                </div>
+                <div style={{ fontSize: '0.72rem', opacity: 0.95, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} />
+                  24/7 Intelligent Dining & Support Concierge
+                </div>
               </div>
             </div>
             <button
               onClick={() => setIsOpen(false)}
-              style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
+              style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', fontSize: '1rem', cursor: 'pointer' }}
             >
               ✕
             </button>
