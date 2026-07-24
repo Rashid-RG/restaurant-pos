@@ -26,6 +26,67 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [isDetectingGps, setIsDetectingGps] = useState(false);
   const [customAddressInput, setCustomAddressInput] = useState('');
 
+  const [userCoords, setUserCoords] = useState(null);
+  const [nearestStore, setNearestStore] = useState(null);
+  const [isOutOfCoverage, setIsOutOfCoverage] = useState(false);
+  const [showOutOfCoverageModal, setShowOutOfCoverageModal] = useState(false);
+  const [userAccuracy, setUserAccuracy] = useState(null);
+
+  const CITY_COORDS = {
+    'Colombo 03, Western': { lat: 6.9147, lng: 79.8517 },
+    'Kandy City, Central': { lat: 7.2906, lng: 80.6337 },
+    'Galle Fort, Southern': { lat: 6.0535, lng: 80.2210 },
+    'Dehiwala, Western': { lat: 6.8511, lng: 79.8650 },
+    'Nugegoda, Western': { lat: 6.8724, lng: 79.8872 },
+    'Negombo, Western': { lat: 7.2083, lng: 79.8358 },
+    'Jaffna City, Northern': { lat: 9.6615, lng: 80.0255 },
+    'Battaramulla, Western': { lat: 6.8973, lng: 79.9220 }
+  };
+
+  const calculateHaversineKm = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Number((R * c).toFixed(1));
+  };
+
+  const processStoreProximity = (uLat, uLng, rawStores = restaurants) => {
+    if (!uLat || !uLng || rawStores.length === 0) return;
+
+    const updated = rawStores.map(r => {
+      const storeLat = r.lat || 6.9147;
+      const storeLng = r.lng || 79.8517;
+      const dist = calculateHaversineKm(uLat, uLng, storeLat, storeLng);
+      const radius = r.deliveryRadiusKm || 15;
+      const inRange = dist <= radius;
+      return { ...r, distanceKm: dist, isDeliverable: inRange };
+    });
+
+    updated.sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+    setRestaurants(updated);
+
+    const closest = updated[0];
+    const deliverableStores = updated.filter(s => s.isDeliverable);
+
+    if (closest) {
+      setNearestStore(closest);
+      if (deliverableStores.length === 0) {
+        setIsOutOfCoverage(true);
+        setShowOutOfCoverageModal(true);
+        toast(`⚠️ Nearest store ${closest.name} is ${closest.distanceKm} km away (outside 15 km delivery zone)`, 'warning', 8000);
+      } else {
+        setIsOutOfCoverage(false);
+        toast(`📍 Nearest Store: ${closest.name} (${closest.distanceKm} km away)`, 'success');
+      }
+    }
+  };
+
   // Auto detect location on load if default
   useEffect(() => {
     const saved = localStorage.getItem('gastroflow_delivery_address');
@@ -46,6 +107,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         try {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
+          const accuracy = Math.round(pos.coords.accuracy || 0);
+
+          setUserCoords({ lat, lng });
+          setUserAccuracy(accuracy);
+
           const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
           if (res.ok) {
             const data = await res.json();
@@ -55,12 +121,13 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             const resolvedStr = `${city}, ${state}`;
             setDeliveryLocation(resolvedStr);
             localStorage.setItem('gastroflow_delivery_address', resolvedStr);
-            toast(`📍 Location set to ${resolvedStr}`, 'success');
           } else {
             const coordsStr = `GPS Location (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
             setDeliveryLocation(coordsStr);
             localStorage.setItem('gastroflow_delivery_address', coordsStr);
           }
+
+          processStoreProximity(lat, lng);
         } catch (e) {
           setDeliveryLocation('Colombo 03, Sri Lanka');
         } finally {
@@ -72,7 +139,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         setDeliveryLocation('Colombo 03, Sri Lanka');
         setIsDetectingGps(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
@@ -80,7 +147,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     setDeliveryLocation(cityStr);
     localStorage.setItem('gastroflow_delivery_address', cityStr);
     setShowLocationModal(false);
-    toast(`Delivery location updated: ${cityStr}`, 'success');
+
+    const coords = CITY_COORDS[cityStr];
+    if (coords) {
+      setUserCoords(coords);
+      processStoreProximity(coords.lat, coords.lng);
+    }
   };
 
   const handleSaveCustomAddress = (e) => {
@@ -100,7 +172,15 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const fetchRestaurants = async () => {
     try {
       const data = await apiFetch('/public/restaurants');
-      setRestaurants(data || []);
+      const storeList = data || [];
+      setRestaurants(storeList);
+
+      if (userCoords && userCoords.lat && userCoords.lng) {
+        processStoreProximity(userCoords.lat, userCoords.lng, storeList);
+      } else {
+        const defaultCoords = CITY_COORDS['Colombo 03, Western'];
+        processStoreProximity(defaultCoords.lat, defaultCoords.lng, storeList);
+      }
     } catch (err) {
       console.error('Error fetching restaurants:', err);
     } finally {
@@ -221,6 +301,47 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         </div>
       )}
 
+      {/* Super Premium Out of Coverage Modal */}
+      {showOutOfCoverageModal && nearestStore && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'linear-gradient(145deg, #1f2937 0%, #111827 100%)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 24, padding: 28, maxWidth: 460, width: '100%', color: '#f8fafc', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: '2.2rem' }}>📍</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#f59e0b' }}>Store Not Available in Area</h3>
+                  <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 600 }}>Outside 15 km Delivery Zone</span>
+                </div>
+              </div>
+              <button onClick={() => setShowOutOfCoverageModal(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 14, padding: 14, marginBottom: 20 }}>
+              <p style={{ margin: 0, fontSize: '0.86rem', color: '#fef3c7', lineHeight: 1.5 }}>
+                Your current location is <strong>{nearestStore.distanceKm} km</strong> away from our nearest branch (<strong>{nearestStore.name}</strong>).
+                Our maximum delivery radius is <strong>15 km</strong>.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <button
+                onClick={() => { setShowOutOfCoverageModal(false); onSelectRestaurant && onSelectRestaurant(nearestStore); }}
+                style={{ width: '100%', padding: '14px', borderRadius: 14, background: 'linear-gradient(135deg, #ff6b35 0%, #f97316 100%)', color: '#fff', border: 'none', fontWeight: 800, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(255,107,53,0.4)' }}
+              >
+                <span>🏬 Order for Self-Pickup / Takeaway Instead</span>
+              </button>
+
+              <button
+                onClick={() => { setShowOutOfCoverageModal(false); setShowLocationModal(true); }}
+                style={{ width: '100%', padding: '12px', borderRadius: 14, background: '#374151', color: '#f8fafc', border: '1px solid #4b5563', fontWeight: 700, fontSize: '0.88rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+              >
+                <span>📍 Select Different City / Address Pin</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Hero Marketplace Banner Carousel */}
       <div style={{ background: 'linear-gradient(135deg, #ff6b35 0%, #f97316 50%, #e11d48 100%)', borderRadius: 16, padding: 18, color: '#fff', marginBottom: 20, boxShadow: '0 8px 24px rgba(255,107,53,0.3)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'relative', zIndex: 2 }}>
@@ -238,6 +359,48 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           🍔
         </div>
       </div>
+
+      {/* Nearest Store Proximity Live Badge */}
+      {nearestStore && (
+        <div
+          onClick={() => isOutOfCoverage && setShowOutOfCoverageModal(true)}
+          style={{
+            background: isOutOfCoverage
+              ? 'linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(245,158,11,0.12) 100%)'
+              : 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(5,150,105,0.12) 100%)',
+            border: `1px solid ${isOutOfCoverage ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'}`,
+            padding: '12px 16px',
+            borderRadius: 14,
+            marginBottom: 16,
+            cursor: isOutOfCoverage ? 'pointer' : 'default',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 800, color: isOutOfCoverage ? '#ef4444' : '#10b981' }}>
+              {isOutOfCoverage ? '⚠️ Delivery Coverage Alert' : '🟢 Nearest Branch Found'}
+            </div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 2 }}>
+              {isOutOfCoverage
+                ? `Nearest store (${nearestStore.name}) is ${nearestStore.distanceKm} km away`
+                : `${nearestStore.name} is ${nearestStore.distanceKm} km away`
+              }
+            </div>
+          </div>
+          {isOutOfCoverage ? (
+            <span style={{ background: '#ef4444', color: '#fff', padding: '6px 12px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 800 }}>
+              Options ➔
+            </span>
+          ) : (
+            <span style={{ background: '#10b98120', color: '#10b981', padding: '4px 10px', borderRadius: 12, fontSize: '0.75rem', fontWeight: 800 }}>
+              ⚡ In Range
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Search Input */}
       <div style={{ marginBottom: 16 }}>
@@ -324,6 +487,13 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 {r.promoBadge && (
                   <span style={{ position: 'absolute', top: 12, left: 12, background: '#10b981', color: '#fff', padding: '4px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800 }}>
                     🏷️ {r.promoBadge}
+                  </span>
+                )}
+
+                {/* Distance Badge */}
+                {r.distanceKm && (
+                  <span style={{ position: 'absolute', bottom: 12, left: 12, background: r.isDeliverable ? 'rgba(16,185,129,0.9)' : 'rgba(245,158,11,0.9)', color: '#fff', padding: '4px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, backdropFilter: 'blur(4px)' }}>
+                    📍 {r.distanceKm} km away {r.isDeliverable ? '· In Range' : '· Out of Zone'}
                   </span>
                 )}
 

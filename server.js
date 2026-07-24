@@ -2661,6 +2661,9 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         minOrder: 1000,
         cuisineTag: 'pizza',
         location: 'Colombo 03',
+        lat: 6.9147,
+        lng: 79.8517,
+        deliveryRadiusKm: 15,
         isOpen: true,
         bannerGradient: 'linear-gradient(135deg, #ff6b35 0%, #d97706 100%)',
         promoBadge: '20% OFF'
@@ -2677,6 +2680,9 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         minOrder: 800,
         cuisineTag: 'srilankan',
         location: 'Colombo 04',
+        lat: 6.8920,
+        lng: 79.8562,
+        deliveryRadiusKm: 15,
         isOpen: true,
         bannerGradient: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
         promoBadge: 'Free Delivery'
@@ -2693,6 +2699,9 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         minOrder: 1200,
         cuisineTag: 'burgers',
         location: 'Colombo 07',
+        lat: 6.9080,
+        lng: 79.8655,
+        deliveryRadiusKm: 15,
         isOpen: true,
         bannerGradient: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
         promoBadge: 'Buy 1 Get 1'
@@ -2709,6 +2718,9 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         minOrder: 1500,
         cuisineTag: 'asian',
         location: 'Colombo 05',
+        lat: 6.8850,
+        lng: 79.8660,
+        deliveryRadiusKm: 15,
         isOpen: true,
         bannerGradient: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)'
       },
@@ -2724,8 +2736,47 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
         minOrder: 900,
         cuisineTag: 'healthy',
         location: 'Colombo 03',
+        lat: 6.9180,
+        lng: 79.8520,
+        deliveryRadiusKm: 12,
         isOpen: true,
         bannerGradient: 'linear-gradient(135deg, #10b981 0%, #047857 100%)'
+      },
+      {
+        id: 'rest_kandy',
+        name: 'GastroFlow Kandy Heritage',
+        cuisine: 'Hill Capital Specialties & Tea Lounge',
+        emoji: '🫖',
+        rating: 4.9,
+        ratingCount: 195,
+        deliveryTime: '20-30 min',
+        deliveryFee: 160,
+        minOrder: 1000,
+        cuisineTag: 'srilankan',
+        location: 'Kandy City',
+        lat: 7.2906,
+        lng: 80.6337,
+        deliveryRadiusKm: 15,
+        isOpen: true,
+        bannerGradient: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)'
+      },
+      {
+        id: 'rest_galle',
+        name: 'Galle Fort Coastal Bistro',
+        cuisine: 'Seafood & Tropical Juices',
+        emoji: '🦐',
+        rating: 4.8,
+        ratingCount: 175,
+        deliveryTime: '20-35 min',
+        deliveryFee: 180,
+        minOrder: 1200,
+        cuisineTag: 'srilankan',
+        location: 'Galle Fort',
+        lat: 6.0535,
+        lng: 80.2210,
+        deliveryRadiusKm: 15,
+        isOpen: true,
+        bannerGradient: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)'
       }
     ];
 
