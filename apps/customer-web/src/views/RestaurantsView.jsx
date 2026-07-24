@@ -13,7 +13,7 @@ const CUISINE_CATEGORIES = [
 ];
 
 export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }) {
-  const { dict: t } = useLang();
+  const { t, dict } = useLang();
   const [restaurants, setRestaurants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');

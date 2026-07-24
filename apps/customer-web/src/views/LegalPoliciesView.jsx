@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useLang } from '../context/LanguageContext.jsx';
 
 export default function LegalPoliciesView({ onBack }) {
-  const { dict: t } = useLang();
+  const { t, dict } = useLang();
   const [activeTab, setActiveTab] = useState('terms');
 
   return (

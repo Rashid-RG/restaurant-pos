@@ -16,17 +16,32 @@ export function LanguageProvider({ children }) {
   const dict = useMemo(() => ({ ...TRANSLATIONS.en, ...(TRANSLATIONS[lang] || {}) }), [lang]);
 
   // t('key', { count: 3 }) → looks up the string and interpolates {placeholders}.
-  const t = useCallback((key, vars) => {
-    let str = dict[key] != null ? dict[key] : key;
-    if (vars) {
-      for (const [k, v] of Object.entries(vars)) {
-        str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+  const value = useMemo(() => {
+    const tFn = (key, vars) => {
+      if (!key) return '';
+      let str = dict[key] != null ? dict[key] : key;
+      if (vars) {
+        for (const [k, v] of Object.entries(vars)) {
+          str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+        }
       }
-    }
-    return str;
-  }, [dict]);
+      return str;
+    };
 
-  const value = useMemo(() => ({ lang, setLang, t, dict, languages: LANGUAGES }), [lang, setLang, t, dict]);
+    // Proxy so t can be called as a function t('key') OR accessed like t.key or t['key']
+    const tProxy = new Proxy(tFn, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === 'string') {
+          return dict[prop] != null ? dict[prop] : prop;
+        }
+        return target[prop];
+      }
+    });
+
+    return { lang, setLang, t: tProxy, dict, languages: LANGUAGES };
+  }, [lang, setLang, dict]);
+
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
 

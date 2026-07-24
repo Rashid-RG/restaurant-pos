@@ -30,7 +30,7 @@ function getProgressPercent(statusIndex) {
 }
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
-  const { dict: tr } = useLang();
+  const { t, dict: tr } = useLang();
   const [trackId, setTrackId] = useState(orderId || '');
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);

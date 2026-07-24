@@ -19,7 +19,7 @@ const LOCAL_PAYMENTS = [
 export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   const { items, subtotal, clearCart, setCartOpen } = useCart();
   const { customer, getToken } = useCustomerAuth();
-  const { dict: t } = useLang();
+  const { t, dict } = useLang();
 
   const [orderType, setOrderType] = useState('takeaway');
   const [name, setName] = useState(customer?.name || '');

@@ -7,7 +7,7 @@ import { apiFetch } from '../utils/api.js';
 
 export default function ProfileView({ toast, resetToken, onResetHandled }) {
   const { customer, logout, refreshProfile, getToken } = useCustomerAuth();
-  const { dict: t } = useLang();
+  const { t, dict } = useLang();
   const { addItem, setCartOpen } = useCart();
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);

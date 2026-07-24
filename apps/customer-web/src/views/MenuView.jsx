@@ -16,7 +16,7 @@ function renderChatText(text) {
 }
 
 export default function MenuView({ onNavigate, toast }) {
-  const { dict: t } = useLang();
+  const { t, dict } = useLang();
 
   const [menu, setMenu] = useState({ categories: [], items: [], restaurantName: '', logo: null });
   const [activeCategory, setActiveCategory] = useState('all');
