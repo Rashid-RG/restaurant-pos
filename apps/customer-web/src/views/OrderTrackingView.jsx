@@ -40,10 +40,57 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [storeInfo, setStoreInfo] = useState(null);   // { lat, lng, name, ... }
   const [driverLoc, setDriverLoc] = useState(null);    // live { lat, lng, driverName }
 
-  // Load public store info once (restaurant coordinates for the live map).
+  // Uber Eats-grade Dynamic ETA & Live Driver Chat states
+  const [dynamicETA, setDynamicETA] = useState(null);
+  const [driverChatOpen, setDriverChatOpen] = useState(false);
+  const [driverMessages, setDriverMessages] = useState([]);
+  const [driverInputMsg, setDriverInputMsg] = useState('');
+  const [sendingDriverMsg, setSendingDriverMsg] = useState(false);
+
+  // Load store info once
   useEffect(() => {
     apiFetch('/public/store-info').then(setStoreInfo).catch(() => {});
   }, []);
+
+  // Fetch dynamic ETA
+  useEffect(() => {
+    if (order && order.id) {
+      apiFetch(`/public/orders/${order.id}/eta`)
+        .then(setDynamicETA)
+        .catch(() => {});
+    }
+  }, [order?.id, order?.status]);
+
+  // Load & listen to Driver Chat messages
+  const fetchDriverMessages = async (id) => {
+    if (!id) return;
+    try {
+      const data = await apiFetch(`/orders/${id}/driver-chat`);
+      setDriverMessages(data || []);
+    } catch (_) {}
+  };
+
+  const handleSendDriverMsg = async (e) => {
+    e.preventDefault();
+    if (!driverInputMsg.trim() || !order?.id) return;
+    setSendingDriverMsg(true);
+    try {
+      await apiFetch(`/orders/${order.id}/driver-chat`, {
+        method: 'POST',
+        body: JSON.stringify({
+          senderType: 'customer',
+          senderName: order.customerName || 'Customer',
+          message: driverInputMsg.trim()
+        })
+      });
+      setDriverInputMsg('');
+      fetchDriverMessages(order.id);
+    } catch (err) {
+      toast(err.message || 'Failed to send message to driver', 'error');
+    } finally {
+      setSendingDriverMsg(false);
+    }
+  };
 
   // Star Rating feedback states
   const [rating, setRating] = useState(5);
@@ -266,8 +313,13 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 <div>
                   <div className="uber-status-badge live">🔴 Live Tracking</div>
                   <h1 className="uber-hero-title">
-                    {remainingMins ? `${remainingMins} mins` : 'Estimated ~20 mins'}
+                    {dynamicETA ? `⏱️ ~${dynamicETA.estimatedMinutes} mins` : remainingMins ? `${remainingMins} mins` : 'Estimated ~20 mins'}
                   </h1>
+                  {dynamicETA && (
+                    <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 4 }}>
+                      ⚡ Kitchen Prep: {dynamicETA.maxItemPrep}m · Load: +{dynamicETA.kitchenLoadBuffer}m {dynamicETA.rainBuffer ? '· Rain Surge +12m 🌧️' : ''}
+                    </div>
+                  )}
                   <p className="uber-hero-subtitle">
                     {curStep === 0 && 'Waiting for restaurant confirmation…'}
                     {curStep === 1 && 'Chef is preparing your food fresh in the kitchen 👨‍🍳'}
@@ -402,31 +454,56 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
-            {/* 1-Tap Direct Call Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            {/* 1-Tap Direct Call & Chat Buttons */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setDriverChatOpen(true);
+                  fetchDriverMessages(order.id);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px 4px',
+                  borderRadius: 10,
+                  background: '#6366f115',
+                  border: '1px solid #6366f150',
+                  color: '#6366f1',
+                  fontWeight: 800,
+                  fontSize: '0.78rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4
+                }}
+              >
+                <span>💬 Chat Rider</span>
+              </button>
+
               <a
-                href={`tel:${order?.driver?.phone || order?.driverPhone || '+94770000000'}`}
+                href={`tel:${order?.driver?.phone || order?.driverPhone || '+94760130922'}`}
                 style={{ textDecoration: 'none' }}
               >
                 <button
                   type="button"
                   style={{
                     width: '100%',
-                    padding: '10px',
+                    padding: '10px 4px',
                     borderRadius: 10,
                     background: '#10b98115',
                     border: '1px solid #10b98150',
                     color: '#10b981',
                     fontWeight: 800,
-                    fontSize: '0.82rem',
+                    fontSize: '0.78rem',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 6
+                    gap: 4
                   }}
                 >
-                  <span>🛵 Call Driver</span>
+                  <span>🛵 Call Rider</span>
                 </button>
               </a>
 
@@ -438,21 +515,21 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                   type="button"
                   style={{
                     width: '100%',
-                    padding: '10px',
+                    padding: '10px 4px',
                     borderRadius: 10,
                     background: '#3b82f615',
                     border: '1px solid #3b82f650',
                     color: '#3b82f6',
                     fontWeight: 800,
-                    fontSize: '0.82rem',
+                    fontSize: '0.78rem',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 6
+                    gap: 4
                   }}
                 >
-                  <span>🎧 Call Support</span>
+                  <span>🎧 Support</span>
                 </button>
               </a>
             </div>
@@ -508,6 +585,54 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+          {/* Driver In-App Live Chat Drawer */}
+          {driverChatOpen && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'flex-end' }}>
+              <div style={{ width: '100%', maxWidth: 440, height: '70vh', background: 'var(--bg-card)', borderRadius: '20px 20px 0 0', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
+                <div style={{ background: 'var(--brand)', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '1.2rem' }}>🛵</span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>Rider Live Direct Chat</div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.9 }}>Order #{order.id?.slice(-6).toUpperCase()}</div>
+                    </div>
+                  </div>
+                  <button style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }} onClick={() => setDriverChatOpen(false)}>✕</button>
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {driverMessages.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: 40 }}>
+                      💬 No messages yet. Send delivery instructions to your rider below!
+                    </div>
+                  ) : (
+                    driverMessages.map(msg => (
+                      <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.senderType === 'customer' ? 'flex-end' : 'flex-start' }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: 2 }}>{msg.senderName} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        <div style={{ background: msg.senderType === 'customer' ? 'var(--brand)' : 'var(--surface-3)', color: msg.senderType === 'customer' ? '#fff' : 'var(--text)', padding: '8px 12px', borderRadius: 12, fontSize: '0.85rem', maxWidth: '85%' }}>
+                          {msg.message}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <form onSubmit={handleSendDriverMsg} style={{ padding: 12, borderTop: '1px solid var(--border-color)', display: 'flex', gap: 8, background: 'var(--bg-surface)' }}>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Type message to driver..."
+                    value={driverInputMsg}
+                    onChange={e => setDriverInputMsg(e.target.value)}
+                    style={{ flex: 1, borderRadius: 20 }}
+                  />
+                  <button type="submit" className="btn btn-brand" style={{ borderRadius: 20, padding: '8px 16px' }} disabled={sendingDriverMsg || !driverInputMsg.trim()}>
+                    Send
+                  </button>
+                </form>
               </div>
             </div>
           )}

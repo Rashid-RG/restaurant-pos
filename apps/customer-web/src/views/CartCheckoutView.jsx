@@ -17,7 +17,7 @@ const LOCAL_PAYMENTS = [
 ];
 
 export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
-  const { items, subtotal, clearCart, setCartOpen } = useCart();
+  const { items, subtotal, clearCart, setCartOpen, addItem } = useCart();
   const { customer, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
 
@@ -100,6 +100,17 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       })
       .catch(() => {});
   }, [customer]);
+
+  // Load Uber Eats smart cart upsell recommendations
+  const [upsellItems, setUpsellItems] = useState([]);
+  useEffect(() => {
+    if (items.length > 0) {
+      const itemIds = items.map(i => i.id).join(',');
+      apiFetch(`/public/cart-upsell?itemIds=${itemIds}`)
+        .then(data => setUpsellItems(data || []))
+        .catch(() => {});
+    }
+  }, [items.length]);
 
   // ── Dynamic delivery fee calculation when location is picked ──
   useEffect(() => {
@@ -813,7 +824,36 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
               </label>
             </div>
           )}
-        </div>
+        {/* Uber Eats Smart Recommendation Upsell Carousel */}
+        {upsellItems.length > 0 && (
+          <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
+            <h3 style={{ marginTop: 0, fontSize: '0.95rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6, color: 'var(--brand)' }}>
+              <span>✨</span> Pairs Well With Your Order
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10, marginTop: 10 }}>
+              {upsellItems.map(up => (
+                <div key={up.id} style={{ background: 'rgba(0,0,0,0.02)', padding: 10, borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontSize: '1.4rem' }}>{up.emoji || '🍽️'}</div>
+                    <div style={{ fontWeight: 700, fontSize: '0.78rem', marginTop: 4, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{up.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--brand)', fontWeight: 800, marginTop: 2 }}>LKR {up.price.toFixed(2)}</div>
+                  </div>
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    onClick={() => {
+                      addItem(up, 1, [], '');
+                      toast(`${up.name} added to cart! 🍕`, 'success');
+                    }}
+                    style={{ marginTop: 8, padding: '4px 8px', fontSize: '0.72rem', borderColor: 'var(--brand)', color: 'var(--brand)', fontWeight: 700 }}
+                  >
+                    ＋ Add
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Payment Methods */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>

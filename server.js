@@ -187,7 +187,7 @@ const db = new sqlite.Database(dbPath, (err) => {
 });
 
 // Helper functions for promise-based SQLite calls
-const dbRun = (sql, params = []) => {
+export const dbRun = (sql, params = []) => {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) reject(err);
@@ -196,7 +196,7 @@ const dbRun = (sql, params = []) => {
   });
 };
 
-const dbAll = (sql, params = []) => {
+export const dbAll = (sql, params = []) => {
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
       if (err) reject(err);
@@ -205,7 +205,7 @@ const dbAll = (sql, params = []) => {
   });
 };
 
-const dbGet = (sql, params = []) => {
+export const dbGet = (sql, params = []) => {
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
       if (err) reject(err);
@@ -646,6 +646,19 @@ async function initTables() {
         message TEXT NOT NULL,
         createdAt INTEGER NOT NULL,
         FOREIGN KEY(ticketId) REFERENCES support_tickets(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 26. Driver-Customer In-App Chat Table (Uber Eats-grade live delivery chat)
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_customer_chats (
+        id TEXT PRIMARY KEY,
+        orderId TEXT NOT NULL,
+        senderType TEXT NOT NULL,           -- 'customer' | 'driver'
+        senderName TEXT,
+        message TEXT NOT NULL,
+        createdAt INTEGER NOT NULL,
+        FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
       )
     `);
 
@@ -2243,6 +2256,216 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     console.error('[Auto-Dispatch Error]', err.message);
   }
 }
+
+// ── Uber Eats Smart Dynamic ETA Engine Helper ──
+export async function calculateOrderETA(orderId, tenantId = 'default_tenant') {
+  try {
+    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
+    if (!order) return { estimatedMinutes: 25, estimatedDeliveryTime: Date.now() + 25 * 60 * 1000 };
+
+    const items = await dbAll(
+      `SELECT m.prepTimeMinutes, oi.quantity 
+       FROM order_items oi 
+       JOIN menu_items m ON oi.menuItemId = m.id 
+       WHERE oi.orderId = ?`,
+      [orderId]
+    );
+
+    let maxItemPrep = 15;
+    if (items && items.length > 0) {
+      maxItemPrep = Math.max(...items.map(i => i.prepTimeMinutes || 15));
+    }
+
+    const activeOrders = await dbGet(
+      `SELECT COUNT(*) as count FROM orders WHERE tenant_id = ? AND status IN ('pending', 'preparing')`,
+      [tenantId]
+    );
+    const kitchenLoadBuffer = Math.min(Math.floor((activeOrders?.count || 0) / 3) * 3, 15);
+
+    const isPeak = await isPeakHour(tenantId);
+    const config = await getSettingsMap(tenantId, ['isRainyWeather', 'deliveryBaseFee']);
+    const peakBuffer = isPeak ? 8 : 0;
+    const rainBuffer = config.isRainyWeather === 'true' ? 12 : 0;
+    const distanceBuffer = order.diningType === 'delivery' ? 12 : 0;
+
+    const totalMinutes = maxItemPrep + kitchenLoadBuffer + peakBuffer + rainBuffer + distanceBuffer;
+    const estimatedDeliveryTime = (order.timestamp || Date.now()) + totalMinutes * 60 * 1000;
+
+    return {
+      estimatedMinutes: totalMinutes,
+      maxItemPrep,
+      kitchenLoadBuffer,
+      peakBuffer,
+      rainBuffer,
+      distanceBuffer,
+      estimatedDeliveryTime
+    };
+  } catch (err) {
+    return { estimatedMinutes: 25, estimatedDeliveryTime: Date.now() + 25 * 60 * 1000 };
+  }
+}
+
+// GET /api/public/orders/:id/eta — Dynamic ETA computation
+app.get('/api/public/orders/:id/eta', publicApiLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = await resolvePublicTenant(req);
+    const etaData = await calculateOrderETA(id, tenantId);
+    res.json(etaData);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/public/cart-upsell — Smart Uber Eats Recommendation Upsell Engine
+app.get('/api/public/cart-upsell', publicApiLimiter, async (req, res) => {
+  try {
+    const tenantId = await resolvePublicTenant(req);
+    const cartIdsStr = req.query.itemIds || '';
+    const cartItemIds = cartIdsStr.split(',').filter(Boolean);
+
+    const allItems = await dbAll(
+      `SELECT id, name, price, category, emoji, description, dietaryTags 
+       FROM menu_items 
+       WHERE tenant_id = ? AND (stock IS NULL OR stock > 0)`,
+      [tenantId]
+    );
+
+    if (allItems.length === 0) return res.json([]);
+
+    const cartCategories = new Set();
+    cartItemIds.forEach(id => {
+      const item = allItems.find(i => i.id === id);
+      if (item) cartCategories.add(item.category?.toLowerCase());
+    });
+
+    let upsellItems = [];
+
+    if (!cartCategories.has('drinks') && !cartCategories.has('beverages')) {
+      const drinks = allItems.filter(i => /drink|beverage|juice|soda|tea|coffee|shake|mojito/i.test((i.category || '') + (i.name || '')));
+      upsellItems.push(...drinks);
+    }
+
+    if (!cartCategories.has('desserts')) {
+      const desserts = allItems.filter(i => /dessert|cake|ice cream|pudding|sweet|waffle/i.test((i.category || '') + (i.name || '')));
+      upsellItems.push(...desserts);
+    }
+
+    const sides = allItems.filter(i => /starter|appetizer|side|french fries|garlic bread|soup|salad/i.test((i.category || '') + (i.name || '')));
+    upsellItems.push(...sides);
+
+    const finalUpsells = upsellItems
+      .filter(item => !cartItemIds.includes(item.id))
+      .slice(0, 4);
+
+    if (finalUpsells.length === 0) {
+      const fallback = allItems.filter(i => !cartItemIds.includes(i.id)).slice(0, 4);
+      return res.json(fallback);
+    }
+
+    res.json(finalUpsells);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/driver/active-batch — Fetch stacked multi-order delivery batch for driver
+app.get('/api/driver/active-batch', publicApiLimiter, async (req, res) => {
+  try {
+    const driverId = req.query.driverId || req.query.driverPhone;
+    if (!driverId) return res.status(400).json({ error: 'Driver ID or phone is required.' });
+
+    const driver = await dbGet(
+      'SELECT * FROM drivers WHERE id = ? OR phone = ?',
+      [driverId, driverId]
+    );
+
+    if (!driver) return res.json({ driver: null, orders: [] });
+
+    const activeOrders = await dbAll(
+      `SELECT o.*, dl.lat as driverLat, dl.lng as driverLng 
+       FROM orders o 
+       LEFT JOIN driver_locations dl ON o.id = dl.orderId 
+       WHERE o.driverId = ? AND o.status IN ('out_for_delivery', 'confirmed', 'preparing', 'ready')
+       ORDER BY o.timestamp ASC`,
+      [driver.id]
+    );
+
+    res.json({
+      driver: { id: driver.id, name: driver.name, phone: driver.phone, status: driver.status },
+      orders: activeOrders,
+      batchCount: activeOrders.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/public/driver/assign-batch — Batch assign multiple orders to a rider
+app.post('/api/public/driver/assign-batch', publicApiLimiter, async (req, res) => {
+  try {
+    const { driverId, orderIds } = req.body;
+    if (!driverId || !Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({ error: 'Driver ID and list of order IDs are required.' });
+    }
+
+    const driver = await dbGet('SELECT * FROM drivers WHERE id = ? OR phone = ?', [driverId, driverId]);
+    if (!driver) return res.status(404).json({ error: 'Driver not found.' });
+
+    for (const orderId of orderIds) {
+      await dbRun(
+        "UPDATE orders SET driverId = ?, status = 'out_for_delivery' WHERE id = ?",
+        [driver.id, orderId]
+      );
+      broadcastEvent('order_updated', { orderId, status: 'out_for_delivery', driverName: driver.name, driverPhone: driver.phone });
+    }
+
+    res.json({ success: true, message: `Batch of ${orderIds.length} orders assigned to driver ${driver.name}!`, orderIds });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/orders/:id/driver-chat — Fetch live chat messages between customer & assigned rider
+app.get('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const messages = await dbAll('SELECT * FROM driver_customer_chats WHERE orderId = ? ORDER BY createdAt ASC', [id]);
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/orders/:id/driver-chat — Send in-app live chat message between customer & rider
+app.post('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { senderType, senderName, message } = req.body;
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message content is required.' });
+    }
+
+    const msgId = `dchat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    await dbRun(
+      'INSERT INTO driver_customer_chats (id, orderId, senderType, senderName, message, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+      [msgId, id, senderType || 'customer', senderName || 'Customer', message.trim(), Date.now()]
+    );
+
+    broadcastEvent('driver_chat_message', {
+      orderId: id,
+      messageId: msgId,
+      senderType: senderType || 'customer',
+      senderName: senderName || 'Customer',
+      message: message.trim(),
+      timestamp: Date.now()
+    });
+
+    res.status(201).json({ success: true, messageId: msgId });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
 
 // GET /api/public/delivery-fee — Calculate dynamic delivery fee from customer location
 app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {

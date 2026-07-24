@@ -127,6 +127,36 @@ export default function DeliveryView() {
   const pendingDrivers = drivers.filter(d => d.status === 'pending_approval');
   const activeDrivers = drivers.filter(d => d.status !== 'pending_approval' && d.status !== 'rejected');
 
+  // Uber Eats-grade Multi-Order Stacking Batch state
+  const [selectedBatchOrders, setSelectedBatchOrders] = useState([]);
+  const [batchDriverId, setBatchDriverId] = useState('');
+
+  const handleBatchAssign = async () => {
+    if (!batchDriverId || selectedBatchOrders.length === 0) {
+      showToast('Please select a driver and at least 1 order for batch dispatch.', 'warning');
+      return;
+    }
+    const drv = drivers.find(d => d.id === batchDriverId);
+    try {
+      setLoading(true);
+      const res = await fetch('/api/public/driver/assign-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driverId: batchDriverId, orderIds: selectedBatchOrders })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast(`Batch of ${selectedBatchOrders.length} orders stacked to rider ${drv?.name || batchDriverId}! 🛵`, 'success');
+      setSelectedBatchOrders([]);
+      setBatchDriverId('');
+      fetchDrivers();
+    } catch (err) {
+      showToast('Batch error: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="main-content">
       <div className="view-header">
@@ -235,7 +265,38 @@ export default function DeliveryView() {
           )}
         </div>
 
-        {/* 3. Live Delivery Orders & Dispatch Cards */}
+        {/* 3. Multi-Order Stacking Batch Dispatch Control */}
+        {deliveryOrders.length > 1 && (
+          <div style={{ background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(168, 85, 247, 0.08))', border: '1px solid var(--brand)', borderRadius: '12px', padding: '16px' }}>
+            <h3 style={{ margin: '0 0 10px', fontSize: '1rem', fontWeight: 800, color: 'var(--brand)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>⚡</span> Uber Eats Multi-Order Batch Stacking ({selectedBatchOrders.length} orders selected)
+            </h3>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                value={batchDriverId}
+                onChange={e => setBatchDriverId(e.target.value)}
+                style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--bg-card)', color: 'var(--text-main)', border: '1px solid var(--border-color)', fontWeight: 700 }}
+              >
+                <option value="">-- Select Rider for Batch Delivery --</option>
+                {activeDrivers.map(d => (
+                  <option key={d.id} value={d.id}>
+                    🛵 {d.name} ({d.phone})
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn btn-primary"
+                onClick={handleBatchAssign}
+                disabled={loading || !batchDriverId || selectedBatchOrders.length === 0}
+                style={{ padding: '10px 20px', fontWeight: 800, whiteSpace: 'nowrap' }}
+              >
+                🛵 Dispatch Batch ({selectedBatchOrders.length} Orders)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 4. Live Delivery Orders & Dispatch Cards */}
         <div>
           <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800 }}>📦 Active Delivery & Takeaway Orders</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
@@ -249,9 +310,23 @@ export default function DeliveryView() {
                 const waLink = assignedDrv ? `https://wa.me/${assignedDrv.phone.replace(/[\s+-]/g, '')}?text=Delivery%20Order%20%23${ord.id.slice(-4).toUpperCase()}%20Address:%20${encodeURIComponent(ord.deliveryAddress || 'Store Pickup')}` : '#';
 
                 return (
-                  <div key={ord.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div key={ord.id} style={{ background: 'var(--bg-card)', border: selectedBatchOrders.includes(ord.id) ? '2px solid var(--brand)' : '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Order #{ord.id.slice(-4).toUpperCase()}</h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedBatchOrders.includes(ord.id)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedBatchOrders([...selectedBatchOrders, ord.id]);
+                            } else {
+                              setSelectedBatchOrders(selectedBatchOrders.filter(id => id !== ord.id));
+                            }
+                          }}
+                          style={{ width: 18, height: 18, accentColor: 'var(--brand)', cursor: 'pointer' }}
+                        />
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Order #{ord.id.slice(-4).toUpperCase()}</h3>
+                      </div>
                       <span className={`badge ${ord.status === 'delivered' ? 'badge-success' : ord.status === 'ready' ? 'badge-warning' : 'badge-primary'}`} style={{ textTransform: 'uppercase' }}>
                         {ord.status}
                       </span>
