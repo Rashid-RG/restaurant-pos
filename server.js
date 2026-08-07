@@ -26,6 +26,7 @@ import {
 } from './lib/billing.js';
 import { buildEscPosReceipt, sendToNetworkPrinter } from './lib/printer.js';
 import { normalizePickMeOrder, normalizeUberEatsOrder } from './lib/aggregators.js';
+import { query, execute, isPostgres } from './lib/db_adapter.js';
 import {
   validateRequest,
   authLoginSchema,
@@ -186,8 +187,15 @@ const db = new sqlite.Database(dbPath, (err) => {
   }
 });
 
-// Helper functions for promise-based SQLite calls
-export const dbRun = (sql, params = []) => {
+// Helper functions for promise-based database calls (SQLite & Postgres / Neon DB)
+export const dbRun = async (sql, params = []) => {
+  if (isPostgres) {
+    if (/^\s*PRAGMA/i.test(sql)) return;
+    let pgSql = sql
+      .replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO')
+      .replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
+    return execute(pgSql, params);
+  }
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) reject(err);
@@ -196,7 +204,11 @@ export const dbRun = (sql, params = []) => {
   });
 };
 
-export const dbAll = (sql, params = []) => {
+export const dbAll = async (sql, params = []) => {
+  if (isPostgres) {
+    const res = await query(sql, params);
+    return res.rows || [];
+  }
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
       if (err) reject(err);
@@ -205,7 +217,11 @@ export const dbAll = (sql, params = []) => {
   });
 };
 
-export const dbGet = (sql, params = []) => {
+export const dbGet = async (sql, params = []) => {
+  if (isPostgres) {
+    const res = await query(sql, params);
+    return res.rows && res.rows.length > 0 ? res.rows[0] : null;
+  }
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
       if (err) reject(err);
