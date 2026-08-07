@@ -1281,8 +1281,13 @@ export default function POSView() {
       {printReceiptOrder && (
         <div className={`receipt-print-area ${settings.printerPaperWidth === '58mm' ? 'paper-58mm' : 'paper-80mm'}`}>
           <div className="receipt-center">
-            {settings.logo ? (
-              <img src={settings.logo} alt="Logo" className="receipt-logo" />
+            {settings.logoUrl || settings.logo || settings.restaurantLogo ? (
+              <img
+                src={settings.logoUrl || settings.logo || settings.restaurantLogo}
+                alt="Logo"
+                className="receipt-logo"
+                style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block' }}
+              />
             ) : (
               <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍕</div>
             )}

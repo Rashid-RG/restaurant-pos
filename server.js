@@ -1445,7 +1445,13 @@ async function getSettingsMap(tenantId, keys) {
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
 }
 async function setSetting(tenantId, key, value) {
-  await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId || 'default_tenant', key, String(value)]);
+  const tid = tenantId || 'default_tenant';
+  const existing = await dbGet('SELECT key FROM settings WHERE tenant_id = ? AND key = ?', [tid, key]);
+  if (existing) {
+    await dbRun('UPDATE settings SET value = ? WHERE tenant_id = ? AND key = ?', [String(value ?? ''), tid, key]);
+  } else {
+    await dbRun('INSERT INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tid, key, String(value ?? '')]);
+  }
 }
 
 // ── SaaS plan metering (Phase 5) ─────────────────────────────────────────────

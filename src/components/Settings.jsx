@@ -24,12 +24,23 @@ export default function Settings() {
   const [subTab, setSubTab] = useState('business');
 
   // Business config states
-  const [bizName, setBizName] = useState(settings.businessName || '');
-  const [currency, setCurrency] = useState(settings.currencySymbol || '');
-  const [tax, setTax] = useState(settings.taxRate || '');
-  const [serviceCharge, setServiceCharge] = useState(settings.serviceChargeRate || '');
+  const [bizName, setBizName] = useState(settings.businessName || settings.restaurantName || '');
+  const [currency, setCurrency] = useState(settings.currencySymbol || 'Rs.');
+  const [tax, setTax] = useState(settings.taxRate ?? '0');
+  const [serviceCharge, setServiceCharge] = useState(settings.serviceChargeRate ?? '0');
   const [address, setAddress] = useState(settings.address || '');
   const [phone, setPhone] = useState(settings.phone || '');
+  const [logoUrl, setLogoUrl] = useState(settings.logoUrl || settings.logo || settings.restaurantLogo || '');
+
+  useEffect(() => {
+    setBizName(settings.businessName || settings.restaurantName || '');
+    setCurrency(settings.currencySymbol || 'Rs.');
+    setTax(settings.taxRate ?? '0');
+    setServiceCharge(settings.serviceChargeRate ?? '0');
+    setAddress(settings.address || '');
+    setPhone(settings.phone || '');
+    setLogoUrl(settings.logoUrl || settings.logo || settings.restaurantLogo || '');
+  }, [settings]);
 
   // Menu item modal states
   const [showItemModal, setShowItemModal] = useState(false);
@@ -127,13 +138,19 @@ export default function Settings() {
 
   const handleSaveBusiness = async (e) => {
     e.preventDefault();
-    await updateSetting('businessName', bizName);
-    await updateSetting('currencySymbol', currency);
-    await updateSetting('taxRate', parseFloat(tax) || 0);
-    await updateSetting('serviceChargeRate', parseFloat(serviceCharge) || 0);
-    await updateSetting('address', address);
-    await updateSetting('phone', phone);
-    showToast('Business settings saved successfully!', 'success');
+    try {
+      await updateSetting('businessName', bizName);
+      await updateSetting('restaurantName', bizName);
+      await updateSetting('currencySymbol', currency);
+      await updateSetting('taxRate', parseFloat(tax) || 0);
+      await updateSetting('serviceChargeRate', parseFloat(serviceCharge) || 0);
+      await updateSetting('address', address);
+      await updateSetting('phone', phone);
+      await updateSetting('logoUrl', logoUrl);
+      showToast('🎉 Business profile & shop logo updated successfully!', 'success');
+    } catch (err) {
+      showToast('Save error: ' + (err.message || 'Failed to save settings'), 'error');
+    }
   };
 
   const handleOpenItemAdd = () => {
@@ -368,18 +385,81 @@ export default function Settings() {
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label>Contact Phone Number</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                    />
+                  <div className="form-group" style={{ marginBottom: '20px' }}>
+                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600 }}>
+                      Shop Logo (Printed on Receipts & Customer App)
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                      {logoUrl ? (
+                        <img
+                          src={logoUrl}
+                          alt="Shop Logo"
+                          style={{
+                            width: '70px',
+                            height: '70px',
+                            objectFit: 'contain',
+                            borderRadius: '12px',
+                            border: '2px solid var(--border-color)',
+                            background: '#fff',
+                            padding: '4px'
+                          }}
+                        />
+                      ) : (
+                        <div style={{
+                          width: '70px',
+                          height: '70px',
+                          borderRadius: '12px',
+                          border: '2px dashed var(--border-color)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '24px',
+                          background: 'rgba(255,255,255,0.05)'
+                        }}>
+                          🏪
+                        </div>
+                      )}
+                      <div style={{ flex: 1, minWidth: '220px' }}>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="form-input"
+                          style={{ padding: '8px', marginBottom: '8px' }}
+                          onChange={(e) => {
+                            const file = e.target.files && e.target.files[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (evt) => {
+                                setLogoUrl(evt.target.result);
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Or paste Logo Image URL (https://...)"
+                          value={logoUrl}
+                          onChange={(e) => setLogoUrl(e.target.value)}
+                          style={{ fontSize: '13px' }}
+                        />
+                      </div>
+                      {logoUrl && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => setLogoUrl('')}
+                          style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--color-danger)' }}
+                        >
+                          Remove Logo
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <button type="submit" className="btn btn-primary" style={{ marginTop: '16px' }}>
-                    Save Business Profile
+                  <button type="submit" className="btn btn-primary" style={{ marginTop: '16px', padding: '12px 24px', fontWeight: 700 }}>
+                    💾 Save & Update Profile
                   </button>
                 </form>
               </div>
