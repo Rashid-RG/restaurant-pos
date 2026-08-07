@@ -1908,9 +1908,29 @@ function verifyOTP(destination, code) {
   if (entry.code !== String(code).trim()) {
     return false;
   }
-  
+
   entry.verified = true;
   return true;
+}
+
+async function verifyOTPAsync(destination, code) {
+  if (!destination || !code) return false;
+  if (verifyOTP(destination, code)) return true;
+
+  try {
+    const cleanDest = normalizeOtpDestination(destination);
+    const codeHash = hashCode(code);
+    const dbOtp = await dbGet(
+      `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ?) AND codeHash = ? AND expiresAt >= ?`,
+      [cleanDest, cleanDest, codeHash, Date.now()]
+    );
+    if (dbOtp) {
+      await dbRun('DELETE FROM otp_codes WHERE id = ?', [dbOtp.id]);
+      return true;
+    }
+  } catch (e) {}
+
+  return false;
 }
 
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
@@ -1969,7 +1989,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
 
     if (isEmail) {
       const html = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: storeName });
-      
+
       // Fast non-blocking email sending with 2.5s maximum timeout so response never hangs or triggers "Load failed"
       try {
         const sendPromise = sendEmail({
@@ -2034,7 +2054,7 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
     const isEmail = target.includes('@');
     const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
 
-    const isValid = verifyOTP(cleanDest, code);
+    const isValid = await verifyOTPAsync(cleanDest, code);
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid or expired verification code.' });
     }
@@ -2073,8 +2093,6 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
   }
 });
 
-
-
 // POST /api/customer/auth/register
 app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   const { name, email, phone, password, otpCode } = req.body;
@@ -2090,20 +2108,24 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
-  
+
   const cleanPhone = phone.replace(/[\s-]/g, '');
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
   // Verify OTP (allow either phone or email verification)
-  const isOtpValid = verifyOTP(cleanPhone, otpCode) || (cleanEmail && verifyOTP(cleanEmail, otpCode));
+  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode)));
   if (!isOtpValid) {
     return res.status(400).json({ error: 'Invalid or expired verification code.' });
   }
 
   try {
-    const existing = await dbGet('SELECT id FROM customer_accounts WHERE phone = ?', [cleanPhone]);
+    const normPhone = normalizeLkPhone(cleanPhone);
+    const existing = await dbGet(
+      'SELECT id FROM customer_accounts WHERE phone = ? OR phone = ? OR (email IS NOT NULL AND email = ?)',
+      [cleanPhone, normPhone, cleanEmail]
+    );
     if (existing) {
-      return res.status(400).json({ error: 'An account with this phone number already exists.' });
+      return res.status(400).json({ error: 'An account with this phone number or email already exists.' });
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const id = `ca_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -2111,16 +2133,23 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
     await dbRun(
       `INSERT INTO customer_accounts (id, name, email, phone, passwordHash, loyaltyPoints, totalSpent, createdAt, tenant_id)
        VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-      [id, name.trim(), cleanEmail, cleanPhone, passwordHash, Date.now(), tenantId]
+      [id, name.trim(), cleanEmail, normPhone || cleanPhone, passwordHash, Date.now(), tenantId]
     );
 
-    // Auto-sync customer to POS CRM customers database
-    await dbRun(
-      `INSERT OR REPLACE INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id)
-       VALUES (?, ?, ?, ?, 0, 0, 0.0, ?)`,
-      [id, name.trim(), cleanPhone, cleanEmail || '', tenantId]
-    ).catch(() => {});
-    broadcastEvent('customer_registered', { id, name: name.trim(), phone: cleanPhone, email: cleanEmail }, tenantId);
+    // Auto-sync customer to POS CRM customers database (Postgres & SQLite compatible)
+    try {
+      const existingCust = await dbGet('SELECT id FROM customers WHERE id = ?', [id]);
+      if (!existingCust) {
+        await dbRun(
+          `INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id)
+           VALUES (?, ?, ?, ?, 0, 0, 0.0, ?)`,
+          [id, name.trim(), normPhone || cleanPhone, cleanEmail || '', tenantId]
+        );
+      }
+    } catch (err) {
+      console.error('[CRM Sync Customer Error]', err.message);
+    }
+    broadcastEvent('customer_registered', { id, name: name.trim(), phone: normPhone || cleanPhone, email: cleanEmail }, tenantId);
 
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
     const token = jwt.sign(

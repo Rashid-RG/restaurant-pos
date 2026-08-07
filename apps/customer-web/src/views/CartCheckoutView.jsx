@@ -101,16 +101,29 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       .catch(() => {});
   }, [customer]);
 
-  // Load Uber Eats smart cart upsell recommendations
-  const [upsellItems, setUpsellItems] = useState([]);
+  // Load real smart cart upsell recommendations from active menu
+  const [realRecommendations, setRealRecommendations] = useState([]);
   useEffect(() => {
-    if (items.length > 0) {
-      const itemIds = items.map(i => i.id).join(',');
-      apiFetch(`/public/cart-upsell?itemIds=${itemIds}`)
-        .then(data => setUpsellItems(data || []))
-        .catch(() => {});
-    }
-  }, [items.length]);
+    apiFetch('/public/menu')
+      .then(data => {
+        const allItems = data?.items || [];
+        const cartIds = items.map(ci => ci.id);
+        const candidates = allItems.filter(itm => itm.isAvailable !== 0 && !cartIds.includes(itm.id));
+
+        candidates.sort((a, b) => {
+          const catA = String(a.category || '').toLowerCase();
+          const catB = String(b.category || '').toLowerCase();
+          const isDrinkSideA = catA.includes('drink') || catA.includes('side') || catA.includes('beverage') || catA.includes('dessert') || catA.includes('grill');
+          const isDrinkSideB = catB.includes('drink') || catB.includes('side') || catB.includes('beverage') || catB.includes('dessert') || catB.includes('grill');
+          if (isDrinkSideA && !isDrinkSideB) return -1;
+          if (!isDrinkSideA && isDrinkSideB) return 1;
+          return 0;
+        });
+
+        setRealRecommendations(candidates.slice(0, 4));
+      })
+      .catch(() => {});
+  }, [items]);
 
   // ── Dynamic delivery fee calculation when location is picked ──
   useEffect(() => {
@@ -700,30 +713,43 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           )}
         </div>
 
-        {/* Smart Upsell & Cross-Sell Suggestions */}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>🥤</span> Complete Your Meal (Smart Suggestions)
-          </h3>
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
-            Frequently paired with your current cart items:
-          </p>
+        {/* Real Smart Upsell & Cross-Sell Suggestions */}
+        {realRecommendations.length > 0 && (
+          <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
+            <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>🥤</span> Complete Your Meal (Smart Suggestions)
+            </h3>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
+              Frequently paired with your current cart items:
+            </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
-            {[
-              { id: 'itm_upsell_drink', name: 'Fresh King Coconut', price: 250, emoji: '🥥', allergen: 'Gluten-Free, Vegan' },
-              { id: 'itm_upsell_side', name: 'Garlic Butter Naan', price: 350, emoji: '🫓', allergen: 'Contains Dairy & Gluten' },
-              { id: 'itm_upsell_dessert', name: 'Watalappan Supreme', price: 450, emoji: '🍮', allergen: 'Contains Eggs & Nuts' }
-            ].map(up => (
-              <div key={up.id} style={{ padding: 10, background: 'rgba(0,0,0,0.02)', borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                <div style={{ fontSize: '1.4rem' }}>{up.emoji}</div>
-                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 2 }}>{up.name}</div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--brand)', fontWeight: 800 }}>LKR {up.price.toFixed(2)}</div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>⚠️ {up.allergen}</div>
-              </div>
-            ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+              {realRecommendations.map(up => (
+                <div key={up.id} style={{ padding: 10, background: 'rgba(0,0,0,0.02)', borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontSize: '1.5rem' }}>{up.emoji || '🍽️'}</div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{up.name}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 800, marginTop: 2 }}>LKR {Number(up.price || 0).toFixed(2)}</div>
+                    {up.allergens && (
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>⚠️ {up.allergens}</div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ marginTop: 8, padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, borderRadius: 8, width: '100%', cursor: 'pointer' }}
+                    onClick={() => {
+                      addItem(up);
+                      toast && toast(`Added ${up.name} to your order! ➕`, 'success');
+                    }}
+                  >
+                    ➕ Add
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Contact Info</h3>
           
