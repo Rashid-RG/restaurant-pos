@@ -12,14 +12,19 @@ export async function apiFetch(endpoint, options = {}) {
   // Attach the active tenant so the backend serves this restaurant's data.
   const activeTenant = getActiveTenant();
 
-  const res = await fetch(absoluteUrl, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(activeTenant ? { 'X-Tenant-Id': activeTenant } : {}),
-      ...(options.headers || {})
-    }
-  });
+  let res;
+  try {
+    res = await fetch(absoluteUrl, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(activeTenant ? { 'X-Tenant-Id': activeTenant } : {}),
+        ...(options.headers || {})
+      }
+    });
+  } catch (err) {
+    throw new Error('Connection timeout or network error. Please check internet connection.');
+  }
 
   let data;
   try {

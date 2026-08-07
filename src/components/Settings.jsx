@@ -891,9 +891,13 @@ export default function Settings() {
                       plan: form.plan.value
                     };
                     try {
+                      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
                       const res = await fetch('/api/saas/tenants', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
                         body: JSON.stringify(tenant)
                       });
                       const data = await res.json();

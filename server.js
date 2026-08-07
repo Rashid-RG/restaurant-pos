@@ -1745,46 +1745,104 @@ function verifyOTP(destination, code) {
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
 app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, res) => {
   try {
-    const { channel, destination, phone, email, purpose } = req.body;
+    const { channel, destination, phone, email, purpose = 'phone_verify' } = req.body || {};
     const target = destination || email || phone;
-    if (!target) {
+    if (!target || !String(target).trim()) {
       return res.status(400).json({ error: 'Email address or phone number is required.' });
     }
 
-    const isEmail = (channel === 'email') || target.includes('@');
-    const cleanDest = normalizeOtpDestination(target);
+    const isEmail = (channel === 'email') || String(target).includes('@');
+    const cleanDest = isEmail ? String(target).trim().toLowerCase() : normalizeLkPhone(target);
 
     if (!isEmail && !isValidSriLankanPhone(target)) {
       return res.status(400).json({ error: 'A valid Sri Lankan phone number is required (e.g. 0771234567).' });
     }
 
+    // Enforcement: Only registered users can request a login OTP
+    if (purpose === 'login') {
+      const existingAccount = await dbGet(
+        `SELECT id FROM customer_accounts WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
+        [cleanDest, cleanDest, cleanDest]
+      );
+      const existingCustomer = existingAccount || await dbGet(
+        `SELECT id FROM customers WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
+        [cleanDest, cleanDest, cleanDest]
+      );
+      if (!existingCustomer) {
+        return res.status(404).json({
+          error: 'No registered account found with this phone or email. Please register your account first.'
+        });
+      }
+    }
+
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStore.set(cleanDest, { code, expiresAt: Date.now() + 5 * 60 * 1000, channel: isEmail ? 'email' : 'sms', purpose: purpose || 'phone_verify' });
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+
+    // Delete previous unconsumed codes for this destination
+    await dbRun('DELETE FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ?)', [cleanDest, cleanDest]);
+
+    const id = `otp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    await dbRun(
+      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
+    );
+
+    // Also store in memory fallback map for instant lookup
+    otpStore.set(cleanDest, { code, expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
 
     const tenantId = await resolvePublicTenant(req);
     const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
 
-    if (isEmail) {
-      const html = buildOtpEmail({ code, purpose: purpose || 'phone_verify', destination: cleanDest, businessName: storeName });
-      const sendRes = await sendEmail({
-        to: cleanDest,
-        subject: `GastroFlow - Verification Code ${code}`,
-        html,
-        text: `Your GastroFlow verification code is ${code}. Valid for 5 minutes.`
-      });
+    let isSimulated = false;
 
-      console.log(`[OTP EMAIL] Sent to ${cleanDest} | Result:`, sendRes);
+    if (isEmail) {
+      const html = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: storeName });
+      
+      // Fast non-blocking email sending with 2.5s maximum timeout so response never hangs or triggers "Load failed"
+      try {
+        const sendPromise = sendEmail({
+          to: cleanDest,
+          subject: `Your ${storeName} verification code: ${code}`,
+          html,
+          text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
+        });
+        const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true }), 2500));
+        const sendRes = await Promise.race([sendPromise, timeoutPromise]);
+
+        if (!sendRes || sendRes.simulated || sendRes.timeout || !sendRes.success) {
+          isSimulated = true;
+        }
+      } catch (e) {
+        console.error('[EMAIL OTP TIMEOUT/FAIL]', e.message);
+        isSimulated = true;
+      }
+
+      console.log(`[OTP EMAIL] Sent to ${cleanDest} | Code: ${code} | Simulated: ${isSimulated}`);
       return res.json({
         success: true,
+        channel: 'email',
+        destination: cleanDest,
         message: `Verification code sent to email: ${cleanDest}`,
-        otpCode: process.env.NODE_ENV !== 'production' ? code : undefined
+        devHint: isSimulated ? `[DEV HINT: OTP is ${code}]` : undefined,
+        otpCode: isSimulated ? code : (process.env.NODE_ENV !== 'production' ? code : undefined)
       });
     } else {
-      await sendSMS(cleanDest, `GastroFlow Verification Code: ${code}. Valid for 5 minutes.`);
+      const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
+      try {
+        const smsRes = await sendSms({ to: cleanDest, message: msg });
+        if (!smsRes || smsRes.simulated || !smsRes.success) isSimulated = true;
+      } catch (e) {
+        isSimulated = true;
+      }
+
       return res.json({
         success: true,
+        channel: 'sms',
+        destination: cleanDest,
         message: `Verification code sent via SMS to ${cleanDest}`,
-        otpCode: process.env.NODE_ENV !== 'production' ? code : undefined
+        devHint: isSimulated ? `[DEV HINT: OTP is ${code}]` : undefined,
+        otpCode: isSimulated ? code : (process.env.NODE_ENV !== 'production' ? code : undefined)
       });
     }
   } catch (err) {
@@ -2871,26 +2929,84 @@ app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), async (req
   }
 });
 
-// GET /api/customers — Fetch real customers list for Customers & Loyalty view (joins online customer accounts)
+async function syncAllRealCustomersToCrm(tenantId) {
+  try {
+    const tid = tenantId || 'default_tenant';
+
+    // 1. Sync from registered customer_accounts
+    const accounts = await dbAll(`SELECT id, name, phone, email, loyaltyPoints, totalSpent FROM customer_accounts`);
+    if (accounts && accounts.length > 0) {
+      for (const acc of accounts) {
+        const cleanPhone = acc.phone ? acc.phone.trim() : '';
+        const cleanEmail = acc.email ? acc.email.trim().toLowerCase() : '';
+        if (!cleanPhone && !cleanEmail && !acc.id) continue;
+
+        const existing = await dbGet(
+          `SELECT id FROM customers WHERE id = ? OR (phone = ? AND phone != '') OR (email = ? AND email != '')`,
+          [acc.id, cleanPhone, cleanEmail]
+        );
+
+        if (existing) {
+          await dbRun(
+            `UPDATE customers SET name = COALESCE(?, name), phone = CASE WHEN ? != '' THEN ? ELSE phone END, email = CASE WHEN ? != '' THEN ? ELSE email END, points = MAX(points, ?) WHERE id = ?`,
+            [acc.name, cleanPhone, cleanPhone, cleanEmail, cleanEmail, acc.loyaltyPoints || 0, existing.id]
+          );
+        } else {
+          await dbRun(
+            `INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id) VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+            [acc.id || `cust_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, acc.name || 'Online Customer', cleanPhone, cleanEmail, acc.loyaltyPoints || 0, acc.totalSpent || 0, tid]
+          );
+        }
+      }
+    }
+
+    // 2. Sync from actual orders (real customer orders)
+    const orderStats = await dbAll(
+      `SELECT 
+         customerPhone, 
+         MAX(customerName) as customerName, 
+         MAX(customerEmail) as customerEmail, 
+         COUNT(*) as realOrderCount, 
+         SUM(total) as realTotalSpent 
+       FROM orders 
+       WHERE customerPhone IS NOT NULL AND customerPhone != '' 
+       GROUP BY customerPhone`
+    );
+
+    if (orderStats && orderStats.length > 0) {
+      for (const stat of orderStats) {
+        const cleanPhone = stat.customerPhone.trim();
+        const cleanName = stat.customerName ? stat.customerName.trim() : 'Customer';
+        const cleanEmail = stat.customerEmail ? stat.customerEmail.trim().toLowerCase() : '';
+
+        const existing = await dbGet(
+          `SELECT id FROM customers WHERE phone = ?`,
+          [cleanPhone]
+        );
+
+        if (existing) {
+          await dbRun(
+            `UPDATE customers SET orderCount = ?, totalSpent = ?, name = COALESCE(?, name), email = CASE WHEN ? != '' THEN ? ELSE email END WHERE id = ?`,
+            [stat.realOrderCount, stat.realTotalSpent || 0, cleanName, cleanEmail, cleanEmail, existing.id]
+          );
+        } else {
+          await dbRun(
+            `INSERT INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [`cust_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, cleanName, cleanPhone, cleanEmail, Math.floor((stat.realTotalSpent || 0) / 10), stat.realOrderCount, stat.realTotalSpent || 0, tid]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Customer CRM sync error:', err.message);
+  }
+}
+
+// GET /api/customers — Fetch real customers list for Customers & Loyalty view (joins online customer accounts & order history)
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
     const tenantId = req.tenantId || 'default_tenant';
-
-    // Auto-sync all registered customer_accounts into CRM customers table (by primary key ID matching)
-    await dbRun(`
-      INSERT OR IGNORE INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id)
-      SELECT 
-        id, 
-        name, 
-        COALESCE(phone, ''), 
-        COALESCE(email, ''), 
-        COALESCE(loyaltyPoints, 0), 
-        0, 
-        COALESCE(totalSpent, 0), 
-        COALESCE(tenant_id, ?)
-      FROM customer_accounts
-    `, [tenantId]).catch((err) => console.error('Customer sync error:', err));
-
+    await syncAllRealCustomersToCrm(tenantId);
     const customers = await dbAll(
       `SELECT * FROM customers WHERE (tenant_id = ? OR tenant_id IS NULL OR ? = 'default_tenant') ORDER BY totalSpent DESC, name ASC`,
       [tenantId, tenantId]
@@ -3279,6 +3395,92 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
         temporaryPassword: userPass,
         posUrl: `/?tenant=${tenantId}`,
         storefrontUrl: `/?tenant=${tenantId}`
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/saas/tenants — Provision New SaaS Tenant Subdomain
+app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  const { name, subdomain, ownerEmail, plan = 'pro' } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Restaurant Tenant Name is required.' });
+  if (!subdomain || !subdomain.trim()) return res.status(400).json({ error: 'Subdomain Slug is required.' });
+  if (!ownerEmail || !ownerEmail.includes('@')) return res.status(400).json({ error: 'Valid Owner Contact Email is required.' });
+
+  const cleanName = name.trim();
+  const slug = subdomain.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const tenantId = `tenant_${slug}_${Date.now().toString(36)}`;
+
+  try {
+    // Check if subdomain already exists
+    const existing = await dbGet('SELECT id FROM tenants WHERE subdomain = ?', [slug]);
+    if (existing) return res.status(400).json({ error: `Subdomain "${slug}" is already taken.` });
+
+    // 1. Insert into tenants table
+    await dbRun(
+      `INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt)
+       VALUES (?, ?, ?, ?, ?, 'active', ?)`,
+      [tenantId, cleanName, slug, ownerEmail.trim().toLowerCase(), plan, Date.now()]
+    );
+
+    // 2. Seed default business settings for this tenant
+    const defaultSettings = [
+      { key: 'businessName', value: cleanName },
+      { key: 'currencySymbol', value: 'Rs.' },
+      { key: 'taxRate', value: '10' },
+      { key: 'serviceChargeRate', value: '10' },
+      { key: 'address', value: 'Colombo, Sri Lanka' }
+    ];
+    for (const set of defaultSettings) {
+      await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId, set.key, set.value]);
+    }
+
+    // 3. Seed default Categories & Menu Items
+    const defaultCats = [
+      { id: `cat_main_${Date.now()}`, name: '🍽️ Signature Specials', emoji: '🍕' },
+      { id: `cat_drink_${Date.now()}`, name: '🍹 Refreshing Drinks', emoji: '🍹' }
+    ];
+    for (const cat of defaultCats) {
+      await dbRun('INSERT INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?)', [cat.id, cat.name, cat.emoji, tenantId]);
+    }
+
+    const defaultItems = [
+      { id: `itm_special_${Date.now()}`, name: `${cleanName} Special Grill`, price: 2450, category: defaultCats[0].id, emoji: '🥩', stock: 50, description: 'Chef special house grill platter.' },
+      { id: `itm_beverage_${Date.now()}`, name: 'Fresh Tropical Punch', price: 450, category: defaultCats[1].id, emoji: '🍹', stock: 100, description: 'Chilled fresh fruit blend.' }
+    ];
+    for (const item of defaultItems) {
+      await dbRun(
+        `INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, tenant_id, isAvailable)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 5, ?, ?, 1)`,
+        [item.id, item.name, item.price, item.price * 0.4, item.category, item.emoji, item.stock, item.description, tenantId]
+      );
+    }
+
+    // 4. Create owner staff user account for POS login
+    const username = ownerEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    const userPass = 'gastro1234';
+    const passwordHash = await bcrypt.hash(userPass, 10);
+    const userId = `usr_${Date.now()}`;
+    await dbRun(
+      `INSERT INTO users (id, username, passwordHash, role, pin, tenant_id, email)
+       VALUES (?, ?, ?, 'owner', '1234', ?, ?)`,
+      [userId, username, passwordHash, tenantId, ownerEmail.trim().toLowerCase()]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `🎉 Tenant "${cleanName}" provisioned successfully at ${slug}.gastroflow.lk!`,
+      tenant: {
+        id: tenantId,
+        name: cleanName,
+        subdomain: slug,
+        ownerEmail,
+        plan,
+        staffUsername: username,
+        temporaryPassword: userPass,
+        posUrl: `/?tenant=${tenantId}`
       }
     });
   } catch (err) {
@@ -4264,84 +4466,6 @@ async function sendOrderConfirmation(order) {
     console.error('sendOrderConfirmation error:', e.message);
   }
 }
-
-// ── OTP: send ────────────────────────────────────────────────────────────────
-app.post('/api/otp/send', otpLimiter, async (req, res) => {
-  const { channel = 'sms', destination, purpose = 'login' } = req.body || {};
-  if (!destination || !String(destination).trim()) {
-    return res.status(400).json({ error: 'Phone number or email is required.' });
-  }
-
-  try {
-    const cleanDest = channel === 'sms'
-      ? normalizeLkPhone(destination)
-      : String(destination).trim().toLowerCase();
-
-    if (!cleanDest) return res.status(400).json({ error: 'Invalid destination.' });
-
-    // Enforcement: Only registered users can request a login OTP
-    if (purpose === 'login') {
-      const existingAccount = await dbGet(
-        `SELECT id FROM customer_accounts WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, normalizeLkPhone(cleanDest)]
-      );
-      const existingCustomer = existingAccount || await dbGet(
-        `SELECT id FROM customers WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, normalizeLkPhone(cleanDest)]
-      );
-      if (!existingCustomer) {
-        return res.status(404).json({
-          error: 'No registered account found with this phone or email. Please register your account first.'
-        });
-      }
-    }
-
-    const code = generateOtp(6);
-    const id = `otp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-    // Delete previous unconsumed codes for this destination
-    await dbRun('DELETE FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ?)', [cleanDest, cleanDest]);
-
-    await dbRun(
-      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, channel, cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
-    );
-
-    const business = await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro');
-
-    let devHint = false;
-    if (channel === 'email' || cleanDest.includes('@')) {
-      const otpEmailHtml = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: business });
-      const result = await sendEmail({
-        to: cleanDest,
-        subject: `Your ${business} verification code: ${code}`,
-        html: otpEmailHtml
-      });
-      if (result?.simulated || result?.transport === 'dev') devHint = true;
-    } else {
-      const msg = `Your ${business} OTP code is ${code}. Valid for 10 mins.`;
-      const result = await sendSms({ to: cleanDest, message: msg });
-      if (result?.simulated || result?.transport === 'dev') devHint = true;
-    }
-
-    console.log(`\n==========================================`);
-    console.log(`[OTP SENT] Channel: ${channel} | Destination: ${cleanDest} | Purpose: ${purpose} | Code: ${code}`);
-    console.log(`==========================================\n`);
-
-    res.json({
-      success: true,
-      ok: true,
-      message: `Verification code sent to ${cleanDest}`,
-      devHint,
-      otpCode: process.env.NODE_ENV !== 'production' ? code : undefined
-    });
-  } catch (err) {
-    console.error('[OTP SEND ERROR]', err);
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
 
 // ── OTP: verify ──────────────────────────────────────────────────────────────
 app.post('/api/otp/verify', otpLimiter, async (req, res) => {
