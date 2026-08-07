@@ -1811,6 +1811,163 @@ app.post('/api/payments/payhere/dev-simulate', publicApiLimiter, async (req, res
 });
 
 // ======================================================
+// SETTINGS & CASHIER SHIFT ENDPOINTS (POS Frontend API)
+// ======================================================
+
+// GET /api/settings
+app.get('/api/settings', authenticateToken, async (req, res) => {
+  try {
+    const tenantId = req.tenantId || await resolvePublicTenant(req);
+    const rows = await dbAll('SELECT key, value FROM settings WHERE tenant_id = ?', [tenantId]);
+    const settingsMap = {};
+    for (const r of rows) {
+      settingsMap[r.key] = r.value;
+    }
+    res.json(settingsMap);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/settings
+app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  const { key, value } = req.body || {};
+  if (!key) {
+    return res.status(400).json({ error: 'Key is required.' });
+  }
+  try {
+    const tenantId = req.tenantId || 'default_tenant';
+    await setSetting(tenantId, key, value);
+    res.json({ success: true, key, value });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/shifts/active
+app.get('/api/shifts/active', authenticateToken, async (req, res) => {
+  try {
+    const shift = await dbGet(
+      'SELECT * FROM shifts WHERE userId = ? AND status = "open" ORDER BY startTime DESC LIMIT 1',
+      [req.user.id]
+    );
+    res.json(shift || null);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/shifts/open
+app.post('/api/shifts/open', authenticateToken, validateRequest(shiftOpenSchema), async (req, res) => {
+  const { startFloat, notes } = req.body || {};
+  const floatVal = parseFloat(startFloat) || 0;
+  try {
+    const active = await dbGet(
+      'SELECT id FROM shifts WHERE userId = ? AND status = "open"',
+      [req.user.id]
+    );
+    if (active) {
+      return res.status(400).json({ error: 'You already have an open shift.' });
+    }
+    const shiftId = `sh_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const startTime = Date.now();
+    await dbRun(
+      `INSERT INTO shifts (id, userId, username, startTime, startFloat, status, notes)
+       VALUES (?, ?, ?, ?, ?, 'open', ?)`,
+      [shiftId, req.user.id, req.user.username, startTime, floatVal, notes || '']
+    );
+    await writeAuditLog(req.user.id, req.user.username, 'open_shift', `Opened cashier shift with float LKR ${floatVal}`);
+    const newShift = await dbGet('SELECT * FROM shifts WHERE id = ?', [shiftId]);
+    res.json(newShift);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// POST /api/shifts/close
+app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchema), async (req, res) => {
+  const { actualCash, notes } = req.body || {};
+  const actualVal = parseFloat(actualCash) || 0;
+  try {
+    const active = await dbGet(
+      'SELECT * FROM shifts WHERE userId = ? AND status = "open" ORDER BY startTime DESC LIMIT 1',
+      [req.user.id]
+    );
+    if (!active) {
+      return res.status(400).json({ error: 'No active open shift found.' });
+    }
+    const endTime = Date.now();
+    const ordersCount = await dbGet(
+      'SELECT SUM(total) as cashTotal FROM orders WHERE timestamp >= ? AND paymentMethod = "cash" AND status = "paid"',
+      [active.startTime]
+    );
+    const cashSales = ordersCount?.cashTotal || 0;
+    const expectedCash = (active.startFloat || 0) + cashSales;
+
+    await dbRun(
+      `UPDATE shifts SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = 'closed', notes = ? WHERE id = ?`,
+      [endTime, actualVal, actualVal, expectedCash, notes || '', active.id]
+    );
+    await writeAuditLog(req.user.id, req.user.username, 'close_shift', `Closed cashier shift. Actual: LKR ${actualVal}, Expected: LKR ${expectedCash}`);
+    const closedShift = await dbGet('SELECT * FROM shifts WHERE id = ?', [active.id]);
+    res.json(closedShift);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// Generic Table CRUD Endpoints (Categories, Menu Items, Tables, Customers)
+const CRUD_TABLES = ['categories', 'menu_items', 'tables', 'customers'];
+
+for (const tableName of CRUD_TABLES) {
+  app.get(`/api/${tableName}`, async (req, res) => {
+    try {
+      const rows = await dbAll(`SELECT * FROM ${tableName}`);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: errMsg(err) });
+    }
+  });
+
+  app.post(`/api/${tableName}`, authenticateToken, async (req, res) => {
+    const item = req.body;
+    if (!item || typeof item !== 'object') {
+      return res.status(400).json({ error: 'Invalid record payload.' });
+    }
+    const id = item.id || `${tableName.slice(0, 3)}_${Date.now()}`;
+    const keys = Object.keys(item).filter(k => k !== 'id');
+    const cols = ['id', ...keys];
+    const placeholders = cols.map(() => '?').join(', ');
+    const vals = [id, ...keys.map(k => typeof item[k] === 'object' ? JSON.stringify(item[k]) : item[k])];
+
+    try {
+      const existing = await dbGet(`SELECT id FROM ${tableName} WHERE id = ?`, [id]);
+      if (existing) {
+        const updateCols = keys.map(k => `${k} = ?`).join(', ');
+        const updateVals = [...keys.map(k => typeof item[k] === 'object' ? JSON.stringify(item[k]) : item[k]), id];
+        await dbRun(`UPDATE ${tableName} SET ${updateCols} WHERE id = ?`, updateVals);
+      } else {
+        await dbRun(`INSERT INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders})`, vals);
+      }
+      const saved = await dbGet(`SELECT * FROM ${tableName} WHERE id = ?`, [id]);
+      res.json(saved);
+    } catch (err) {
+      res.status(500).json({ error: errMsg(err) });
+    }
+  });
+
+  app.delete(`/api/${tableName}/:id`, authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+    const { id } = req.params;
+    try {
+      await dbRun(`DELETE FROM ${tableName} WHERE id = ?`, [id]);
+      res.json({ success: true, id });
+    } catch (err) {
+      res.status(500).json({ error: errMsg(err) });
+    }
+  });
+}
+
+// ======================================================
 // CUSTOMER AUTH ENDPOINTS (no staff token required)
 // ======================================================
 
