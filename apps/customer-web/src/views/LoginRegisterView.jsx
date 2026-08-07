@@ -16,6 +16,7 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
   // Login form
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Register form
   const [regName, setRegName] = useState('');
@@ -231,8 +232,29 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Password</label>
-            <input className="form-control" type="password" required placeholder="••••••••"
-              value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
+            <div style={{ position: 'relative' }}>
+              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="••••••••"
+                value={loginPassword} onChange={e => setLoginPassword(e.target.value)} style={{ paddingRight: 40 }} />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1.1rem',
+                  opacity: 0.8,
+                  padding: 2
+                }}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? '👁️' : '🙈'}
+              </button>
+            </div>
           </div>
           <div style={{ marginTop: 8, textAlign: 'right' }}>
             <button type="button" className="link-btn" onClick={() => setTab('forgot')}
@@ -369,11 +391,53 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Password</label>
-            <input className="form-control" type="password" required placeholder="Minimum 6 characters" value={regPassword} onChange={e => setRegPassword(e.target.value)} />
+            <div style={{ position: 'relative' }}>
+              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Minimum 6 characters" value={regPassword} onChange={e => setRegPassword(e.target.value)} style={{ paddingRight: 40 }} />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1.1rem',
+                  opacity: 0.8,
+                  padding: 2
+                }}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? '👁️' : '🙈'}
+              </button>
+            </div>
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Confirm Password</label>
-            <input className="form-control" type="password" required placeholder="Re-enter password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} />
+            <div style={{ position: 'relative' }}>
+              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Re-enter password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} style={{ paddingRight: 40 }} />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1.1rem',
+                  opacity: 0.8,
+                  padding: 2
+                }}
+                title={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? '👁️' : '🙈'}
+              </button>
+            </div>
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-1)' }}>Verification Method:</label>
