@@ -235,10 +235,29 @@ export const dbRun = async (sql, params = []) => {
   });
 };
 
+const normalizeRow = (row) => {
+  if (!row || typeof row !== 'object') return row;
+  const newRow = { ...row };
+  for (const k of Object.keys(row)) {
+    const lk = k.toLowerCase();
+    if (lk === 'passwordhash' && newRow.passwordHash === undefined) newRow.passwordHash = row[k];
+    if (lk === 'totalspent' && newRow.totalSpent === undefined) newRow.totalSpent = row[k];
+    if (lk === 'ordercount' && newRow.orderCount === undefined) newRow.orderCount = row[k];
+    if (lk === 'phoneverified' && newRow.phoneVerified === undefined) newRow.phoneVerified = row[k];
+    if (lk === 'createdat' && newRow.createdAt === undefined) newRow.createdAt = row[k];
+    if (lk === 'loyaltypoints' && newRow.loyaltyPoints === undefined) newRow.loyaltyPoints = row[k];
+    if (lk === 'customername' && newRow.customerName === undefined) newRow.customerName = row[k];
+    if (lk === 'customerphone' && newRow.customerPhone === undefined) newRow.customerPhone = row[k];
+    if (lk === 'customeremail' && newRow.customerEmail === undefined) newRow.customerEmail = row[k];
+  }
+  return newRow;
+};
+
 export const dbAll = async (sql, params = []) => {
   if (isPostgres) {
     const res = await query(sql, params);
-    return res.rows || [];
+    const rows = res.rows || [];
+    return rows.map(normalizeRow);
   }
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
@@ -251,7 +270,8 @@ export const dbAll = async (sql, params = []) => {
 export const dbGet = async (sql, params = []) => {
   if (isPostgres) {
     const res = await query(sql, params);
-    return res.rows && res.rows.length > 0 ? res.rows[0] : null;
+    const row = res.rows && res.rows.length > 0 ? res.rows[0] : null;
+    return row ? normalizeRow(row) : null;
   }
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
@@ -1140,10 +1160,10 @@ async function seedDatabase() {
         VALUES (?, ?, ?, 'kitchen', '4444', 'default_tenant')
       `, ['user_kitchen', 'chef_mario', staffPasswordHash]);
     } else {
-      // Sync master admin password hash on boot so login is 100% reliable
+      // Sync master admin password hash and username on boot so login is 100% reliable
       await dbRun(
-        'UPDATE users SET passwordHash = ?, role = ?, tenant_id = ? WHERE id = ? OR username = ?',
-        [masterAdminHash, 'owner', 'default_tenant', adminUser.id, masterAdminUser]
+        'UPDATE users SET username = ?, passwordHash = ?, role = ?, tenant_id = ? WHERE id = ? OR LOWER(username) = LOWER(?)',
+        [masterAdminUser, masterAdminHash, 'owner', 'default_tenant', adminUser.id, masterAdminUser]
       );
       console.log(`[Boot] Master Admin account "${masterAdminUser}" synced successfully.`);
     }
