@@ -381,7 +381,7 @@ export default function Settings() {
                               <span style={{ fontWeight: '600' }}>{item.name}</span>
                             </td>
                             <td>{categories.find((c) => c.id === item.category)?.name || item.category}</td>
-                            <td>${item.price.toFixed(2)}</td>
+                            <td>{currency || 'Rs.'} {item.price.toFixed(2)}</td>
                             <td>{item.stock} units</td>
                             <td>
                               <div style={{ display: 'flex', gap: '8px' }}>

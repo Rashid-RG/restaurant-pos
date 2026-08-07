@@ -125,7 +125,7 @@ export default function POSView() {
     }
   }, [printReceiptOrder]);
 
-  const currencySymbol = settings.currencySymbol || '$';
+  const currencySymbol = settings.currencySymbol || 'Rs.';
 
   // Filter items
   const filteredItems = menuItems.filter((item) => {

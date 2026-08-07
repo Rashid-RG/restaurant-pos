@@ -274,7 +274,7 @@ export default function FloorPlan() {
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '800', borderTop: '1px dashed var(--border-color)', paddingTop: '12px', fontSize: '16px', marginBottom: '24px' }}>
                   <span>Total Payable:</span>
-                  <span>${selectedTableDetails.order.total.toFixed(2)}</span>
+                  <span>Rs. {selectedTableDetails.order.total.toFixed(2)}</span>
                 </div>
               </div>
             ) : (

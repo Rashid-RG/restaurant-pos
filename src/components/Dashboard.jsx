@@ -53,8 +53,8 @@ export default function Dashboard() {
 
   // 2. Format Currency
   const formatCurrency = (amount) => {
-    const symbol = settings.currencySymbol || '$';
-    return `${symbol}${amount.toFixed(2)}`;
+    const symbol = settings.currencySymbol || 'Rs.';
+    return `${symbol} ${amount.toFixed(2)}`;
   };
 
   // 3. Draw Sales Trend Chart (Canvas)
@@ -121,7 +121,7 @@ export default function Dashboard() {
       ctx.moveTo(paddingLeft, y);
       ctx.lineTo(paddingLeft + chartWidth, y);
       ctx.stroke();
-      ctx.fillText(`${settings.currencySymbol || '$'}${Math.round(val)}`, 8, y + 4);
+      ctx.fillText(`${settings.currencySymbol || 'Rs.'}${Math.round(val)}`, 8, y + 4);
     }
 
     // Plot Points and Draw Bars/Lines
@@ -556,7 +556,7 @@ export default function Dashboard() {
                 setRefundError('');
                 const amt = parseFloat(refundAmountInput) || 0;
                 if (amt <= 0 || amt > (refundTarget.total - (refundTarget.refundedAmount || 0))) {
-                  setRefundError(`Refund amount must be between ${settings.currencySymbol || '$'}0.01 and ${formatCurrency(refundTarget.total - (refundTarget.refundedAmount || 0))}`);
+                  setRefundError(`Refund amount must be between ${settings.currencySymbol || 'Rs.'} 0.01 and ${formatCurrency(refundTarget.total - (refundTarget.refundedAmount || 0))}`);
                   return;
                 }
                 if (!refundReason) {
@@ -593,7 +593,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="form-group">
-                  <label>Refund Amount ({settings.currencySymbol || '$'})</label>
+                  <label>Refund Amount ({settings.currencySymbol || 'Rs.'})</label>
                   <input
                     type="number"
                     step="0.01"

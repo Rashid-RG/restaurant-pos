@@ -3199,6 +3199,93 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
   }
 });
 
+// POST /api/public/restaurants/register — Onboard a new Restaurant / BBQ Shop tenant
+app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) => {
+  const { name, ownerEmail, phone, cuisine, address, password } = req.body || {};
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Restaurant name is required.' });
+  if (!ownerEmail || !ownerEmail.includes('@')) return res.status(400).json({ error: 'Valid owner email is required.' });
+
+  const cleanName = name.trim();
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const tenantId = `tenant_${slug}_${Date.now().toString(36)}`;
+  const cleanPhone = phone ? phone.trim().replace(/[\s-]/g, '') : '';
+
+  try {
+    // 1. Create tenant record
+    await dbRun(
+      `INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt)
+       VALUES (?, ?, ?, ?, 'pro', 'active', ?)`,
+      [tenantId, cleanName, slug, ownerEmail.trim().toLowerCase(), Date.now()]
+    );
+
+    // 2. Seed business settings for this tenant
+    const defaultSettings = [
+      { key: 'businessName', value: cleanName },
+      { key: 'currencySymbol', value: 'Rs.' },
+      { key: 'taxRate', value: '10' },
+      { key: 'serviceChargeRate', value: '10' },
+      { key: 'address', value: address || 'Colombo, Sri Lanka' },
+      { key: 'phone', value: cleanPhone || '+94 77 123 4567' }
+    ];
+    for (const set of defaultSettings) {
+      await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId, set.key, set.value]);
+    }
+
+    // 3. Seed BBQ / Specialty Categories & Menu Items
+    const defaultCats = [
+      { id: `cat_grills_${Date.now()}`, name: '🔥 BBQ Grills & Smoked Meats', emoji: '🥩' },
+      { id: `cat_burgers_${Date.now()}`, name: '🍔 Burgers & Ribs', emoji: '🍔' },
+      { id: `cat_sides_${Date.now()}`, name: '🍟 Sides & Salads', emoji: '🍟' },
+      { id: `cat_drinks_${Date.now()}`, name: '🍹 Cold Beverages', emoji: '🍹' }
+    ];
+    for (const cat of defaultCats) {
+      await dbRun('INSERT INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?)', [cat.id, cat.name, cat.emoji, tenantId]);
+    }
+
+    const defaultItems = [
+      { id: `itm_ribs_${Date.now()}`, name: 'Smoked Pork Ribs (Half Rack)', price: 3450, category: defaultCats[0].id, emoji: '🍖', stock: 30, description: 'Slow-smoked over hickory wood with signature BBQ glaze.' },
+      { id: `itm_brisket_${Date.now()}`, name: 'Hickory Smoked Beef Brisket', price: 3950, category: defaultCats[0].id, emoji: '🥩', stock: 25, description: '12-hour low and slow smoked beef brisket sliced tender.' },
+      { id: `itm_wings_${Date.now()}`, name: 'Honey BBQ Chicken Wings (8pcs)', price: 1850, category: defaultCats[0].id, emoji: '🍗', stock: 50, description: 'Crispy fried wings tossed in sweet & smoky honey BBQ sauce.' },
+      { id: `itm_burger_${Date.now()}`, name: 'Double Bacon BBQ Cheeseburger', price: 2250, category: defaultCats[1].id, emoji: '🍔', stock: 40, description: 'Double smash patty with sharp cheddar, crispy bacon, and BBQ sauce.' }
+    ];
+    for (const item of defaultItems) {
+      await dbRun(
+        `INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, tenant_id, isAvailable)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 5, ?, ?, 1)`,
+        [item.id, item.name, item.price, item.price * 0.4, item.category, item.emoji, item.stock, item.description, tenantId]
+      );
+    }
+
+    // 4. Create owner staff user account for POS login
+    const username = ownerEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    const userPass = password || 'bbq123456';
+    const passwordHash = await bcrypt.hash(userPass, 10);
+    const userId = `usr_${Date.now()}`;
+    await dbRun(
+      `INSERT INTO users (id, username, passwordHash, role, pin, tenant_id, email, phone)
+       VALUES (?, ?, ?, 'owner', '1234', ?, ?, ?)`,
+      [userId, username, passwordHash, tenantId, ownerEmail.trim().toLowerCase(), cleanPhone]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `🎉 ${cleanName} onboarded successfully!`,
+      tenant: {
+        id: tenantId,
+        name: cleanName,
+        slug,
+        ownerEmail,
+        staffUsername: username,
+        temporaryPassword: userPass,
+        posUrl: `/?tenant=${tenantId}`,
+        storefrontUrl: `/?tenant=${tenantId}`
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/public/menu
 app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {

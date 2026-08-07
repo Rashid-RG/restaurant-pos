@@ -12,7 +12,7 @@ export default function Customers() {
 
   const [selectedCustHistory, setSelectedCustHistory] = useState(null);
 
-  const currencySymbol = settings.currencySymbol || '$';
+  const currencySymbol = settings.currencySymbol || 'Rs.';
 
   // Filter customers
   const filteredCustomers = customers.filter(
