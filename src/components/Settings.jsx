@@ -52,6 +52,32 @@ export default function Settings() {
   // Database tool file reader state
   const [importFile, setImportFile] = useState(null);
 
+  // SaaS Tenants list & provisioned credentials state
+  const [tenantsList, setTenantsList] = useState([]);
+  const [lastProvisioned, setLastProvisioned] = useState(null);
+  const [loadingTenants, setLoadingTenants] = useState(false);
+
+  const fetchTenants = async () => {
+    setLoadingTenants(true);
+    try {
+      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
+      const res = await fetch('/api/saas/tenants', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTenantsList(data || []);
+      }
+    } catch (_) {}
+    finally { setLoadingTenants(false); }
+  };
+
+  useEffect(() => {
+    if (subTab === 'saas') {
+      fetchTenants();
+    }
+  }, [subTab]);
+
   const handleSaveBusiness = async (e) => {
     e.preventDefault();
     await updateSetting('businessName', bizName);
@@ -878,13 +904,12 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <div className="card glass" style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-surface)' }}>
+                <div className="card glass" style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-surface)', marginBottom: '24px' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>Provision New SaaS Tenant Subdomain</h3>
                   <form onSubmit={async (e) => {
                     e.preventDefault();
                     const form = e.target;
                     const tenant = {
-                      id: `t_${Date.now()}`,
                       name: form.tenantName.value,
                       subdomain: form.subdomain.value.toLowerCase().replace(/[^a-z0-9-]/g, ''),
                       ownerEmail: form.ownerEmail.value,
@@ -902,7 +927,9 @@ export default function Settings() {
                       });
                       const data = await res.json();
                       if (!res.ok) throw new Error(data.error || 'Failed to provision tenant.');
-                      showToast(`🎉 Tenant "${tenant.name}" provisioned at ${tenant.subdomain}.gastroflow.lk`, 'success');
+                      showToast(`🎉 Tenant "${tenant.name}" provisioned successfully!`, 'success');
+                      setLastProvisioned(data.tenant);
+                      fetchTenants();
                       form.reset();
                     } catch (err) {
                       showToast('Provisioning error: ' + err.message, 'error');
@@ -911,11 +938,11 @@ export default function Settings() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                       <div>
                         <label style={{ fontSize: '12px', fontWeight: 600 }}>Restaurant Tenant Name</label>
-                        <input name="tenantName" type="text" className="form-input" placeholder="e.g. Cinnamon Grill Colombo" required />
+                        <input name="tenantName" type="text" className="form-input" placeholder="e.g. Twin BBQ Grill" required />
                       </div>
                       <div>
                         <label style={{ fontSize: '12px', fontWeight: 600 }}>Subdomain Slug</label>
-                        <input name="subdomain" type="text" className="form-input" placeholder="e.g. cinnamongrill" required />
+                        <input name="subdomain" type="text" className="form-input" placeholder="e.g. twinbbq" required />
                       </div>
                     </div>
 
@@ -927,9 +954,9 @@ export default function Settings() {
                       <div>
                         <label style={{ fontSize: '12px', fontWeight: 600 }}>Subscription Plan</label>
                         <select name="plan" className="form-input">
-                          <option value="pro">Pro ($49/mo)</option>
-                          <option value="enterprise">Enterprise ($149/mo)</option>
-                          <option value="basic">Basic ($29/mo)</option>
+                          <option value="pro">Pro (Rs. 7,500/mo)</option>
+                          <option value="enterprise">Enterprise (Rs. 15,000/mo)</option>
+                          <option value="basic">Basic (Rs. 4,500/mo)</option>
                         </select>
                       </div>
                     </div>
@@ -939,6 +966,176 @@ export default function Settings() {
                     </button>
                   </form>
                 </div>
+
+                {/* Newly Provisioned Credentials & Instant Links Card */}
+                {lastProvisioned && (
+                  <div className="card glass fade-in" style={{ padding: '20px', borderRadius: '12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid #22c55e', marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#22c55e', margin: 0 }}>
+                        🎉 Store Provisioned Successfully: {lastProvisioned.name}
+                      </h3>
+                      <button className="btn btn-sm" onClick={() => setLastProvisioned(null)} style={{ fontSize: '11px' }}>✕ Close</button>
+                    </div>
+
+                    {/* Login Credentials Box */}
+                    <div style={{ background: 'var(--bg-card)', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid var(--border-color)' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>🔐 Owner POS Login Credentials:</div>
+                      <div style={{ display: 'flex', gap: '24px', fontSize: '13px', fontFamily: 'monospace' }}>
+                        <div><strong>Username:</strong> {lastProvisioned.staffUsername}</div>
+                        <div><strong>Password:</strong> {lastProvisioned.temporaryPassword}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline"
+                        style={{ marginTop: '10px', fontSize: '12px' }}
+                        onClick={() => {
+                          const creds = `Store: ${lastProvisioned.name}\nPOS URL: ${window.location.origin}/?tenant=${lastProvisioned.id}\nUsername: ${lastProvisioned.staffUsername}\nPassword: ${lastProvisioned.temporaryPassword}`;
+                          navigator.clipboard.writeText(creds);
+                          showToast('📋 Login credentials copied to clipboard!', 'success');
+                        }}
+                      >
+                        📋 Copy Login Credentials
+                      </button>
+                    </div>
+
+                    {/* Copyable URLs Grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>🖥️ Cashier / Staff POS URL</div>
+                        <div style={{ fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all', margin: '4px 0 8px' }}>
+                          {window.location.origin}/?tenant={lastProvisioned.id}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/?tenant=${lastProvisioned.id}`);
+                            showToast('📋 POS Link copied to clipboard!', 'success');
+                          }}
+                        >
+                          📋 Copy POS URL
+                        </button>
+                      </div>
+
+                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>📱 Customer Web App URL</div>
+                        <div style={{ fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all', margin: '4px 0 8px' }}>
+                          {window.location.origin}/customer/?tenant={lastProvisioned.id}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/customer/?tenant=${lastProvisioned.id}`);
+                            showToast('📋 Customer Web Link copied!', 'success');
+                          }}
+                        >
+                          📋 Copy Customer URL
+                        </button>
+                      </div>
+
+                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>🛵 Driver Dispatch App URL</div>
+                        <div style={{ fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all', margin: '4px 0 8px' }}>
+                          {window.location.origin}/driver-app/?tenant={lastProvisioned.id}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/driver-app/?tenant=${lastProvisioned.id}`);
+                            showToast('📋 Driver App Link copied!', 'success');
+                          }}
+                        >
+                          📋 Copy Driver URL
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Provisioned Tenant Stores List Table */}
+                <div className="card glass" style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-surface)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>🏢 Active SaaS Tenant Stores ({tenantsList.length})</h3>
+                    <button className="btn btn-sm btn-outline" onClick={fetchTenants} disabled={loadingTenants}>
+                      🔄 {loadingTenants ? 'Refreshing...' : 'Refresh Stores'}
+                    </button>
+                  </div>
+
+                  {tenantsList.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      No custom tenant stores provisioned yet. Use the form above to provision your first store!
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="table" style={{ width: '100%', fontSize: '13px' }}>
+                        <thead>
+                          <tr>
+                            <th>Store Name</th>
+                            <th>Subdomain Slug</th>
+                            <th>Owner Contact</th>
+                            <th>Plan</th>
+                            <th>Status</th>
+                            <th>Actions & Copy Links</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tenantsList.map(t => (
+                            <tr key={t.id}>
+                              <td style={{ fontWeight: 700 }}>{t.name}</td>
+                              <td style={{ fontFamily: 'monospace' }}>{t.subdomain}</td>
+                              <td>{t.ownerEmail}</td>
+                              <td><span className="badge badge-info">{t.plan?.toUpperCase() || 'PRO'}</span></td>
+                              <td><span className="badge badge-success">ACTIVE</span></td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  <button
+                                    className="btn btn-sm btn-outline"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(`${window.location.origin}/?tenant=${t.id}`);
+                                      showToast(`📋 POS Link for ${t.name} copied!`, 'success');
+                                    }}
+                                  >
+                                    📋 POS Link
+                                  </button>
+                                  <button
+                                    className="btn btn-sm btn-outline"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(`${window.location.origin}/customer/?tenant=${t.id}`);
+                                      showToast(`📋 Customer App Link for ${t.name} copied!`, 'success');
+                                    }}
+                                  >
+                                    📋 Customer Link
+                                  </button>
+                                  <button
+                                    className="btn btn-sm btn-outline"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(`${window.location.origin}/driver-app/?tenant=${t.id}`);
+                                      showToast(`📋 Driver App Link for ${t.name} copied!`, 'success');
+                                    }}
+                                  >
+                                    📋 Driver Link
+                                  </button>
+                                  <a
+                                    href={`${window.location.origin}/?tenant=${t.id}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn btn-sm btn-primary"
+                                    style={{ textDecoration: 'none' }}
+                                  >
+                                    🔗 Open Store
+                                  </a>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
 

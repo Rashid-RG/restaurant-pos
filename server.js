@@ -692,6 +692,34 @@ async function initTables() {
       )
     `);
 
+    if (isPostgres) {
+      const timestampCols = [
+        ['tenants', 'createdAt'],
+        ['otps', 'expiresAt'],
+        ['otp_codes', 'expiresAt'],
+        ['otp_codes', 'createdAt'],
+        ['password_resets', 'expiresAt'],
+        ['password_resets', 'createdAt'],
+        ['password_resets', 'consumedAt'],
+        ['timeclock_entries', 'clockIn'],
+        ['timeclock_entries', 'clockOut'],
+        ['support_tickets', 'createdAt'],
+        ['support_tickets', 'resolvedAt'],
+        ['support_ticket_messages', 'createdAt'],
+        ['customer_accounts', 'createdAt'],
+        ['customer_addresses', 'createdAt'],
+        ['customer_cards', 'createdAt'],
+        ['orders', 'createdAt'],
+        ['shifts', 'startTime'],
+        ['shifts', 'endTime']
+      ];
+      for (const [t, c] of timestampCols) {
+        try {
+          await dbRun(`ALTER TABLE ${t} ALTER COLUMN ${c} TYPE BIGINT USING ${c}::BIGINT`);
+        } catch (_) {}
+      }
+    }
+
     // Add tenant_id column to tenant-scoped tables for multi-tenant isolation.
     // The first six were scoped in the initial multi-tenancy pass; the rest complete
     // per-tenant isolation of config, catalog, staff-ops and engagement data.
@@ -3510,9 +3538,27 @@ app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager'
         plan,
         staffUsername: username,
         temporaryPassword: userPass,
-        posUrl: `/?tenant=${tenantId}`
+        posUrl: `/?tenant=${tenantId}`,
+        customerUrl: `/customer/?tenant=${tenantId}`,
+        driverUrl: `/driver-app/?tenant=${tenantId}`
       }
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/saas/tenants — List all provisioned SaaS tenant shops
+app.get('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  try {
+    const tenants = await dbAll('SELECT id, name, subdomain, ownerEmail, plan, status, createdAt FROM tenants ORDER BY createdAt DESC');
+    const result = (tenants || []).map(t => ({
+      ...t,
+      posUrl: `/?tenant=${t.id}`,
+      customerUrl: `/customer/?tenant=${t.id}`,
+      driverUrl: `/driver-app/?tenant=${t.id}`
+    }));
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
