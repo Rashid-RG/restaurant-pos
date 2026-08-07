@@ -203,14 +203,15 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   return (
     <>
       {/* ✨ Floating GastroAssist Widget Button */}
-      <div style={{ position: 'fixed', bottom: 76, right: 20, zIndex: 9990, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="gastro-ai-launcher">
         {!isOpen && (
           <div
+            className="gastro-ai-pill"
             onClick={() => setIsOpen(true)}
             style={{
               background: 'var(--bg-card, #1e293b)',
               color: 'var(--text-1, #f8fafc)',
-              padding: '6px 14px',
+              padding: '6px 12px',
               borderRadius: 20,
               fontSize: '0.78rem',
               fontWeight: 700,
@@ -223,7 +224,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             }}
           >
             <span style={{ color: '#ff6b35' }}>✨</span>
-            <span>Need Help? Ask GastroAssist</span>
+            <span className="gastro-ai-pill-text">Ask GastroAssist</span>
           </div>
         )}
 
@@ -232,8 +233,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
           aria-label="Toggle GastroAssist Concierge"
           style={{
             position: 'relative',
-            width: 52,
-            height: 52,
+            width: 48,
+            height: 48,
             borderRadius: '50%',
             background: 'linear-gradient(135deg, #ff6b35 0%, #d946ef 100%)',
             color: '#ffffff',
@@ -243,8 +244,9 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '1.4rem',
-            transition: 'transform 0.2s ease'
+            fontSize: '1.3rem',
+            transition: 'transform 0.2s ease',
+            flexShrink: 0
           }}
         >
           {isOpen ? '✕' : '🤖'}
@@ -254,8 +256,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                 position: 'absolute',
                 top: 2,
                 right: 2,
-                width: 12,
-                height: 12,
+                width: 10,
+                height: 10,
                 borderRadius: '50%',
                 background: '#10b981',
                 border: '2px solid #ffffff'
@@ -267,26 +269,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
 
       {/* 💬 GastroAssist Concierge Drawer Modal */}
       {isOpen && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 138,
-            right: 16,
-            width: 'calc(100vw - 32px)',
-            maxWidth: 420,
-            height: 540,
-            maxHeight: 'calc(100dvh - 170px)',
-            background: 'var(--bg-card, #1e293b)',
-            border: '1px solid var(--border-color, #334155)',
-            borderRadius: 22,
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.45)',
-            zIndex: 9995,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}
-        >
+        <div className="gastro-ai-modal">
           {/* Header */}
           <div
             style={{

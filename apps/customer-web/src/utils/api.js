@@ -29,6 +29,11 @@ export async function apiFetch(endpoint, options = {}) {
   }
 
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      if (/token|expired|invalid/i.test(data?.error || data?.message || '')) {
+        localStorage.removeItem('gastroflow_customer_token');
+      }
+    }
     const msg = typeof data?.error === 'string'
       ? data.error
       : (data?.message || `Error ${res.status}`);

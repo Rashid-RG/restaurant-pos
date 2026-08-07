@@ -1560,11 +1560,14 @@ button {
     top: 0 !important;
     left: 0 !important;
     right: 0 !important;
-    height: 56px !important;
+    min-height: 56px !important;
+    padding-top: max(8px, env(safe-area-inset-top, 0px)) !important;
+    padding-bottom: 8px !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
     z-index: 10000 !important;
     background: var(--bg-sidebar) !important;
     border-bottom: 1px solid var(--border-color) !important;
-    padding: 0 16px !important;
     justify-content: space-between !important;
     align-items: center !important;
     box-shadow: 0 2px 10px rgba(0,0,0,0.1) !important;
@@ -1580,12 +1583,18 @@ button {
     z-index: 10000 !important;
     background: var(--bg-sidebar) !important;
     border-top: 1px solid var(--border-color) !important;
-    justify-content: space-around !important;
+    justify-content: flex-start !important;
     align-items: center !important;
-    padding: 4px 6px !important;
+    gap: 4px !important;
+    padding: 4px 8px !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     box-shadow: 0 -4px 20px rgba(0,0,0,0.15) !important;
+  }
+
+  .mobile-bottom-nav::-webkit-scrollbar {
+    display: none !important;
   }
 
   .mobile-nav-item {
@@ -1594,15 +1603,16 @@ button {
     align-items: center !important;
     justify-content: center !important;
     gap: 2px !important;
-    min-width: 54px !important;
+    min-width: 62px !important;
     flex-shrink: 0 !important;
-    padding: 6px 2px !important;
+    padding: 6px 4px !important;
     border: none !important;
     background: none !important;
     color: var(--text-muted) !important;
     font-size: 0.7rem !important;
     cursor: pointer !important;
     border-radius: 8px !important;
+    white-space: nowrap !important;
   }
 
   .mobile-nav-item.active {
@@ -1625,8 +1635,8 @@ button {
   }
 
   .main-content {
-    margin-top: 56px !important;
-    margin-bottom: 64px !important;
+    margin-top: calc(56px + max(0px, env(safe-area-inset-top, 0px))) !important;
+    margin-bottom: calc(64px + max(0px, env(safe-area-inset-bottom, 0px))) !important;
     height: calc(100vh - 120px) !important;
     height: calc(100dvh - 120px) !important;
     overflow-y: auto !important;
@@ -1667,10 +1677,12 @@ button {
   }
 
   .view-header {
+    display: flex !important;
     flex-direction: column !important;
     align-items: flex-start !important;
     gap: 12px !important;
-    margin-bottom: 16px !important;
+    margin-bottom: 20px !important;
+    width: 100% !important;
   }
 
   .view-title h1 {
@@ -1683,9 +1695,12 @@ button {
   }
 
   .view-actions {
+    display: flex !important;
     width: 100% !important;
     flex-direction: column !important;
     gap: 8px !important;
+    position: static !important;
+    margin-bottom: 8px !important;
   }
 
   .view-actions button, .view-actions .btn {

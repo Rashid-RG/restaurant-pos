@@ -240,7 +240,7 @@ export default function Dashboard() {
           <h1>Manager Dashboard</h1>
           <p>Real-time sales insights, table occupancy, and kitchen status.</p>
         </div>
-        <div className="view-actions" style={{ display: 'flex', gap: '8px' }}>
+        <div className="view-actions">
           <button className="btn btn-secondary" onClick={() => setShowXReportModal(true)}>
             📄 Generate X-Report (Mid-Shift)
           </button>

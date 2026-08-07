@@ -77,12 +77,34 @@ export const POSProvider = ({ children }) => {
     }
   };
 
+  // Helper to handle API authentication errors gracefully
+  const handleAuthResponse = async (response) => {
+    if (response.status === 401 || response.status === 403) {
+      let errMessage = '';
+      try {
+        const errJson = await response.clone().json();
+        errMessage = errJson.error || errJson.message || '';
+      } catch (_) {}
+      
+      logout();
+      showToast('Session expired — please sign in again.', 'error');
+      throw new Error(errMessage || 'Session expired. Please sign in again.');
+    }
+    return response;
+  };
+
   const getActiveShift = async () => {
-    if (!localStorage.getItem('gastroflow_token')) return;
+    const token = localStorage.getItem('gastroflow_token');
+    if (!token) return;
     try {
       const response = await fetch('/api/shifts/active', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (response.status === 401 || response.status === 403) {
+        logout();
+        showToast('Session expired — please sign in again.', 'error');
+        return;
+      }
       if (response.ok) {
         const data = await response.json();
         setActiveShift(data || null);
@@ -185,6 +207,7 @@ export const POSProvider = ({ children }) => {
       },
       body: JSON.stringify({ etaMinutes })
     });
+    await handleAuthResponse(res);
     if (!res.ok) throw new Error('Failed to accept order');
     await loadAllData(false);
   };
@@ -198,6 +221,7 @@ export const POSProvider = ({ children }) => {
       },
       body: JSON.stringify({ reason })
     });
+    await handleAuthResponse(res);
     if (!res.ok) throw new Error('Failed to reject order');
     await loadAllData(false);
   };
@@ -235,6 +259,7 @@ export const POSProvider = ({ children }) => {
       },
       body: JSON.stringify({ pin })
     });
+    await handleAuthResponse(response);
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Invalid PIN');
@@ -251,6 +276,7 @@ export const POSProvider = ({ children }) => {
       },
       body: JSON.stringify({ startFloat, notes })
     });
+    await handleAuthResponse(response);
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Failed to open shift');
@@ -267,6 +293,7 @@ export const POSProvider = ({ children }) => {
       },
       body: JSON.stringify({ actualCash, notes })
     });
+    await handleAuthResponse(response);
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Failed to close shift');
@@ -285,6 +312,7 @@ export const POSProvider = ({ children }) => {
       },
       body: JSON.stringify({ type, amount, reason })
     });
+    await handleAuthResponse(response);
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Failed to record cash movement');
@@ -301,6 +329,7 @@ export const POSProvider = ({ children }) => {
       },
       body: JSON.stringify({ refundAmount, reason, managerPin })
     });
+    await handleAuthResponse(response);
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Failed to refund order');

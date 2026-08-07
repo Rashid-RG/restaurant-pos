@@ -472,12 +472,12 @@ export default function MenuView({ onNavigate, toast }) {
       <div style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
         
         {/* Search & Sort Controls */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center' }}>
-          <div style={{ position: 'relative' }}>
+        <div className="menu-search-controls">
+          <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
             <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: '1rem' }}>🔍</span>
             <input
               className="form-control"
-              style={{ paddingLeft: 38, paddingRight: search ? 32 : 12, fontSize: '0.88rem' }}
+              style={{ paddingLeft: 38, paddingRight: search ? 32 : 12, fontSize: '0.88rem', width: '100%' }}
               placeholder={t.searchPlaceholder}
               value={search}
               onChange={e => setSearch(e.target.value)}
@@ -493,7 +493,7 @@ export default function MenuView({ onNavigate, toast }) {
           </div>
 
           <select
-            className="form-control"
+            className="form-control sort-select"
             value={sortBy}
             onChange={e => setSortBy(e.target.value)}
             style={{ fontSize: '0.82rem', padding: '8px 10px', height: '100%' }}
@@ -506,7 +506,7 @@ export default function MenuView({ onNavigate, toast }) {
         </div>
 
         {/* Dietary & Max Price Controls */}
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, alignItems: 'center' }}>
+        <div className="menu-diet-filters">
           <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Filters:</span>
           
           <button 
