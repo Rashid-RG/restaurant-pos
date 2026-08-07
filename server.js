@@ -661,6 +661,22 @@ async function initTables() {
       )
     `);
 
+    // 22. Customer Accounts Table (Online food app registered users)
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS customer_accounts (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT NOT NULL,
+        passwordHash TEXT NOT NULL,
+        loyaltyPoints INTEGER DEFAULT 0,
+        totalSpent REAL DEFAULT 0,
+        phoneVerified INTEGER DEFAULT 0,
+        createdAt BIGINT,
+        tenant_id TEXT DEFAULT 'default_tenant'
+      )
+    `);
+
     // 20. Password resets — reset tokens for staff and customers. Stored HASHED, single-use.
     await dbRun(`
       CREATE TABLE IF NOT EXISTS password_resets (
@@ -1479,14 +1495,15 @@ app.get('/api/health', async (req, res) => {
 
 // Login
 app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
 
   try {
-    const user = await dbGet('SELECT * FROM users WHERE username = ?', [username]);
-    if (!user) {
+    const cleanUser = String(username).trim();
+    const user = await dbGet('SELECT * FROM users WHERE username = ? OR LOWER(username) = LOWER(?)', [cleanUser, cleanUser]);
+    if (!user || !user.passwordHash) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
@@ -2120,12 +2137,25 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
   try {
     const normPhone = normalizeLkPhone(cleanPhone);
-    const existing = await dbGet(
-      'SELECT id FROM customer_accounts WHERE phone = ? OR phone = ? OR (email IS NOT NULL AND email = ?)',
-      [cleanPhone, normPhone, cleanEmail]
+
+    // 1. Check duplicate phone
+    const existingPhone = await dbGet(
+      'SELECT id FROM customer_accounts WHERE phone = ? OR phone = ? OR phone = ?',
+      [cleanPhone, normPhone, phone]
     );
-    if (existing) {
-      return res.status(400).json({ error: 'An account with this phone number or email already exists.' });
+    if (existingPhone) {
+      return res.status(400).json({ error: 'An account with this phone number already exists. Please log in.' });
+    }
+
+    // 2. Check duplicate email (if provided)
+    if (cleanEmail) {
+      const existingEmail = await dbGet(
+        'SELECT id FROM customer_accounts WHERE LOWER(email) = LOWER(?)',
+        [cleanEmail]
+      );
+      if (existingEmail) {
+        return res.status(400).json({ error: 'An account with this email address already exists. Please log in.' });
+      }
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const id = `ca_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
