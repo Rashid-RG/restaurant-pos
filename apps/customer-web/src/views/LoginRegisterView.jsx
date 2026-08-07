@@ -487,6 +487,11 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 16 }}>
               Enter the 6-digit code sent to <strong style={{ color: 'var(--brand)' }}>{activeOtpDestination || regPhone || loginPhone}</strong>.
             </p>
+            {enteredOtp && (
+              <div style={{ background: 'rgba(255,107,53,0.1)', border: '1px dashed var(--brand)', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem', textAlign: 'center', marginBottom: 12, fontWeight: 700, color: 'var(--brand)' }}>
+                🔑 Code: <span style={{ fontSize: '1.1rem', letterSpacing: '2px' }}>{enteredOtp}</span> (Auto-Filled)
+              </div>
+            )}
             <div className="form-group" style={{ marginBottom: 16 }}>
               <input className="form-control" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={6}
                 placeholder="Enter 6-digit OTP…" value={enteredOtp} onChange={e => setEnteredOtp(e.target.value)}
