@@ -1095,19 +1095,19 @@ async function seedDatabase() {
       }
     }
 
-    // Check default admin and staff users
-    const usersCount = await dbGet('SELECT COUNT(*) as count FROM users');
-    if (usersCount.count === 0) {
-      console.log('Seeding default admin and staff users...');
-      const masterAdminUser = process.env.ADMIN_USERNAME || 'admin';
-      const masterAdminPass = process.env.ADMIN_PASSWORD || 'admin123';
-      const adminPasswordHash = await bcrypt.hash(masterAdminPass, 10);
-      const staffPasswordHash = await bcrypt.hash('123456', 10);
+    // Ensure default master admin user exists and has correct active credentials
+    const masterAdminUser = process.env.ADMIN_USERNAME || 'admin';
+    const masterAdminPass = process.env.ADMIN_PASSWORD || 'admin123';
+    const masterAdminHash = await bcrypt.hash(masterAdminPass, 10);
+    const staffPasswordHash = await bcrypt.hash('123456', 10);
 
+    const adminUser = await dbGet('SELECT * FROM users WHERE username = ? OR id = ?', [masterAdminUser, 'user_admin']);
+    if (!adminUser) {
+      console.log('Seeding default admin and staff users...');
       await dbRun(`
         INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
         VALUES (?, ?, ?, 'owner', '1234', 'default_tenant')
-      `, ['user_admin', masterAdminUser, adminPasswordHash]);
+      `, ['user_admin', masterAdminUser, masterAdminHash]);
 
       await dbRun(`
         INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
@@ -1123,10 +1123,13 @@ async function seedDatabase() {
         INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
         VALUES (?, ?, ?, 'kitchen', '4444', 'default_tenant')
       `, ['user_kitchen', 'chef_mario', staffPasswordHash]);
-    } else if (process.env.ADMIN_PASSWORD) {
-      const masterAdminUser = process.env.ADMIN_USERNAME || 'admin';
-      const newAdminHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
-      await dbRun('UPDATE users SET passwordHash = ? WHERE username = ?', [newAdminHash, masterAdminUser]);
+    } else {
+      // Sync master admin password hash on boot so login is 100% reliable
+      await dbRun(
+        'UPDATE users SET passwordHash = ?, role = ?, tenant_id = ? WHERE id = ? OR username = ?',
+        [masterAdminHash, 'owner', 'default_tenant', adminUser.id, masterAdminUser]
+      );
+      console.log(`[Boot] Master Admin account "${masterAdminUser}" synced successfully.`);
     }
 
     // Check drivers seeder
