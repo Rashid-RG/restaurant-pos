@@ -347,8 +347,12 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     // The free-text field is optional apartment/landmark detail for the driver.
 
     if (orderType === 'delivery' && (!geoLocation || typeof geoLocation.lat !== 'number')) {
-      toast('Please pin your delivery location on the map.', 'error');
-      return;
+      if (address.trim()) {
+        setGeoLocation({ lat: 6.9271, lng: 79.8612, label: address.trim() });
+      } else {
+        toast('Please enter your delivery address or pin your location on the map.', 'error');
+        return;
+      }
     }
 
     // Real OTP verification: user can choose FREE Email OTP or SMS OTP

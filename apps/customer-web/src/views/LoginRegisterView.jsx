@@ -312,8 +312,8 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
                 }
                 setShowOtpModal(true);
               } catch (err) {
-                if (err.message && err.message.includes('No registered account')) {
-                  toast('No registered account found with this phone/email. Let\'s create your account!', 'warning');
+                if (err.message && (err.message.includes('No registered account') || err.message.includes('register your account') || err.message.includes('not found'))) {
+                  toast('No registered account found with this phone/email. Redirecting to sign up...', 'info');
                   setRegEmail(dest.includes('@') ? dest : '');
                   setRegPhone(dest.includes('@') ? '' : dest);
                   setTab('register');
