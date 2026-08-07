@@ -1014,20 +1014,35 @@ async function initTables() {
 }
 
 // Seed database helper
-async function seedDatabase() {
+async function seedDatabase(tenantId) {
+  const tid = tenantId || 'default_tenant';
   try {
-    // Check categories
-    const categoriesCount = await dbGet('SELECT COUNT(*) as count FROM categories');
-    if (categoriesCount.count === 0) {
-      console.log('Seeding default categories...');
+    // Check categories for THIS tenant
+    const categoriesCount = await dbGet('SELECT COUNT(*) as count FROM categories WHERE tenant_id = ?', [tid]);
+    if (!categoriesCount || categoriesCount.count === 0) {
+      console.log(`Seeding default Sri Lanka categories for tenant: ${tid}`);
       const defaultCategories = [
-        { id: 'starters', name: 'Starters', emoji: '🥗' },
-        { id: 'mains', name: 'Mains', emoji: '🍝' },
-        { id: 'drinks', name: 'Drinks', emoji: '🍹' },
-        { id: 'desserts', name: 'Desserts', emoji: '🍰' }
+        { id: `${tid}_rice_curry`, name: 'Rice & Curry', emoji: '🍚' },
+        { id: `${tid}_bbq_grill`, name: 'BBQ & Grill', emoji: '🍖' },
+        { id: `${tid}_kottu_roti`, name: 'Kottu & Roti', emoji: '🍜' },
+        { id: `${tid}_short_eats`, name: 'Short Eats', emoji: '🥘' },
+        { id: `${tid}_hoppers`, name: 'Hoppers & String Hoppers', emoji: '🍳' },
+        { id: `${tid}_seafood`, name: 'Seafood', emoji: '🐟' },
+        { id: `${tid}_biriyani`, name: 'Biriyani & Rice Dishes', emoji: '🍱' },
+        { id: `${tid}_pizza_burger`, name: 'Pizza & Burgers', emoji: '🍕' },
+        { id: `${tid}_beverages`, name: 'Beverages & Juice', emoji: '🥤' },
+        { id: `${tid}_desserts`, name: 'Desserts & Sweets', emoji: '🍮' },
+        { id: `${tid}_ice_cream`, name: 'Ice Cream & Shakes', emoji: '🍦' },
+        { id: `${tid}_hot_drinks`, name: 'Hot Drinks', emoji: '☕' },
       ];
       for (const cat of defaultCategories) {
-        await dbRun('INSERT INTO categories (id, name, emoji) VALUES (?, ?, ?)', [cat.id, cat.name, cat.emoji]);
+        await dbRun(
+          'INSERT INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING',
+          [cat.id, cat.name, cat.emoji, tid]
+        ).catch(() => dbRun(
+          'INSERT OR IGNORE INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?)',
+          [cat.id, cat.name, cat.emoji, tid]
+        ));
       }
     }
 
@@ -5665,8 +5680,46 @@ app.post('/api/settings', requireRole(['owner', 'manager']), async (req, res) =>
 // 2. Category Routes
 app.get('/api/categories', async (req, res) => {
   try {
-    const rows = await dbAll('SELECT * FROM categories WHERE tenant_id = ?', [req.tenantId]);
-    res.json(rows);
+    const tid = req.tenantId || 'default_tenant';
+    let rows = await dbAll('SELECT * FROM categories WHERE tenant_id = ?', [tid]);
+    if (!rows || rows.length === 0) {
+      await seedDatabase(tid);
+      rows = await dbAll('SELECT * FROM categories WHERE tenant_id = ?', [tid]);
+    }
+    res.json(rows || []);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+app.post('/api/categories', requireRole(['owner', 'manager']), async (req, res) => {
+  const { id, name, emoji } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Category name is required.' });
+  const tid = req.tenantId || 'default_tenant';
+  const catId = id || `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+  const catEmoji = emoji || '🍛';
+
+  try {
+    const existing = await dbGet('SELECT id FROM categories WHERE id = ? AND tenant_id = ?', [catId, tid]);
+    if (existing) {
+      await dbRun('UPDATE categories SET name = ?, emoji = ? WHERE id = ? AND tenant_id = ?', [name, catEmoji, catId, tid]);
+    } else {
+      await dbRun('INSERT INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?)', [catId, name, catEmoji, tid]);
+    }
+    await writeAuditLog(req.user.id, req.user.username, 'save_category', `Saved category ${name} (${catId})`);
+    res.json({ id: catId, name, emoji: catEmoji, tenant_id: tid });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+app.delete('/api/categories/:id', requireRole(['owner', 'manager']), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const tid = req.tenantId || 'default_tenant';
+    await dbRun('DELETE FROM categories WHERE id = ? AND tenant_id = ?', [id, tid]);
+    await writeAuditLog(req.user.id, req.user.username, 'delete_category', `Deleted category ${id}`);
+    res.json({ success: true, id });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

@@ -315,13 +315,18 @@ export default function Settings() {
     if (!catName) return;
 
     const saved = {
-      id: editCat ? editCat.id : `cat_${catName.toLowerCase().replace(/\s+/g, '_')}`,
-      name: catName,
-      emoji: catEmoji,
+      id: editCat ? editCat.id : `cat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      name: catName.trim(),
+      emoji: catEmoji || '🍛',
     };
 
-    await saveCategory(saved);
-    setShowCatModal(false);
+    try {
+      await saveCategory(saved);
+      showToast(`✅ Category "${saved.name}" saved successfully!`, 'success');
+      setShowCatModal(false);
+    } catch (err) {
+      showToast('Error saving category: ' + err.message, 'error');
+    }
   };
 
   const handleDeleteCatClick = async (catId) => {
@@ -1469,10 +1474,22 @@ export default function Settings() {
                 <div className="form-group">
                   <label>Category *</label>
                   <select className="form-select" value={itemCategory} onChange={(e) => setItemCategory(e.target.value)} required>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
-                    ))}
+                    {categories.length === 0 ? (
+                      <option value="">⚠️ No Categories Found (Click Add Category)</option>
+                    ) : (
+                      categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+                      ))
+                    )}
                   </select>
+                  {categories.length === 0 && (
+                    <div style={{ marginTop: '6px', padding: '8px 12px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: '6px', fontSize: '12px' }}>
+                      ⚠️ No menu categories exist yet.{' '}
+                      <button type="button" onClick={() => { setShowItemModal(false); handleOpenCatAdd(); }} style={{ color: '#ef4444', fontWeight: 700, textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>
+                        Click here to create a category first
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label>Portion Size</label>
@@ -1637,43 +1654,77 @@ export default function Settings() {
       {/* 4b. Category Add Modal */}
       {showCatModal && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '400px' }}>
+          <div className="modal-content" style={{ maxWidth: '520px' }}>
             <div className="modal-header">
-              <h2>Add Menu Category</h2>
+              <h2>{editCat ? '✏️ Edit Menu Category' : '➕ Add Menu Category'}</h2>
               <button className="modal-close" onClick={() => setShowCatModal(false)}>×</button>
             </div>
             
             <form onSubmit={handleSaveCat}>
-              <div className="form-group">
-                <label>Category Name</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Appetizers"
-                  value={catName}
-                  onChange={(e) => setCatName(e.target.value)}
-                  required
-                />
+              {/* Quick Sri Lanka Category Presets */}
+              <div style={{ marginBottom: '16px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, display: 'block', marginBottom: '8px' }}>
+                  🇱🇰 Quick Category Presets (Click to Auto-fill)
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '140px', overflowY: 'auto' }}>
+                  {SL_DEFAULT_CATEGORIES.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => {
+                        setCatName(preset.name);
+                        setCatEmoji(preset.emoji);
+                      }}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: '20px',
+                        border: '1px solid var(--border-color)',
+                        background: catName === preset.name ? 'var(--color-primary)' : 'var(--bg-card)',
+                        color: catName === preset.name ? '#fff' : 'var(--text-main)',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {preset.emoji} {preset.name}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div className="form-group">
-                <label>Category Emoji Icon</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. 🍟"
-                  value={catEmoji}
-                  onChange={(e) => setCatEmoji(e.target.value)}
-                  required
-                />
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Category Name *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Kottu & Roti"
+                    value={catName}
+                    onChange={(e) => setCatName(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group" style={{ maxWidth: '100px' }}>
+                  <label>Emoji Icon</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. 🍜"
+                    value={catEmoji}
+                    onChange={(e) => setCatEmoji(e.target.value)}
+                    required
+                  />
+                </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowCatModal(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Save Category
+                  💾 Save Category
                 </button>
               </div>
             </form>
