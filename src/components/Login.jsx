@@ -439,7 +439,7 @@ export default function Login() {
         )}
 
         <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
-          Default Credentials: <strong>admin</strong> / <strong>admin123</strong>
+          GastroFlow Commercial POS & SaaS Platform
         </div>
       </div>
     </div>

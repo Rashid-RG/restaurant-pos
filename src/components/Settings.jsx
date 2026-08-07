@@ -3,6 +3,7 @@ import { usePOS } from '../context/POSContext';
 
 export default function Settings() {
   const {
+    currentUser,
     settings,
     updateSetting,
     menuItems,
@@ -16,6 +17,8 @@ export default function Settings() {
     resetAllDatabase,
     showToast,
   } = usePOS();
+
+  const isMasterSuperAdmin = !currentUser?.tenant_id || currentUser?.tenant_id === 'default_tenant';
 
   // Settings sub-tab selection: 'business' | 'menu' | 'database'
   const [subTab, setSubTab] = useState('business');
@@ -77,6 +80,50 @@ export default function Settings() {
       fetchTenants();
     }
   }, [subTab]);
+
+  const handleDeleteTenant = async (tenant) => {
+    if (tenant.id === 'default_tenant') {
+      showToast('Cannot delete the main default tenant store.', 'error');
+      return;
+    }
+    if (!window.confirm(`⚠️ CRITICAL WARNING:\nAre you sure you want to PERMANENTLY DELETE store "${tenant.name}" (${tenant.subdomain})?\n\nThis will wipe all orders, menu items, users, and customer data for this shop!`)) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
+      const res = await fetch(`/api/saas/tenants/${tenant.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete tenant store.');
+      showToast(data.message || 'Store deleted successfully!', 'success');
+      fetchTenants();
+    } catch (err) {
+      showToast('Delete error: ' + err.message, 'error');
+    }
+  };
+
+  const handleToggleStatus = async (tenant) => {
+    const newStatus = tenant.status === 'suspended' ? 'active' : 'suspended';
+    try {
+      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
+      const res = await fetch(`/api/saas/tenants/${tenant.id}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update store status.');
+      showToast(data.message || 'Store status updated!', 'success');
+      fetchTenants();
+    } catch (err) {
+      showToast('Status update error: ' + err.message, 'error');
+    }
+  };
 
   const handleSaveBusiness = async (e) => {
     e.preventDefault();
@@ -249,12 +296,14 @@ export default function Settings() {
             >
               🌐 Online Store
             </button>
-            <button
-              className={`settings-nav-btn ${subTab === 'saas' ? 'active' : ''}`}
-              onClick={() => setSubTab('saas')}
-            >
-              ☁️ SaaS Multi-Tenancy
-            </button>
+            {isMasterSuperAdmin && (
+              <button
+                className={`settings-nav-btn ${subTab === 'saas' ? 'active' : ''}`}
+                onClick={() => setSubTab('saas')}
+              >
+                ☁️ SaaS Multi-Tenancy
+              </button>
+            )}
           </nav>
 
           {/* Inner Panel */}
@@ -1087,7 +1136,11 @@ export default function Settings() {
                               <td style={{ fontFamily: 'monospace' }}>{t.subdomain}</td>
                               <td>{t.ownerEmail}</td>
                               <td><span className="badge badge-info">{t.plan?.toUpperCase() || 'PRO'}</span></td>
-                              <td><span className="badge badge-success">ACTIVE</span></td>
+                              <td>
+                                <span className={`badge ${t.status === 'suspended' ? 'badge-danger' : 'badge-success'}`}>
+                                  {t.status?.toUpperCase() || 'ACTIVE'}
+                                </span>
+                              </td>
                               <td>
                                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                   <button
@@ -1126,6 +1179,25 @@ export default function Settings() {
                                   >
                                     🔗 Open Store
                                   </a>
+                                  {t.id !== 'default_tenant' && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm ${t.status === 'suspended' ? 'btn-success' : 'btn-outline'}`}
+                                        style={{ color: t.status === 'suspended' ? '#fff' : '#f59e0b', borderColor: '#f59e0b' }}
+                                        onClick={() => handleToggleStatus(t)}
+                                      >
+                                        {t.status === 'suspended' ? '▶️ Activate' : '⏸️ Suspend'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm btn-danger"
+                                        onClick={() => handleDeleteTenant(t)}
+                                      >
+                                        🗑️ Delete Store
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             </tr>

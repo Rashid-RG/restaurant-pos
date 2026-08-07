@@ -3662,6 +3662,59 @@ app.get('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']
   }
 });
 
+// DELETE /api/saas/tenants/:id — Delete store and wipe all its data
+app.delete('/api/saas/tenants/:id', authenticateToken, requireRole(['owner']), async (req, res) => {
+  const { id } = req.params;
+  if (!id || id === 'default_tenant') {
+    return res.status(400).json({ error: 'Cannot delete the main default tenant store.' });
+  }
+
+  try {
+    const tenant = await dbGet('SELECT * FROM tenants WHERE id = ? OR subdomain = ?', [id, id]);
+    if (!tenant) return res.status(404).json({ error: 'Tenant store not found.' });
+
+    const targetId = tenant.id;
+
+    // Delete tenant record
+    await dbRun('DELETE FROM tenants WHERE id = ?', [targetId]);
+
+    // Wipe all tenant-scoped data
+    const tenantTables = [
+      'users', 'orders', 'menu_items', 'tables', 'ingredients', 'customers',
+      'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
+      'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'settings'
+    ];
+    for (const tbl of tenantTables) {
+      try {
+        await dbRun(`DELETE FROM ${tbl} WHERE tenant_id = ?`, [targetId]);
+      } catch (_) {}
+    }
+
+    res.json({ success: true, message: `🗑️ Tenant store "${tenant.name}" (${tenant.subdomain}) deleted successfully.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/saas/tenants/:id/status — Toggle active / suspended status
+app.patch('/api/saas/tenants/:id/status', authenticateToken, requireRole(['owner']), async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body || {};
+  if (!status || !['active', 'suspended'].includes(status)) {
+    return res.status(400).json({ error: 'Valid status ("active" or "suspended") is required.' });
+  }
+
+  try {
+    const tenant = await dbGet('SELECT * FROM tenants WHERE id = ?', [id]);
+    if (!tenant) return res.status(404).json({ error: 'Tenant store not found.' });
+
+    await dbRun('UPDATE tenants SET status = ? WHERE id = ?', [status, id]);
+    res.json({ success: true, message: `Store "${tenant.name}" status updated to ${status}.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/public/menu
 app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
