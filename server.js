@@ -266,6 +266,61 @@ app.get('/api/events', (req, res) => {
 // Initialize SQLite Schema
 async function initTables() {
   try {
+    // 0. Pre-flight Postgres Column Migrations (runs FIRST before any INSERT)
+    if (isPostgres) {
+      const timestampCols = [
+        ['tenants', 'createdAt'],
+        ['tenants', 'createdat'],
+        ['otps', 'expiresAt'],
+        ['otps', 'expiresat'],
+        ['otp_codes', 'expiresAt'],
+        ['otp_codes', 'expiresat'],
+        ['otp_codes', 'createdAt'],
+        ['otp_codes', 'createdat'],
+        ['password_resets', 'expiresAt'],
+        ['password_resets', 'expiresat'],
+        ['password_resets', 'createdAt'],
+        ['password_resets', 'createdat'],
+        ['password_resets', 'consumedAt'],
+        ['password_resets', 'consumedat'],
+        ['timeclock_entries', 'clockIn'],
+        ['timeclock_entries', 'clockin'],
+        ['timeclock_entries', 'clockOut'],
+        ['timeclock_entries', 'clockout'],
+        ['support_tickets', 'createdAt'],
+        ['support_tickets', 'createdat'],
+        ['support_tickets', 'resolvedAt'],
+        ['support_tickets', 'resolvedat'],
+        ['support_ticket_messages', 'createdAt'],
+        ['support_ticket_messages', 'createdat'],
+        ['customer_accounts', 'createdAt'],
+        ['customer_accounts', 'createdat'],
+        ['customer_addresses', 'createdAt'],
+        ['customer_addresses', 'createdat'],
+        ['customer_cards', 'createdAt'],
+        ['customer_cards', 'createdat'],
+        ['orders', 'createdAt'],
+        ['orders', 'createdat'],
+        ['shifts', 'startTime'],
+        ['shifts', 'starttime'],
+        ['shifts', 'endTime'],
+        ['shifts', 'endtime']
+      ];
+      for (const [t, c] of timestampCols) {
+        try {
+          const colCheck = await dbGet(
+            `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? AND LOWER(column_name) = LOWER(?)`,
+            [t, c]
+          );
+          if (colCheck && colCheck.data_type && colCheck.data_type.toLowerCase() === 'integer') {
+            const actualCol = colCheck.column_name;
+            await dbRun(`ALTER TABLE ${t} ALTER COLUMN "${actualCol}" TYPE BIGINT USING "${actualCol}"::BIGINT`);
+            console.log(`[Pre-Flight Migration] Altered ${t}.${actualCol} from INTEGER to BIGINT in Postgres.`);
+          }
+        } catch (_) {}
+      }
+    }
+
     // 1. Settings Table — per-tenant config (composite PK so each tenant has
     //    its own restaurant name, tax, delivery fee, open/closed state, etc.).
     //    Existing single-tenant DBs are migrated below (see settings migration).
@@ -640,15 +695,17 @@ async function initTables() {
         ownerEmail TEXT NOT NULL,
         plan TEXT DEFAULT 'pro',       -- 'basic' | 'pro' | 'enterprise'
         status TEXT DEFAULT 'active',   -- 'active' | 'suspended' | 'trial'
-        createdAt INTEGER
+        createdAt BIGINT
       )
     `);
-    await dbRun(
-      `INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO NOTHING`,
-      ['default_tenant', 'GastroFlow Bistro Main', 'main', 'admin@gastroflow.lk', 'pro', 'active', Date.now()]
-    );
+    try {
+      await dbRun(
+        `INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+        ['default_tenant', 'GastroFlow Bistro Main', 'main', 'admin@gastroflow.lk', 'pro', 'active', Date.now()]
+      );
+    } catch (_) {}
 
     // 24. Support Tickets Table (Customer care escalation)
     await dbRun(`
