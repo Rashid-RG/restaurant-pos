@@ -231,25 +231,30 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         <button
           onClick={() => setIsOpen(!isOpen)}
           aria-label="Toggle GastroAssist Concierge"
+          className="gastro-ai-btn"
           style={{
             position: 'relative',
             width: 48,
             height: 48,
             borderRadius: '50%',
-            background: 'linear-gradient(135deg, #ff6b35 0%, #d946ef 100%)',
+            background: 'linear-gradient(135deg, #ff6b35 0%, #8b5cf6 50%, #d946ef 100%)',
             color: '#ffffff',
-            border: '2px solid rgba(255,255,255,0.8)',
-            boxShadow: '0 8px 24px rgba(255, 107, 53, 0.45)',
+            border: '2px solid rgba(255,255,255,0.85)',
+            boxShadow: '0 8px 24px rgba(139, 92, 246, 0.45), 0 0 16px rgba(255, 107, 53, 0.3)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '1.3rem',
-            transition: 'transform 0.2s ease',
+            transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
             flexShrink: 0
           }}
         >
-          {isOpen ? '✕' : '🤖'}
+          {isOpen ? '✕' : (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
+              <path d="M19 2L19.8 4.2L22 5L19.8 5.8L19 8L18.2 5.8L16 5L18.2 4.2L19 2Z" fill="rgba(255,255,255,0.85)" />
+            </svg>
+          )}
           {!isOpen && (
             <span
               style={{

@@ -695,6 +695,10 @@ html { background: var(--surface-2); }
   display: inline;
 }
 @media (max-width: 480px) {
+  .floating-cart-pill-wrap {
+    bottom: 74px !important;
+    left: 10px !important;
+  }
   .gastro-ai-launcher {
     bottom: 74px;
     right: 10px;

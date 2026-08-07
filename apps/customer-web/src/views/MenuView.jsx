@@ -882,11 +882,32 @@ export default function MenuView({ onNavigate, toast }) {
         </div>
       )}
 
-      {/* Sticky View Cart Button */}
+      {/* Sleek Modern Floating Cart Pill */}
       {totalItems > 0 && (
-        <div style={{ position: 'fixed', bottom: 'calc(var(--bottom-bar) + 12px)', left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 32px)', maxWidth: 448, zIndex: 150 }}>
-          <button className="btn btn-brand" style={{ width: '100%', padding: '12px', fontWeight: 700 }} onClick={() => setCartOpen(true)}>
-            🛒 {t.viewCart} ({totalItems} items)
+        <div className="floating-cart-pill-wrap" style={{ position: 'fixed', bottom: 76, left: 16, zIndex: 140 }}>
+          <button
+            onClick={() => setCartOpen(true)}
+            style={{
+              background: 'linear-gradient(135deg, #ff6b35 0%, #ff3d00 100%)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 24,
+              padding: '8px 16px',
+              fontSize: '0.82rem',
+              fontWeight: 800,
+              boxShadow: '0 8px 24px rgba(255, 107, 53, 0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: 'pointer',
+              transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+            }}
+          >
+            <span>🛒</span>
+            <span>{t.viewCart}</span>
+            <span style={{ background: '#ffffff', color: '#ff6b35', borderRadius: 10, padding: '1px 7px', fontSize: '0.72rem', fontWeight: 900 }}>
+              {totalItems}
+            </span>
           </button>
         </div>
       )}
