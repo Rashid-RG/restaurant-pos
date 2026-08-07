@@ -192,6 +192,9 @@ export const dbRun = async (sql, params = []) => {
   if (isPostgres) {
     if (/^\s*PRAGMA/i.test(sql)) return;
     let pgSql = sql;
+    if (/CREATE TABLE/i.test(pgSql)) {
+      pgSql = pgSql.replace(/\bINTEGER\b/gi, 'BIGINT');
+    }
     if (/INSERT OR IGNORE INTO/i.test(pgSql)) {
       pgSql = pgSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
       if (!/ON CONFLICT/i.test(pgSql)) {
