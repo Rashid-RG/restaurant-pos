@@ -115,12 +115,18 @@ export default function POSView() {
   const [printReceiptOrder, setPrintReceiptOrder] = useState(null);
   const [lastPaidOrder, setLastPaidOrder] = useState(null);
 
-  // Auto-scroll receipt printing
+  // Auto-print receipt when order is completed
   useEffect(() => {
     if (printReceiptOrder) {
+      const is58mm = settings.printerPaperWidth === '58mm';
+      if (is58mm) document.body.classList.add('print-58mm');
+      else document.body.classList.remove('print-58mm');
       const timer = setTimeout(() => {
         window.print();
-      }, 300);
+        setTimeout(() => {
+          document.body.classList.remove('print-58mm');
+        }, 1500);
+      }, 350);
       return () => clearTimeout(timer);
     }
   }, [printReceiptOrder]);
