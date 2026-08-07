@@ -1412,7 +1412,7 @@ async function resolvePublicTenant(req) {
   const sub = req.query.tenant || req.headers['x-tenant-subdomain'];
   if (sub) {
     try {
-      const row = await dbGet('SELECT id FROM tenants WHERE subdomain = ? AND status = "active"', [String(sub)]);
+      const row = await dbGet("SELECT id FROM tenants WHERE subdomain = ? AND status = 'active'", [String(sub)]);
       if (row) return row.id;
     } catch (_) { /* fall through to default */ }
   }
@@ -1848,7 +1848,7 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
 app.get('/api/shifts/active', authenticateToken, async (req, res) => {
   try {
     const shift = await dbGet(
-      'SELECT * FROM shifts WHERE userId = ? AND status = "open" ORDER BY startTime DESC LIMIT 1',
+      "SELECT * FROM shifts WHERE userId = ? AND status = 'open' ORDER BY startTime DESC LIMIT 1",
       [req.user.id]
     );
     res.json(shift || null);
@@ -1863,7 +1863,7 @@ app.post('/api/shifts/open', authenticateToken, validateRequest(shiftOpenSchema)
   const floatVal = parseFloat(startFloat) || 0;
   try {
     const active = await dbGet(
-      'SELECT id FROM shifts WHERE userId = ? AND status = "open"',
+      "SELECT id FROM shifts WHERE userId = ? AND status = 'open'",
       [req.user.id]
     );
     if (active) {
@@ -1890,7 +1890,7 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
   const actualVal = parseFloat(actualCash) || 0;
   try {
     const active = await dbGet(
-      'SELECT * FROM shifts WHERE userId = ? AND status = "open" ORDER BY startTime DESC LIMIT 1',
+      "SELECT * FROM shifts WHERE userId = ? AND status = 'open' ORDER BY startTime DESC LIMIT 1",
       [req.user.id]
     );
     if (!active) {
@@ -1898,7 +1898,7 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
     }
     const endTime = Date.now();
     const ordersCount = await dbGet(
-      'SELECT SUM(total) as cashTotal FROM orders WHERE timestamp >= ? AND paymentMethod = "cash" AND status = "paid"',
+      "SELECT SUM(total) as cashTotal FROM orders WHERE timestamp >= ? AND paymentMethod = 'cash' AND status = 'paid'",
       [active.startTime]
     );
     const cashSales = ordersCount?.cashTotal || 0;
@@ -3629,7 +3629,7 @@ app.post('/api/tickets/:id/resolve', authenticateToken, async (req, res) => {
 
 app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
   try {
-    const dbTenants = await dbAll('SELECT id, name, status FROM tenants WHERE status = "active"');
+    const dbTenants = await dbAll("SELECT id, name, status FROM tenants WHERE status = 'active'");
     const mainStoreName = await getSettingAny('default_tenant', ['restaurantName', 'businessName'], 'GastroFlow Bistro Main');
 
     // Real system outlets list initialized from actual database tenant settings & records
