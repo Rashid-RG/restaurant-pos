@@ -388,7 +388,7 @@ async function initTables() {
         destination TEXT NOT NULL,
         channel TEXT NOT NULL,
         code TEXT NOT NULL,
-        expiresAt INTEGER NOT NULL,
+        expiresAt BIGINT NOT NULL,
         verified INTEGER DEFAULT 0
       )
     `);
@@ -692,75 +692,116 @@ async function initTables() {
       )
     `);
 
+    // Failsafe helper to add a missing column on both SQLite & Postgres
+    const safeAddColumn = async (table, column, typeDef) => {
+      try {
+        let hasCol = false;
+        if (isPostgres) {
+          const row = await dbGet(
+            `SELECT column_name FROM information_schema.columns WHERE table_name = ? AND LOWER(column_name) = LOWER(?)`,
+            [table, column]
+          );
+          hasCol = Boolean(row);
+        } else {
+          const cols = await dbAll(`PRAGMA table_info(${table})`);
+          hasCol = Array.isArray(cols) && cols.some(c => c.name.toLowerCase() === column.toLowerCase());
+        }
+        if (!hasCol) {
+          await dbRun(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeDef}`);
+          console.log(`[Schema Migration] Added column ${column} to ${table}`);
+        }
+      } catch (err) {
+        console.error(`[Schema Migration Warning] Failed to add ${column} to ${table}:`, err.message);
+      }
+    };
+
     if (isPostgres) {
       const timestampCols = [
-        ['tenants', 'createdAt'],
         ['otps', 'expiresAt'],
+        ['otps', 'expiresat'],
         ['otp_codes', 'expiresAt'],
+        ['otp_codes', 'expiresat'],
         ['otp_codes', 'createdAt'],
+        ['otp_codes', 'createdat'],
         ['password_resets', 'expiresAt'],
+        ['password_resets', 'expiresat'],
         ['password_resets', 'createdAt'],
+        ['password_resets', 'createdat'],
         ['password_resets', 'consumedAt'],
+        ['password_resets', 'consumedat'],
+        ['tenants', 'createdAt'],
+        ['tenants', 'createdat'],
         ['timeclock_entries', 'clockIn'],
+        ['timeclock_entries', 'clockin'],
         ['timeclock_entries', 'clockOut'],
+        ['timeclock_entries', 'clockout'],
         ['support_tickets', 'createdAt'],
+        ['support_tickets', 'createdat'],
         ['support_tickets', 'resolvedAt'],
+        ['support_tickets', 'resolvedat'],
         ['support_ticket_messages', 'createdAt'],
+        ['support_ticket_messages', 'createdat'],
         ['customer_accounts', 'createdAt'],
+        ['customer_accounts', 'createdat'],
         ['customer_addresses', 'createdAt'],
+        ['customer_addresses', 'createdat'],
         ['customer_cards', 'createdAt'],
+        ['customer_cards', 'createdat'],
         ['orders', 'createdAt'],
+        ['orders', 'createdat'],
         ['shifts', 'startTime'],
-        ['shifts', 'endTime']
+        ['shifts', 'starttime'],
+        ['shifts', 'endTime'],
+        ['shifts', 'endtime']
       ];
       for (const [t, c] of timestampCols) {
         try {
-          await dbRun(`ALTER TABLE ${t} ALTER COLUMN ${c} TYPE BIGINT USING ${c}::BIGINT`);
-        } catch (_) {}
+          const colCheck = await dbGet(
+            `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? AND LOWER(column_name) = LOWER(?)`,
+            [t, c]
+          );
+          if (colCheck && colCheck.data_type && colCheck.data_type.toLowerCase() === 'integer') {
+            const actualCol = colCheck.column_name;
+            await dbRun(`ALTER TABLE ${t} ALTER COLUMN "${actualCol}" TYPE BIGINT USING "${actualCol}"::BIGINT`);
+            console.log(`[Schema Migration] Converted ${t}.${actualCol} to BIGINT in Postgres.`);
+          }
+        } catch (err) {
+          console.error(`[Schema Migration Warning] BIGINT conversion for ${t}.${c}:`, err.message);
+        }
       }
     }
 
     // Add tenant_id column to tenant-scoped tables for multi-tenant isolation.
-    // The first six were scoped in the initial multi-tenancy pass; the rest complete
-    // per-tenant isolation of config, catalog, staff-ops and engagement data.
     const tenantTables = [
       'users', 'orders', 'menu_items', 'tables', 'ingredients', 'customers',
       'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
       'feedbacks', 'promotions', 'customer_accounts', 'drivers'
     ];
     for (const tTable of tenantTables) {
-      try {
-        await dbRun(`ALTER TABLE ${tTable} ADD COLUMN tenant_id TEXT DEFAULT 'default_tenant'`);
-      } catch (err) {
-        if (!err.message.includes('duplicate column name')) console.error(err.message);
-      }
+      await safeAddColumn(tTable, 'tenant_id', "TEXT DEFAULT 'default_tenant'");
     }
 
-    // Migrate legacy single-tenant `settings` table (PK = key) to the per-tenant
-    // composite-PK schema. Idempotent: detects the old schema by the missing
-    // tenant_id column and rebuilds, stamping existing rows to default_tenant.
+    // Migrate legacy single-tenant `settings` table (PK = key) to the per-tenant composite-PK schema.
     try {
-      const settingsCols = await dbAll(`PRAGMA table_info(settings)`);
-      const hasTenantCol = settingsCols.some(c => c.name === 'tenant_id');
+      let hasTenantCol = false;
+      if (isPostgres) {
+        const check = await dbGet(`SELECT column_name FROM information_schema.columns WHERE table_name = 'settings' AND column_name = 'tenant_id'`);
+        hasTenantCol = Boolean(check);
+      } else {
+        const settingsCols = await dbAll(`PRAGMA table_info(settings)`);
+        hasTenantCol = Array.isArray(settingsCols) && settingsCols.some(c => c.name === 'tenant_id');
+      }
       if (!hasTenantCol) {
-        await dbRun('BEGIN TRANSACTION');
-        try {
-          await dbRun(`CREATE TABLE settings_new (
-            tenant_id TEXT NOT NULL DEFAULT 'default_tenant',
-            key TEXT NOT NULL,
-            value TEXT,
-            PRIMARY KEY (tenant_id, key)
-          )`);
-          await dbRun(`INSERT INTO settings_new (tenant_id, key, value)
-                       SELECT 'default_tenant', key, value FROM settings`);
-          await dbRun(`DROP TABLE settings`);
-          await dbRun(`ALTER TABLE settings_new RENAME TO settings`);
-          await dbRun('COMMIT');
-          console.log("Migrated 'settings' table to per-tenant composite PK.");
-        } catch (mErr) {
-          await dbRun('ROLLBACK');
-          throw mErr;
-        }
+        await dbRun(`CREATE TABLE IF NOT EXISTS settings_new (
+          tenant_id TEXT NOT NULL DEFAULT 'default_tenant',
+          key TEXT NOT NULL,
+          value TEXT,
+          PRIMARY KEY (tenant_id, key)
+        )`);
+        await dbRun(`INSERT INTO settings_new (tenant_id, key, value) SELECT 'default_tenant', key, value FROM settings ON CONFLICT DO NOTHING`);
+        await dbRun(`DROP TABLE settings`);
+        await dbRun(`ALTER TABLE settings_new RENAME TO settings`);
+        console.log("Migrated 'settings' table to per-tenant composite PK.");
       }
     } catch (err) {
       console.error('Settings tenant migration failed:', err.message);
