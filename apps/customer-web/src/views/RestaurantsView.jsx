@@ -134,9 +134,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     localStorage.setItem('gastroflow_delivery_address', cityStr);
     setShowLocationModal(false);
 
-    const coords = CITY_COORDS[cityStr];
+    const coords = CITY_COORDS[cityStr] || resolveCoordsForAddress(cityStr);
     if (coords) {
       setUserCoords(coords);
+      localStorage.setItem('gastroflow_user_coords', JSON.stringify(coords));
       processStoreProximity(coords.lat, coords.lng);
     }
   };
@@ -194,8 +195,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     if (!customAddressInput.trim()) return;
 
     setIsSearchingAddress(true);
+    const manualAddr = customAddressInput.trim();
     try {
-      const query = encodeURIComponent(customAddressInput.trim());
+      const query = encodeURIComponent(manualAddr);
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=lk&limit=1`);
       if (res.ok) {
         const data = await res.json();
@@ -210,8 +212,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       setIsSearchingAddress(false);
     }
 
-    // Fallback if search returns no exact geocode match
-    const manualAddr = customAddressInput.trim();
+    // Fuzzy match against Sri Lanka city dictionary
+    const matchedCoords = resolveCoordsForAddress(manualAddr);
+    if (matchedCoords) {
+      setUserCoords(matchedCoords);
+      localStorage.setItem('gastroflow_user_coords', JSON.stringify(matchedCoords));
+      processStoreProximity(matchedCoords.lat, matchedCoords.lng);
+    }
+
     setDeliveryLocation(manualAddr);
     localStorage.setItem('gastroflow_delivery_address', manualAddr);
     setShowLocationModal(false);
@@ -221,6 +229,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const handlePinLocationChange = async (lat, lng) => {
     setUserCoords({ lat, lng });
+    localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng }));
     processStoreProximity(lat, lng);
 
     try {
@@ -236,7 +245,21 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   };
 
   useEffect(() => {
-    fetchRestaurants();
+    const savedCoordsRaw = localStorage.getItem('gastroflow_user_coords');
+    let activeCoords = null;
+    if (savedCoordsRaw) {
+      try { activeCoords = JSON.parse(savedCoordsRaw); } catch (_) {}
+    }
+    if (!activeCoords) {
+      const savedAddr = localStorage.getItem('gastroflow_delivery_address');
+      activeCoords = resolveCoordsForAddress(savedAddr);
+    }
+
+    if (activeCoords) {
+      setUserCoords(activeCoords);
+    }
+
+    fetchRestaurants(activeCoords);
   }, []);
 
   const [sortBy, setSortBy] = useState('recommendation');
@@ -288,26 +311,26 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       if (deliverableStores.length === 0) {
         setIsOutOfCoverage(true);
         setShowOutOfCoverageModal(true);
-        toast(`⚠️ Nearest store ${closest.name} is ${closest.distanceKm} km away (outside 15 km delivery zone)`, 'warning', 8000);
       } else {
         setIsOutOfCoverage(false);
-        toast(`📍 Nearest Store: ${closest.name} (${closest.distanceKm} km away)`, 'success');
       }
     }
   };
 
-  const fetchRestaurants = async () => {
+  const fetchRestaurants = async (overrideCoords = null) => {
     try {
-      const q = userCoords ? `?lat=${userCoords.lat}&lng=${userCoords.lng}` : '';
+      const coords = overrideCoords || userCoords;
+      const q = coords && coords.lat && coords.lng ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
       const data = await apiFetch(`/public/restaurants${q}`);
       const storeList = deduplicateStores(data || []);
       setRestaurants(storeList);
 
-      if (userCoords && userCoords.lat && userCoords.lng) {
-        processStoreProximity(userCoords.lat, userCoords.lng, storeList);
+      if (coords && coords.lat && coords.lng) {
+        processStoreProximity(coords.lat, coords.lng, storeList);
       } else {
-        const defaultCoords = CITY_COORDS['Colombo 03, Western'];
-        processStoreProximity(defaultCoords.lat, defaultCoords.lng, storeList);
+        const savedAddr = localStorage.getItem('gastroflow_delivery_address');
+        const resolved = resolveCoordsForAddress(savedAddr) || CITY_COORDS['Colombo 03, Western'];
+        processStoreProximity(resolved.lat, resolved.lng, storeList);
       }
     } catch (err) {
       console.error('Error fetching restaurants:', err);
