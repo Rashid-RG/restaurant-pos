@@ -58,6 +58,24 @@ export const POSProvider = ({ children }) => {
         db.getAll('customers'),
       ]);
 
+      // Sync online registered customers from server API
+      let finalCustomers = loadedCustomers;
+      try {
+        const token = localStorage.getItem('gastroflow_token');
+        if (token) {
+          const custRes = await fetch('/api/customers', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (custRes.ok) {
+            const apiCustomers = await custRes.json();
+            if (Array.isArray(apiCustomers)) {
+              finalCustomers = apiCustomers;
+              await db.bulkPut('customers', apiCustomers).catch(() => {});
+            }
+          }
+        }
+      } catch (_) {}
+
       // Convert settings array to object
       const settingsObj = {};
       loadedSettings.forEach((item) => {
@@ -69,7 +87,7 @@ export const POSProvider = ({ children }) => {
       setMenuItems(loadedItems);
       setTables(loadedTables);
       setOrders(loadedOrders);
-      setCustomers(loadedCustomers);
+      setCustomers(finalCustomers);
     } catch (error) {
       console.error('Failed to load database contents:', error);
     } finally {
@@ -185,7 +203,7 @@ export const POSProvider = ({ children }) => {
           if (data.type === 'new_online_order') {
             playNewOrderChime();
             loadAllData(false);
-          } else if (data.type === 'order_updated') {
+          } else if (data.type === 'order_updated' || data.type === 'customer_registered') {
             loadAllData(false);
           }
         } catch (e) {}

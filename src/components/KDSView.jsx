@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { usePOS } from '../context/POSContext';
 
 export default function KDSView() {
-  const { orders, tables, updateOrderStatus, acceptOnlineOrder, rejectOnlineOrder } = usePOS();
+  const { orders, tables, updateOrderStatus, acceptOnlineOrder, rejectOnlineOrder, playNewOrderChime, showToast } = usePOS();
   
   // Station filter state: 'all' | 'kitchen' | 'bar' | 'desserts'
   const [station, setStation] = useState('all');
@@ -61,32 +61,46 @@ export default function KDSView() {
           <p>Real-time order tickets routed to stations for kitchen & bar staff.</p>
         </div>
 
-        {/* Station Filter Tabs */}
-        <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-card)', padding: '6px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-          {[
-            { id: 'all', label: '🌐 All Stations' },
-            { id: 'kitchen', label: '👨‍🍳 Hot Kitchen' },
-            { id: 'bar', label: '🍹 Bar & Drinks' },
-            { id: 'desserts', label: '🍰 Desserts' }
-          ].map(st => (
-            <button
-              key={st.id}
-              onClick={() => setStation(st.id)}
-              style={{
-                padding: '8px 14px',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '13px',
-                fontWeight: 600,
-                border: 'none',
-                cursor: 'pointer',
-                background: station === st.id ? 'var(--color-primary)' : 'transparent',
-                color: station === st.id ? '#fff' : 'var(--text-muted)',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              {st.label}
-            </button>
-          ))}
+        {/* Station Filter Tabs & Ringer Sound Test */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              playNewOrderChime();
+              showToast && showToast('🔔 Playing commercial order ringer sound test!', 'info');
+            }}
+            style={{ padding: '8px 12px', fontSize: '12px', borderRadius: 'var(--radius-sm)' }}
+            title="Test Order Ringer Sound"
+          >
+            🔔 Sound Test
+          </button>
+          
+          <div style={{ display: 'flex', gap: '6px', background: 'var(--bg-card)', padding: '6px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+            {[
+              { id: 'all', label: '🌐 All Stations' },
+              { id: 'kitchen', label: '👨‍🍳 Hot Kitchen' },
+              { id: 'bar', label: '🍹 Bar & Drinks' },
+              { id: 'desserts', label: '🍰 Desserts' }
+            ].map(st => (
+              <button
+                key={st.id}
+                onClick={() => setStation(st.id)}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: station === st.id ? 'var(--color-primary)' : 'transparent',
+                  color: station === st.id ? '#fff' : 'var(--text-muted)',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {st.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

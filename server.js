@@ -1877,12 +1877,22 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
       return res.status(400).json({ error: 'An account with this phone number already exists.' });
     }
     const passwordHash = await bcrypt.hash(password, 10);
-    const id = `ca_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const tenantId = await resolvePublicTenant(req);
     await dbRun(
       `INSERT INTO customer_accounts (id, name, email, phone, passwordHash, loyaltyPoints, totalSpent, createdAt, tenant_id)
        VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-      [id, name.trim(), cleanEmail, cleanPhone, passwordHash, Date.now(), await resolvePublicTenant(req)]
+      [id, name.trim(), cleanEmail, cleanPhone, passwordHash, Date.now(), tenantId]
     );
+
+    // Auto-sync customer to POS CRM customers database
+    const crmCustId = `cust_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    await dbRun(
+      `INSERT OR REPLACE INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id)
+       VALUES (?, ?, ?, ?, 0, 0, 0.0, ?)`,
+      [crmCustId, name.trim(), cleanPhone, cleanEmail || '', tenantId]
+    ).catch(() => {});
+    broadcastEvent('customer_registered', { id: crmCustId, name: name.trim(), phone: cleanPhone, email: cleanEmail }, tenantId);
+
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
     const token = jwt.sign(
       { id, phone: cleanPhone, name: name.trim(), type: 'customer' },
@@ -2861,10 +2871,18 @@ app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), async (req
   }
 });
 
-// GET /api/customers — Fetch real customers list for Customers & Loyalty view
+// GET /api/customers — Fetch real customers list for Customers & Loyalty view (joins online customer accounts)
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
-    const customers = await dbAll('SELECT * FROM customers WHERE tenant_id = ? ORDER BY totalSpent DESC', [req.tenantId]);
+    // Auto-sync any registered online customer accounts into CRM customers table for this tenant
+    await dbRun(`
+      INSERT OR IGNORE INTO customers (id, name, phone, email, points, orderCount, totalSpent, tenant_id)
+      SELECT id, name, phone, COALESCE(email, ''), loyaltyPoints, 0, totalSpent, tenant_id
+      FROM customer_accounts
+      WHERE tenant_id = ? AND phone NOT IN (SELECT phone FROM customers WHERE tenant_id = ?)
+    `, [req.tenantId, req.tenantId]).catch(() => {});
+
+    const customers = await dbAll('SELECT * FROM customers WHERE tenant_id = ? ORDER BY totalSpent DESC, name ASC', [req.tenantId]);
     res.json(customers);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });

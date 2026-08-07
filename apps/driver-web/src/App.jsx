@@ -290,6 +290,14 @@ export default function App() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  onClick={() => { playDriverAlertRingtone(); showToast('🔔 Playing delivery ringer sound test!', 'info'); }}
+                  className="btn-outline"
+                  style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                  title="Test Delivery Ringer Sound"
+                >
+                  🔔
+                </button>
                 <button onClick={toggleGps} className="btn-emerald"
                   style={{ padding: '8px 14px', borderRadius: 20, fontSize: '0.8rem', background: isGpsActive ? '#10b981' : '#64748b' }}>
                   {isGpsActive ? '📡 GPS Live' : '📡 Enable GPS'}
