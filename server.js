@@ -122,6 +122,28 @@ const allowedOrigins = [
 const isLanOrigin = (origin) =>
   /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin);
 
+// Strong Password Generator Helper for SaaS Tenant Provisioning & Staff Accounts
+function generateStrongPassword(length = 10) {
+  const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lowers = 'abcdefghijkmnpqrstuvwxyz';
+  const nums = '23456789';
+  const syms = '!@#$%&*';
+
+  let pwd = [
+    uppers[Math.floor(Math.random() * uppers.length)],
+    lowers[Math.floor(Math.random() * lowers.length)],
+    nums[Math.floor(Math.random() * nums.length)],
+    syms[Math.floor(Math.random() * syms.length)]
+  ];
+
+  const allChars = uppers + lowers + nums + syms;
+  for (let i = 4; i < length; i++) {
+    pwd.push(allChars[Math.floor(Math.random() * allChars.length)]);
+  }
+
+  return pwd.sort(() => 0.5 - Math.random()).join('');
+}
+
 app.use(cors({
   origin: (origin, callback) => {
     // Non-browser clients (curl, server-to-server, SSE) send no Origin — always allow.
@@ -1077,28 +1099,34 @@ async function seedDatabase() {
     const usersCount = await dbGet('SELECT COUNT(*) as count FROM users');
     if (usersCount.count === 0) {
       console.log('Seeding default admin and staff users...');
-      const adminPasswordHash = await bcrypt.hash('admin123', 10);
+      const masterAdminUser = process.env.ADMIN_USERNAME || 'admin';
+      const masterAdminPass = process.env.ADMIN_PASSWORD || 'admin123';
+      const adminPasswordHash = await bcrypt.hash(masterAdminPass, 10);
       const staffPasswordHash = await bcrypt.hash('123456', 10);
 
       await dbRun(`
-        INSERT INTO users (id, username, passwordHash, role, pin)
-        VALUES (?, ?, ?, ?, ?)
-      `, ['user_admin', 'admin', adminPasswordHash, 'owner', '1234']);
+        INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
+        VALUES (?, ?, ?, 'owner', '1234', 'default_tenant')
+      `, ['user_admin', masterAdminUser, adminPasswordHash]);
 
       await dbRun(`
-        INSERT INTO users (id, username, passwordHash, role, pin)
-        VALUES (?, ?, ?, ?, ?)
-      `, ['user_manager', 'manager_john', staffPasswordHash, 'manager', '2222']);
+        INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
+        VALUES (?, ?, ?, 'manager', '2222', 'default_tenant')
+      `, ['user_manager', 'manager_john', staffPasswordHash]);
 
       await dbRun(`
-        INSERT INTO users (id, username, passwordHash, role, pin)
-        VALUES (?, ?, ?, ?, ?)
-      `, ['user_cashier', 'cashier_sarah', staffPasswordHash, 'cashier', '3333']);
+        INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
+        VALUES (?, ?, ?, 'cashier', '3333', 'default_tenant')
+      `, ['user_cashier', 'cashier_sarah', staffPasswordHash]);
 
       await dbRun(`
-        INSERT INTO users (id, username, passwordHash, role, pin)
-        VALUES (?, ?, ?, ?, ?)
-      `, ['user_kitchen', 'chef_mario', staffPasswordHash, 'kitchen', '4444']);
+        INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
+        VALUES (?, ?, ?, 'kitchen', '4444', 'default_tenant')
+      `, ['user_kitchen', 'chef_mario', staffPasswordHash]);
+    } else if (process.env.ADMIN_PASSWORD) {
+      const masterAdminUser = process.env.ADMIN_USERNAME || 'admin';
+      const newAdminHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
+      await dbRun('UPDATE users SET passwordHash = ? WHERE username = ?', [newAdminHash, masterAdminUser]);
     }
 
     // Check drivers seeder
@@ -3514,7 +3542,7 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
 
     // 4. Create owner staff user account for POS login
     const username = ownerEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    const userPass = password || 'bbq123456';
+    const userPass = password || generateStrongPassword(10);
     const passwordHash = await bcrypt.hash(userPass, 10);
     const userId = `usr_${Date.now()}`;
     await dbRun(
@@ -3600,7 +3628,7 @@ app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager'
 
     // 4. Create owner staff user account for POS login
     const username = ownerEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    const userPass = 'gastro1234';
+    const userPass = generateStrongPassword(10);
     const passwordHash = await bcrypt.hash(userPass, 10);
     const userId = `usr_${Date.now()}`;
     await dbRun(
