@@ -866,14 +866,12 @@ async function initTables() {
 
     // Give staff users an email + phone so password reset can reach them.
     for (const col of [{ name: 'email', type: 'TEXT' }, { name: 'phone', type: 'TEXT' }]) {
-      try { await dbRun(`ALTER TABLE users ADD COLUMN ${col.name} ${col.type}`); }
-      catch (err) { if (!err.message.includes('duplicate column name')) console.error(err.message); }
+      await safeAddColumn('users', col.name, col.type);
     }
 
     // Driver auth columns: password hash + email so drivers can log in (Phase 2).
     for (const col of [{ name: 'passwordHash', type: 'TEXT' }, { name: 'email', type: 'TEXT' }]) {
-      try { await dbRun(`ALTER TABLE drivers ADD COLUMN ${col.name} ${col.type}`); }
-      catch (err) { if (!err.message.includes('duplicate column name')) console.error(err.message); }
+      await safeAddColumn('drivers', col.name, col.type);
     }
 
     // Dynamic schema migrations for advanced orders table columns
@@ -907,13 +905,7 @@ async function initTables() {
     ];
 
     for (const col of columnsToMigrate) {
-      try {
-        await dbRun(`ALTER TABLE orders ADD COLUMN ${col.name} ${col.type}`);
-      } catch (err) {
-        if (!err.message.includes('duplicate column name')) {
-          console.error(`Error migrating column ${col.name}:`, err.message);
-        }
-      }
+      await safeAddColumn('orders', col.name, col.type);
     }
 
     // Dynamic schema migrations for advanced menu_items table columns
@@ -925,22 +917,14 @@ async function initTables() {
     ];
 
     for (const col of menuColumnsToMigrate) {
-      try {
-        await dbRun(`ALTER TABLE menu_items ADD COLUMN ${col.name} ${col.type}`);
-      } catch (err) {
-        if (!err.message.includes('duplicate column name')) {
-          console.error(`Error migrating menu_item column ${col.name}:`, err.message);
-        }
-      }
+      await safeAddColumn('menu_items', col.name, col.type);
     }
 
     // Geocode columns for saved addresses + phone-verified flag for customers
     for (const col of [{ name: 'lat', type: 'REAL' }, { name: 'lng', type: 'REAL' }]) {
-      try { await dbRun(`ALTER TABLE customer_addresses ADD COLUMN ${col.name} ${col.type}`); }
-      catch (err) { if (!err.message.includes('duplicate column name')) console.error(err.message); }
+      await safeAddColumn('customer_addresses', col.name, col.type);
     }
-    try { await dbRun(`ALTER TABLE customer_accounts ADD COLUMN phoneVerified INTEGER DEFAULT 0`); }
-    catch (err) { if (!err.message.includes('duplicate column name')) console.error(err.message); }
+    await safeAddColumn('customer_accounts', 'phoneVerified', 'INTEGER DEFAULT 0');
 
     // PIN Hashing Database Migration on Boot
     const users = await dbAll('SELECT id, pin FROM users');
