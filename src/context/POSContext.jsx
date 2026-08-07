@@ -251,6 +251,26 @@ export const POSProvider = ({ children }) => {
     await loadAllData(false);
   };
 
+  const updateOrderEta = async (orderId, etaMinutes) => {
+    try {
+      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
+      const res = await fetch(`/api/orders/${orderId}/eta`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ etaMinutes: parseInt(etaMinutes, 10) || 20 })
+      });
+      await handleAuthResponse(res);
+      if (!res.ok) throw new Error('Failed to update order ETA');
+      showToast(`⏱️ Order #${orderId.slice(-4).toUpperCase()} ETA updated to ~${etaMinutes} mins`, 'success');
+      await loadAllData(false);
+    } catch (err) {
+      showToast('ETA update error: ' + err.message, 'error');
+    }
+  };
+
   const rejectOnlineOrder = async (orderId, reason = 'Kitchen unavailable at this time') => {
     const res = await fetch(`/api/orders/${orderId}/reject`, {
       method: 'POST',
@@ -768,6 +788,7 @@ export const POSProvider = ({ children }) => {
         completePayment,
         acceptOnlineOrder,
         rejectOnlineOrder,
+        updateOrderEta,
 
         // Backup
         exportDatabase,

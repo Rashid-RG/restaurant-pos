@@ -55,7 +55,32 @@ export default function Customers() {
           <h1>Customer CRM & Loyalty</h1>
           <p>Manage customer profiles, trace dining history, and track loyalty point balances.</p>
         </div>
-        <div className="view-actions">
+        <div className="view-actions" style={{ display: 'flex', gap: '8px' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              if (!customers.length) return;
+              const headers = ['Name', 'Phone', 'Email', 'Loyalty Points', 'Total Orders', 'Total Spent (LKR)'];
+              const rows = customers.map(c => [
+                `"${c.name || ''}"`,
+                `"${c.phone || ''}"`,
+                `"${c.email || ''}"`,
+                c.points || 0,
+                c.orderCount || 0,
+                c.totalSpent || 0
+              ]);
+              const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+              const encodedUri = encodeURI(csvContent);
+              const link = document.createElement('a');
+              link.setAttribute('href', encodedUri);
+              link.setAttribute('download', `customer_list_${Date.now()}.csv`);
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            }}
+          >
+            📥 Export CSV
+          </button>
           <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
             ＋ Register Customer
           </button>

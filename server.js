@@ -3608,6 +3608,62 @@ app.post('/api/delivery/assign', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/orders/:id/eta — Staff update delivery/prep ETA
+app.post('/api/orders/:id/eta', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { etaMinutes } = req.body || {};
+  const minutes = parseInt(etaMinutes, 10) || 20;
+  try {
+    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [id]);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+    await dbRun('UPDATE orders SET etaMinutes = ? WHERE id = ?', [minutes, id]);
+    broadcastEvent('order_updated', {
+      orderId: id,
+      status: order.status,
+      etaMinutes: minutes,
+      message: `Order #${id} ETA updated to ${minutes} mins`
+    });
+    await writeAuditLog(req.user.id, req.user.username, 'update_eta', `Updated ETA for order #${id} to ${minutes} mins`);
+    res.json({ success: true, orderId: id, etaMinutes: minutes });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// GET /api/public/orders/:id/eta — Customer read live ETA
+app.get('/api/public/orders/:id/eta', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const order = await dbGet('SELECT id, status, timestamp, etaMinutes, orderType, diningType FROM orders WHERE id = ?', [id]);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+    if (order.etaMinutes) {
+      return res.json({
+        estimatedMinutes: order.etaMinutes,
+        isManual: true,
+        orderType: order.orderType || order.diningType || 'takeaway'
+      });
+    }
+    // Dynamic calculation fallback
+    const activeCount = await dbGet("SELECT COUNT(*) as count FROM orders WHERE status IN ('pending', 'preparing')");
+    const count = activeCount?.count || 0;
+    const basePrep = 15;
+    const loadBuffer = Math.min(count * 3, 30);
+    const totalEst = basePrep + loadBuffer;
+    res.json({
+      estimatedMinutes: totalEst,
+      maxItemPrep: basePrep,
+      kitchenLoadBuffer: loadBuffer,
+      orderType: order.orderType || order.diningType || 'takeaway'
+    });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
 // ── SUPPORT & COMPLAINT TICKETS ENDPOINTS ──
 app.get('/api/tickets', authenticateToken, async (req, res) => {
   try {
