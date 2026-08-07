@@ -191,9 +191,15 @@ const db = new sqlite.Database(dbPath, (err) => {
 export const dbRun = async (sql, params = []) => {
   if (isPostgres) {
     if (/^\s*PRAGMA/i.test(sql)) return;
-    let pgSql = sql
-      .replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO')
-      .replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
+    let pgSql = sql;
+    if (/INSERT OR IGNORE INTO/i.test(pgSql)) {
+      pgSql = pgSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
+      if (!/ON CONFLICT/i.test(pgSql)) {
+        pgSql += ' ON CONFLICT DO NOTHING';
+      }
+    } else if (/INSERT OR REPLACE INTO/i.test(pgSql)) {
+      pgSql = pgSql.replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO');
+    }
     return execute(pgSql, params);
   }
   return new Promise((resolve, reject) => {
@@ -634,7 +640,12 @@ async function initTables() {
         createdAt INTEGER
       )
     `);
-    await dbRun(`INSERT OR IGNORE INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt) VALUES ('default_tenant', 'GastroFlow Bistro Main', 'main', 'admin@gastroflow.lk', 'pro', 'active', ${Date.now()})`);
+    await dbRun(
+      `INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      ['default_tenant', 'GastroFlow Bistro Main', 'main', 'admin@gastroflow.lk', 'pro', 'active', Date.now()]
+    );
 
     // 24. Support Tickets Table (Customer care escalation)
     await dbRun(`
