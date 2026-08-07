@@ -49,13 +49,82 @@ export default function Settings() {
   const [itemPrice, setItemPrice] = useState('');
   const [itemCost, setItemCost] = useState('');
   const [itemCategory, setItemCategory] = useState('');
-  const [itemEmoji, setItemEmoji] = useState('🍕');
+  const [itemEmoji, setItemEmoji] = useState('🍛');
   const [itemStock, setItemStock] = useState('50');
+  const [itemMinStock, setItemMinStock] = useState('10');
   const [itemDesc, setItemDesc] = useState('');
   const [itemImageUrl, setItemImageUrl] = useState('');
   const [itemDietaryTags, setItemDietaryTags] = useState('');
   const [itemAllergens, setItemAllergens] = useState('');
   const [itemIsAvailable, setItemIsAvailable] = useState(true);
+  const [itemSpiceLevel, setItemSpiceLevel] = useState(0);
+  const [itemIsHalal, setItemIsHalal] = useState(false);
+  const [itemPrepTime, setItemPrepTime] = useState('');
+  const [itemPortionSize, setItemPortionSize] = useState('Regular');
+  const [itemImagePreview, setItemImagePreview] = useState('');
+  const [imageUploadMode, setImageUploadMode] = useState('url'); // 'url' | 'file'
+
+  // Sri Lanka default categories for quick setup
+  const SL_DEFAULT_CATEGORIES = [
+    { emoji: '🍚', name: 'Rice & Curry' },
+    { emoji: '🍖', name: 'BBQ & Grill' },
+    { emoji: '🍜', name: 'Kottu & Roti' },
+    { emoji: '🥘', name: 'Short Eats' },
+    { emoji: '🍳', name: 'Hoppers & String Hoppers' },
+    { emoji: '🐟', name: 'Seafood' },
+    { emoji: '🍱', name: 'Biriyani & Rice Dishes' },
+    { emoji: '🍕', name: 'Pizza & Burgers' },
+    { emoji: '🥤', name: 'Beverages & Juice' },
+    { emoji: '🍮', name: 'Desserts & Sweets' },
+    { emoji: '🍦', name: 'Ice Cream & Shakes' },
+    { emoji: '☕', name: 'Hot Drinks' },
+  ];
+
+  // Sri Lanka dietary quick tags
+  const SL_DIETARY_TAGS = [
+    { label: '☪️ Halal', value: 'halal' },
+    { label: '🌱 Vegetarian', value: 'vegetarian' },
+    { label: '🌿 Vegan', value: 'vegan' },
+    { label: '🌶️ Spicy', value: 'spicy' },
+    { label: '❄️ Non-Spicy', value: 'non-spicy' },
+    { label: '🥛 Contains Dairy', value: 'dairy' },
+    { label: '🥜 Contains Nuts', value: 'nuts' },
+    { label: '🌾 Gluten Free', value: 'gluten-free' },
+    { label: '🐟 Contains Fish', value: 'fish' },
+    { label: '🥚 Contains Egg', value: 'egg' },
+  ];
+
+  const handleImageFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Image must be under 2MB', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target.result;
+      setItemImageUrl(dataUrl);
+      setItemImagePreview(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const toggleDietaryTag = (tagValue) => {
+    const current = itemDietaryTags ? itemDietaryTags.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const idx = current.indexOf(tagValue);
+    if (idx > -1) {
+      setItemDietaryTags(current.filter(t => t !== tagValue).join(', '));
+    } else {
+      setItemDietaryTags([...current, tagValue].join(', '));
+      if (tagValue === 'halal') setItemIsHalal(true);
+    }
+  };
+
+  const isDietaryTagActive = (tagValue) => {
+    const current = itemDietaryTags ? itemDietaryTags.split(',').map(t => t.trim()) : [];
+    return current.includes(tagValue);
+  };
 
   // Category modal states
   const [showCatModal, setShowCatModal] = useState(false);
@@ -159,14 +228,20 @@ export default function Settings() {
     setItemPrice('');
     setItemCost('');
     setItemCategory(categories[0]?.id || '');
-    setItemEmoji('🍕');
+    setItemEmoji('🍛');
     setItemStock('50');
     setItemMinStock('10');
     setItemDesc('');
     setItemImageUrl('');
+    setItemImagePreview('');
     setItemDietaryTags('');
     setItemAllergens('');
     setItemIsAvailable(true);
+    setItemSpiceLevel(0);
+    setItemIsHalal(false);
+    setItemPrepTime('');
+    setItemPortionSize('Regular');
+    setImageUploadMode('url');
     setShowItemModal(true);
   };
 
@@ -176,14 +251,20 @@ export default function Settings() {
     setItemPrice(item.price.toString());
     setItemCost(item.cost ? item.cost.toString() : '');
     setItemCategory(item.category);
-    setItemEmoji(item.emoji || '🍕');
+    setItemEmoji(item.emoji || '🍛');
     setItemStock(item.stock.toString());
-    setItemMinStock(item.minStock.toString());
+    setItemMinStock((item.minStock ?? 10).toString());
     setItemDesc(item.description || '');
     setItemImageUrl(item.imageUrl || '');
+    setItemImagePreview(item.imageUrl || '');
     setItemDietaryTags(item.dietaryTags || '');
     setItemAllergens(item.allergens || '');
     setItemIsAvailable(item.isAvailable !== 0);
+    setItemSpiceLevel(item.spiceLevel || 0);
+    setItemIsHalal(item.isHalal === 1 || item.isHalal === true);
+    setItemPrepTime(item.preparationTime ? item.preparationTime.toString() : '');
+    setItemPortionSize(item.portionSize || 'Regular');
+    setImageUploadMode('url');
     setShowItemModal(true);
   };
 
@@ -204,10 +285,15 @@ export default function Settings() {
       imageUrl: itemImageUrl,
       dietaryTags: itemDietaryTags,
       allergens: itemAllergens,
-      isAvailable: itemIsAvailable ? 1 : 0
+      isAvailable: itemIsAvailable ? 1 : 0,
+      spiceLevel: parseInt(itemSpiceLevel) || 0,
+      isHalal: itemIsHalal ? 1 : 0,
+      preparationTime: parseInt(itemPrepTime) || 0,
+      portionSize: itemPortionSize,
     };
 
     await saveMenuItem(saved);
+    showToast(`✅ "${itemName}" saved to database!`, 'success');
     setShowItemModal(false);
   };
 
@@ -1300,168 +1386,248 @@ export default function Settings() {
       {/* 4a. Menu Item Add/Edit Modal */}
       {showItemModal && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '600px' }}>
+          <div className="modal-content" style={{ maxWidth: '680px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="modal-header">
-              <h2>{editItem ? 'Edit Menu Dish' : 'Add New Menu Dish'}</h2>
+              <h2>{editItem ? '✏️ Edit Menu Item' : '➕ Add New Menu Item'}</h2>
               <button className="modal-close" onClick={() => setShowItemModal(false)}>×</button>
             </div>
-            
+
             <form onSubmit={handleSaveItem}>
+
+              {/* ── IMAGE SECTION ── */}
+              <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', padding: '16px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontWeight: 700, fontSize: '13px', marginBottom: '10px', display: 'block' }}>📷 Food Photo</label>
+
+                {/* Image Preview */}
+                {itemImagePreview && (
+                  <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+                    <img
+                      src={itemImagePreview}
+                      alt="Preview"
+                      style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '10px', border: '2px solid var(--border-color)' }}
+                      onError={() => setItemImagePreview('')}
+                    />
+                  </div>
+                )}
+
+                {/* Mode toggle */}
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <button type="button"
+                    onClick={() => setImageUploadMode('file')}
+                    style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                      background: imageUploadMode === 'file' ? 'var(--color-primary)' : 'var(--bg-card)', color: imageUploadMode === 'file' ? '#fff' : 'var(--text-main)' }}>
+                    📁 Upload from Device
+                  </button>
+                  <button type="button"
+                    onClick={() => setImageUploadMode('url')}
+                    style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
+                      background: imageUploadMode === 'url' ? 'var(--color-primary)' : 'var(--bg-card)', color: imageUploadMode === 'url' ? '#fff' : 'var(--text-main)' }}>
+                    🔗 Paste Image URL
+                  </button>
+                </div>
+
+                {imageUploadMode === 'file' ? (
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="form-input"
+                    onChange={handleImageFileChange}
+                    style={{ padding: '8px' }}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="https://example.com/rice-curry.jpg"
+                    value={itemImageUrl}
+                    onChange={(e) => {
+                      setItemImageUrl(e.target.value);
+                      setItemImagePreview(e.target.value);
+                    }}
+                  />
+                )}
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>Max 2MB. JPG, PNG, WebP supported. Image saves directly to database.</p>
+              </div>
+
+              {/* ── BASIC INFO ── */}
               <div className="form-row">
                 <div className="form-group">
-                  <label>Dish Name</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Pepperoni Pizza"
-                    value={itemName}
-                    onChange={(e) => setItemName(e.target.value)}
-                    required
-                  />
+                  <label>Dish Name *</label>
+                  <input type="text" className="form-input"
+                    placeholder="e.g. Chicken Rice & Curry"
+                    value={itemName} onChange={(e) => setItemName(e.target.value)} required />
                 </div>
-                <div className="form-group">
-                  <label>Dish Emoji / Icon</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. 🍕"
-                    value={itemEmoji}
-                    onChange={(e) => setItemEmoji(e.target.value)}
-                    required
-                  />
+                <div className="form-group" style={{ maxWidth: '80px' }}>
+                  <label>Emoji / Icon</label>
+                  <input type="text" className="form-input"
+                    placeholder="🍛"
+                    value={itemEmoji} onChange={(e) => setItemEmoji(e.target.value)} />
                 </div>
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Category</label>
-                  <select
-                    className="form-select"
-                    value={itemCategory}
-                    onChange={(e) => setItemCategory(e.target.value)}
-                    required
-                  >
+                  <label>Category *</label>
+                  <select className="form-select" value={itemCategory} onChange={(e) => setItemCategory(e.target.value)} required>
                     {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.emoji} {c.name}
-                      </option>
+                      <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
                     ))}
                   </select>
                 </div>
                 <div className="form-group">
-                  <label>Selling Price ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="form-input"
-                    placeholder="0.00"
-                    value={itemPrice}
-                    onChange={(e) => setItemPrice(e.target.value)}
-                    required
-                  />
+                  <label>Portion Size</label>
+                  <select className="form-select" value={itemPortionSize} onChange={(e) => setItemPortionSize(e.target.value)}>
+                    <option value="Small">🍽️ Small</option>
+                    <option value="Regular">🍽️ Regular</option>
+                    <option value="Large">🍽️ Large</option>
+                    <option value="Family">👨‍👩‍👧‍👦 Family Pack</option>
+                    <option value="Half">½ Half Portion</option>
+                    <option value="Full">🍱 Full Portion</option>
+                  </select>
                 </div>
               </div>
 
+              {/* ── PRICING ── */}
+              <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', padding: '14px', marginBottom: '14px', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontWeight: 700, fontSize: '13px', marginBottom: '10px', display: 'block' }}>💰 Pricing (LKR)</label>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Selling Price (LKR) *</label>
+                    <input type="number" step="0.01" className="form-input"
+                      placeholder="0.00" value={itemPrice}
+                      onChange={(e) => setItemPrice(e.target.value)} required />
+                  </div>
+                  <div className="form-group">
+                    <label>Ingredients Cost (LKR)</label>
+                    <input type="number" step="0.01" className="form-input"
+                      placeholder="0.00" value={itemCost}
+                      onChange={(e) => setItemCost(e.target.value)} />
+                  </div>
+                  {itemPrice && itemCost && parseFloat(itemCost) > 0 && (
+                    <div className="form-group" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                      <label>Profit Margin</label>
+                      <div style={{ padding: '10px 12px', borderRadius: '8px', background: 'var(--color-success-light)', color: 'var(--color-success)', fontWeight: 700, textAlign: 'center' }}>
+                        {Math.round(((parseFloat(itemPrice) - parseFloat(itemCost)) / parseFloat(itemPrice)) * 100)}%
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── STOCK ── */}
               <div className="form-row">
                 <div className="form-group">
-                  <label>Ingredients Cost ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="form-input"
-                    placeholder="0.00"
-                    value={itemCost}
-                    onChange={(e) => setItemCost(e.target.value)}
-                  />
+                  <label>Stock Available</label>
+                  <input type="number" className="form-input" placeholder="50"
+                    value={itemStock} onChange={(e) => setItemStock(e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label>Initial Stock Level</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    placeholder="50"
-                    value={itemStock}
-                    onChange={(e) => setItemStock(e.target.value)}
-                  />
+                  <label>Low Stock Warning Below</label>
+                  <input type="number" className="form-input" placeholder="10"
+                    value={itemMinStock} onChange={(e) => setItemMinStock(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label>⏱️ Prep Time (mins)</label>
+                  <input type="number" className="form-input" placeholder="15"
+                    value={itemPrepTime} onChange={(e) => setItemPrepTime(e.target.value)} />
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Minimum Stock Threshold (For warnings)</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  placeholder="10"
-                  value={itemMinStock}
-                  onChange={(e) => setItemMinStock(e.target.value)}
-                />
-              </div>
-
+              {/* ── DESCRIPTION ── */}
               <div className="form-group">
                 <label>Dish Description</label>
-                <textarea
-                  className="form-textarea"
-                  rows={2}
-                  placeholder="Describe ingredients, allergens..."
-                  value={itemDesc}
-                  onChange={(e) => setItemDesc(e.target.value)}
-                />
+                <textarea className="form-textarea" rows={2}
+                  placeholder="e.g. Fragrant basmati rice served with our special dhal curry, coconut sambol and papadam."
+                  value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} />
               </div>
 
-              <div className="form-row" style={{ display: 'flex', gap: '16px' }}>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label>Image URL</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="https://example.com/pizza.jpg"
-                    value={itemImageUrl}
-                    onChange={(e) => setItemImageUrl(e.target.value)}
-                  />
+              {/* ── SPICE LEVEL ── */}
+              <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', padding: '14px', marginBottom: '14px', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontWeight: 700, fontSize: '13px', marginBottom: '10px', display: 'block' }}>🌶️ Spice Level</label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {[0, 1, 2, 3, 4, 5].map((lvl) => (
+                    <button key={lvl} type="button"
+                      onClick={() => setItemSpiceLevel(lvl)}
+                      style={{
+                        padding: '8px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                        fontWeight: 700, fontSize: '13px',
+                        background: itemSpiceLevel === lvl ? '#ef4444' : 'var(--bg-card)',
+                        color: itemSpiceLevel === lvl ? '#fff' : 'var(--text-main)',
+                        transform: itemSpiceLevel === lvl ? 'scale(1.1)' : 'scale(1)',
+                        transition: 'all 0.15s'
+                      }}>
+                      {lvl === 0 ? '❄️ None' : '🌶️'.repeat(lvl)}
+                    </button>
+                  ))}
                 </div>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>0 = Not spicy &nbsp;|&nbsp; 5 = Extra hot 🔥</p>
               </div>
 
-              <div className="form-row" style={{ display: 'flex', gap: '16px' }}>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label>Dietary Tags (comma-separated)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. veg, spicy, gf"
-                    value={itemDietaryTags}
-                    onChange={(e) => setItemDietaryTags(e.target.value)}
-                  />
+              {/* ── DIETARY TAGS ── */}
+              <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', padding: '14px', marginBottom: '14px', border: '1px solid var(--border-color)' }}>
+                <label style={{ fontWeight: 700, fontSize: '13px', marginBottom: '10px', display: 'block' }}>🏷️ Dietary Tags <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(click to toggle)</span></label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                  {SL_DIETARY_TAGS.map((tag) => (
+                    <button key={tag.value} type="button"
+                      onClick={() => toggleDietaryTag(tag.value)}
+                      style={{
+                        padding: '6px 12px', borderRadius: '20px', border: '2px solid',
+                        borderColor: isDietaryTagActive(tag.value) ? 'var(--color-primary)' : 'var(--border-color)',
+                        background: isDietaryTagActive(tag.value) ? 'var(--color-primary)' : 'transparent',
+                        color: isDietaryTagActive(tag.value) ? '#fff' : 'var(--text-main)',
+                        cursor: 'pointer', fontWeight: 600, fontSize: '12px',
+                        transition: 'all 0.15s'
+                      }}>
+                      {tag.label}
+                    </button>
+                  ))}
                 </div>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label>Allergen Warnings (comma-separated)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. peanuts, dairy, gluten"
-                    value={itemAllergens}
-                    onChange={(e) => setItemAllergens(e.target.value)}
-                  />
-                </div>
+                <input type="text" className="form-input"
+                  placeholder="Or type custom tags: halal, vegetarian, spicy..."
+                  value={itemDietaryTags}
+                  onChange={(e) => setItemDietaryTags(e.target.value)} />
               </div>
 
-              <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                <input
-                  type="checkbox"
-                  id="item-isAvailable-checkbox"
+              {/* ── HALAL BADGE ── */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', padding: '12px 16px', borderRadius: '10px', background: itemIsHalal ? 'rgba(16,185,129,0.1)' : 'var(--bg-surface)', border: `2px solid ${itemIsHalal ? '#10b981' : 'var(--border-color)'}`, transition: 'all 0.2s' }}>
+                <input type="checkbox" id="halal-toggle"
+                  checked={itemIsHalal}
+                  onChange={(e) => {
+                    setItemIsHalal(e.target.checked);
+                    if (e.target.checked) {
+                      const current = itemDietaryTags ? itemDietaryTags.split(',').map(t => t.trim()).filter(Boolean) : [];
+                      if (!current.includes('halal')) setItemDietaryTags([...current, 'halal'].join(', '));
+                    }
+                  }}
+                  style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
+                <label htmlFor="halal-toggle" style={{ margin: 0, cursor: 'pointer', fontWeight: 700, fontSize: '15px' }}>
+                  ☪️ This item is <span style={{ color: '#10b981' }}>Halal Certified</span>
+                </label>
+                {itemIsHalal && <span style={{ marginLeft: 'auto', background: '#10b981', color: '#fff', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 700 }}>✓ HALAL</span>}
+              </div>
+
+              {/* ── ALLERGENS ── */}
+              <div className="form-group">
+                <label>⚠️ Allergen Warnings (comma-separated)</label>
+                <input type="text" className="form-input"
+                  placeholder="e.g. peanuts, dairy, gluten, shellfish"
+                  value={itemAllergens} onChange={(e) => setItemAllergens(e.target.value)} />
+              </div>
+
+              {/* ── AVAILABILITY ── */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', padding: '12px 16px', borderRadius: '10px', background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}>
+                <input type="checkbox" id="item-isAvailable-checkbox"
                   checked={itemIsAvailable}
                   onChange={(e) => setItemIsAvailable(e.target.checked)}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <label htmlFor="item-isAvailable-checkbox" style={{ margin: 0, cursor: 'pointer', fontWeight: 600 }}>Item is Available for Sale (POS & Online)</label>
+                  style={{ width: '20px', height: '20px', cursor: 'pointer' }} />
+                <label htmlFor="item-isAvailable-checkbox" style={{ margin: 0, cursor: 'pointer', fontWeight: 700 }}>
+                  ✅ Item is Available for Sale <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(POS + Customer App)</span>
+                </label>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowItemModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Dish
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowItemModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" style={{ minWidth: '160px' }}>💾 Save to Database</button>
               </div>
             </form>
           </div>

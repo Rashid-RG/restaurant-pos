@@ -971,7 +971,11 @@ async function initTables() {
       { name: 'imageUrl', type: 'TEXT' },
       { name: 'dietaryTags', type: 'TEXT' },
       { name: 'isAvailable', type: 'INTEGER DEFAULT 1' },
-      { name: 'allergens', type: 'TEXT' }
+      { name: 'allergens', type: 'TEXT' },
+      { name: 'spiceLevel', type: 'INTEGER DEFAULT 0' },
+      { name: 'isHalal', type: 'INTEGER DEFAULT 0' },
+      { name: 'preparationTime', type: 'INTEGER DEFAULT 0' },
+      { name: 'portionSize', type: 'TEXT' }
     ];
 
     for (const col of menuColumnsToMigrate) {
@@ -5819,25 +5823,41 @@ app.get('/api/menu_items', async (req, res) => {
 });
 
 app.post('/api/menu_items', requireRole(['owner', 'manager']), async (req, res) => {
-  const { id, name, price, cost, category, emoji, stock, minStock, description, imageUrl, dietaryTags, isAvailable } = req.body;
+  const {
+    id, name, price, cost, category, emoji, stock, minStock,
+    description, imageUrl, dietaryTags, allergens, isAvailable,
+    spiceLevel, isHalal, preparationTime, portionSize
+  } = req.body;
   try {
     const prevRow = await dbGet('SELECT isAvailable FROM menu_items WHERE id = ?', [id]);
     const prevAvail = prevRow?.isAvailable;
     const newAvail = isAvailable !== undefined ? parseInt(isAvailable, 10) : 1;
+    const halalVal = isHalal ? 1 : 0;
 
     await dbRun(`
-      INSERT OR REPLACE INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, imageUrl, dietaryTags, isAvailable, tenant_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO menu_items
+        (id, name, price, cost, category, emoji, stock, minStock, description,
+         imageUrl, dietaryTags, allergens, isAvailable,
+         spiceLevel, isHalal, preparationTime, portionSize, tenant_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      id, name, price, cost, category, emoji, stock, minStock, description,
-      imageUrl || null, dietaryTags || null, newAvail, req.tenantId
+      id, name, price, cost, category, emoji,
+      parseInt(stock) || 0, parseInt(minStock) || 0, description,
+      imageUrl || null, dietaryTags || null, allergens || null, newAvail,
+      parseInt(spiceLevel) || 0, halalVal,
+      parseInt(preparationTime) || 0, portionSize || null,
+      req.tenantId
     ]);
-    await writeAuditLog(req.user.id, req.user.username, 'save_menu_item', `Created/updated menu item ${name} (${id}) to price=${price}, stock=${stock}`);
-    const saved = { id, name, price, cost, category, emoji, stock, minStock, description, imageUrl, dietaryTags, isAvailable: newAvail };
+    await writeAuditLog(req.user.id, req.user.username, 'save_menu_item',
+      `Created/updated menu item ${name} (${id}) — price=${price}, stock=${stock}, halal=${halalVal}`);
+    const saved = {
+      id, name, price, cost, category, emoji, stock, minStock, description,
+      imageUrl, dietaryTags, allergens, isAvailable: newAvail,
+      spiceLevel, isHalal: halalVal, preparationTime, portionSize
+    };
     res.json(saved);
 
-    // If availability changed, push a live update so the customer app hides/shows
-    // the item instantly without a page reload ("86-item" SSE propagation).
+    // Push live availability update to customer app and POS screens
     if (prevAvail !== undefined && prevAvail !== newAvail) {
       notifyPublicStore({ type: 'item_availability', itemId: id, isAvailable: newAvail === 1 }, req.tenantId);
       notifyPOS({ type: 'item_availability_changed', itemId: id, name, isAvailable: newAvail === 1 }, req.tenantId);
