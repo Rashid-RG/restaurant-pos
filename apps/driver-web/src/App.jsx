@@ -21,6 +21,24 @@ const apiFetch = async (url, opts = {}) => {
   return data;
 };
 
+// ── Haversine distance helper (km) ──
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
+}
+
+// ── Sri Lanka store coords default (Colombo) ──
+const STORE_LAT = 6.9271;
+const STORE_LNG = 79.8612;
+
+function isRushHour() {
+  const h = new Date().getHours();
+  return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
+}
+
 export default function App() {
   const [driver, setDriver] = useState(JSON.parse(localStorage.getItem(DRIVER_KEY) || 'null'));
   const [activeOrders, setActiveOrders] = useState([]);
@@ -322,15 +340,38 @@ export default function App() {
                   🟢 Available to Claim ({availableOrders.length})
                 </h3>
                 <div style={{ display: 'grid', gap: 12 }}>
-                  {availableOrders.map(ord => (
-                    <div key={ord.id} className="card" style={{ margin: 0, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 800 }}>Order #{ord.id.slice(-4).toUpperCase()}</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>📍 {ord.deliveryAddress || 'Store'} · Rs. {ord.total?.toFixed(2)}</div>
+                  {availableOrders.map(ord => {
+                    // Calculate driver-to-destination distance
+                    const dropKm = (lastCoords && ord.deliveryLat && ord.deliveryLng)
+                      ? haversineKm(lastCoords.lat, lastCoords.lng, ord.deliveryLat, ord.deliveryLng)
+                      : (ord.deliveryLat && ord.deliveryLng)
+                        ? haversineKm(STORE_LAT, STORE_LNG, ord.deliveryLat, ord.deliveryLng)
+                        : null;
+
+                    return (
+                    <div key={ord.id} className="card" style={{ margin: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '1rem' }}>Order #{ord.id.slice(-4).toUpperCase()}</div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                            📍 {ord.deliveryAddress || 'Store Pickup'} · Rs. {ord.total?.toFixed(2)}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                          {dropKm !== null && (
+                            <span style={{ background: dropKm <= 5 ? '#10b98122' : '#f59e0b22', color: dropKm <= 5 ? '#10b981' : '#f59e0b', border: `1px solid ${dropKm <= 5 ? '#10b981' : '#f59e0b'}44`, padding: '2px 8px', borderRadius: 8, fontSize: '0.72rem', fontWeight: 800 }}>
+                              🗺️ {dropKm} km drop
+                            </span>
+                          )}
+                          {isRushHour() && (
+                            <span style={{ background: '#f59e0b22', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.68rem', fontWeight: 700 }}>⏰ Peak</span>
+                          )}
+                        </div>
                       </div>
-                      <button className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem', flexShrink: 0 }} onClick={() => handleClaim(ord.id)}>Claim</button>
+                      <button className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} onClick={() => handleClaim(ord.id)}>Claim Delivery</button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}

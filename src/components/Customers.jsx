@@ -48,6 +48,14 @@ export default function Customers() {
     setSelectedCustHistory({ customer, history });
   };
 
+  // ── Loyalty Tier Helper ──
+  const getLoyaltyTier = (pts = 0) => {
+    if (pts >= 5000) return { name: 'Platinum', icon: '👑', color: '#a78bfa', next: null };
+    if (pts >= 1500) return { name: 'Gold',     icon: '🥇', color: '#f59e0b', next: 5000 };
+    if (pts >= 500)  return { name: 'Silver',   icon: '🥈', color: '#94a3b8', next: 1500 };
+    return              { name: 'Bronze',   icon: '🥉', color: '#b45309', next: 500 };
+  };
+
   return (
     <div className="main-content">
       <div className="view-header">
@@ -137,7 +145,17 @@ export default function Customers() {
                       <td>{cust.phone}</td>
                       <td>{cust.email || 'N/A'}</td>
                       <td>
-                        <span className="badge badge-primary">{cust.points} Points</span>
+                        {(() => {
+                          const tier = getLoyaltyTier(cust.points);
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span title={tier.name} style={{ fontSize: '1rem' }}>{tier.icon}</span>
+                              <span className="badge" style={{ background: `${tier.color}22`, color: tier.color, border: `1px solid ${tier.color}44`, fontWeight: 800, fontSize: '0.72rem' }}>
+                                {cust.points} pts
+                              </span>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td>{cust.orderCount} orders</td>
                       <td style={{ fontWeight: '600' }}>{currencySymbol}{cust.totalSpent.toFixed(2)}</td>
@@ -217,18 +235,39 @@ export default function Customers() {
               <button className="modal-close" onClick={() => setSelectedCustHistory(null)}>×</button>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', background: 'var(--bg-surface)', padding: '16px', borderRadius: '12px' }}>
-              <div>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Points Balance:</span>
-                <h4 style={{ fontSize: '20px', color: 'var(--color-primary)', fontWeight: 'bold' }}>{selectedCustHistory.customer.points}</h4>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Lifetime Spending:</span>
-                <h4 style={{ fontSize: '20px', color: 'var(--color-success)', fontWeight: 'bold' }}>
-                  {currencySymbol}{selectedCustHistory.customer.totalSpent.toFixed(2)}
-                </h4>
-              </div>
-            </div>
+            {/* ── Loyalty Tier Summary Card ── */}
+            {(() => {
+              const pts = selectedCustHistory.customer.points || 0;
+              const tier = getLoyaltyTier(pts);
+              const lkrValue = Math.floor(pts / 100);
+              return (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', background: 'var(--bg-surface)', padding: '16px', borderRadius: '12px', border: `1px solid ${tier.color}33` }}>
+                  <div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Loyalty Tier</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: '1.4rem' }}>{tier.icon}</span>
+                      <span style={{ fontWeight: 900, fontSize: '1.1rem', color: tier.color }}>{tier.name}</span>
+                    </div>
+                    {tier.next && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: 3 }}>
+                        {tier.next - pts} pts to next tier
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Points Balance</span>
+                    <h4 style={{ fontSize: '20px', color: tier.color, fontWeight: 'bold', margin: '2px 0' }}>{pts}</h4>
+                    <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>≈ LKR {lkrValue} off</span>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Lifetime Spending</span>
+                    <h4 style={{ fontSize: '20px', color: 'var(--color-success)', fontWeight: 'bold', margin: '2px 0' }}>
+                      {currencySymbol}{selectedCustHistory.customer.totalSpent.toFixed(2)}
+                    </h4>
+                  </div>
+                </div>
+              );
+            })()}
 
             <h3 style={{ fontSize: '14px', fontWeight: '700', marginBottom: '12px' }}>Recent Paid Invoices</h3>
             

@@ -15,6 +15,19 @@ export default function DeliveryView() {
 
   const deliveryOrders = orders.filter(o => o.diningType === 'delivery' || o.diningType === 'takeaway' || o.source === 'online');
 
+  // ── Rush-hour detection (12-14h & 19-21h Sri Lanka time) ──
+  const checkRushHour = () => {
+    const h = new Date().getHours();
+    return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
+  };
+  const rushHour = checkRushHour();
+
+  const getDispatchBadge = (mode) => {
+    if (mode === 'auto')   return { label: '⚡ Auto-Dispatch', bg: '#059669', text: '#fff' };
+    if (mode === 'hybrid') return { label: '🔀 Hybrid',       bg: '#7c3aed', text: '#fff' };
+    return                        { label: '🖐️ Manual',       bg: '#374151', text: '#9ca3af' };
+  };
+
   const fetchDrivers = async () => {
     try {
       const token = localStorage.getItem('gastroflow_token');
@@ -327,9 +340,19 @@ export default function DeliveryView() {
                         />
                         <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Order #{ord.id.slice(-4).toUpperCase()}</h3>
                       </div>
-                      <span className={`badge ${ord.status === 'delivered' ? 'badge-success' : ord.status === 'ready' ? 'badge-warning' : 'badge-primary'}`} style={{ textTransform: 'uppercase' }}>
-                        {ord.status}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {/* Dispatch Mode Badge */}
+                        {(() => { const b = getDispatchBadge(ord.dispatchMode); return (
+                          <span style={{ background: b.bg, color: b.text, padding: '2px 8px', borderRadius: 8, fontSize: '0.68rem', fontWeight: 700 }}>{b.label}</span>
+                        ); })()}
+                        {/* Rush-Hour Fee Warning */}
+                        {rushHour && (ord.diningType === 'delivery' || ord.source === 'online') && (
+                          <span style={{ background: '#f59e0b22', color: '#f59e0b', border: '1px solid #f59e0b44', padding: '2px 8px', borderRadius: 8, fontSize: '0.68rem', fontWeight: 700 }}>⏰ Peak Fee</span>
+                        )}
+                        <span className={`badge ${ord.status === 'delivered' ? 'badge-success' : ord.status === 'ready' ? 'badge-warning' : 'badge-primary'}`} style={{ textTransform: 'uppercase' }}>
+                          {ord.status}
+                        </span>
+                      </div>
                     </div>
 
                     <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
