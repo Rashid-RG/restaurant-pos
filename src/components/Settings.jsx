@@ -225,6 +225,28 @@ export default function Settings() {
     }
   };
 
+  const handleClearAllMenu = async () => {
+    if (!window.confirm('⚠️ CRITICAL CONFIRMATION:\nAre you sure you want to WIPE ALL menu items and categories for your store?\n\nThis will remove all current items so you can start creating your real menu from a 100% clean slate!')) {
+      return;
+    }
+    try {
+      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
+      const res = await fetch('/api/menu/clear-store-menu', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to clear store menu');
+      showToast(data.message || '🧹 Store menu cleared successfully!', 'success');
+      if (typeof loadAllData === 'function') loadAllData(false);
+    } catch (err) {
+      showToast('Clear menu error: ' + err.message, 'error');
+    }
+  };
+
   const handleOpenItemAdd = () => {
     setEditItem(null);
     setItemName('');
@@ -580,7 +602,17 @@ export default function Settings() {
             {/* 2. Menu and Categories CRUD Settings */}
             {subTab === 'menu' && (
               <div>
-                <h2 className="settings-section-title">Menu Setup</h2>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                  <h2 className="settings-section-title" style={{ margin: 0 }}>Menu Setup</h2>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ color: '#ef4444', borderColor: '#ef444450', background: '#ef444410', padding: '6px 14px', fontSize: '12px', fontWeight: 800 }}
+                    onClick={handleClearAllMenu}
+                  >
+                    🗑️ Reset / Clear All Menu Items
+                  </button>
+                </div>
                 
                 {/* Categories block */}
                 <div style={{ marginBottom: '40px' }}>
