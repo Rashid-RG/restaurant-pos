@@ -35,13 +35,35 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const CITY_COORDS = {
     'Colombo 03, Western': { lat: 6.9147, lng: 79.8517 },
-    'Kandy City, Central': { lat: 7.2906, lng: 80.6337 },
-    'Galle Fort, Southern': { lat: 6.0535, lng: 80.2210 },
+    'Colombo 01, Western': { lat: 6.9344, lng: 79.8428 },
+    'Colombo 07, Western': { lat: 6.9080, lng: 79.8660 },
     'Dehiwala, Western': { lat: 6.8511, lng: 79.8650 },
     'Nugegoda, Western': { lat: 6.8724, lng: 79.8872 },
+    'Battaramulla, Western': { lat: 6.8973, lng: 79.9220 },
+    'Kotte, Western': { lat: 6.8906, lng: 79.9015 },
     'Negombo, Western': { lat: 7.2083, lng: 79.8358 },
+    'Galgamuwa, North Western': { lat: 7.9861, lng: 80.2921 },
+    'Galgamuwa, North Western Province': { lat: 7.9861, lng: 80.2921 },
+    'Kurunegala, North Western': { lat: 7.4863, lng: 80.3647 },
+    'Puttalam, North Western': { lat: 8.0362, lng: 79.8283 },
+    'Chilaw, North Western': { lat: 7.5758, lng: 79.7953 },
+    'Anuradhapura, North Central': { lat: 8.3114, lng: 80.4037 },
+    'Polonnaruwa, North Central': { lat: 7.9403, lng: 81.0188 },
+    'Kandy City, Central': { lat: 7.2906, lng: 80.6337 },
+    'Matale, Central': { lat: 7.4675, lng: 80.6234 },
+    'Nuwara Eliya, Central': { lat: 6.9497, lng: 80.7891 },
+    'Galle Fort, Southern': { lat: 6.0535, lng: 80.2210 },
+    'Matara, Southern': { lat: 5.9549, lng: 80.5550 },
+    'Hambantota, Southern': { lat: 6.1247, lng: 81.1185 },
     'Jaffna City, Northern': { lat: 9.6615, lng: 80.0255 },
-    'Battaramulla, Western': { lat: 6.8973, lng: 79.9220 }
+    'Vavuniya, Northern': { lat: 8.7514, lng: 80.4971 },
+    'Mannar, Northern': { lat: 8.9810, lng: 79.9044 },
+    'Trincomalee, Eastern': { lat: 8.5874, lng: 81.2152 },
+    'Batticaloa, Eastern': { lat: 7.7310, lng: 81.6747 },
+    'Badulla, Uva': { lat: 6.9934, lng: 81.0550 },
+    'Bandarawela, Uva': { lat: 6.8324, lng: 80.9856 },
+    'Ratnapura, Sabaragamuwa': { lat: 6.6828, lng: 80.3992 },
+    'Kegalle, Sabaragamuwa': { lat: 7.2513, lng: 80.3464 }
   };
 
   const calculateHaversineKm = (lat1, lon1, lat2, lon2) => {
@@ -61,12 +83,28 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     if (!address) return null;
     if (CITY_COORDS[address]) return CITY_COORDS[address];
     const lower = String(address).toLowerCase();
+
     for (const [key, coords] of Object.entries(CITY_COORDS)) {
-      const cityName = key.split(',')[0].toLowerCase();
-      if (lower.includes(cityName)) return coords;
+      const cityName = key.split(',')[0].toLowerCase().trim();
+      if (lower.includes(cityName) || cityName.includes(lower)) return coords;
     }
-    return CITY_COORDS['Colombo 03, Western'];
+
+    // Specific town keyword matchers
+    if (lower.includes('galgamuwa')) return { lat: 7.9861, lng: 80.2921 };
+    if (lower.includes('kurunegala')) return { lat: 7.4863, lng: 80.3647 };
+    if (lower.includes('anuradhapura')) return { lat: 8.3114, lng: 80.4037 };
+    if (lower.includes('puttalam')) return { lat: 8.0362, lng: 79.8283 };
+    if (lower.includes('kandy')) return { lat: 7.2906, lng: 80.6337 };
+    if (lower.includes('galle')) return { lat: 6.0535, lng: 80.2210 };
+    if (lower.includes('jaffna')) return { lat: 9.6615, lng: 80.0255 };
+    if (lower.includes('trincomalee')) return { lat: 8.5874, lng: 81.2152 };
+    if (lower.includes('matara')) return { lat: 5.9549, lng: 80.5550 };
+    if (lower.includes('badulla')) return { lat: 6.9934, lng: 81.0550 };
+    if (lower.includes('ratnapura')) return { lat: 6.6828, lng: 80.3992 };
+
+    return null;
   };
+
 
 
   // Auto detect location on load if default
@@ -396,9 +434,26 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         processStoreProximity(coords.lat, coords.lng, storeList);
       } else {
         const savedAddr = localStorage.getItem('gastroflow_delivery_address');
-        const resolved = resolveCoordsForAddress(savedAddr) || CITY_COORDS['Colombo 03, Western'];
+        let resolved = resolveCoordsForAddress(savedAddr);
+        if (!resolved && savedAddr && savedAddr !== 'Detecting Location...') {
+          try {
+            const query = encodeURIComponent(savedAddr);
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=lk&limit=1`);
+            if (res.ok) {
+              const geoData = await res.json();
+              if (geoData && geoData[0]) {
+                resolved = { lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon) };
+              }
+            }
+          } catch (_) {}
+        }
+        if (!resolved) {
+          resolved = CITY_COORDS['Colombo 03, Western'];
+        }
+        setUserCoords(resolved);
         processStoreProximity(resolved.lat, resolved.lng, storeList);
       }
+
     } catch (err) {
       console.error('Error fetching restaurants:', err);
     } finally {
