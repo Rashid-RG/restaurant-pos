@@ -859,6 +859,11 @@ async function initTables() {
       "INSERT OR IGNORE INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt) VALUES ('default_tenant', 'GastroFlow Main Store', 'main', 'owner@gastroflow.lk', 'enterprise', 'active', 1700000000000)"
     ).catch(() => {});
 
+    // Purge removed legacy store twinbbq from tenants and users tables
+    await dbRun("DELETE FROM tenants WHERE LOWER(id) LIKE '%twinbbq%' OR LOWER(subdomain) LIKE '%twinbbq%' OR LOWER(name) LIKE '%twinbbq%'").catch(() => {});
+    await dbRun("DELETE FROM users WHERE LOWER(tenant_id) LIKE '%twinbbq%' OR LOWER(username) LIKE '%twinbbq%'").catch(() => {});
+
+
     // Failsafe helper to add a missing column on both SQLite & Postgres
 
     const safeAddColumn = async (table, column, typeDef) => {
@@ -7056,43 +7061,9 @@ app.get('/api/saas/tenants', async (req, res) => {
       }
     }
 
-    // Auto-discover existing tenant stores from users table
-    try {
-      const legacyUserTenants = await dbAll(
-        `SELECT DISTINCT tenant_id, username, email FROM users WHERE tenant_id IS NOT NULL AND tenant_id != 'default_tenant'`
-      );
-
-      for (const u of legacyUserTenants) {
-        if (u.tenant_id && !knownIds.has(u.tenant_id)) {
-          const sub = u.tenant_id.replace(/^tenant_/, '').split('_')[0] || u.username;
-          const name = sub.charAt(0).toUpperCase() + sub.slice(1) + ' Outlet';
-          const newTenant = {
-            id: u.tenant_id,
-            name,
-            subdomain: sub,
-            ownerEmail: u.email || 'owner@restaurant.lk',
-            plan: 'pro',
-            status: 'active',
-            staffUsername: u.username,
-            temporaryPassword: '***',
-            createdAt: Date.now()
-          };
-
-          // Self-heal into tenants table
-          await dbRun(
-            `INSERT OR IGNORE INTO tenants (id, name, subdomain, ownerEmail, plan, status, staffUsername, temporaryPassword, createdAt)
-             VALUES (?, ?, ?, ?, 'pro', 'active', ?, '***', ?)`,
-            [u.tenant_id, name, sub, u.email || 'owner@restaurant.lk', u.username, Date.now()]
-          ).catch(() => {});
-
-          resultList.push(newTenant);
-          knownIds.add(u.tenant_id);
-        }
-      }
-    } catch (_) {}
-
     res.json(resultList);
   } catch (err) {
+
     res.status(500).json({ error: errMsg(err) });
   }
 });

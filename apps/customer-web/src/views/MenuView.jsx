@@ -460,13 +460,38 @@ export default function MenuView({ onNavigate, toast }) {
         </div>
       </div>
 
+      {/* Go Back to Stores Navigation Header */}
+      <div style={{ padding: '12px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button
+          onClick={() => onNavigate ? onNavigate('restaurants') : (window.history.length > 1 ? window.history.back() : null)}
+          style={{
+            background: 'rgba(255,107,53,0.12)',
+            border: '1px solid rgba(255,107,53,0.3)',
+            color: '#ff6b35',
+            borderRadius: 12,
+            padding: '8px 14px',
+            fontSize: '0.86rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
+          }}
+        >
+          <span>←</span>
+          <span>Back to All Stores</span>
+        </button>
+      </div>
+
       {/* Hero Banner */}
-      <div className="hero-banner" style={{ textAlign: 'center', padding: '30px 16px', background: 'linear-gradient(135deg, rgba(255, 126, 41, 0.1) 0%, rgba(255, 61, 0, 0.05) 100%)' }}>
+      <div className="hero-banner" style={{ textAlign: 'center', padding: '24px 16px 30px', background: 'linear-gradient(135deg, rgba(255, 126, 41, 0.1) 0%, rgba(255, 61, 0, 0.05) 100%)' }}>
         <h1 style={{ fontSize: '2.2rem', fontWeight: 800, margin: 0, color: 'var(--brand)' }}>{menu.restaurantName || 'GastroFlow Bistro'}</h1>
         <p style={{ color: 'var(--text-2)', fontSize: '0.95rem', marginTop: 6 }}>
           {customer ? `👋 Welcome back, ${customer.name}! 🎉` : t.welcome}
         </p>
       </div>
+
 
       {/* Advanced Multi-Dimensional Filter Bar */}
       <div style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>

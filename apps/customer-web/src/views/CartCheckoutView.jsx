@@ -625,7 +625,34 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         </div>
       )}
 
+      {/* Top Navigation Bar */}
+
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button
+          type="button"
+          onClick={() => onNavigate ? onNavigate('menu') : (window.history.length > 1 ? window.history.back() : null)}
+          style={{
+            background: 'rgba(255,107,53,0.12)',
+            border: '1px solid rgba(255,107,53,0.3)',
+            color: '#ff6b35',
+            borderRadius: 12,
+            padding: '8px 14px',
+            fontSize: '0.86rem',
+            fontWeight: 800,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+          }}
+        >
+          <span>←</span>
+          <span>Back to Menu</span>
+        </button>
+      </div>
+
       <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 16 }}>Checkout Details</h2>
+
 
       <form onSubmit={handlePlaceOrder}>
         

@@ -183,15 +183,25 @@ export default function SupportView({ onBack, toast = () => {} }) {
       {/* Top Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {onBack && (
-            <button
-              onClick={onBack}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '6px 12px', color: 'var(--text-1)', cursor: 'pointer', fontWeight: 700 }}
-            >
-              ← Back
-            </button>
-          )}
+          <button
+            onClick={() => onBack ? onBack() : (window.history.length > 1 ? window.history.back() : null)}
+            style={{
+              background: 'rgba(255,107,53,0.12)',
+              border: '1px solid rgba(255,107,53,0.3)',
+              color: '#ff6b35',
+              borderRadius: 10,
+              padding: '6px 12px',
+              cursor: 'pointer',
+              fontWeight: 800,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            ← Back
+          </button>
           <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900 }}>🎧 Customer Support Desk</h2>
+
         </div>
       </div>
 

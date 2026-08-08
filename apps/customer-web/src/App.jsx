@@ -283,10 +283,41 @@ function InnerApp() {
       {/* Top Header */}
       <header className="top-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="food-logo.png" alt="GastroFood Logo" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', boxShadow: '0 2px 8px rgba(255,107,53,0.25)' }} />
-          <span className="restaurant-name" style={{ fontSize: '1.35rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px' }}>
+          {view !== 'restaurants' && (
+            <button
+              onClick={() => {
+                if (window.history.state && window.history.length > 1) {
+                  window.history.back();
+                } else {
+                  navigate('restaurants');
+                }
+              }}
+              style={{
+                background: 'rgba(255,107,53,0.12)',
+                border: '1px solid rgba(255,107,53,0.3)',
+                color: '#ff6b35',
+                borderRadius: 10,
+                padding: '6px 12px',
+                fontSize: '0.84rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                transition: 'all 0.2s ease'
+              }}
+              title="Go Back to Previous View"
+            >
+              <span>←</span>
+              <span>Back</span>
+            </button>
+          )}
+          <img src="food-logo.png" alt="GastroFood Logo" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', boxShadow: '0 2px 8px rgba(255,107,53,0.25)', cursor: 'pointer' }} onClick={() => navigate('restaurants')} />
+          <span className="restaurant-name" style={{ fontSize: '1.35rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px', cursor: 'pointer' }} onClick={() => navigate('restaurants')}>
             GastroFlow
           </span>
+
           {localStorage.getItem('gastroflow_table_number') && (
             <span style={{ background: '#10b98120', color: '#10b981', padding: '3px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, border: '1px solid #10b98150' }}>
               🪑 Table #{localStorage.getItem('gastroflow_table_number')}
