@@ -57,6 +57,18 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     return Number((R * c).toFixed(1));
   };
 
+  const resolveCoordsForAddress = (address) => {
+    if (!address) return null;
+    if (CITY_COORDS[address]) return CITY_COORDS[address];
+    const lower = String(address).toLowerCase();
+    for (const [key, coords] of Object.entries(CITY_COORDS)) {
+      const cityName = key.split(',')[0].toLowerCase();
+      if (lower.includes(cityName)) return coords;
+    }
+    return CITY_COORDS['Colombo 03, Western'];
+  };
+
+
   // Auto detect location on load if default
   useEffect(() => {
     const saved = localStorage.getItem('gastroflow_delivery_address');
