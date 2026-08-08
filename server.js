@@ -7151,6 +7151,45 @@ app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager'
   }
 });
 
+app.delete('/api/saas/tenants/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  const { id } = req.params;
+  if (!id || id === 'default_tenant') {
+    return res.status(400).json({ error: 'Cannot delete the primary default tenant store.' });
+  }
+
+  try {
+    await dbRun('BEGIN TRANSACTION');
+    await dbRun('DELETE FROM tenants WHERE id = ? OR subdomain = ?', [id, id]);
+    await dbRun('DELETE FROM users WHERE tenant_id = ? OR tenant_id = ?', [id, `tenant_${id}`]);
+    await dbRun('DELETE FROM menu_items WHERE tenant_id = ?', [id]);
+    await dbRun('DELETE FROM categories WHERE tenant_id = ?', [id]);
+    await dbRun('DELETE FROM tables WHERE tenant_id = ?', [id]);
+    await dbRun('COMMIT');
+
+    res.json({ success: true, message: `Tenant store deleted permanently from the system.` });
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+app.patch('/api/saas/tenants/:id/status', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  if (!id || id === 'default_tenant') {
+    return res.status(400).json({ error: 'Cannot alter primary default tenant store status.' });
+  }
+
+  try {
+    const validStatus = status === 'suspended' ? 'suspended' : 'active';
+    await dbRun('UPDATE tenants SET status = ? WHERE id = ? OR subdomain = ?', [validStatus, id, id]);
+    res.json({ success: true, message: `Tenant store status updated to "${validStatus}".` });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+
 // ── Multi-Tenant Partner Payouts & Commission Analytics ──
 app.get('/api/marketplace/partner-earnings', requireRole(['owner']), async (req, res) => {
   try {
