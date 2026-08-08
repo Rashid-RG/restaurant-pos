@@ -15,6 +15,9 @@
     "build": "vite build",
     "build:all": "vite build && vite build apps/customer-web && vite build apps/driver-web",
     "postinstall": "vite build && vite build apps/customer-web && vite build apps/driver-web",
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap add android && npx cap sync",
+    "cap:ios": "npx cap add ios && npx cap sync",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
