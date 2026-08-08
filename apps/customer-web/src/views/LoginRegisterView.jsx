@@ -131,9 +131,10 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
       if (r.loggedIn) {
         setShowOtpModal(false);
         setEnteredOtp('');
-        toast('Logged in successfully via OTP! 🎉', 'success');
+        toast('ℹ️ Account Already Exists — Logged into your existing account!', 'info', 6000);
         onSuccess && onSuccess();
       } else if (r.verified) {
+
         setOtpVerified(true);
         setShowOtpModal(false);
         setEnteredOtp('');

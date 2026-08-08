@@ -840,7 +840,27 @@ async function initTables() {
       )
     `);
 
+    // 27. Tenants Table (Multi-tenant store registry)
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        subdomain TEXT UNIQUE NOT NULL,
+        ownerEmail TEXT,
+        plan TEXT DEFAULT 'pro',
+        status TEXT DEFAULT 'active',
+        staffUsername TEXT,
+        temporaryPassword TEXT,
+        createdAt INTEGER
+      )
+    `);
+
+    await dbRun(
+      "INSERT OR IGNORE INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt) VALUES ('default_tenant', 'GastroFlow Main Store', 'main', 'owner@gastroflow.lk', 'enterprise', 'active', 1700000000000)"
+    ).catch(() => {});
+
     // Failsafe helper to add a missing column on both SQLite & Postgres
+
     const safeAddColumn = async (table, column, typeDef) => {
       try {
         let hasCol = false;
@@ -6996,6 +7016,68 @@ app.post('/api/inventory/transfers/:id/approve', authenticateToken, requireRole(
     await dbRun('COMMIT');
 
     res.json({ message: `Stock transfer #${id} approved and quantity deducted from Central Kitchen!` });
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// ── SaaS Multi-Tenancy Provisioning & Tenant List Endpoints ──
+app.get('/api/saas/tenants', authenticateToken, async (req, res) => {
+  try {
+    const tenantsList = await dbAll('SELECT * FROM tenants ORDER BY createdAt DESC');
+    res.json(tenantsList);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  const { name, subdomain, ownerEmail, plan } = req.body;
+  if (!name || !subdomain || !ownerEmail) {
+    return res.status(400).json({ error: 'name, subdomain, and ownerEmail are required.' });
+  }
+
+  const cleanSubdomain = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '');
+  try {
+    const existing = await dbGet('SELECT * FROM tenants WHERE subdomain = ?', [cleanSubdomain]);
+    if (existing) return res.status(400).json({ error: `Subdomain "${cleanSubdomain}" is already taken.` });
+
+    const tenantId = `tenant_${cleanSubdomain}_${Date.now().toString(36)}`;
+    const staffUsername = `${cleanSubdomain}_admin`;
+    const temporaryPassword = generateStrongPassword(10);
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+    const createdAt = Date.now();
+
+    await dbRun('BEGIN TRANSACTION');
+
+    await dbRun(
+      'INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, staffUsername, temporaryPassword, createdAt) VALUES (?, ?, ?, ?, ?, "active", ?, ?, ?)',
+      [tenantId, name, cleanSubdomain, ownerEmail, plan || 'pro', staffUsername, temporaryPassword, createdAt]
+    );
+
+    const userId = `usr_${Date.now()}`;
+    await dbRun(
+      'INSERT INTO users (id, username, passwordHash, role, pin, tenant_id) VALUES (?, ?, ?, "owner", "1234", ?)',
+      [userId, staffUsername, passwordHash, tenantId]
+    );
+
+    await seedDatabase(tenantId);
+    await dbRun('COMMIT');
+
+    const createdTenant = {
+      id: tenantId,
+      name,
+      subdomain: cleanSubdomain,
+      ownerEmail,
+      plan: plan || 'pro',
+      status: 'active',
+      staffUsername,
+      temporaryPassword,
+      createdAt
+    };
+
+    res.status(201).json({ tenant: createdTenant, message: `Tenant store "${name}" provisioned successfully!` });
   } catch (err) {
     await dbRun('ROLLBACK').catch(() => {});
     res.status(500).json({ error: errMsg(err) });
