@@ -2142,12 +2142,14 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
 });
 
 // Generic Table CRUD Endpoints (Categories, Menu Items, Tables, Customers)
+// Generic Table CRUD Endpoints (Categories, Menu Items, Tables, Customers)
 const CRUD_TABLES = ['categories', 'menu_items', 'tables', 'customers'];
 
 for (const tableName of CRUD_TABLES) {
-  app.get(`/api/${tableName}`, async (req, res) => {
+  app.get(`/api/${tableName}`, authenticateToken, async (req, res) => {
     try {
-      const rows = await dbAll(`SELECT * FROM ${tableName}`);
+      const tenantId = req.tenantId || 'default_tenant';
+      const rows = await dbAll(`SELECT * FROM ${tableName} WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = 'default_tenant')`, [tenantId, tenantId]);
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: errMsg(err) });
@@ -2155,10 +2157,11 @@ for (const tableName of CRUD_TABLES) {
   });
 
   app.post(`/api/${tableName}`, authenticateToken, async (req, res) => {
-    const item = req.body;
+    const item = { ...req.body };
     if (!item || typeof item !== 'object') {
       return res.status(400).json({ error: 'Invalid record payload.' });
     }
+    item.tenant_id = item.tenant_id || req.tenantId || 'default_tenant';
     const id = item.id || `${tableName.slice(0, 3)}_${Date.now()}`;
     const keys = Object.keys(item).filter(k => k !== 'id');
     const cols = ['id', ...keys];
@@ -2184,7 +2187,8 @@ for (const tableName of CRUD_TABLES) {
   app.delete(`/api/${tableName}/:id`, authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
     const { id } = req.params;
     try {
-      await dbRun(`DELETE FROM ${tableName} WHERE id = ?`, [id]);
+      const tenantId = req.tenantId || 'default_tenant';
+      await dbRun(`DELETE FROM ${tableName} WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)`, [id, tenantId]);
       res.json({ success: true, id });
     } catch (err) {
       res.status(500).json({ error: errMsg(err) });
