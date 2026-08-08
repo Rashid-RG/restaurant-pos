@@ -42,32 +42,7 @@ export default function Settings() {
     setLogoUrl(settings.logoUrl || settings.logo || settings.restaurantLogo || '');
   }, [settings]);
 
-  // SaaS Tenants Management States
-  const [tenantsList, setTenantsList] = useState([]);
-  const [loadingTenants, setLoadingTenants] = useState(false);
-  const [lastProvisioned, setLastProvisioned] = useState(null);
 
-  const fetchTenants = async () => {
-    setLoadingTenants(true);
-    try {
-      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
-      const res = await fetch('/api/saas/tenants', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTenantsList(Array.isArray(data) ? data : []);
-      }
-    } catch (err) {
-      console.error('Error loading tenant stores:', err);
-    } finally {
-      setLoadingTenants(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchTenants();
-  }, []);
 
 
   // Menu item modal states
