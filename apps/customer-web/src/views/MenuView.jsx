@@ -465,9 +465,28 @@ export default function MenuView({ onNavigate, toast }) {
       {/* Hero Banner */}
       <div className="hero-banner" style={{ textAlign: 'center', padding: '24px 16px 30px', background: 'linear-gradient(135deg, rgba(255, 126, 41, 0.1) 0%, rgba(255, 61, 0, 0.05) 100%)' }}>
         <h1 style={{ fontSize: '2.2rem', fontWeight: 800, margin: 0, color: 'var(--brand)' }}>{menu.restaurantName || 'GastroFlow Bistro'}</h1>
-        <p style={{ color: 'var(--text-2)', fontSize: '0.95rem', marginTop: 6 }}>
+        <p style={{ color: 'var(--text-2)', fontSize: '0.95rem', marginTop: 6, marginBottom: 10 }}>
           {customer ? `👋 Welcome back, ${customer.name}! 🎉` : t.welcome}
         </p>
+        <button 
+          onClick={() => setView('restaurants')}
+          style={{
+            background: 'rgba(255, 107, 53, 0.15)',
+            border: '1px solid rgba(255, 107, 53, 0.4)',
+            color: 'var(--brand)',
+            borderRadius: '20px',
+            padding: '5px 16px',
+            fontSize: '0.8rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <span>🏬 Switch Restaurant Store</span>
+          <span style={{ fontSize: '0.7rem' }}>▼</span>
+        </button>
       </div>
 
 
