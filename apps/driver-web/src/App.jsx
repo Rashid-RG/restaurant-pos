@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
+
 
 // ── Auth token storage ──
 const TOKEN_KEY = 'gastrodriver_token';
@@ -248,6 +250,9 @@ export default function App() {
 
   return (
     <div className="driver-app-shell">
+      <SystemUpdatePrompt />
+
+
       {toastMsg && (
         <div style={{
           position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 99999,

@@ -12,6 +12,8 @@ import LegalPoliciesView from './views/LegalPoliciesView.jsx';
 import SupportView from './views/SupportView.jsx';
 import GastroAiConcierge from './components/GastroAiConcierge.jsx';
 import { setActiveTenant } from './utils/tenant.js';
+import SystemUpdatePrompt from './components/SystemUpdatePrompt.jsx';
+
 
 // ── Error Boundary ───────────────────────────────────────────────────
 class ErrorBoundary extends Component {
@@ -274,6 +276,9 @@ function InnerApp() {
     <div className="app-shell">
       <Toast messages={messages} />
       <InstallPrompt />
+      <SystemUpdatePrompt />
+
+
 
       {/* Top Header */}
       <header className="top-header">

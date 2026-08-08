@@ -12,6 +12,8 @@ import DeliveryView from './components/DeliveryView';
 import SupportTicketsView from './components/SupportTicketsView';
 import Login from './components/Login';
 
+import SystemUpdatePrompt from '../apps/customer-web/src/components/SystemUpdatePrompt.jsx';
+
 function AppContent() {
   const { activeTab, loading, currentUser } = usePOS();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -56,11 +58,13 @@ function AppContent() {
 
   return (
     <div className="app-container">
+      <SystemUpdatePrompt />
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       {renderActiveView()}
     </div>
   );
 }
+
 
 export default function App() {
   return (

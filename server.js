@@ -174,9 +174,6 @@ if (!process.env.VITEST) {
       const entry = {
         t: new Date().toISOString(),
         lvl: res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
-        method: req.method,
-        path: req.path,
-        status: res.statusCode,
         ms: Date.now() - start,
         tenant: req.tenantId || req.driver?.tenant_id || undefined
       };
@@ -185,6 +182,19 @@ if (!process.env.VITEST) {
     next();
   });
 }
+
+const SYSTEM_BUILD_TIMESTAMP = Date.now();
+const SYSTEM_VERSION = '1.3.0';
+
+// GET /api/system/version — Public endpoint for PWA/client instant update detection
+app.get('/api/system/version', (req, res) => {
+  res.json({
+    version: SYSTEM_VERSION,
+    buildTimestamp: SYSTEM_BUILD_TIMESTAMP,
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 
 // Open SQLite Database (DATABASE_FILE overrides the default, e.g. for isolated tests)
 const dbPath = process.env.DATABASE_FILE || path.join(__dirname, 'restaurant.db');
