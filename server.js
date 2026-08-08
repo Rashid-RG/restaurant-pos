@@ -1392,6 +1392,9 @@ async function seedDatabase(tenantId) {
           await dbRun("INSERT INTO settings (tenant_id, key, value) VALUES ('default_tenant', ?, ?)", [s.key, s.value]);
         }
       }
+
+      // Seed KB2C BBQ Restaurant
+      await seedKb2cStore();
     } catch (e) {
       console.error('Error seeding advanced metadata:', e.message);
     }
@@ -1401,6 +1404,135 @@ async function seedDatabase(tenantId) {
     console.error('Seeding database error:', error);
   }
 }
+
+// ── Seed KB2C BBQ Restaurant Store ──
+async function seedKb2cStore() {
+  try {
+    const tid = 'tenant_kb2c';
+    console.log('[Boot] Seeding KB2C BBQ Restaurant tenant store...');
+
+    await dbRun(
+      `INSERT OR IGNORE INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt)
+       VALUES (?, 'KB2C BBQ Restaurant', 'kb2c', 'kb2c@restaurant.lk', 'pro', 'active', ?)`,
+      [tid, Date.now()]
+    );
+
+    const hash = await bcrypt.hash('kb2c@2026', 10);
+    await dbRun(
+      `INSERT OR IGNORE INTO users (id, username, passwordHash, role, pin, tenant_id, email, phone)
+       VALUES (?, 'kb2c_admin', ?, 'owner', '1234', ?, 'kb2c@restaurant.lk', '0752237947')`,
+      [`usr_kb2c_owner`, hash, tid]
+    );
+
+    const categories = [
+      { id: `${tid}_cat_rice`, name: 'Rice Dishes', emoji: '🍚' },
+      { id: `${tid}_cat_kottu`, name: 'Kottu & Dolphine', emoji: '🥘' },
+      { id: `${tid}_cat_bbq_paratha`, name: 'BBQ with Paratha', emoji: '🍗' },
+      { id: `${tid}_cat_bbq_only`, name: 'BBQ Only', emoji: '🔥' },
+      { id: `${tid}_cat_bbq_rice`, name: 'BBQ with Rice', emoji: '🍛' },
+      { id: `${tid}_cat_extras`, name: 'Extras & Add-Ons', emoji: '🧀' }
+    ];
+    for (const c of categories) {
+      await dbRun(
+        `INSERT OR IGNORE INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?)`,
+        [c.id, c.name, c.emoji, tid]
+      );
+    }
+
+    const items = [
+      // RICE
+      { id: `${tid}_item_chicken_rice_f`, name: 'Chicken Rice (Full)', price: 1000, categoryId: `${tid}_cat_rice`, emoji: '🍗', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_chicken_rice_n`, name: 'Chicken Rice (Normal)', price: 800, categoryId: `${tid}_cat_rice`, emoji: '🍗', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_beef_rice_f`, name: 'Beef Rice (Full)', price: 1100, categoryId: `${tid}_cat_rice`, emoji: '🥩', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_beef_rice_n`, name: 'Beef Rice (Normal)', price: 850, categoryId: `${tid}_cat_rice`, emoji: '🥩', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_mix_rice_f`, name: 'Mix Rice (Full)', price: 1800, categoryId: `${tid}_cat_rice`, emoji: '🍱', isHalal: 1, preparationTime: 20 },
+      { id: `${tid}_item_mix_rice_n`, name: 'Mix Rice (Normal)', price: 1500, categoryId: `${tid}_cat_rice`, emoji: '🍱', isHalal: 1, preparationTime: 20 },
+      { id: `${tid}_item_seafood_rice_f`, name: 'Sea Food Rice (Full)', price: 3600, categoryId: `${tid}_cat_rice`, emoji: '🦐', isHalal: 0, preparationTime: 20 },
+      { id: `${tid}_item_seafood_rice_n`, name: 'Sea Food Rice (Normal)', price: 1800, categoryId: `${tid}_cat_rice`, emoji: '🦐', isHalal: 0, preparationTime: 20 },
+
+      // KOTTU
+      { id: `${tid}_item_chicken_kottu_f`, name: 'Chicken Kottu (Full)', price: 1000, categoryId: `${tid}_cat_kottu`, emoji: '🥘', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_chicken_kottu_n`, name: 'Chicken Kottu (Normal)', price: 800, categoryId: `${tid}_cat_kottu`, emoji: '🥘', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_beef_kottu_f`, name: 'Beef Kottu (Full)', price: 1200, categoryId: `${tid}_cat_kottu`, emoji: '🥩', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_beef_kottu_n`, name: 'Beef Kottu (Normal)', price: 1000, categoryId: `${tid}_cat_kottu`, emoji: '🥩', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_cheese_kottu_ch_f`, name: 'Cheese Kottu - Chicken (Full)', price: 1300, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_cheese_kottu_ch_n`, name: 'Cheese Kottu - Chicken (Normal)', price: 1100, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_cheese_kottu_bf_f`, name: 'Cheese Kottu - Beef (Full)', price: 1500, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_cheese_kottu_bf_n`, name: 'Cheese Kottu - Beef (Normal)', price: 1300, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_dolphine_ch_f`, name: 'Dolphine Kottu - Chicken (Full)', price: 1000, categoryId: `${tid}_cat_kottu`, emoji: '🍲', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_dolphine_ch_n`, name: 'Dolphine Kottu - Chicken (Normal)', price: 800, categoryId: `${tid}_cat_kottu`, emoji: '🍲', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_dolphine_bf_f`, name: 'Dolphine Kottu - Beef (Full)', price: 1200, categoryId: `${tid}_cat_kottu`, emoji: '🍲', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_dolphine_bf_n`, name: 'Dolphine Kottu - Beef (Normal)', price: 800, categoryId: `${tid}_cat_kottu`, emoji: '🍲', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_cheese_dolphine_ch_f`, name: 'Cheese Dolphine - Chicken (Full)', price: 1500, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_cheese_dolphine_ch_n`, name: 'Cheese Dolphine - Chicken (Normal)', price: 1300, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_cheese_dolphine_bf_f`, name: 'Cheese Dolphine - Beef (Full)', price: 1700, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_cheese_dolphine_bf_n`, name: 'Cheese Dolphine - Beef (Normal)', price: 1500, categoryId: `${tid}_cat_kottu`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+      { id: `${tid}_item_idiyappa_ch_f`, name: 'Idiyappa Kottu - Chicken (Full)', price: 1500, categoryId: `${tid}_cat_kottu`, emoji: '🍜', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_idiyappa_ch_n`, name: 'Idiyappa Kottu - Chicken (Normal)', price: 800, categoryId: `${tid}_cat_kottu`, emoji: '🍜', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_idiyappa_bf_f`, name: 'Idiyappa Kottu - Beef (Full)', price: 1300, categoryId: `${tid}_cat_kottu`, emoji: '🍜', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_idiyappa_bf_n`, name: 'Idiyappa Kottu - Beef (Normal)', price: 1100, categoryId: `${tid}_cat_kottu`, emoji: '🍜', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_noodles_ch_f`, name: 'Noodles Kottu - Chicken (Full)', price: 1000, categoryId: `${tid}_cat_kottu`, emoji: '🍝', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_noodles_ch_n`, name: 'Noodles Kottu - Chicken (Normal)', price: 800, categoryId: `${tid}_cat_kottu`, emoji: '🍝', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_noodles_bf_f`, name: 'Noodles Kottu - Beef (Full)', price: 1300, categoryId: `${tid}_cat_kottu`, emoji: '🍝', isHalal: 1, preparationTime: 15 },
+      { id: `${tid}_item_noodles_bf_n`, name: 'Noodles Kottu - Beef (Normal)', price: 1100, categoryId: `${tid}_cat_kottu`, emoji: '🍝', isHalal: 1, preparationTime: 15 },
+
+      // BBQ WITH PARATHA
+      { id: `${tid}_item_full_bbq_4paratha`, name: 'Full BBQ with 4 Paratha', price: 1799, categoryId: `${tid}_cat_bbq_paratha`, emoji: '🍗', isHalal: 1, preparationTime: 25 },
+      { id: `${tid}_item_half_bbq_2paratha`, name: 'Half BBQ with 2 Paratha', price: 949, categoryId: `${tid}_cat_bbq_paratha`, emoji: '🍗', isHalal: 1, preparationTime: 20 },
+      { id: `${tid}_item_qtr_bbq_1paratha`, name: 'Quarter BBQ with 1 Paratha', price: 549, categoryId: `${tid}_cat_bbq_paratha`, emoji: '🍗', isHalal: 1, preparationTime: 15 },
+
+      // BBQ ONLY
+      { id: `${tid}_item_full_bbq_only`, name: 'Full BBQ Only', price: 1699, categoryId: `${tid}_cat_bbq_only`, emoji: '🔥', isHalal: 1, preparationTime: 25 },
+      { id: `${tid}_item_half_bbq_only`, name: 'Half BBQ Only', price: 899, categoryId: `${tid}_cat_bbq_only`, emoji: '🔥', isHalal: 1, preparationTime: 20 },
+      { id: `${tid}_item_qtr_bbq_only`, name: 'Quarter BBQ Only', price: 499, categoryId: `${tid}_cat_bbq_only`, emoji: '🔥', isHalal: 1, preparationTime: 15 },
+
+      // BBQ WITH RICE
+      { id: `${tid}_item_full_bbq_fullrice`, name: 'Full BBQ with Full Rice', price: 2499, categoryId: `${tid}_cat_bbq_rice`, emoji: '🍛', isHalal: 1, preparationTime: 25 },
+      { id: `${tid}_item_half_bbq_rice`, name: 'Half BBQ with Rice', price: 899, categoryId: `${tid}_cat_bbq_rice`, emoji: '🍛', isHalal: 1, preparationTime: 20 },
+      { id: `${tid}_item_qtr_bbq_rice`, name: 'Quarter BBQ with Rice', price: 999, categoryId: `${tid}_cat_bbq_rice`, emoji: '🍛', isHalal: 1, preparationTime: 15 },
+
+      // EXTRAS
+      { id: `${tid}_item_extra_egg`, name: 'Extra Egg', price: 100, categoryId: `${tid}_cat_extras`, emoji: '🥚', isHalal: 1, preparationTime: 5 },
+      { id: `${tid}_item_extra_cheese`, name: 'Extra Cheese', price: 200, categoryId: `${tid}_cat_extras`, emoji: '🧀', isHalal: 1, preparationTime: 5 },
+      { id: `${tid}_item_extra_sauce`, name: 'Extra Sauce', price: 100, categoryId: `${tid}_cat_extras`, emoji: '🥫', isHalal: 1, preparationTime: 2 },
+      { id: `${tid}_item_extra_chicken`, name: 'Extra Chicken', price: 300, categoryId: `${tid}_cat_extras`, emoji: '🍗', isHalal: 1, preparationTime: 10 },
+      { id: `${tid}_item_extra_beef`, name: 'Extra Beef', price: 400, categoryId: `${tid}_cat_extras`, emoji: '🥩', isHalal: 1, preparationTime: 10 }
+    ];
+
+    for (const itm of items) {
+      await dbRun(
+        `INSERT OR IGNORE INTO menu_items (id, name, price, category, emoji, isHalal, preparationTime, tenant_id, isAvailable)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [itm.id, itm.name, itm.price, itm.categoryId, itm.emoji, itm.isHalal, itm.preparationTime, tid]
+      );
+    }
+
+    const kb2cSettings = [
+      { key: 'businessName', value: 'KB2C BBQ Restaurant' },
+      { key: 'restaurantName', value: 'KB2C BBQ Restaurant' },
+      { key: 'currencySymbol', value: 'Rs.' },
+      { key: 'taxRate', value: '0' },
+      { key: 'serviceChargeRate', value: '0' },
+      { key: 'address', value: 'Sri Lanka' },
+      { key: 'phone', value: '0752237947' },
+      { key: 'whatsapp', value: '+94752237947' },
+      { key: 'storeOpen', value: 'true' },
+      { key: 'defaultPrepTime', value: '20' },
+      { key: 'deliveryFee', value: '150' },
+      { key: 'minimumOrder', value: '500' }
+    ];
+
+    for (const s of kb2cSettings) {
+      const check = await dbGet('SELECT * FROM settings WHERE tenant_id = ? AND key = ?', [tid, s.key]);
+      if (!check) {
+        await dbRun('INSERT INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tid, s.key, s.value]);
+      }
+    }
+  } catch (e) {
+    console.error('KB2C store seeding failed:', e.message);
+  }
+}
+
 
 // REST API ROUTES
 
