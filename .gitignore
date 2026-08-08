@@ -36,3 +36,6 @@ Thumbs.db
 personal/
 *.personal.*
 
+# Claude files
+.claude/
+CLAUDE.md
