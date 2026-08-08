@@ -2347,7 +2347,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
     if (isEmail) {
       const html = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: storeName });
 
-      // Fast non-blocking email sending with 2.5s maximum timeout so response never hangs or triggers "Load failed"
+      // Allow up to 10s for SMTP — Render can be slow on first connection
       try {
         const sendPromise = sendEmail({
           to: cleanDest,
@@ -2355,7 +2355,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
           html,
           text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
         });
-        const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true }), 2500));
+        const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true }), 10000));
         const sendRes = await Promise.race([sendPromise, timeoutPromise]);
 
         if (!sendRes || sendRes.simulated || sendRes.timeout || !sendRes.success) {
