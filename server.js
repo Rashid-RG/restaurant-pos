@@ -3104,6 +3104,9 @@ app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, 
       dispatchIcon  = '📦';
     }
 
+    const storePhone = (await getSetting(tenantId, 'phone')) || '0752237947';
+    const storeName = (await getSettingAny(tenantId, ['restaurantName', 'businessName'])) || 'GastroFlow Bistro';
+
     res.json({
       orderId: order.id,
       orderStatus: order.status,
@@ -3113,7 +3116,9 @@ app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, 
       dispatchLabel,
       dispatchIcon,
       etaMinutes: order.etaMinutes || null,
-      acceptedAt: order.acceptedAt || null
+      acceptedAt: order.acceptedAt || null,
+      storePhone,
+      storeName
     });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });

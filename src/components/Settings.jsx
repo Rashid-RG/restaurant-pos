@@ -469,8 +469,26 @@ export default function Settings() {
                     </div>
                   </div>
 
-                  <div className="form-group">
-                    <label>Restaurant Address (Printed on Receipts)</label>
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📞 Store Official Phone / Hotline Number</span>
+                      <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>Customer Enquiries & WhatsApp</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. 0752237947 or +94752237947"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      required
+                    />
+                    <small style={{ color: 'var(--text-muted)', fontSize: '0.78rem', marginTop: '4px', display: 'block' }}>
+                      This phone number is displayed on receipts, order tracking, and customer support for direct customer enquiries.
+                    </small>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label style={{ fontWeight: 600 }}>Restaurant Address (Printed on Receipts & Customer App)</label>
                     <input
                       type="text"
                       className="form-input"

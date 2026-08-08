@@ -578,7 +578,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </a>
 
               <a
-                href="tel:+94760130922"
+                href={`tel:${order?.storePhone || '0752237947'}`}
                 style={{ textDecoration: 'none' }}
               >
                 <button
@@ -599,7 +599,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     gap: 4
                   }}
                 >
-                  <span>🎧 Support</span>
+                  <span>📞 Call Store</span>
                 </button>
               </a>
             </div>

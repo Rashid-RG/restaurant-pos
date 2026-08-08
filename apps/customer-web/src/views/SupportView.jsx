@@ -175,13 +175,31 @@ export default function SupportView({ onBack, toast = () => {} }) {
     }
   };
 
-  const waText = encodeURIComponent(`Hi GastroFlow Support, I need assistance with my order/account.`);
-  const waLink = `https://wa.me/94760130922?text=${waText}`;
+ 
+
+  const [storeInfo, setStoreInfo] = useState({ name: 'GastroFlow Bistro', phone: '0752237947' });
+
+  useEffect(() => {
+    apiFetch('/public/menu')
+      .then(data => {
+        if (data) {
+          setStoreInfo({
+            name: data.restaurantName || 'GastroFlow Bistro',
+            phone: data.storePhone || '0752237947'
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const cleanPhone = storeInfo.phone.replace(/\D/g, '');
+  const waPhone = cleanPhone.startsWith('0') ? '94' + cleanPhone.slice(1) : cleanPhone;
+  const waLink = `https://wa.me/${waPhone}?text=${encodeURIComponent(`Hi ${storeInfo.name}, I have an order enquiry.`)}`;
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto', padding: '16px', color: 'var(--text-1)' }}>
       {/* Top Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             onClick={() => onBack ? onBack() : (window.history.length > 1 ? window.history.back() : null)}
@@ -200,26 +218,30 @@ export default function SupportView({ onBack, toast = () => {} }) {
           >
             ← Back
           </button>
-          <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900 }}>🎧 Customer Support Desk</h2>
-
+          <div>
+            <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 900 }}>🎧 Store Customer Support</h2>
+            <div style={{ fontSize: '0.78rem', color: 'var(--brand)', fontWeight: 700, marginTop: 2 }}>
+              🏪 Active Store: {storeInfo.name}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Direct Escalation Quick Cards */}
+      {/* Direct Store Hotline Quick Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
         <a href={waLink} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
           <div style={{ background: '#25D36615', border: '1px solid #25D36650', borderRadius: 14, padding: 16, textAlign: 'center', color: '#25D366', cursor: 'pointer' }}>
             <div style={{ fontSize: '1.8rem', marginBottom: 4 }}>💬</div>
-            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>WhatsApp Live Support</div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>Instant Response</div>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>WhatsApp Store Desk</div>
+            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>{storeInfo.phone}</div>
           </div>
         </a>
 
-        <a href="tel:+94760130922" style={{ textDecoration: 'none' }}>
+        <a href={`tel:${storeInfo.phone}`} style={{ textDecoration: 'none' }}>
           <div style={{ background: '#3b82f615', border: '1px solid #3b82f650', borderRadius: 14, padding: 16, textAlign: 'center', color: '#3b82f6', cursor: 'pointer' }}>
             <div style={{ fontSize: '1.8rem', marginBottom: 4 }}>📞</div>
-            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>Call Store Manager</div>
-            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>+94 76 013 0922</div>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>Call Store Hotline</div>
+            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: 2 }}>{storeInfo.phone}</div>
           </div>
         </a>
       </div>
