@@ -358,6 +358,11 @@ async function initTables() {
         ['customer_cards', 'createdat'],
         ['orders', 'createdAt'],
         ['orders', 'createdat'],
+        ['orders', 'scheduledTime'],
+        ['orders', 'scheduledtime'],
+        ['orders', 'timestamp'],
+        ['orders', 'acceptedAt'],
+        ['orders', 'acceptedat'],
         ['shifts', 'startTime'],
         ['shifts', 'starttime'],
         ['shifts', 'endTime'],
@@ -2362,13 +2367,18 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
       }
 
       console.log(`[OTP EMAIL] Sent to ${cleanDest} | Code: ${code} | Simulated: ${isSimulated}`);
+
+      // SECURITY: Never expose OTP code in API response in production.
+      // In dev/local mode only, expose in server logs but NOT in the HTTP response.
+      // isSimulated means the email backend failed; we still do NOT auto-fill the OTP for the user.
       return res.json({
         success: true,
         channel: 'email',
         destination: cleanDest,
-        message: `Verification code sent to email: ${cleanDest}`,
-        devHint: isSimulated ? `[DEV HINT: OTP is ${code}]` : undefined,
-        otpCode: isSimulated ? code : (process.env.NODE_ENV !== 'production' ? code : undefined)
+        simulated: isSimulated,
+        message: isSimulated
+          ? `Email delivery failed — check your SMTP configuration. OTP logged server-side for debugging.`
+          : `Verification code sent to ${cleanDest}. Please check your email inbox.`
       });
     } else {
       const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
@@ -2379,13 +2389,15 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
         isSimulated = true;
       }
 
+      // SECURITY: Never expose OTP code in API response. Codes go to user's phone via SMS only.
       return res.json({
         success: true,
         channel: 'sms',
         destination: cleanDest,
-        message: `Verification code sent via SMS to ${cleanDest}`,
-        devHint: isSimulated ? `[DEV HINT: OTP is ${code}]` : undefined,
-        otpCode: isSimulated ? code : (process.env.NODE_ENV !== 'production' ? code : undefined)
+        simulated: isSimulated,
+        message: isSimulated
+          ? `SMS delivery failed — check your SMS provider configuration. OTP logged server-side.`
+          : `Verification code sent via SMS to ${cleanDest}. Please check your phone.`
       });
     }
   } catch (err) {

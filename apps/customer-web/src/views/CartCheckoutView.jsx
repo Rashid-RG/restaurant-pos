@@ -385,11 +385,12 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           body: JSON.stringify({ channel: isEmailMode ? 'email' : 'sms', destination: targetDest, purpose: 'order_verify' })
         });
         setOtpSent(true);
-        if (r.otpCode) setEnteredOtp(r.otpCode);
         setShowOtpModal(true);
-        toast(r.otpCode
-          ? `Verification code sent! (Dev Auto-Fill: ${r.otpCode})`
-          : `Verification code sent to ${targetDest} via ${isEmailMode ? 'Email (FREE)' : 'SMS'}.`, 'info', 8000);
+        if (r.simulated) {
+          toast(`⚠️ Email delivery failed — SMTP may not be configured. Check server logs for the OTP code.`, 'error', 10000);
+        } else {
+          toast(`✅ Verification code sent to ${targetDest} via ${isEmailMode ? 'Email' : 'SMS'}. Check your inbox!`, 'info', 8000);
+        }
       } catch (err) {
         toast(err.message || 'Could not send verification code.', 'error');
       }
@@ -539,8 +540,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                       method: 'POST',
                       body: JSON.stringify({ channel: 'email', destination: dest, purpose: 'order_verify' })
                     });
-                    if (r.otpCode) setEnteredOtp(r.otpCode);
-                    toast(`Email OTP sent to ${dest} (FREE)!`, 'info');
+                    if (r.simulated) {
+                      toast(`⚠️ Email delivery failed — SMTP may not be configured. Check server logs.`, 'error', 10000);
+                    } else {
+                      toast(`✅ Email OTP sent to ${dest}. Check your inbox!`, 'info');
+                    }
                   } catch (e) {
                     toast(e.message || 'Could not send Email OTP', 'error');
                   }
@@ -564,8 +568,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                       method: 'POST',
                       body: JSON.stringify({ channel: 'sms', destination: cleanPhone, purpose: 'order_verify' })
                     });
-                    if (r.otpCode) setEnteredOtp(r.otpCode);
-                    toast(`SMS OTP sent to ${cleanPhone}.`, 'info');
+                    if (r.simulated) {
+                      toast(`⚠️ SMS delivery failed — check SMS provider config. Contact support.`, 'error', 10000);
+                    } else {
+                      toast(`✅ SMS OTP sent to ${cleanPhone}. Check your messages!`, 'info');
+                    }
                   } catch (e) {
                     toast(e.message || 'Could not send SMS OTP', 'error');
                   }
