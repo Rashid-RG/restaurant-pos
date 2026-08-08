@@ -30,7 +30,18 @@ export const POSProvider = ({ children }) => {
   const [darkMode, setDarkMode] = useState(true);
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('gastroflow_user');
-    return saved ? JSON.parse(saved) : null;
+    const user = saved ? JSON.parse(saved) : null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetTenant = params.get('tenant') || params.get('tenantId');
+      if (user && targetTenant && user.tenant_id && user.tenant_id !== targetTenant) {
+        // If visiting a store-specific POS URL while logged into another store, clear old session to prompt login
+        localStorage.removeItem('gastroflow_token');
+        localStorage.removeItem('gastroflow_user');
+        return null;
+      }
+    } catch (_) {}
+    return user;
   });
   const [activeShift, setActiveShift] = useState(null);
 
@@ -70,7 +81,7 @@ export const POSProvider = ({ children }) => {
       if (isInitial) setLoading(true);
       await seedDatabase();
 
-      const [loadedSettings, loadedCats, loadedItems, loadedTables, loadedOrders, loadedCustomers] = await Promise.all([
+      let [loadedSettings, loadedCats, loadedItems, loadedTables, loadedOrders, loadedCustomers] = await Promise.all([
         db.getAll('settings'),
         db.getAll('categories'),
         db.getAll('menu_items'),
@@ -79,29 +90,67 @@ export const POSProvider = ({ children }) => {
         db.getAll('customers'),
       ]);
 
-      // Sync online registered customers from server API
+      // Convert settings array to object
+      const settingsObj = {};
+      loadedSettings.forEach((item) => {
+        settingsObj[item.key] = item.value;
+      });
+
       let finalCustomers = loadedCustomers;
-      try {
-        const token = localStorage.getItem('gastroflow_token');
-        if (token) {
-          const custRes = await fetch('/api/customers', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (custRes.ok) {
+
+      // Real-time server sync for long-running POS sessions
+      const token = localStorage.getItem('gastroflow_token');
+      if (token) {
+        try {
+          const authHeaders = { Authorization: `Bearer ${token}` };
+          const [menuRes, catRes, orderRes, setRes, custRes] = await Promise.all([
+            fetch('/api/menu', { headers: authHeaders }).catch(() => null),
+            fetch('/api/categories', { headers: authHeaders }).catch(() => null),
+            fetch('/api/orders', { headers: authHeaders }).catch(() => null),
+            fetch('/api/settings', { headers: authHeaders }).catch(() => null),
+            fetch('/api/customers', { headers: authHeaders }).catch(() => null)
+          ]);
+
+          if (menuRes?.ok) {
+            const serverItems = await menuRes.json();
+            if (Array.isArray(serverItems) && serverItems.length > 0) {
+              loadedItems = serverItems;
+              await db.bulkPut('menu_items', serverItems).catch(() => {});
+            }
+          }
+          if (catRes?.ok) {
+            const serverCats = await catRes.json();
+            if (Array.isArray(serverCats) && serverCats.length > 0) {
+              loadedCats = serverCats;
+              await db.bulkPut('categories', serverCats).catch(() => {});
+            }
+          }
+          if (orderRes?.ok) {
+            const serverOrders = await orderRes.json();
+            if (Array.isArray(serverOrders)) {
+              loadedOrders = serverOrders;
+              await db.bulkPut('orders', serverOrders).catch(() => {});
+            }
+          }
+          if (setRes?.ok) {
+            const serverSettings = await setRes.json();
+            if (Array.isArray(serverSettings)) {
+              loadedSettings = serverSettings;
+              await db.bulkPut('settings', serverSettings).catch(() => {});
+              serverSettings.forEach(item => {
+                settingsObj[item.key] = item.value;
+              });
+            }
+          }
+          if (custRes?.ok) {
             const apiCustomers = await custRes.json();
             if (Array.isArray(apiCustomers)) {
               finalCustomers = apiCustomers;
               await db.bulkPut('customers', apiCustomers).catch(() => {});
             }
           }
-        }
-      } catch (_) {}
-
-      // Convert settings array to object
-      const settingsObj = {};
-      loadedSettings.forEach((item) => {
-        settingsObj[item.key] = item.value;
-      });
+        } catch (_) {}
+      }
 
       setSettings(settingsObj);
       setCategories(loadedCats);
@@ -299,6 +348,16 @@ export const POSProvider = ({ children }) => {
     const data = await response.json();
     localStorage.setItem('gastroflow_token', data.token);
     localStorage.setItem('gastroflow_user', JSON.stringify(data.user));
+
+    // Automatic Tenant URL Redirection: bind URL parameter to logged-in user's tenant_id
+    if (data.user && data.user.tenant_id) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tenant', data.user.tenant_id);
+        window.history.replaceState({}, '', url.toString());
+      } catch (_) {}
+    }
+
     setCurrentUser(data.user);
   };
 

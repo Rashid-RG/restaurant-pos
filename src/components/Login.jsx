@@ -172,6 +172,12 @@ export default function Login() {
             {view === 'forgot' && 'Request a reset code or email link'}
             {view === 'reset' && 'Enter your reset token/code and new password'}
           </p>
+
+          {new URLSearchParams(window.location.search).get('tenant') && (
+            <div style={{ background: 'rgba(255, 107, 53, 0.12)', border: '1px solid rgba(255, 107, 53, 0.3)', color: '#ff6b35', borderRadius: '8px', padding: '6px 12px', fontSize: '0.8rem', fontWeight: 700, marginTop: '8px', display: 'inline-block' }}>
+              🏪 Store Portal: {new URLSearchParams(window.location.search).get('tenant')}
+            </div>
+          )}
         </div>
 
         {/* Error Alert */}
