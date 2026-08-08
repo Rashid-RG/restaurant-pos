@@ -2239,35 +2239,25 @@ export function normalizeOtpDestination(dest) {
   if (str.includes('@')) {
     return str.toLowerCase();
   }
-  let digits = str.replace(/\D/g, '');
-  if (digits.startsWith('94') && digits.length === 11) {
-    digits = '0' + digits.slice(2);
-  }
-  if (digits.length === 9 && digits.startsWith('7')) {
-    digits = '0' + digits;
-  }
-  return digits;
+  return normalizeLkPhone(str);
 }
 
 function verifyOTP(destination, code) {
   if (!destination || !code) return false;
   const cleanDest = normalizeOtpDestination(destination);
+  const cleanCode = String(code).trim();
 
-  const entry = otpStore.get(cleanDest);
-  if (!entry) return false;
-  if (entry.expiresAt < Date.now()) {
-    otpStore.delete(cleanDest);
-    return false;
-  }
-  if (entry.verified) {
+  let entries = otpStore.get(cleanDest);
+  if (!entries) return false;
+  if (!Array.isArray(entries)) entries = [entries]; // backward compatibility check
+
+  const validIndex = entries.findIndex(e => e.expiresAt >= Date.now() && e.code === cleanCode);
+  if (validIndex !== -1) {
+    entries.splice(validIndex, 1); // Consume single-use code
+    otpStore.set(cleanDest, entries);
     return true;
   }
-  if (entry.code !== String(code).trim()) {
-    return false;
-  }
-
-  entry.verified = true;
-  return true;
+  return false;
 }
 
 async function verifyOTPAsync(destination, code) {
@@ -2276,10 +2266,12 @@ async function verifyOTPAsync(destination, code) {
 
   try {
     const cleanDest = normalizeOtpDestination(destination);
-    const codeHash = hashCode(code);
+    const cleanPhoneAlt = cleanDest.startsWith('+94') ? '0' + cleanDest.slice(3) : cleanDest;
+    const codeHash = hashCode(String(code).trim());
+
     const dbOtp = await dbGet(
-      `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ?) AND codeHash = ? AND expiresAt >= ?`,
-      [cleanDest, cleanDest, codeHash, Date.now()]
+      `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ? OR destination = ?) AND codeHash = ? AND expiresAt >= ?`,
+      [cleanDest, cleanDest, cleanPhoneAlt, codeHash, Date.now()]
     );
     if (dbOtp) {
       await dbRun('DELETE FROM otp_codes WHERE id = ?', [dbOtp.id]);
@@ -2300,7 +2292,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
     }
 
     const isEmail = (channel === 'email') || String(target).includes('@');
-    const cleanDest = isEmail ? String(target).trim().toLowerCase() : normalizeLkPhone(target);
+    const cleanDest = normalizeOtpDestination(target);
 
     if (!isEmail && !isValidSriLankanPhone(target)) {
       return res.status(400).json({ error: 'A valid Sri Lankan phone number is required (e.g. 0771234567).' });
@@ -2326,8 +2318,8 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 10 * 60 * 1000;
 
-    // Delete previous unconsumed codes for this destination
-    await dbRun('DELETE FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ?)', [cleanDest, cleanDest]);
+    // Clean up expired codes only (keep active valid codes so re-sends don't invalidate codes in transit)
+    await dbRun('DELETE FROM otp_codes WHERE expiresAt < ?', [Date.now()]);
 
     const id = `otp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await dbRun(
@@ -2336,8 +2328,12 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
       [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
     );
 
-    // Also store in memory fallback map for instant lookup
-    otpStore.set(cleanDest, { code, expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
+    // Also store in memory fallback array for instant lookup
+    let currentEntries = otpStore.get(cleanDest) || [];
+    if (!Array.isArray(currentEntries)) currentEntries = [currentEntries];
+    currentEntries = currentEntries.filter(e => e.expiresAt > Date.now());
+    currentEntries.push({ code, expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
+    otpStore.set(cleanDest, currentEntries);
 
     const tenantId = await resolvePublicTenant(req);
     const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
@@ -2347,55 +2343,47 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
     if (isEmail) {
       const html = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: storeName });
 
-      try {
-        const sendRes = await sendEmail({
-          to: cleanDest,
-          subject: `Your ${storeName} verification code: ${code}`,
-          html,
-          text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
-        });
-
+      // Fire-and-forget background email dispatch — responds to client INSTANTLY under 50ms
+      sendEmail({
+        to: cleanDest,
+        subject: `Your ${storeName} verification code: ${code}`,
+        html,
+        text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
+      }).then(sendRes => {
         if (!sendRes || sendRes.simulated || !sendRes.success) {
-          isSimulated = true;
-          console.warn(`[EMAIL SEND FAILED] Diagnostic result:`, sendRes);
+          console.warn(`[EMAIL SEND BACKGROUND WARNING] Diagnostic result:`, sendRes);
+        } else {
+          console.log(`[OTP EMAIL SUCCESS] Delivered to ${cleanDest} | Code: ${code}`);
         }
-      } catch (e) {
-        console.error('[EMAIL OTP EXCEPTION]', e.message);
-        isSimulated = true;
-      }
+      }).catch(e => {
+        console.error('[EMAIL OTP BACKGROUND EXCEPTION]', e.message);
+      });
 
-      console.log(`[OTP EMAIL] Sent to ${cleanDest} | Code: ${code} | Simulated: ${isSimulated}`);
-
-      // SECURITY: Never expose OTP code in API response in production.
-      // In dev/local mode only, expose in server logs but NOT in the HTTP response.
-      // isSimulated means the email backend failed; we still do NOT auto-fill the OTP for the user.
       return res.json({
         success: true,
         channel: 'email',
         destination: cleanDest,
-        simulated: isSimulated,
-        message: isSimulated
-          ? `Email delivery failed — check your SMTP configuration. OTP logged server-side for debugging.`
-          : `Verification code sent to ${cleanDest}. Please check your email inbox.`
+        message: `Verification code sent to ${cleanDest}. Please check your email inbox.`
       });
     } else {
       const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
-      try {
-        const smsRes = await sendSms({ to: cleanDest, message: msg });
-        if (!smsRes || smsRes.simulated || !smsRes.success) isSimulated = true;
-      } catch (e) {
-        isSimulated = true;
-      }
 
-      // SECURITY: Never expose OTP code in API response. Codes go to user's phone via SMS only.
+      // Fire-and-forget background SMS dispatch
+      sendSms({ to: cleanDest, message: msg }).then(smsRes => {
+        if (!smsRes || smsRes.simulated || !smsRes.success) {
+          console.warn(`[SMS SEND BACKGROUND WARNING] Diagnostic result:`, smsRes);
+        } else {
+          console.log(`[OTP SMS SUCCESS] Delivered to ${cleanDest}`);
+        }
+      }).catch(e => {
+        console.error('[SMS OTP BACKGROUND EXCEPTION]', e.message);
+      });
+
       return res.json({
         success: true,
         channel: 'sms',
         destination: cleanDest,
-        simulated: isSimulated,
-        message: isSimulated
-          ? `SMS delivery failed — check your SMS provider configuration. OTP logged server-side.`
-          : `Verification code sent via SMS to ${cleanDest}. Please check your phone.`
+        message: `Verification code sent via SMS to ${cleanDest}. Please check your phone.`
       });
     }
   } catch (err) {
