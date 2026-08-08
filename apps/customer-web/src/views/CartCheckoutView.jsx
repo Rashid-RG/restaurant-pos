@@ -386,8 +386,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         });
         setOtpSent(true);
         setShowOtpModal(true);
-        if (r.simulated) {
-          toast(`⚠️ Email delivery failed — SMTP may not be configured. Check server logs for the OTP code.`, 'error', 10000);
+        if (isEmailMode && r.emailSent === false) {
+          toast(`⚠️ Email delivery issue: ${r.emailError || 'Check Gmail App Password'}.`, 'warning', 10000);
         } else {
           toast(`✅ Verification code sent to ${targetDest} via ${isEmailMode ? 'Email' : 'SMS'}. Check your inbox!`, 'info', 8000);
         }

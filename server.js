@@ -2343,27 +2343,40 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
     if (isEmail) {
       const html = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: storeName });
 
-      // Fire-and-forget background email dispatch — responds to client INSTANTLY under 50ms
-      sendEmail({
-        to: cleanDest,
-        subject: `Your ${storeName} verification code: ${code}`,
-        html,
-        text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
-      }).then(sendRes => {
-        if (!sendRes || sendRes.simulated || !sendRes.success) {
-          console.warn(`[EMAIL SEND BACKGROUND WARNING] Diagnostic result:`, sendRes);
-        } else {
+      let emailSent = false;
+      let emailError = null;
+
+      try {
+        const sendPromise = sendEmail({
+          to: cleanDest,
+          subject: `Your ${storeName} verification code: ${code}`,
+          html,
+          text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
+        });
+        const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true, error: 'Email timeout' }), 4000));
+        const sendRes = await Promise.race([sendPromise, timeoutPromise]);
+
+        if (sendRes && sendRes.success) {
+          emailSent = true;
           console.log(`[OTP EMAIL SUCCESS] Delivered to ${cleanDest} | Code: ${code}`);
+        } else {
+          emailError = sendRes?.error || (sendRes?.timeout ? 'Connection timeout' : 'SMTP send failed');
+          console.warn(`[OTP EMAIL WARNING] Failed sending to ${cleanDest}:`, emailError);
         }
-      }).catch(e => {
-        console.error('[EMAIL OTP BACKGROUND EXCEPTION]', e.message);
-      });
+      } catch (e) {
+        emailError = e.message;
+        console.error('[OTP EMAIL EXCEPTION]', e.message);
+      }
 
       return res.json({
         success: true,
         channel: 'email',
         destination: cleanDest,
-        message: `Verification code sent to ${cleanDest}. Please check your email inbox.`
+        emailSent,
+        emailError,
+        message: emailSent
+          ? `Verification code sent to ${cleanDest}. Please check your email inbox.`
+          : `Email dispatch issue (${emailError || 'check SMTP credentials'}). OTP code active on server.`
       });
     } else {
       const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
