@@ -7026,11 +7026,47 @@ app.post('/api/inventory/transfers/:id/approve', authenticateToken, requireRole(
 app.get('/api/saas/tenants', authenticateToken, async (req, res) => {
   try {
     const tenantsList = await dbAll('SELECT * FROM tenants ORDER BY createdAt DESC');
+    const knownIds = new Set(tenantsList.map(t => t.id));
+
+    // Auto-discover existing tenant stores from users table
+    const legacyUserTenants = await dbAll(
+      `SELECT DISTINCT tenant_id, username, email FROM users WHERE tenant_id IS NOT NULL AND tenant_id != 'default_tenant'`
+    );
+
+    for (const u of legacyUserTenants) {
+      if (u.tenant_id && !knownIds.has(u.tenant_id)) {
+        const sub = u.tenant_id.replace(/^tenant_/, '').split('_')[0] || u.username;
+        const name = sub.charAt(0).toUpperCase() + sub.slice(1) + ' Grill & Bistro';
+        const newTenant = {
+          id: u.tenant_id,
+          name,
+          subdomain: sub,
+          ownerEmail: u.email || 'owner@restaurant.lk',
+          plan: 'pro',
+          status: 'active',
+          staffUsername: u.username,
+          temporaryPassword: '***',
+          createdAt: Date.now()
+        };
+
+        // Self-heal into tenants table
+        await dbRun(
+          `INSERT OR IGNORE INTO tenants (id, name, subdomain, ownerEmail, plan, status, staffUsername, temporaryPassword, createdAt)
+           VALUES (?, ?, ?, ?, 'pro', 'active', ?, '***', ?)`,
+          [u.tenant_id, name, sub, u.email || 'owner@restaurant.lk', u.username, Date.now()]
+        ).catch(() => {});
+
+        tenantsList.push(newTenant);
+        knownIds.add(u.tenant_id);
+      }
+    }
+
     res.json(tenantsList);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
 });
+
 
 app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { name, subdomain, ownerEmail, plan } = req.body;
