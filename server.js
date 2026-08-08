@@ -987,6 +987,15 @@ async function initTables() {
       await safeAddColumn('menu_items', col.name, col.type);
     }
 
+    // Enforce tenant_id across all domain tables for complete multi-tenancy isolation (Phase 1)
+    const tablesNeedingTenantId = [
+      'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
+      'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'ingredients'
+    ];
+    for (const tbl of tablesNeedingTenantId) {
+      await safeAddColumn(tbl, 'tenant_id', "TEXT DEFAULT 'default_tenant'");
+    }
+
     // Geocode columns for saved addresses + phone-verified flag for customers
     for (const col of [{ name: 'lat', type: 'REAL' }, { name: 'lng', type: 'REAL' }]) {
       await safeAddColumn('customer_addresses', col.name, col.type);
