@@ -275,28 +275,83 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     return Array.from(map.values());
   };
 
+  // ── Dynamic Delivery Fee: Base + Distance × Rate × Rush-Hour Multiplier ──
+  const calculateDynamicFee = (dist, isInRange) => {
+    if (!isInRange) return 250;
+    const BASE = 80;
+    const RATE_PER_KM = 20; // LKR per km
+    const now = new Date();
+    const hour = now.getHours();
+    const isRushHour = (hour >= 12 && hour <= 14) || (hour >= 19 && hour <= 21);
+    const multiplier = isRushHour ? 1.3 : 1.0;
+    const raw = (BASE + dist * RATE_PER_KM) * multiplier;
+    return Math.min(600, Math.max(80, Math.round(raw)));
+  };
+
+  const isCurrentlyRushHour = () => {
+    const h = new Date().getHours();
+    return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
+  };
+
+  // ── 6-Factor Weighted Recommendation Engine ──
+  // Factors: proximity(35) + quality(25) + history(20) + promo(10) + freshness(5) + openNow(5)
+  const computeRecommendationScore = (dist, maxDist, rating, promoBadge, isOpenNow, storeId, isNew) => {
+    const localHistory = (() => {
+      try { return JSON.parse(localStorage.getItem('gastroflow_order_history') || '[]'); } catch { return []; }
+    })();
+    const orderCount = localHistory.filter(o => o.restaurantId === storeId).length;
+    const orderHistoryBonus = Math.min(orderCount * 10, 20); // capped at 20
+
+    const safeMax = maxDist || 50;
+    const proxScore  = ((1 - Math.min(dist, safeMax) / safeMax) * 35);
+    const qualScore  = ((rating || 4.0) / 5.0) * 25;
+    const histScore  = orderHistoryBonus;
+    const promoScore = promoBadge ? 10 : 0;
+    const freshScore = isNew ? 5 : 0;
+    const openScore  = isOpenNow ? 5 : 0;
+
+    return Number((proxScore + qualScore + histScore + promoScore + freshScore + openScore).toFixed(1));
+  };
+
   const processStoreProximity = (uLat, uLng, rawStores = restaurants) => {
     if (!uLat || !uLng || rawStores.length === 0) return;
 
     const uniqueRaw = deduplicateStores(rawStores);
-    const updated = uniqueRaw.map(r => {
-      const storeLat = r.lat || 6.9147;
-      const storeLng = r.lng || 79.8517;
-      const dist = calculateHaversineKm(uLat, uLng, storeLat, storeLng);
+    // Pre-compute max distance for normalization
+    const distances = uniqueRaw.map(r => calculateHaversineKm(uLat, uLng, r.lat || 6.9147, r.lng || 79.8517) || 999);
+    const maxDist = Math.max(...distances, 1);
+
+    const updated = uniqueRaw.map((r, idx) => {
+      const dist = distances[idx];
       const radius = r.deliveryRadiusKm || 15;
       const inRange = dist <= radius;
-      const fee = inRange ? Math.max(80, Math.round(100 + dist * 25)) : 250;
+      const fee = calculateDynamicFee(dist, inRange);
       const minEta = Math.round(15 + dist * 3);
       const maxEta = Math.round(25 + dist * 4);
-      const recScore = Number(((100 - dist * 2) + (r.rating * 10) + (r.promoBadge ? 15 : 0)).toFixed(1));
+      const isOpenNow = r.isOpen !== false; // default open unless explicitly closed
+      const isNew = r.isNew || false;
+      const recScore = computeRecommendationScore(dist, maxDist, r.rating, r.promoBadge, isOpenNow, r.id, isNew);
+
+      // Fee breakdown for tooltip
+      const h = new Date().getHours();
+      const rushHour = (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
+      const feeBreakdown = inRange ? {
+        base: 80,
+        distFee: Math.round(dist * 20),
+        multiplier: rushHour ? 1.3 : 1.0,
+        isRush: rushHour,
+        total: fee
+      } : null;
 
       return {
         ...r,
         distanceKm: dist,
         isDeliverable: inRange,
         deliveryFee: fee,
+        feeBreakdown,
         deliveryTime: `${minEta}-${maxEta} min`,
-        recommendationScore: recScore
+        recommendationScore: recScore,
+        isOpenNow
       };
     });
 
@@ -341,8 +396,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const filtered = deduplicateStores(
     restaurants.filter(r => {
-      const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase()) ||
-                            r.cuisine.toLowerCase().includes(search.toLowerCase());
+      const matchesSearch = !search ||
+        r.name.toLowerCase().includes(search.toLowerCase()) ||
+        r.cuisine.toLowerCase().includes(search.toLowerCase());
       const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
       return matchesSearch && matchesCuisine;
     })
@@ -351,13 +407,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       const getMinTime = s => parseInt(s.deliveryTime || '30', 10);
       return getMinTime(a) - getMinTime(b);
     }
-    if (sortBy === 'rating') {
-      return (b.rating || 0) - (a.rating || 0);
-    }
-    if (sortBy === 'distance') {
-      return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
-    }
-    // Default AI Recommendation Score
+    if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
+    if (sortBy === 'distance') return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
+    // Default: AI recommendation score — in-zone first, then by score
+    const aZone = a.isDeliverable ? 0 : 1;
+    const bZone = b.isDeliverable ? 0 : 1;
+    if (aZone !== bZone) return aZone - bZone;
     return (b.recommendationScore || 0) - (a.recommendationScore || 0);
   });
 
@@ -748,53 +803,76 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               {/* Banner Cover Image / Banner */}
               <div style={{ height: 130, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <span style={{ fontSize: '4rem' }}>{r.emoji || '🏬'}</span>
-                
-                {/* Promo Badge */}
-                {r.promoBadge && (
-                  <span style={{ position: 'absolute', top: 12, left: 12, background: '#10b981', color: '#fff', padding: '4px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800 }}>
+
+                {/* Top-left: Promo or Personalization Badge */}
+                {r.promoBadge ? (
+                  <span style={{ position: 'absolute', top: 10, left: 10, background: '#10b981', color: '#fff', padding: '3px 9px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800 }}>
                     🏷️ {r.promoBadge}
                   </span>
-                )}
+                ) : r.isNew ? (
+                  <span style={{ position: 'absolute', top: 10, left: 10, background: '#6366f1', color: '#fff', padding: '3px 9px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800 }}>
+                    🆕 New
+                  </span>
+                ) : null}
 
-                {/* Distance Badge */}
-                {r.distanceKm && (
-                  <span style={{ position: 'absolute', bottom: 12, left: 12, background: r.isDeliverable ? 'rgba(16,185,129,0.9)' : 'rgba(245,158,11,0.9)', color: '#fff', padding: '4px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, backdropFilter: 'blur(4px)' }}>
-                    📍 {r.distanceKm} km away {r.isDeliverable ? '· In Range' : '· Out of Zone'}
+                {/* Bottom-left: Distance + Zone Badge */}
+                {r.distanceKm !== null && r.distanceKm !== undefined && (
+                  <span style={{
+                    position: 'absolute', bottom: 10, left: 10,
+                    background: r.isDeliverable ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)',
+                    color: '#fff', padding: '3px 10px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800, backdropFilter: 'blur(4px)'
+                  }}>
+                    📍 {r.distanceKm} km · {r.isDeliverable ? 'In Range' : 'Out of Zone'}
                   </span>
                 )}
 
-                {/* Store Open Pill */}
-                <span style={{ position: 'absolute', top: 12, right: 12, background: r.isOpen ? 'rgba(0,0,0,0.65)' : 'rgba(239,68,68,0.9)', color: '#fff', padding: '4px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 700, backdropFilter: 'blur(4px)' }}>
-                  {r.isOpen ? '🟢 Open Now' : '🔴 Closed'}
-                </span>
+                {/* Top-right: Open/Closed + Rush Hour */}
+                <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                  <span style={{ background: r.isOpenNow ? 'rgba(0,0,0,0.65)' : 'rgba(239,68,68,0.9)', color: '#fff', padding: '3px 9px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 700, backdropFilter: 'blur(4px)' }}>
+                    {r.isOpenNow ? '🟢 Open' : '🔴 Closed'}
+                  </span>
+                  {r.feeBreakdown?.isRush && (
+                    <span style={{ background: 'rgba(245,158,11,0.9)', color: '#fff', padding: '2px 8px', borderRadius: 8, fontSize: '0.65rem', fontWeight: 800 }}>
+                      ⏰ Peak
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Card Details */}
               <div style={{ padding: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                  <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
-                    {r.name}
-                  </h4>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f59e0b15', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.8rem', fontWeight: 800 }}>
-                    ⭐ {r.rating || '4.8'} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500 }}>({r.ratingCount || '120+'})</span>
+                  <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-1)' }}>{r.name}</h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f59e0b15', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 800 }}>
+                    ⭐ {r.rating || '4.8'} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 500 }}>({r.ratingCount || '120+'})</span>
                   </div>
                 </div>
 
-                <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>
                   {r.cuisine} · 📍 {r.location || 'Colombo'}
                 </div>
 
+                {/* AI Score Badge */}
+                {r.recommendationScore > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ height: 4, borderRadius: 2, background: 'var(--border-color)', flex: 1, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(r.recommendationScore, 100)}%`, background: r.recommendationScore > 70 ? '#10b981' : r.recommendationScore > 40 ? '#f59e0b' : '#ef4444', borderRadius: 2, transition: 'width 0.5s ease' }} />
+                      </div>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        {r.recommendationScore > 70 ? '🎯 Great Match' : r.recommendationScore > 40 ? '👍 Good' : '🔍 Explore'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Delivery Stats Bar */}
-                <div style={{ display: 'flex', gap: 14, fontSize: '0.78rem', color: 'var(--text-1)', fontWeight: 600, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    ⏱️ {r.deliveryTime || '20-30 min'}
+                <div style={{ display: 'flex', gap: 10, fontSize: '0.76rem', color: 'var(--text-1)', fontWeight: 600, borderTop: '1px solid var(--border-color)', paddingTop: 10, flexWrap: 'wrap' }}>
+                  <span>⏱️ {r.deliveryTime || '20-30 min'}</span>
+                  <span title={r.feeBreakdown ? `Base: LKR ${r.feeBreakdown.base} + Distance: LKR ${r.feeBreakdown.distFee}${r.feeBreakdown.isRush ? ' × 1.3 (Peak)' : ''}` : ''}>
+                    🚚 LKR {r.deliveryFee || 150}{r.feeBreakdown?.isRush ? ' ⏰' : ''}
                   </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    🚚 LKR {r.deliveryFee || 150} Fee
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-muted)' }}>
-                    Min: LKR {r.minOrder || 1000}
-                  </span>
+                  <span style={{ color: 'var(--text-muted)' }}>Min: LKR {r.minOrder || 1000}</span>
                 </div>
               </div>
             </div>

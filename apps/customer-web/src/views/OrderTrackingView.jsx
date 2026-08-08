@@ -47,6 +47,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [driverInputMsg, setDriverInputMsg] = useState('');
   const [sendingDriverMsg, setSendingDriverMsg] = useState(false);
 
+  // ── Real-time Driver Dispatch Status ──
+  const [dispatchStatus, setDispatchStatus] = useState(null);
+
   // Load store info once
   useEffect(() => {
     apiFetch('/public/store-info').then(setStoreInfo).catch(() => {});
@@ -59,6 +62,22 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         .then(setDynamicETA)
         .catch(() => {});
     }
+  }, [order?.id, order?.status]);
+
+  // ── Poll Dispatch Status every 8 seconds ──
+  useEffect(() => {
+    if (!order || !order.id) return;
+    const s = (order.status || '').toLowerCase();
+    if (s === 'completed' || s === 'delivered' || s === 'paid' || s === 'cancelled') return;
+
+    const fetchDispatch = () => {
+      apiFetch(`/public/orders/${order.id}/dispatch-status`)
+        .then(setDispatchStatus)
+        .catch(() => {});
+    };
+    fetchDispatch();
+    const interval = setInterval(fetchDispatch, 8000);
+    return () => clearInterval(interval);
   }, [order?.id, order?.status]);
 
   // Load & listen to Driver Chat messages
@@ -346,6 +365,40 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 />
                 <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
                   {driverLoc ? '🛵 Driver live' : '📡 Live tracking'}
+                </div>
+              </div>
+            )}
+            {/* ── Real-time Driver Dispatch Panel ── */}
+            {!isCancelled && curStep < 3 && dispatchStatus && (
+              <div style={{
+                margin: '12px 0',
+                padding: '14px 16px',
+                borderRadius: 14,
+                background: dispatchStatus.driverId ? 'linear-gradient(135deg,#0f2027,#1a3a2a)' : 'linear-gradient(135deg,#1a1a2e,#2a1a3e)',
+                border: `1px solid ${dispatchStatus.driverId ? '#10b981' : '#6366f1'}`,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.3)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: '1.8rem', lineHeight: 1 }}>{dispatchStatus.dispatchIcon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#f8fafc' }}>{dispatchStatus.dispatchLabel}</div>
+                    {dispatchStatus.driver && dispatchStatus.driver.isRecent && dispatchStatus.driver.distanceToStoreKm !== null && (
+                      <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 3 }}>
+                        📍 {dispatchStatus.driver.distanceToStoreKm} km from store · GPS live
+                      </div>
+                    )}
+                    {dispatchStatus.etaMinutes && (
+                      <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: 2, fontWeight: 700 }}>
+                        ⏱️ Est. delivery: ~{dispatchStatus.etaMinutes} mins
+                      </div>
+                    )}
+                  </div>
+                  <div style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: dispatchStatus.driverId ? '#10b981' : '#6366f1',
+                    boxShadow: `0 0 8px ${dispatchStatus.driverId ? '#10b981' : '#6366f1'}`,
+                    animation: 'pulse 1.5s infinite'
+                  }} />
                 </div>
               </div>
             )}

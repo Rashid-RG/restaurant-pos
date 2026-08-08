@@ -174,20 +174,65 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
         <p className="text-muted" style={{ margin: '4px 0 0' }}>{customer.email}</p>
       </div>
 
-      {/* Loyalty Points Card */}
-      <div style={{
-        background: 'linear-gradient(135deg, var(--brand) 0%, #6b48ff 100%)',
-        borderRadius: '12px', padding: '20px', color: '#fff', marginBottom: 16, textAlign: 'center'
-      }}>
-        <div style={{ fontSize: '0.75rem', opacity: 0.8, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '1px' }}>Loyalty Balance</div>
-        <div style={{ fontSize: '2.5rem', fontWeight: 800 }}>{customer.loyaltyPoints || 0}</div>
-        <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: 4 }}>
-          ≈ Rs. {Math.floor((customer.loyaltyPoints || 0) / 100).toFixed(2)} off your next bill
-        </div>
-        <div style={{ marginTop: 12, fontSize: '0.75rem', opacity: 0.6 }}>
-          Total Account Spending: Rs. {(customer.totalSpent || 0).toFixed(2)}
-        </div>
-      </div>
+      {/* ── Loyalty Tier Card ── */}
+      {(() => {
+        const pts = customer.loyaltyPoints || 0;
+        const tier = pts >= 5000 ? { name: 'Platinum', icon: '👑', color: '#a78bfa', next: Infinity, prev: 5000, gradient: 'linear-gradient(135deg,#1e0a3c,#4c1d95)' }
+                   : pts >= 1500 ? { name: 'Gold',     icon: '🥇', color: '#f59e0b', next: 5000,    prev: 1500, gradient: 'linear-gradient(135deg,#451a03,#92400e)' }
+                   : pts >= 500  ? { name: 'Silver',   icon: '🥈', color: '#94a3b8', next: 1500,    prev: 500,  gradient: 'linear-gradient(135deg,#1e293b,#334155)' }
+                                 : { name: 'Bronze',   icon: '🥉', color: '#b45309', next: 500,     prev: 0,    gradient: 'linear-gradient(135deg,#1c1003,#451a03)' };
+        const progressPct = tier.next === Infinity ? 100 : Math.min(100, Math.round(((pts - tier.prev) / (tier.next - tier.prev)) * 100));
+        const lkrValue = Math.floor(pts / 100);
+        return (
+          <div style={{ background: tier.gradient, borderRadius: 16, padding: '20px 18px', color: '#fff', marginBottom: 18, border: `1px solid ${tier.color}40`, boxShadow: `0 8px 24px ${tier.color}20` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', opacity: 0.7, textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 4 }}>Loyalty Rewards</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '1.6rem' }}>{tier.icon}</span>
+                  <div>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 900, color: tier.color }}>{tier.name}</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.6 }}>Member</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '2.2rem', fontWeight: 900, lineHeight: 1 }}>{pts.toLocaleString()}</div>
+                <div style={{ fontSize: '0.72rem', opacity: 0.7 }}>Points</div>
+              </div>
+            </div>
+
+            {/* Progress to next tier */}
+            {tier.next !== Infinity && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', opacity: 0.7, marginBottom: 4 }}>
+                  <span>{tier.name}</span>
+                  <span>{tier.next - pts} pts to next tier</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.15)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${progressPct}%`, background: tier.color, borderRadius: 3, transition: 'width 0.6s ease', boxShadow: `0 0 8px ${tier.color}` }} />
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+              <div style={{ fontSize: '0.78rem', opacity: 0.8 }}>
+                💰 <strong>LKR {lkrValue.toFixed(0)}</strong> discount value
+              </div>
+              <div style={{ fontSize: '0.7rem', opacity: 0.55 }}>
+                Spent: Rs. {(customer.totalSpent || 0).toFixed(0)}
+              </div>
+            </div>
+
+            {tier.next !== Infinity && (
+              <div style={{ marginTop: 10, fontSize: '0.72rem', background: 'rgba(255,255,255,0.08)', padding: '7px 12px', borderRadius: 8 }}>
+                🎁 Earn {tier.next - pts} more pts to reach {pts >= 1500 ? 'Platinum 👑' : pts >= 500 ? 'Gold 🥇' : 'Silver 🥈'}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
 
       {/* Profile Info */}
       {!editMode ? (

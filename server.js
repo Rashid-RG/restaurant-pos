@@ -2839,7 +2839,89 @@ app.get('/api/public/orders/:id/eta', publicApiLimiter, async (req, res) => {
   }
 });
 
-// GET /api/public/cart-upsell — Smart Uber Eats Recommendation Upsell Engine
+// GET /api/public/orders/:id/dispatch-status — Customer-facing real-time driver dispatch info
+app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const tenantId = await resolvePublicTenant(req);
+
+    const order = await dbGet(
+      'SELECT id, status, driverId, dispatchMode, deliveryLat, deliveryLng, etaMinutes, acceptedAt FROM orders WHERE id = ?',
+      [id]
+    );
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+    let driverInfo = null;
+    let distanceToStoreKm = null;
+
+    if (order.driverId) {
+      // Get driver last-known GPS ping
+      const ping = await dbGet(
+        'SELECT lat, lng, updatedAt FROM driver_locations WHERE driverName = ? ORDER BY updatedAt DESC LIMIT 1',
+        [order.driverId]
+      );
+
+      // Get store coordinates to calculate driver's distance to store
+      const settings = await getSettingsMap(tenantId, ['storeLat', 'storeLng', 'storeName']);
+      const storeLat = parseFloat(settings.storeLat || 6.9271);
+      const storeLng = parseFloat(settings.storeLng || 79.8612);
+
+      if (ping) {
+        distanceToStoreKm = Math.round(haversineDistanceKm(ping.lat, ping.lng, storeLat, storeLng) * 10) / 10;
+        const pingAge = Date.now() - Number(ping.updatedAt || 0);
+        driverInfo = {
+          name: order.driverId,
+          lat: ping.lat,
+          lng: ping.lng,
+          distanceToStoreKm,
+          lastSeenMs: pingAge,
+          isRecent: pingAge < 10 * 60 * 1000 // within last 10 min
+        };
+      } else {
+        driverInfo = { name: order.driverId, lastSeenMs: null, isRecent: false };
+      }
+    }
+
+    // Produce human-readable label
+    const s = (order.status || '').toLowerCase();
+    let dispatchLabel, dispatchIcon;
+    if (!order.driverId) {
+      dispatchLabel = 'Finding a driver for you…';
+      dispatchIcon  = '🔄';
+    } else if (s === 'out_for_delivery') {
+      dispatchLabel = `${order.driverId} is on the way! ${distanceToStoreKm !== null ? `(${distanceToStoreKm} km from store)` : ''}`;
+      dispatchIcon  = '🛵';
+    } else if (s === 'ready') {
+      dispatchLabel = `${order.driverId} assigned — picking up your order`;
+      dispatchIcon  = '✅';
+    } else if (s === 'preparing' || s === 'pending') {
+      dispatchLabel = `${order.driverId} confirmed — kitchen is preparing your order`;
+      dispatchIcon  = '👨‍🍳';
+    } else if (s === 'completed' || s === 'delivered' || s === 'paid') {
+      dispatchLabel = 'Order delivered! Enjoy your meal 🎉';
+      dispatchIcon  = '🎉';
+    } else {
+      dispatchLabel = `Driver: ${order.driverId}`;
+      dispatchIcon  = '📦';
+    }
+
+    res.json({
+      orderId: order.id,
+      orderStatus: order.status,
+      dispatchMode: order.dispatchMode || 'manual',
+      driverId: order.driverId || null,
+      driver: driverInfo,
+      dispatchLabel,
+      dispatchIcon,
+      etaMinutes: order.etaMinutes || null,
+      acceptedAt: order.acceptedAt || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+
 app.get('/api/public/cart-upsell', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);

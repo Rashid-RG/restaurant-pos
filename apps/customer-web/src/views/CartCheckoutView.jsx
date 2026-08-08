@@ -929,6 +929,60 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           )}
         </div>
 
+        {/* ── Loyalty Rewards Toggle ── */}
+        {customer && (customer.loyaltyPoints || 0) > 0 && (
+          <div style={{ background: 'linear-gradient(135deg,#1a1a2e,#16213e)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #6366f140' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: '1.4rem' }}>🎖️</span>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#f8fafc' }}>
+                    Use Loyalty Points
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: 2 }}>
+                    {customer.loyaltyPoints} pts available · LKR {Math.floor(customer.loyaltyPoints / 100)} discount
+                  </div>
+                </div>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8 }}>
+                <div style={{
+                  width: 44, height: 24, borderRadius: 12,
+                  background: redeemPoints ? '#6366f1' : '#374151',
+                  position: 'relative', transition: 'background 0.3s ease',
+                  boxShadow: redeemPoints ? '0 0 10px #6366f180' : 'none'
+                }}
+                  onClick={() => setRedeemPoints(v => !v)}>
+                  <div style={{
+                    width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                    position: 'absolute', top: 3, transition: 'left 0.2s ease',
+                    left: redeemPoints ? 22 : 4,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
+                  }} />
+                </div>
+                <span style={{ fontSize: '0.75rem', color: redeemPoints ? '#a78bfa' : '#9ca3af', fontWeight: 700 }}>
+                  {redeemPoints ? 'ON' : 'OFF'}
+                </span>
+              </label>
+            </div>
+            {redeemPoints && loyaltyDiscount > 0 && (
+              <div style={{ marginTop: 10, padding: '8px 12px', background: '#6366f120', borderRadius: 8, fontSize: '0.75rem', color: '#a78bfa', fontWeight: 700 }}>
+                ✅ {loyaltyPointsToRedeem} pts redeemed · Saving LKR {loyaltyDiscount.toFixed(0)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Earned Points Preview */}
+        {customer && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, padding: '10px 14px', background: '#0f2027', borderRadius: 10, border: '1px solid #10b98130' }}>
+            <span style={{ fontSize: '1.1rem' }}>⭐</span>
+            <div style={{ fontSize: '0.75rem', color: '#6ee7b7', fontWeight: 700 }}>
+              You'll earn <strong>+{Math.floor(total / 10)} pts</strong> from this order!
+              {Math.floor(total / 10) >= 5 && <span style={{ marginLeft: 6, color: '#f59e0b' }}>🔥 Nice!</span>}
+            </div>
+          </div>
+        )}
+
         {/* Bill Summary */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 20, border: '1px solid var(--border-color)', fontSize: '0.88rem' }}>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>{t.billSummary}</h3>
