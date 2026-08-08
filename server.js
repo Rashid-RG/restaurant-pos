@@ -4272,19 +4272,11 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
     const categories = await dbAll('SELECT id, name, emoji FROM categories WHERE tenant_id = ? ORDER BY name', [tenantId]);
-    let items = await dbAll(
+    const items = await dbAll(
       `SELECT id, name, price, category, emoji, stock, description, dietaryTags, imageUrl, isAvailable FROM menu_items
        WHERE isAvailable = 1 AND tenant_id = ? ORDER BY name`,
       [tenantId]
     );
-
-    // Fallback: If store has 0 custom items, include default_tenant items so products always render
-    if (!items || items.length === 0) {
-      items = await dbAll(
-        `SELECT id, name, price, category, emoji, stock, description, dietaryTags, imageUrl, isAvailable FROM menu_items
-         WHERE isAvailable = 1 AND (tenant_id = 'default_tenant' OR tenant_id IS NULL) ORDER BY name`
-      );
-    }
 
     const rawModifiers = await dbAll('SELECT id, menuItemId, groupName, name, priceDelta, isMultiSelect, isRequired FROM modifiers WHERE tenant_id = ?', [tenantId]);
     const modifiersMap = {};
@@ -4300,10 +4292,13 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
       modifiers: modifiersMap[item.id] || []
     }));
 
-    const st = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'logo', 'storeOpen', 'defaultPrepTime', 'deliveryFee', 'minimumOrder', 'currencySymbol']);
+    const st = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'logo', 'storeOpen', 'defaultPrepTime', 'deliveryFee', 'minimumOrder', 'currencySymbol', 'phone', 'address']);
 
     res.json({
+      tenantId,
       restaurantName: st.restaurantName || st.businessName || 'GastroFlow Bistro',
+      storePhone: st.phone || '0752237947',
+      address: st.address || 'Sri Lanka',
       logo: st.logo || null,
       storeOpen: st.storeOpen !== undefined ? st.storeOpen === 'true' : true,
       defaultPrepTime: parseInt(st.defaultPrepTime || 20, 10),
