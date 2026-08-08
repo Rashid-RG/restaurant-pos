@@ -405,24 +405,40 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           </div>
 
           {/* First-Class Contact & Conduct Action Buttons */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '12px 0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, margin: '12px 0' }}>
             <a
               href="tel:+94760130922"
               className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, textDecoration: 'none', padding: '10px 8px', fontSize: '0.82rem', fontWeight: 700 }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, textDecoration: 'none', padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700 }}
             >
-              📞 Call Restaurant
+              📞 Call
             </a>
             <a
-              href={`https://wa.me/94760130922?text=${encodeURIComponent(`Hi GastroFlow Support, I need help with my Order #${order?.id}`)}`}
+              href={`https://wa.me/94760130922?text=${encodeURIComponent(`Hi GastroFlow, inquiry about Order #${order?.id}`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, textDecoration: 'none', padding: '10px 8px', fontSize: '0.82rem', fontWeight: 700, background: '#25D366', color: '#fff', border: 'none' }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, textDecoration: 'none', padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700, background: '#25D366', color: '#fff', border: 'none' }}
             >
-              💬 WhatsApp Support
+              💬 Support
             </a>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700, background: '#128C7E', color: '#fff', border: 'none' }}
+              onClick={() => {
+                const msg = `🧾 *GastroFlow Invoice #${order?.invoiceNumber || order?.id.slice(-4).toUpperCase()}*\nCustomer: ${order?.customerName || 'Customer'}\nTotal: LKR ${(order?.total || 0).toFixed(2)}\nTrack: ${window.location.href}`;
+                if (navigator.share) {
+                  navigator.share({ title: 'GastroFlow Invoice', text: msg, url: window.location.href }).catch(() => {});
+                } else {
+                  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                }
+              }}
+            >
+              📲 Share
+            </button>
           </div>
+
 
           <div style={{ display: 'flex', gap: 10, margin: '8px 0 12px' }}>
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={onBack}>

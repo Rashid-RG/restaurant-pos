@@ -144,4 +144,30 @@ describe('Table QR Code Generator & Low-Stock Alerts', () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.lowStockIngredients)).toBe(true);
   });
+
+  it('creates and approves a multi-branch stock transfer from Central Kitchen', async () => {
+    const createRes = await request(app)
+      .post('/api/inventory/transfers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        sourceOutlet: 'Central Kitchen',
+        destinationOutlet: 'Galle Branch',
+        ingredientId: 'ing1',
+        ingredientName: 'Samba Rice',
+        quantity: 25,
+        unit: 'kg'
+      });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.id).toBeDefined();
+
+    const approveRes = await request(app)
+      .post(`/api/inventory/transfers/${createRes.body.id}/approve`)
+      .set('Authorization', `Bearer ${token}`)
+      .send();
+
+    expect(approveRes.status).toBe(200);
+    expect(approveRes.message || approveRes.body.message).toContain('approved');
+  });
 });
+

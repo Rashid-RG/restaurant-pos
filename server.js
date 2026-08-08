@@ -552,6 +552,24 @@ async function initTables() {
       )
     `);
 
+    // 10c. Multi-Branch Stock Transfers Table (Central Kitchen -> Branch Outlets)
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS stock_transfers (
+        id TEXT PRIMARY KEY,
+        sourceOutlet TEXT NOT NULL,
+        destinationOutlet TEXT NOT NULL,
+        ingredientId TEXT NOT NULL,
+        ingredientName TEXT NOT NULL,
+        quantity REAL NOT NULL,
+        unit TEXT DEFAULT 'kg',
+        status TEXT DEFAULT 'pending',
+        requestedBy TEXT,
+        approvedBy TEXT,
+        timestamp INTEGER NOT NULL,
+        tenant_id TEXT DEFAULT 'default_tenant'
+      )
+    `);
+
     // 11. Customer Accounts Table (online customer portal)
     await dbRun(`
       CREATE TABLE IF NOT EXISTS customer_accounts (
@@ -6919,6 +6937,57 @@ app.post('/api/driver/cash-reconciliation/handover', requireRole(['owner', 'mana
     res.json({ success: true, orderCount: orderIds.length, amountHandedOver });
   } catch (err) {
     await dbRun('ROLLBACK');
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// ── Multi-Branch Central Kitchen & Stock Transfer Engine ──
+app.get('/api/inventory/transfers', authenticateToken, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenant_id || 'default_tenant';
+    const transfers = await dbAll('SELECT * FROM stock_transfers WHERE tenant_id = ? ORDER BY timestamp DESC', [tenantId]);
+    res.json(transfers);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+app.post('/api/inventory/transfers', authenticateToken, async (req, res) => {
+  const { sourceOutlet, destinationOutlet, ingredientId, ingredientName, quantity, unit } = req.body;
+  if (!destinationOutlet || !ingredientId || !quantity) {
+    return res.status(400).json({ error: 'destinationOutlet, ingredientId, and quantity are required.' });
+  }
+  try {
+    const tenantId = req.user?.tenant_id || 'default_tenant';
+    const id = `tr_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    await dbRun(
+      `INSERT INTO stock_transfers (id, sourceOutlet, destinationOutlet, ingredientId, ingredientName, quantity, unit, status, requestedBy, timestamp, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      [id, sourceOutlet || 'Central Kitchen', destinationOutlet, ingredientId, ingredientName || 'Raw Ingredient', quantity, unit || 'kg', req.user?.username || 'Staff', Date.now(), tenantId]
+    );
+    res.status(201).json({ id, message: 'Stock transfer request dispathed successfully!' });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+app.post('/api/inventory/transfers/:id/approve', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const tenantId = req.user?.tenant_id || 'default_tenant';
+    const transfer = await dbGet('SELECT * FROM stock_transfers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+    if (!transfer) return res.status(404).json({ error: 'Transfer request not found' });
+    if (transfer.status === 'approved') return res.status(400).json({ error: 'Transfer already approved' });
+
+    await dbRun('BEGIN TRANSACTION');
+    // Reduce from ingredient stock if matching ingredient exists
+    await dbRun('UPDATE ingredients SET stock = MAX(0, stock - ?) WHERE id = ? AND tenant_id = ?', [transfer.quantity, transfer.ingredientId, tenantId]);
+    await dbRun('UPDATE stock_transfers SET status = "approved", approvedBy = ? WHERE id = ?', [req.user?.username || 'Manager', id]);
+    await dbRun('COMMIT');
+
+    res.json({ message: `Stock transfer #${id} approved and quantity deducted from Central Kitchen!` });
+  } catch (err) {
+    await dbRun('ROLLBACK').catch(() => {});
     res.status(500).json({ error: errMsg(err) });
   }
 });
