@@ -1113,30 +1113,32 @@ async function seedDatabase(tenantId) {
       }
     }
 
-    // Check menu_items
-    const itemsCount = await dbGet('SELECT COUNT(*) as count FROM menu_items');
-    if (itemsCount.count === 0) {
-      console.log('Seeding default menu items...');
+    // Check menu_items for THIS specific tenant
+    const itemsCount = await dbGet('SELECT COUNT(*) as count FROM menu_items WHERE tenant_id = ?', [tid]);
+    if (!itemsCount || itemsCount.count === 0) {
+      console.log(`Seeding default Sri Lanka menu items for tenant: ${tid}...`);
       const defaultItems = [
-        { id: 'item1', name: 'Garlic Bread', price: 6.99, cost: 2.00, category: 'starters', emoji: '🥖', stock: 45, minStock: 10, description: 'Toasted baguette with garlic butter and fresh parsley.' },
-        { id: 'item2', name: 'Bruschetta', price: 8.50, cost: 2.50, category: 'starters', emoji: '🍅', stock: 35, minStock: 8, description: 'Grilled bread topped with tomatoes, garlic, and fresh basil.' },
-        { id: 'item3', name: 'Calamari Fritti', price: 12.99, cost: 4.50, category: 'starters', emoji: '🦑', stock: 22, minStock: 5, description: 'Crispy fried calamari served with garlic aioli and lemon.' },
-        { id: 'item4', name: 'Truffle Mushroom Pasta', price: 18.99, cost: 6.00, category: 'mains', emoji: '🍝', stock: 28, minStock: 5, description: 'Creamy tagliatelle pasta with wild mushrooms and truffle oil.' },
-        { id: 'item5', name: 'Ribeye Steak', price: 34.50, cost: 13.00, category: 'mains', emoji: '🥩', stock: 15, minStock: 3, description: '300g grass-fed ribeye cooked to perfection, served with herb butter.' },
-        { id: 'item6', name: 'Margherita Pizza', price: 14.99, cost: 4.00, category: 'mains', emoji: '🍕', stock: 55, minStock: 10, description: 'Classic pizza with fresh mozzarella, tomatoes, and organic basil.' },
-        { id: 'item7', name: 'Salmon Fillet', price: 26.90, cost: 9.50, category: 'mains', emoji: '🐟', stock: 12, minStock: 4, description: 'Pan-seared salmon with asparagus, mashed potatoes, and dill cream sauce.' },
-        { id: 'item8', name: 'Tiramisu', price: 8.99, cost: 2.50, category: 'desserts', emoji: '☕', stock: 20, minStock: 5, description: 'Traditional Italian dessert with coffee-soaked ladyfingers and mascarpone.' },
-        { id: 'item9', name: 'Chocolate Fondant', price: 9.50, cost: 3.00, category: 'desserts', emoji: '🧁', stock: 18, minStock: 4, description: 'Warm chocolate cake with a molten center, served with vanilla ice cream.' },
-        { id: 'item10', name: 'Panna Cotta', price: 7.99, cost: 2.00, category: 'desserts', emoji: '🍮', stock: 25, minStock: 6, description: 'Silky vanilla bean custard with fresh raspberry coulis.' },
-        { id: 'item11', name: 'Classic Mojito', price: 9.99, cost: 1.50, category: 'drinks', emoji: '🍹', stock: 95, minStock: 15, description: 'Refreshing cocktail with white rum, fresh lime, mint, and soda.' },
-        { id: 'item12', name: 'Espresso', price: 3.50, cost: 0.50, category: 'drinks', emoji: '☕', stock: 150, minStock: 20, description: 'Rich and bold double shot of espresso made from arabica beans.' },
-        { id: 'item13', name: 'Fresh Orange Juice', price: 5.99, cost: 1.20, category: 'drinks', emoji: '🍊', stock: 40, minStock: 10, description: '100% freshly squeezed organic oranges.' }
+        { id: `${tid}_item_chicken_rice`, name: 'Chicken Rice & Curry', price: 950, cost: 400, category: `${tid}_rice_curry`, emoji: '🍗', stock: 50, minStock: 10, description: 'Traditional Sri Lankan rice served with chicken curry, dhal, and 3 vegetable curries.', isHalal: 1, preparationTime: 15 },
+        { id: `${tid}_item_beef_kottu`, name: 'Beef Kottu Roti', price: 1100, cost: 500, category: `${tid}_kottu_roti`, emoji: '🥘', stock: 40, minStock: 10, description: 'Chopped flatbread wok-fried with seasoned beef, eggs, onions, and spicy gravy.', isHalal: 1, preparationTime: 15 },
+        { id: `${tid}_item_cheese_kottu`, name: 'Cheese Chicken Kottu', price: 1300, cost: 600, category: `${tid}_kottu_roti`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
+        { id: `${tid}_item_bbq_quarter`, name: 'Quarter BBQ Chicken', price: 650, cost: 300, category: `${tid}_bbq_grill`, emoji: '🔥', stock: 30, minStock: 5, description: 'Charcoal-grilled quarter chicken marinated in smoky Sri Lankan spices.', isHalal: 1, preparationTime: 20 },
+        { id: `${tid}_item_bbq_full`, name: 'Full BBQ Chicken with 4 Paratha', price: 1850, cost: 900, category: `${tid}_bbq_grill`, emoji: '🍗', isHalal: 1, preparationTime: 25 },
+        { id: `${tid}_item_seafood_rice`, name: 'Seafood Fried Rice', price: 1600, cost: 750, category: `${tid}_seafood`, emoji: '🦐', stock: 25, minStock: 5, description: 'Wok-fried basmati rice with prawns, calamari, egg, and spring onions.', isHalal: 0, preparationTime: 20 },
+        { id: `${tid}_item_egg_roti`, name: 'Egg Roti with Gravy', price: 250, cost: 80, category: `${tid}_short_eats`, emoji: '🍳', stock: 60, minStock: 15, description: 'Freshly baked griddle roti folded with egg and served with curry dipping sauce.', isHalal: 1, preparationTime: 10 },
+        { id: `${tid}_item_mango_juice`, name: 'Fresh Mango Juice', price: 350, cost: 120, category: `${tid}_beverages`, emoji: '🥤', stock: 50, minStock: 10, description: 'Chilled 100% natural tropical mango juice.', isHalal: 1, preparationTime: 5 },
+        { id: `${tid}_item_woodapple`, name: 'Woodapple Juice', price: 300, cost: 100, category: `${tid}_beverages`, emoji: '🍹', stock: 45, minStock: 10, description: 'Authentic Sri Lankan woodapple blend with coconut milk and brown sugar.', isHalal: 1, preparationTime: 5 }
       ];
       for (const item of defaultItems) {
         await dbRun(`
-          INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description]);
+          INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, isHalal, preparationTime, tenant_id, isAvailable)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          ON CONFLICT(id) DO NOTHING
+        `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description, item.isHalal, item.preparationTime, tid]).catch(() => {
+          return dbRun(`
+            INSERT OR IGNORE INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, isHalal, preparationTime, tenant_id, isAvailable)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description, item.isHalal, item.preparationTime, tid]);
+        });
       }
     }
 
@@ -1394,7 +1396,6 @@ async function seedDatabase(tenantId) {
       }
 
       // Seed KB2C BBQ Restaurant
-      await seedKb2cStore();
     } catch (e) {
       console.error('Error seeding advanced metadata:', e.message);
     }

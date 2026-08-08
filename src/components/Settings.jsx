@@ -611,50 +611,68 @@ export default function Settings() {
                     </button>
                   </div>
 
-                  <div className="data-table-container" style={{ border: 'none', margin: 0 }}>
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Item Name</th>
-                          <th>Category</th>
-                          <th>Price</th>
-                          <th>Stock</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {menuItems.map((item) => (
-                          <tr key={item.id}>
-                            <td>
-                              <span style={{ fontSize: '18px', marginRight: '8px' }}>{item.emoji}</span>
-                              <span style={{ fontWeight: '600' }}>{item.name}</span>
-                            </td>
-                            <td>{categories.find((c) => c.id === item.category)?.name || item.category}</td>
-                            <td>{currency || 'Rs.'} {item.price.toFixed(2)}</td>
-                            <td>{item.stock} units</td>
-                            <td>
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                <button
-                                  className="btn btn-secondary"
-                                  style={{ padding: '4px 8px', fontSize: '12px' }}
-                                  onClick={() => handleOpenItemEdit(item)}
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  className="btn"
-                                  style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--color-danger)', background: 'var(--color-danger-light)' }}
-                                  onClick={() => handleDeleteItemClick(item.id)}
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            </td>
+                  {menuItems.length === 0 ? (
+                    <div style={{ padding: '36px 20px', textAlign: 'center', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px dashed var(--border-color)', margin: '16px 0' }}>
+                      <div style={{ fontSize: '36px', marginBottom: '8px' }}>🍽️</div>
+                      <h4 style={{ margin: 0, fontWeight: 700, fontSize: '16px' }}>Your Store Menu is Empty</h4>
+                      <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px', marginBottom: '18px' }}>
+                        Start creating your restaurant menu! Add dish categories and menu items using the buttons above.
+                      </p>
+                      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                        <button className="btn btn-primary" style={{ padding: '8px 18px', fontWeight: 700 }} onClick={handleOpenItemAdd}>
+                          ＋ Add Your First Dish
+                        </button>
+                        <button className="btn btn-outline" style={{ padding: '8px 18px', fontWeight: 600 }} onClick={handleOpenCatAdd}>
+                          ＋ Add Category
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="data-table-container" style={{ border: 'none', margin: 0 }}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Item Name</th>
+                            <th>Category</th>
+                            <th>Price</th>
+                            <th>Stock</th>
+                            <th>Actions</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {menuItems.map((item) => (
+                            <tr key={item.id}>
+                              <td>
+                                <span style={{ fontSize: '18px', marginRight: '8px' }}>{item.emoji}</span>
+                                <span style={{ fontWeight: '600' }}>{item.name}</span>
+                              </td>
+                              <td>{categories.find((c) => c.id === item.category)?.name || item.category}</td>
+                              <td>{currency || 'Rs.'} {item.price ? item.price.toFixed(2) : '0.00'}</td>
+                              <td>{item.stock} units</td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button
+                                    className="btn btn-secondary"
+                                    style={{ padding: '4px 8px', fontSize: '12px' }}
+                                    onClick={() => handleOpenItemEdit(item)}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    className="btn"
+                                    style={{ padding: '4px 8px', fontSize: '12px', color: 'var(--color-danger)', background: 'var(--color-danger-light)' }}
+                                    onClick={() => handleDeleteItemClick(item.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
