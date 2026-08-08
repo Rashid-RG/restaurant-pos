@@ -202,31 +202,25 @@ function InnerApp() {
   const { messages, toast } = useToast();
   const { t, lang, setLang, languages } = useLang();
 
-  // Deep links & Mode detection:
-  // ?mode=driver / #driver now redirect to the standalone GastroDriver app
-  // (the driver UI was consolidated into apps/driver-web/ — see openDriverApp()).
+  // Sync initial view from URL query parameter ?view=... or ?page=... & deep links
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const track = params.get('track');
     const reset = params.get('reset');
-    const mode = params.get('mode') || params.get('driver');
     const legal = params.get('legal') || params.get('policies');
-    const hash = window.location.hash;
-
+    const viewParam = params.get('view') || params.get('page');
     const table = params.get('table');
     const tenant = params.get('tenant');
+
     if (table) {
       localStorage.setItem('gastroflow_table_number', table);
-      toast(`🪑 Seated at Table #${table}! Menu loaded for table order.`, 'success');
+      toast && toast(`🪑 Seated at Table #${table}! Menu loaded for table order.`, 'success');
     }
     if (tenant) {
       setActiveTenant(tenant);
     }
 
-    if (mode === 'driver' || mode === '1' || mode === 'true' || hash === '#driver') {
-      openDriverApp();
-      return;
-    } else if (track) {
+    if (track) {
       setTrackingOrderId(track);
       setView('track');
     } else if (reset) {
@@ -234,22 +228,32 @@ function InnerApp() {
       setView('account');
     } else if (legal) {
       setView('legal');
+    } else if (viewParam && ['menu', 'restaurants', 'checkout', 'track', 'account', 'support', 'legal'].includes(viewParam)) {
+      setView(viewParam);
     }
-    if (track || reset) {
-      window.history.replaceState({}, '', window.location.pathname);
-    }
+
+    const handlePopState = () => {
+      const p = new URLSearchParams(window.location.search);
+      const v = p.get('view') || p.get('page') || 'menu';
+      setView(v);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  if (authLoading) return (
-    <div className="page-loading">
-      <div className="spinner" />
-      <p>{t('loading')}</p>
-    </div>
-  );
-
-  const navigate = (v) => {
+  const navigate = (v, extraParams = {}) => {
     setView(v);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('view', v);
+      Object.entries(extraParams).forEach(([k, val]) => {
+        if (val !== null && val !== undefined) url.searchParams.set(k, val);
+        else url.searchParams.delete(k);
+      });
+      window.history.pushState({}, '', url.toString());
+    } catch (_) {}
   };
+
 
   // Redirect to the standalone GastroDriver PWA. Dev: customer runs on :3001, driver on :3002.
   // Production: set VITE_DRIVER_URL to the driver app's host.
