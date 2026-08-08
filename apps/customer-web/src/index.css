@@ -684,7 +684,7 @@ html { background: var(--surface-2); }
 /* ── GastroAI Concierge Responsive Position ── */
 .gastro-ai-launcher {
   position: fixed;
-  bottom: 84px;
+  bottom: calc(var(--bottom-bar) + var(--sa-bottom) + 20px);
   right: 16px;
   z-index: 9990;
   display: flex;
@@ -694,34 +694,44 @@ html { background: var(--surface-2); }
 .gastro-ai-pill-text {
   display: inline;
 }
+.floating-cart-pill-wrap {
+  position: fixed;
+  bottom: calc(var(--bottom-bar) + var(--sa-bottom) + 20px) !important;
+  left: 16px !important;
+  z-index: 9980;
+}
 @media (max-width: 480px) {
   .floating-cart-pill-wrap {
-    bottom: 74px !important;
-    left: 10px !important;
+    bottom: calc(var(--bottom-bar) + var(--sa-bottom) + 16px) !important;
+    left: 12px !important;
   }
   .gastro-ai-launcher {
-    bottom: 74px;
-    right: 10px;
+    bottom: calc(var(--bottom-bar) + var(--sa-bottom) + 16px) !important;
+    right: 12px !important;
     gap: 4px;
   }
   .gastro-ai-pill-text {
     display: none; /* Keep widget compact on small mobile screens so bottom navbar tabs remain clear */
   }
+  .back-btn-text {
+    display: none; /* Icon-only back button on small screens */
+  }
   .top-header .header-actions {
     gap: 4px !important;
   }
   .icon-btn {
-    width: 36px !important;
-    height: 36px !important;
-    font-size: 1rem !important;
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 0.95rem !important;
   }
   .lang-select {
-    height: 36px !important;
-    min-width: 44px !important;
+    height: 34px !important;
+    min-width: 42px !important;
     padding: 0 4px !important;
-    font-size: 0.75rem !important;
+    font-size: 0.72rem !important;
   }
 }
+
 .gastro-ai-modal {
   position: fixed;
   bottom: 84px;

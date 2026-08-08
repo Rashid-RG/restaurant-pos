@@ -166,30 +166,6 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
 
   return (
     <div className="profile-page fade-in" style={{ padding: '20px 16px 80px' }}>
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <button
-          type="button"
-          onClick={() => (window.history.length > 1 ? window.history.back() : null)}
-          style={{
-            background: 'rgba(255,107,53,0.12)',
-            border: '1px solid rgba(255,107,53,0.3)',
-            color: '#ff6b35',
-            borderRadius: 12,
-            padding: '8px 14px',
-            fontSize: '0.86rem',
-            fontWeight: 800,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-          }}
-        >
-          <span>←</span>
-          <span>Back</span>
-        </button>
-      </div>
-
       <div style={{ textAlign: 'center', marginBottom: 20 }}>
 
         <div className="profile-avatar" style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--brand)', color: '#fff', fontSize: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>

@@ -282,7 +282,7 @@ function InnerApp() {
 
       {/* Top Header */}
       <header className="top-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexShrink: 1 }}>
           {view !== 'restaurants' && (
             <button
               onClick={() => {
@@ -293,37 +293,38 @@ function InnerApp() {
                 }
               }}
               style={{
-                background: 'rgba(255,107,53,0.12)',
-                border: '1px solid rgba(255,107,53,0.3)',
+                background: 'rgba(255,107,53,0.14)',
+                border: '1px solid rgba(255,107,53,0.35)',
                 color: '#ff6b35',
-                borderRadius: 10,
-                padding: '6px 12px',
-                fontSize: '0.84rem',
+                borderRadius: 8,
+                padding: '4px 8px',
+                fontSize: '0.78rem',
                 fontWeight: 800,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 4,
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                transition: 'all 0.2s ease'
+                gap: 3,
+                flexShrink: 0,
+                boxShadow: '0 2px 5px rgba(0,0,0,0.08)'
               }}
-              title="Go Back to Previous View"
+              title="Go Back"
             >
               <span>←</span>
-              <span>Back</span>
+              <span className="back-btn-text">Back</span>
             </button>
           )}
-          <img src="food-logo.png" alt="GastroFood Logo" style={{ width: '38px', height: '38px', borderRadius: '10px', objectFit: 'cover', boxShadow: '0 2px 8px rgba(255,107,53,0.25)', cursor: 'pointer' }} onClick={() => navigate('restaurants')} />
-          <span className="restaurant-name" style={{ fontSize: '1.35rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px', cursor: 'pointer' }} onClick={() => navigate('restaurants')}>
+          <img src="food-logo.png" alt="GastroFood Logo" style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }} onClick={() => navigate('restaurants')} />
+          <span className="restaurant-name" style={{ fontSize: '1.2rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => navigate('restaurants')}>
             GastroFlow
           </span>
 
           {localStorage.getItem('gastroflow_table_number') && (
-            <span style={{ background: '#10b98120', color: '#10b981', padding: '3px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, border: '1px solid #10b98150' }}>
-              🪑 Table #{localStorage.getItem('gastroflow_table_number')}
+            <span style={{ background: '#10b98120', color: '#10b981', padding: '2px 6px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800, border: '1px solid #10b98150', flexShrink: 0 }}>
+              🪑 #{localStorage.getItem('gastroflow_table_number')}
             </span>
           )}
         </div>
+
         <div className="header-actions">
           <button className="icon-btn" onClick={() => navigate('support')} title="Customer Support Desk" style={{ fontSize: '1.1rem', background: '#3b82f620', border: '1px solid #3b82f650' }}>
             🎧
