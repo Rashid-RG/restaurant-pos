@@ -2353,7 +2353,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
           html,
           text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
         });
-        const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true, error: 'Email timeout' }), 4000));
+        const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true, error: 'Email timeout (15s)' }), 15000));
         const sendRes = await Promise.race([sendPromise, timeoutPromise]);
 
         if (sendRes && sendRes.success) {
