@@ -1464,15 +1464,15 @@ async function seedKb2cStore() {
       await dbRun("DELETE FROM users WHERE LOWER(tenant_id) LIKE '%twinbbq%' OR LOWER(username) LIKE '%twinbbq%'");
     } catch (_) {}
 
-    // 2. Automatically unify all default_tenant/kb2c records under tenant_kb2c
+    // 2. Automatically unify all legacy kb2c records under tenant_kb2c
     try {
-      await dbRun("UPDATE orders SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
-      await dbRun("UPDATE order_items SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
-      await dbRun("UPDATE customers SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
-      await dbRun("UPDATE customer_accounts SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
-      await dbRun("UPDATE menu_items SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
-      await dbRun("UPDATE categories SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
-      await dbRun("UPDATE tables SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
+      await dbRun("UPDATE orders SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'kb2c'");
+      await dbRun("UPDATE order_items SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'kb2c'");
+      await dbRun("UPDATE customers SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'kb2c'");
+      await dbRun("UPDATE customer_accounts SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'kb2c'");
+      await dbRun("UPDATE menu_items SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'kb2c'");
+      await dbRun("UPDATE categories SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'kb2c'");
+      await dbRun("UPDATE tables SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'kb2c'");
     } catch (_) {}
   } catch (e) {
     console.error('KB2C store seeding failed:', e.message);
@@ -1516,8 +1516,8 @@ const authenticateToken = (req, res, next) => {
       return res.status(403).json({ error: 'Token is invalid or has expired.' });
     }
     req.user = user;
-    let tid = user.tenant_id || req.headers['x-tenant-id'] || 'tenant_kb2c';
-    if (tid === 'default_tenant' || tid === 'default' || tid === 'kb2c') {
+    let tid = user.tenant_id || req.headers['x-tenant-id'] || 'default_tenant';
+    if (tid === 'kb2c') {
       tid = 'tenant_kb2c';
     }
     req.tenantId = tid;
