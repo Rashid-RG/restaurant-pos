@@ -294,6 +294,10 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const progressPct = order ? getProgressPercent(curStep) : 0;
   const isCancelled = order?.status === 'cancelled';
   const canCancel = order?.status === 'pending';
+  const rawType = (order?.orderType || order?.diningType || 'takeaway').toLowerCase();
+  const isDelivery = rawType === 'delivery';
+  const isDineIn = rawType === 'dine_in' || rawType === 'dinein' || rawType === 'qr' || rawType === 'table' || rawType === 'dine in';
+  const isTakeaway = !isDelivery && !isDineIn;
 
   return (
     <div className="tracking-page fade-in" style={{ padding: '20px 16px 80px' }}>
@@ -325,15 +329,15 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 </div>
               ) : curStep === 3 ? (
                 <div>
-                  <div className="uber-status-badge completed">Delivered</div>
-                  <h1 className="uber-hero-title">Order Delivered! 🎉</h1>
+                  <div className="uber-status-badge completed">{isDineIn ? 'Served' : isTakeaway ? 'Picked Up' : 'Delivered'}</div>
+                  <h1 className="uber-hero-title">{isDineIn ? 'Food Served! 🍽️' : isTakeaway ? 'Order Picked Up! 🛍️' : 'Order Delivered! 🎉'}</h1>
                   <p className="uber-hero-subtitle">Thank you for dining with GastroFlow.</p>
                 </div>
               ) : (
                 <div>
-                  <div className="uber-status-badge live">🔴 Live Tracking</div>
+                  <div className="uber-status-badge live">🔴 Live Tracking ({isDineIn ? '🍽️ Dine-In' : isTakeaway ? '🛍️ Takeaway' : '🛵 Delivery'})</div>
                   <h1 className="uber-hero-title">
-                    {dynamicETA ? `⏱️ ~${dynamicETA.estimatedMinutes} mins` : remainingMins ? `${remainingMins} mins` : 'Estimated ~20 mins'}
+                    {dynamicETA ? `⏱️ ~${dynamicETA.estimatedMinutes} mins` : remainingMins ? `~${remainingMins} mins` : 'Estimated ~15 mins'}
                   </h1>
                   {dynamicETA && (
                     <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 4 }}>
@@ -341,9 +345,22 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     </div>
                   )}
                   <p className="uber-hero-subtitle">
-                    {curStep === 0 && 'Waiting for restaurant confirmation…'}
-                    {curStep === 1 && 'Chef is preparing your food fresh in the kitchen 👨‍🍳'}
-                    {curStep === 2 && 'Rider is en route to your delivery address 🛵'}
+                    {isDineIn ? (
+                      curStep === 0 ? 'Waiting for restaurant confirmation…' :
+                      curStep === 1 ? 'Chef is preparing your food fresh in the kitchen 👨‍🍳' :
+                      curStep === 2 ? 'Food is ready! Serving to your table 🍽️' :
+                      'Served! Enjoy your meal 🍽️'
+                    ) : isTakeaway ? (
+                      curStep === 0 ? 'Waiting for restaurant confirmation…' :
+                      curStep === 1 ? 'Chef is preparing your order for pickup 👨‍🍳' :
+                      curStep === 2 ? 'Your order is ready for pickup at the counter! 🛍️' :
+                      'Picked up! Thank you 🛍️'
+                    ) : (
+                      curStep === 0 ? 'Waiting for restaurant confirmation…' :
+                      curStep === 1 ? 'Chef is preparing your food fresh in the kitchen 👨‍🍳' :
+                      curStep === 2 ? 'Rider is en route to your delivery address 🛵' :
+                      'Delivered! Enjoy your meal 🎉'
+                    )}
                   </p>
                 </div>
               )}
@@ -356,8 +373,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
-            {/* Real live map — only meaningful for delivery orders with a pinned destination. */}
-            {!isCancelled && curStep < 3 && (order.orderType === 'delivery' || order.diningType === 'delivery') && typeof order.deliveryLat === 'number' && (
+            {/* Real live map — only for delivery orders with a pinned destination. */}
+            {!isCancelled && curStep < 3 && isDelivery && typeof order.deliveryLat === 'number' && (
               <div style={{ position: 'relative', margin: '16px 0' }}>
                 <TrackingMap
                   store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
@@ -369,8 +386,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 </div>
               </div>
             )}
-            {/* ── Real-time Driver Dispatch Panel ── */}
-            {!isCancelled && curStep < 3 && dispatchStatus && (
+            {/* ── Real-time Driver Dispatch Panel — Delivery ONLY ── */}
+            {!isCancelled && curStep < 3 && isDelivery && dispatchStatus && (
               <div style={{
                 margin: '12px 0',
                 padding: '14px 16px',
@@ -408,11 +425,11 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           {/* First-Class Contact & Conduct Action Buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, margin: '12px 0' }}>
             <a
-              href="tel:+94760130922"
+              href={`tel:${order?.storePhone || '0760130922'}`}
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, textDecoration: 'none', padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700 }}
             >
-              📞 Call
+              📞 Call Store
             </a>
             <a
               href={`https://wa.me/94760130922?text=${encodeURIComponent(`Hi GastroFlow, inquiry about Order #${order?.id}`)}`}
@@ -461,7 +478,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               ) : (
                 <form onSubmit={handleFeedbackSubmit}>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
-                    How was your meal and delivery today?
+                    How was your meal experience today?
                   </p>
                   
                   {/* Stars selectors */}
@@ -509,7 +526,11 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             </div>
 
             <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8 }}>
-              📅 {new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {order.orderType || order.diningType || 'Takeaway'}
+              📅 {(() => {
+                const rawTs = Number(order.timestamp) || order.timestamp || order.createdAt;
+                const d = new Date(rawTs);
+                return isNaN(d.getTime()) ? 'Just now' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              })()} · {isDineIn ? '🍽️ Dine-In' : isTakeaway ? '🛍️ Takeaway / Pickup' : '🛵 Home Delivery'}
             </div>
 
             {order.invoiceNumber != null && (
@@ -518,52 +539,28 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
-            {order.deliveryAddress && (
+            {isDelivery && order.deliveryAddress && (
               <div style={{ fontSize: '0.8rem', color: 'var(--text-1)', background: 'rgba(0,0,0,0.02)', padding: '8px 12px', borderRadius: 8, marginBottom: 12 }}>
                 📍 <strong>Delivery Address:</strong> {order.deliveryAddress}
               </div>
             )}
 
-            {/* 1-Tap Direct Call & Chat Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setDriverChatOpen(true);
-                  fetchDriverMessages(order.id);
-                }}
-                style={{
-                  width: '100%',
-                  padding: '10px 4px',
-                  borderRadius: 10,
-                  background: '#6366f115',
-                  border: '1px solid #6366f150',
-                  color: '#6366f1',
-                  fontWeight: 800,
-                  fontSize: '0.78rem',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4
-                }}
-              >
-                <span>💬 Chat Rider</span>
-              </button>
-
-              <a
-                href={`tel:${order?.driver?.phone || order?.driverPhone || '+94760130922'}`}
-                style={{ textDecoration: 'none' }}
-              >
+            {/* 1-Tap Direct Call & Chat Buttons — Delivery ONLY */}
+            {isDelivery && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                 <button
                   type="button"
+                  onClick={() => {
+                    setDriverChatOpen(true);
+                    fetchDriverMessages(order.id);
+                  }}
                   style={{
                     width: '100%',
                     padding: '10px 4px',
                     borderRadius: 10,
-                    background: '#10b98115',
-                    border: '1px solid #10b98150',
-                    color: '#10b981',
+                    background: '#6366f115',
+                    border: '1px solid #6366f150',
+                    color: '#6366f1',
                     fontWeight: 800,
                     fontSize: '0.78rem',
                     cursor: 'pointer',
@@ -573,9 +570,36 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     gap: 4
                   }}
                 >
-                  <span>🛵 Call Rider</span>
+                  <span>💬 Chat Rider</span>
                 </button>
-              </a>
+
+                <a
+                  href={`tel:${order?.driver?.phone || order?.driverPhone || '+94760130922'}`}
+                  style={{ textDecoration: 'none' }}
+                >
+                  <button
+                    type="button"
+                    style={{
+                      width: '100%',
+                      padding: '10px 4px',
+                      borderRadius: 10,
+                      background: '#10b98115',
+                      border: '1px solid #10b98150',
+                      color: '#10b981',
+                      fontWeight: 800,
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4
+                    }}
+                  >
+                    <span>🛵 Call Rider</span>
+                  </button>
+                </a>
+              </div>
+            )}
 
               <a
                 href={`tel:${order?.storePhone || '0752237947'}`}
