@@ -1455,9 +1455,13 @@ async function seedKb2cStore() {
 
     // Automatically unify all orphaned default_tenant/kb2c records under tenant_kb2c
     try {
-      await dbRun("UPDATE orders SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c'");
-      await dbRun("UPDATE customers SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c'");
-      await dbRun("UPDATE customer_accounts SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c'");
+      await dbRun("UPDATE orders SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
+      await dbRun("UPDATE order_items SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
+      await dbRun("UPDATE customers SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
+      await dbRun("UPDATE customer_accounts SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
+      await dbRun("UPDATE menu_items SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
+      await dbRun("UPDATE categories SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
+      await dbRun("UPDATE tables SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
     } catch (_) {}
   } catch (e) {
     console.error('KB2C store seeding failed:', e.message);
@@ -2107,7 +2111,10 @@ for (const tableName of CRUD_TABLES) {
   app.get(`/api/${tableName}`, authenticateToken, async (req, res) => {
     try {
       const tenantId = req.tenantId || 'default_tenant';
-      const rows = await dbAll(`SELECT * FROM ${tableName} WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = 'default_tenant')`, [tenantId, tenantId]);
+      const rows = await dbAll(
+        `SELECT * FROM ${tableName} WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL)`,
+        [tenantId]
+      );
       res.json(rows);
     } catch (err) {
       res.status(500).json({ error: errMsg(err) });
@@ -3575,7 +3582,11 @@ Return valid JSON:
 // GET /api/orders — Fetch all orders with order_items for POS & Admin
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const orders = await dbAll('SELECT * FROM orders WHERE tenant_id = ? ORDER BY timestamp DESC', [req.tenantId]);
+    const tenantId = req.tenantId || 'default_tenant';
+    const orders = await dbAll(
+      `SELECT * FROM orders WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL) ORDER BY timestamp DESC`,
+      [tenantId]
+    );
     for (const order of orders) {
       const items = await dbAll('SELECT * FROM order_items WHERE orderId = ?', [order.id]);
       order.items = items || [];
