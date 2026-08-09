@@ -1452,6 +1452,13 @@ async function seedKb2cStore() {
         await dbRun('INSERT INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tid, s.key, s.value]);
       }
     }
+
+    // Automatically unify all orphaned default_tenant/kb2c records under tenant_kb2c
+    try {
+      await dbRun("UPDATE orders SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c'");
+      await dbRun("UPDATE customers SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c'");
+      await dbRun("UPDATE customer_accounts SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c'");
+    } catch (_) {}
   } catch (e) {
     console.error('KB2C store seeding failed:', e.message);
   }
@@ -1546,19 +1553,35 @@ const requireRole = (allowedRoles) => {
 
 // Resolve the tenant for a PUBLIC (unauthenticated) request. Customer/driver apps
 // identify their restaurant via ?tenantId=<id>, ?tenant=<subdomain>, or the
-// X-Tenant-Id / X-Tenant-Subdomain headers. Falls back to the default tenant so
-// existing single-tenant deployments keep working unchanged.
+// X-Tenant-Id / X-Tenant-Subdomain headers.
 async function resolvePublicTenant(req) {
   const explicitId = req.query.tenantId || req.headers['x-tenant-id'];
-  if (explicitId) return String(explicitId);
+  if (explicitId) {
+    const raw = String(explicitId);
+    try {
+      const row = await dbGet("SELECT id FROM tenants WHERE id = ? OR subdomain = ?", [raw, raw]);
+      if (row) return row.id;
+    } catch (_) {}
+    return raw;
+  }
   const sub = req.query.tenant || req.headers['x-tenant-subdomain'];
   if (sub) {
+    const raw = String(sub);
     try {
-      const row = await dbGet("SELECT id FROM tenants WHERE subdomain = ? AND status = 'active'", [String(sub)]);
+      const row = await dbGet("SELECT id FROM tenants WHERE subdomain = ? OR id = ?", [raw, raw]);
       if (row) return row.id;
-    } catch (_) { /* fall through to default */ }
+    } catch (_) {}
+    return raw;
   }
-  return 'default_tenant';
+  try {
+    const allTenants = await dbAll("SELECT id, subdomain FROM tenants WHERE status = 'active'");
+    if (allTenants && allTenants.length > 0) {
+      const kb2c = allTenants.find(t => t.id === 'tenant_kb2c' || t.subdomain === 'kb2c');
+      if (kb2c) return kb2c.id;
+      if (allTenants.length === 1) return allTenants[0].id;
+    }
+  } catch (_) {}
+  return 'tenant_kb2c';
 }
 
 // ── Per-tenant settings helpers ──────────────────────────────────────────────
