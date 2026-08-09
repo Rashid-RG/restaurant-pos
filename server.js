@@ -240,6 +240,7 @@ export const dbRun = async (sql, params = []) => {
     } else if (/INSERT OR REPLACE INTO/i.test(pgSql)) {
       pgSql = pgSql.replace(/INSERT OR REPLACE INTO/gi, 'INSERT INTO');
     }
+    pgSql = pgSql.replace(/\bMAX\s*\(\s*([^,\)]+)\s*,/gi, 'GREATEST($1,');
     return execute(pgSql, params);
   }
   return new Promise((resolve, reject) => {
