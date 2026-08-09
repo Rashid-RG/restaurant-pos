@@ -1516,7 +1516,11 @@ const authenticateToken = (req, res, next) => {
       return res.status(403).json({ error: 'Token is invalid or has expired.' });
     }
     req.user = user;
-    req.tenantId = user.tenant_id || req.headers['x-tenant-id'] || 'default_tenant';
+    let tid = user.tenant_id || req.headers['x-tenant-id'] || 'tenant_kb2c';
+    if (tid === 'default_tenant' || tid === 'default' || tid === 'kb2c') {
+      tid = 'tenant_kb2c';
+    }
+    req.tenantId = tid;
     next();
   });
 };
@@ -2125,7 +2129,7 @@ for (const tableName of CRUD_TABLES) {
     try {
       const tenantId = req.tenantId || 'default_tenant';
       const rows = await dbAll(
-        `SELECT * FROM ${tableName} WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL)`,
+        `SELECT * FROM ${tableName} WHERE tenant_id = ?`,
         [tenantId]
       );
       res.json(rows);
@@ -3595,9 +3599,9 @@ Return valid JSON:
 // GET /api/orders — Fetch all orders with order_items for POS & Admin
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const tenantId = req.tenantId || 'default_tenant';
+    const tenantId = req.tenantId || 'tenant_kb2c';
     const orders = await dbAll(
-      `SELECT * FROM orders WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL) ORDER BY timestamp DESC`,
+      `SELECT * FROM orders WHERE tenant_id = ? ORDER BY timestamp DESC`,
       [tenantId]
     );
     for (const order of orders) {
@@ -3716,11 +3720,11 @@ async function syncAllRealCustomersToCrm(tenantId) {
 // GET /api/customers — Fetch real customers list for Customers & Loyalty view (joins online customer accounts & order history)
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
-    const tenantId = req.tenantId || 'default_tenant';
+    const tenantId = req.tenantId || 'tenant_kb2c';
     await syncAllRealCustomersToCrm(tenantId);
     const customers = await dbAll(
-      `SELECT * FROM customers WHERE (tenant_id = ? OR tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL OR ? = 'default_tenant') ORDER BY totalSpent DESC, name ASC`,
-      [tenantId, tenantId]
+      `SELECT * FROM customers WHERE tenant_id = ? ORDER BY totalSpent DESC, name ASC`,
+      [tenantId]
     );
     res.json(customers);
   } catch (err) {
@@ -4329,9 +4333,9 @@ app.patch('/api/saas/tenants/:id/status', authenticateToken, requireRole(['owner
 // GET /api/menu — Alias for /api/menu_items for POS menu syncing
 app.get('/api/menu', authenticateToken, async (req, res) => {
   try {
-    const tenantId = req.tenantId || 'default_tenant';
+    const tenantId = req.tenantId || 'tenant_kb2c';
     const rows = await dbAll(
-      `SELECT * FROM menu_items WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL)`,
+      `SELECT * FROM menu_items WHERE tenant_id = ?`,
       [tenantId]
     );
     res.json(rows);

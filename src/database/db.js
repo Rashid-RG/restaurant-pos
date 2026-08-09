@@ -27,11 +27,19 @@ export const db = {
         throw new Error('Unauthorized');
       }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      return await response.json();
+      const data = await response.json();
+      // Always return an array — guard against server error objects
+      return Array.isArray(data) ? data : [];
     } catch (err) {
       console.error(`Error querying GET /api/${tableName}:`, err);
       return [];
     }
+  },
+
+  // Bulk insert/update rows (no-op here — server handles persistence)
+  bulkPut: async (_tableName, _items) => {
+    // Data is already persisted on the server; this is a no-op on the client side
+    return Promise.resolve();
   },
 
   // Save/Update row in database table
