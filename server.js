@@ -3646,7 +3646,7 @@ app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), async (req
 
 async function syncAllRealCustomersToCrm(tenantId) {
   try {
-    const tid = tenantId || 'default_tenant';
+    const tid = tenantId || 'tenant_kb2c';
 
     // 1. Sync from registered customer_accounts
     const accounts = await dbAll(`SELECT id, name, phone, email, loyaltyPoints, totalSpent FROM customer_accounts`);
@@ -3663,8 +3663,8 @@ async function syncAllRealCustomersToCrm(tenantId) {
 
         if (existing) {
           await dbRun(
-            `UPDATE customers SET name = COALESCE(?, name), phone = CASE WHEN ? != '' THEN ? ELSE phone END, email = CASE WHEN ? != '' THEN ? ELSE email END, points = GREATEST(COALESCE(points, 0), ?) WHERE id = ?`,
-            [acc.name, cleanPhone, cleanPhone, cleanEmail, cleanEmail, acc.loyaltyPoints || 0, existing.id]
+            `UPDATE customers SET tenant_id = COALESCE(tenant_id, ?), name = COALESCE(?, name), phone = CASE WHEN ? != '' THEN ? ELSE phone END, email = CASE WHEN ? != '' THEN ? ELSE email END, points = GREATEST(COALESCE(points, 0), ?) WHERE id = ?`,
+            [tid, acc.name, cleanPhone, cleanPhone, cleanEmail, cleanEmail, acc.loyaltyPoints || 0, existing.id]
           );
         } else {
           await dbRun(
@@ -3701,8 +3701,8 @@ async function syncAllRealCustomersToCrm(tenantId) {
 
         if (existing) {
           await dbRun(
-            `UPDATE customers SET orderCount = ?, totalSpent = ?, name = COALESCE(?, name), email = CASE WHEN ? != '' THEN ? ELSE email END WHERE id = ?`,
-            [stat.realOrderCount, stat.realTotalSpent || 0, cleanName, cleanEmail, cleanEmail, existing.id]
+            `UPDATE customers SET tenant_id = COALESCE(tenant_id, ?), orderCount = ?, totalSpent = ?, name = COALESCE(?, name), email = CASE WHEN ? != '' THEN ? ELSE email END WHERE id = ?`,
+            [tid, stat.realOrderCount, stat.realTotalSpent || 0, cleanName, cleanEmail, cleanEmail, existing.id]
           );
         } else {
           await dbRun(
@@ -3722,9 +3722,17 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
     const tenantId = req.tenantId || 'tenant_kb2c';
     await syncAllRealCustomersToCrm(tenantId);
+
+    // Auto-migrate any unassigned / legacy customers to active tenant ID if applicable
+    if (tenantId === 'tenant_kb2c') {
+      await dbRun(
+        `UPDATE customers SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL`
+      ).catch(() => {});
+    }
+
     const customers = await dbAll(
-      `SELECT * FROM customers WHERE tenant_id = ? ORDER BY totalSpent DESC, name ASC`,
-      [tenantId]
+      `SELECT * FROM customers WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = 'tenant_kb2c') ORDER BY totalSpent DESC, name ASC`,
+      [tenantId, tenantId]
     );
     res.json(customers);
   } catch (err) {
