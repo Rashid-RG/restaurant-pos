@@ -601,33 +601,6 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
-              <a
-                href={`tel:${order?.storePhone || '0752237947'}`}
-                style={{ textDecoration: 'none' }}
-              >
-                <button
-                  type="button"
-                  style={{
-                    width: '100%',
-                    padding: '10px 4px',
-                    borderRadius: 10,
-                    background: '#3b82f615',
-                    border: '1px solid #3b82f650',
-                    color: '#3b82f6',
-                    fontWeight: 800,
-                    fontSize: '0.78rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 4
-                  }}
-                >
-                  <span>📞 Call Store</span>
-                </button>
-              </a>
-            </div>
-
             <div style={{ borderTop: '1px dashed var(--border-color)', paddingTop: 10 }}>
               {order.items?.map((item, i) => (
                 <div key={i} className="flex-between" style={{ fontSize: '0.82rem', padding: '4px 0' }}>
