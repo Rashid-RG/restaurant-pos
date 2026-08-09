@@ -4313,14 +4313,31 @@ app.patch('/api/saas/tenants/:id/status', authenticateToken, requireRole(['owner
   }
 });
 
+// GET /api/menu — Alias for /api/menu_items for POS menu syncing
+app.get('/api/menu', authenticateToken, async (req, res) => {
+  try {
+    const tenantId = req.tenantId || 'default_tenant';
+    const rows = await dbAll(
+      `SELECT * FROM menu_items WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL)`,
+      [tenantId]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
 // GET /api/public/menu
 app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
-    const categories = await dbAll('SELECT id, name, emoji FROM categories WHERE tenant_id = ? ORDER BY name', [tenantId]);
+    const categories = await dbAll(
+      `SELECT id, name, emoji FROM categories WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL) ORDER BY name`,
+      [tenantId]
+    );
     const items = await dbAll(
       `SELECT id, name, price, category, emoji, stock, description, dietaryTags, imageUrl, isAvailable FROM menu_items
-       WHERE isAvailable = 1 AND tenant_id = ? ORDER BY name`,
+       WHERE (isAvailable = 1 OR isAvailable IS NULL) AND (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL) ORDER BY name`,
       [tenantId]
     );
 

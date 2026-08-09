@@ -104,7 +104,7 @@ export const POSProvider = ({ children }) => {
         try {
           const authHeaders = { Authorization: `Bearer ${token}` };
           const [menuRes, catRes, orderRes, setRes, custRes] = await Promise.all([
-            fetch('/api/menu', { headers: authHeaders }).catch(() => null),
+            fetch('/api/menu_items', { headers: authHeaders }).catch(() => null),
             fetch('/api/categories', { headers: authHeaders }).catch(() => null),
             fetch('/api/orders', { headers: authHeaders }).catch(() => null),
             fetch('/api/settings', { headers: authHeaders }).catch(() => null),
