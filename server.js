@@ -1453,7 +1453,18 @@ async function seedKb2cStore() {
       }
     }
 
-    // Automatically unify all orphaned default_tenant/kb2c records under tenant_kb2c
+    // 1. Purge deleted tenant twinbbq records from Neon DB
+    try {
+      await dbRun("DELETE FROM menu_items WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
+      await dbRun("DELETE FROM categories WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
+      await dbRun("DELETE FROM orders WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
+      await dbRun("DELETE FROM customers WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
+      await dbRun("DELETE FROM customer_accounts WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
+      await dbRun("DELETE FROM tenants WHERE LOWER(id) LIKE '%twinbbq%' OR LOWER(name) LIKE '%twinbbq%' OR LOWER(subdomain) LIKE '%twinbbq%'");
+      await dbRun("DELETE FROM users WHERE LOWER(tenant_id) LIKE '%twinbbq%' OR LOWER(username) LIKE '%twinbbq%'");
+    } catch (_) {}
+
+    // 2. Automatically unify all default_tenant/kb2c records under tenant_kb2c
     try {
       await dbRun("UPDATE orders SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
       await dbRun("UPDATE order_items SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL");
@@ -1562,6 +1573,7 @@ async function resolvePublicTenant(req) {
   const explicitId = req.query.tenantId || req.headers['x-tenant-id'];
   if (explicitId) {
     const raw = String(explicitId);
+    if (raw === 'default_tenant' || raw === 'default' || raw === 'kb2c') return 'tenant_kb2c';
     try {
       const row = await dbGet("SELECT id FROM tenants WHERE id = ? OR subdomain = ?", [raw, raw]);
       if (row) return row.id;
@@ -1571,6 +1583,7 @@ async function resolvePublicTenant(req) {
   const sub = req.query.tenant || req.headers['x-tenant-subdomain'];
   if (sub) {
     const raw = String(sub);
+    if (raw === 'default_tenant' || raw === 'default' || raw === 'kb2c') return 'tenant_kb2c';
     try {
       const row = await dbGet("SELECT id FROM tenants WHERE subdomain = ? OR id = ?", [raw, raw]);
       if (row) return row.id;
