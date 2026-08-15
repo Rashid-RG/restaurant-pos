@@ -1341,9 +1341,8 @@ button {
 
 @media print {
   @page {
-    size: 80mm auto;
-    margin: 0;
-    padding: 0;
+    size: auto;
+    margin: 0mm;
   }
   body {
     margin: 0 !important;
