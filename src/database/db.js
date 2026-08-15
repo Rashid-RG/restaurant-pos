@@ -58,8 +58,9 @@ export const db = {
         window.location.reload();
         throw new Error('Unauthorized');
       }
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      return await response.json();
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      return data;
     } catch (err) {
       console.error(`Error querying POST /api/${tableName}:`, err);
       throw err;
