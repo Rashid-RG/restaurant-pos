@@ -32,11 +32,17 @@ export default function Dashboard() {
       .catch(err => console.error('Error loading feedbacks:', err));
   }, []);
 
+  const safeDate = (val) => {
+    if (!val) return new Date();
+    const num = typeof val === 'number' ? val : Number(val);
+    return isNaN(num) ? new Date(val) : new Date(num);
+  };
+
   // Filter orders for "today"
   const getTodayOrders = () => {
     const today = new Date().toDateString();
     return orders.filter(
-      (order) => order.status === 'paid' && new Date(order.paymentTimestamp || order.timestamp).toDateString() === today
+      (order) => order.status === 'paid' && safeDate(order.paymentTimestamp || order.timestamp).toDateString() === today
     );
   };
 
@@ -85,7 +91,7 @@ export default function Dashboard() {
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       
       const daySales = orders
-        .filter((o) => o.status === 'paid' && new Date(o.paymentTimestamp || o.timestamp).toDateString() === dateStr)
+        .filter((o) => o.status === 'paid' && safeDate(o.paymentTimestamp || o.timestamp).toDateString() === dateStr)
         .reduce((sum, o) => sum + o.total, 0);
 
       daysData.push({ day: dayName, total: daySales });
@@ -215,8 +221,8 @@ export default function Dashboard() {
     const headers = ['Order ID', 'Timestamp', 'Dining Type', 'Status', 'Subtotal', 'Tax', 'Tip', 'Total'];
     const rows = orders.map(o => [
       o.id,
-      new Date(o.timestamp || Date.now()).toLocaleString(),
-      o.diningType || 'dine-in',
+      safeDate(o.paymentTimestamp || o.timestamp).toLocaleString(),
+      o.diningType || o.orderType || 'dine-in',
       o.status,
       o.subtotal || o.total,
       o.tax || 0,
@@ -355,12 +361,12 @@ export default function Dashboard() {
                       <tr key={sale.id}>
                         <td style={{ fontWeight: '600' }}>#{sale.id.slice(-6)}</td>
                         <td>
-                          <span className={`badge ${sale.diningType === 'dine-in' ? 'badge-primary' : 'badge-info'}`}>
-                            {sale.diningType}
+                          <span className={`badge ${(sale.diningType || sale.orderType) === 'dine-in' ? 'badge-primary' : 'badge-info'}`}>
+                            {sale.diningType || sale.orderType || 'takeaway'}
                           </span>
                         </td>
                         <td>{sale.tableId ? `Table ${tables.find(t => t.id === sale.tableId)?.number || '?'}` : 'N/A'}</td>
-                        <td>{new Date(sale.paymentTimestamp || sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                        <td>{safeDate(sale.paymentTimestamp || sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                         <td>
                           <span style={{ textTransform: 'capitalize', fontWeight: '500' }}>{sale.paymentMethod || 'Cash'}</span>
                         </td>

@@ -291,7 +291,12 @@ export default function Customers() {
                     <div>
                       <span style={{ fontWeight: '700', fontSize: '13px' }}>#{order.id.slice(-6).toUpperCase()}</span>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {new Date(order.paymentTimestamp || order.timestamp).toLocaleDateString()} at {new Date(order.paymentTimestamp || order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {(() => {
+                          const t = order.paymentTimestamp || order.timestamp;
+                          const n = typeof t === 'number' ? t : Number(t);
+                          const d = isNaN(n) ? new Date(t) : new Date(n);
+                          return `${d.toLocaleDateString()} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                        })()}
                       </div>
                     </div>
                     <span style={{ fontWeight: '700', color: 'var(--text-main)' }}>
