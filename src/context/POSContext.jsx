@@ -669,8 +669,10 @@ export const POSProvider = ({ children }) => {
     // Reload database state to reflect stock and table status updates in the UI
     await loadAllData();
 
-    clearCart();
-    setSelectedTable(null);
+    if (isHold) {
+      clearCart();
+      setSelectedTable(null);
+    }
     return newOrder;
   };
 

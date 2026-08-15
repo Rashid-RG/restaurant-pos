@@ -3663,7 +3663,7 @@ async function syncAllRealCustomersToCrm(tenantId) {
 
         if (existing) {
           await dbRun(
-            `UPDATE customers SET tenant_id = COALESCE(tenant_id, ?), name = COALESCE(?, name), phone = CASE WHEN ? != '' THEN ? ELSE phone END, email = CASE WHEN ? != '' THEN ? ELSE email END, points = GREATEST(COALESCE(points, 0), ?) WHERE id = ?`,
+            `UPDATE customers SET tenant_id = COALESCE(tenant_id, ?), name = COALESCE(?, name), phone = CASE WHEN ? != '' THEN ? ELSE phone END, email = CASE WHEN ? != '' THEN ? ELSE email END, points = MAX(COALESCE(points, 0), ?) WHERE id = ?`,
             [tid, acc.name, cleanPhone, cleanPhone, cleanEmail, cleanEmail, acc.loyaltyPoints || 0, existing.id]
           );
         } else {
@@ -6814,7 +6814,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           `, [orderItemId, id, item.id, item.name, item.unitPrice, item.quantity, item.notes || '']);
 
           // Atomic conditional stock check and update
-          await dbRun('UPDATE menu_items SET stock = GREATEST(0, stock - ?) WHERE id = ?', [item.quantity, item.id]);
+          await dbRun('UPDATE menu_items SET stock = MAX(0, stock - ?) WHERE id = ?', [item.quantity, item.id]);
         }
 
         // Update table status if dine-in

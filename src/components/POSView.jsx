@@ -292,6 +292,8 @@ export default function POSView() {
           setPrintReceiptOrder(receiptData);
           setShowPaymentModal(false);
           setSplitBillProgress(null);
+          clearCart();
+          setSelectedTable(null);
           setTipInput(0);
         }
       } catch (err) {
@@ -372,6 +374,8 @@ export default function POSView() {
         });
         setTipInput(0);
         setShowPaymentModal(false);
+        clearCart();
+        setSelectedTable(null);
         await loadAllData();
       } catch (err) {
         showToast('PayHere payment failed: ' + err.message, 'error');
@@ -406,6 +410,8 @@ export default function POSView() {
         autoPrintRef.current = true;
         setPrintReceiptOrder(receiptData);
         setShowPaymentModal(false);
+        clearCart();
+        setSelectedTable(null);
         setTipInput(0);
       }
     } catch (err) {
