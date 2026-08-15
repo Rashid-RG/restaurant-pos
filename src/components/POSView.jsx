@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { usePOS } from '../context/POSContext';
 
 export default function POSView() {
@@ -72,6 +72,10 @@ export default function POSView() {
   const [splitCount, setSplitCount] = useState(2);
   const [showRecallModal, setShowRecallModal] = useState(false);
   const [splitPayments, setSplitPayments] = useState([]);
+  // Split Bill multi-portion state: { count, portionAmount, paid, collectedPayments }
+  const [splitBillProgress, setSplitBillProgress] = useState(null);
+  // Ref flag: true only when a new payment just completed — prevents double-print on manual reprint
+  const autoPrintRef = useRef(false);
   const [showShiftCloseModal, setShowShiftCloseModal] = useState(false);
   const [shiftReport, setShiftReport] = useState(null);
 
@@ -115,9 +119,12 @@ export default function POSView() {
   const [printReceiptOrder, setPrintReceiptOrder] = useState(null);
   const [lastPaidOrder, setLastPaidOrder] = useState(null);
 
-  // Auto-print receipt when order is completed
+  // Auto-print receipt only when a new payment is completed.
+  // autoPrintRef.current is set to true in handlePaymentComplete and false on
+  // manual reprints (“Last Bill” button), preventing the double-print bug.
   useEffect(() => {
-    if (printReceiptOrder) {
+    if (printReceiptOrder && autoPrintRef.current) {
+      autoPrintRef.current = false;
       const is58mm = settings.printerPaperWidth === '58mm';
       if (is58mm) document.body.classList.add('print-58mm');
       else document.body.classList.remove('print-58mm');
@@ -190,6 +197,7 @@ export default function POSView() {
 
   const handlePayClick = () => {
     if (cart.length === 0) return;
+    setSplitBillProgress(null); // Clear any stale split-bill state from a previous order
     setCashReceived(totals.total.toString());
     setShowPaymentModal(true);
   };
@@ -239,9 +247,63 @@ export default function POSView() {
   };
 
   const handlePaymentComplete = async () => {
+    // ─── Split Bill Portion Collection Mode ───────────────────────────────────
+    // When splitBillProgress is active, we collect one portion payment at a time
+    // and only finalize the order once all portions have been collected.
+    if (splitBillProgress) {
+      const { count, portionAmount, paid, collectedPayments } = splitBillProgress;
+      const newCollected = [...collectedPayments, { method: paymentMethod, amount: portionAmount }];
+      const newPaid = paid + 1;
+
+      if (newPaid < count) {
+        // More portions still to collect — update progress and stay in payment modal
+        setSplitBillProgress({ ...splitBillProgress, paid: newPaid, collectedPayments: newCollected });
+        setCashReceived(portionAmount.toFixed(2));
+        setPaymentMethod('cash');
+        showToast(`✅ Portion ${newPaid}/${count} collected (${currencySymbol}${portionAmount.toFixed(2)}). Collect next portion.`, 'success');
+        return;
+      }
+
+      // All portions collected — place & settle the full order
+      try {
+        const receiptItems = [...cart];
+        const receiptTotals = { ...totals };
+        const splitDetails = newCollected;
+        const order = await placeOrder(false, tipInput, splitDetails);
+        if (order) {
+          const settlement = await completePayment(order.id, 'split', tipInput, splitDetails);
+          const receiptData = {
+            ...order,
+            paymentMethod: 'split',
+            paymentTimestamp: Date.now(),
+            invoiceNumber: settlement?.invoiceNumber || null,
+            items: receiptItems,
+            subtotal: receiptTotals.subtotal,
+            discount: receiptTotals.discount,
+            serviceCharge: receiptTotals.serviceCharge,
+            tax: receiptTotals.tax,
+            tip: receiptTotals.tip,
+            roundedAmount: receiptTotals.roundedAmount,
+            total: receiptTotals.total,
+            paymentSplit: splitDetails,
+          };
+          setLastPaidOrder(receiptData);
+          autoPrintRef.current = true;
+          setPrintReceiptOrder(receiptData);
+          setShowPaymentModal(false);
+          setSplitBillProgress(null);
+          setTipInput(0);
+        }
+      } catch (err) {
+        showToast('Split checkout failed: ' + (err.message || err), 'error');
+      }
+      return;
+    }
+
     const receiptItems = [...cart];
     const receiptTotals = { ...totals };
 
+    // ─── PayHere Gateway ──────────────────────────────────────────────────────
     if (paymentMethod === 'payhere') {
       try {
         const splitDetails = [{ method: 'payhere', amount: receiptTotals.total }];
@@ -288,10 +350,13 @@ export default function POSView() {
           return;
         }
 
+        autoPrintRef.current = true;
         setPrintReceiptOrder({
           id: order.id,
           diningType,
-          tableId: selectedTable?.id || null,
+          // Bug fix: use order.tableId (authoritative) — selectedTable is cleared
+          // by placeOrder() before this line executes, so it would always be null.
+          tableId: order.tableId,
           timestamp: Date.now(),
           invoiceNumber: paidOrder.invoiceNumber || null,
           items: receiptItems,
@@ -314,8 +379,11 @@ export default function POSView() {
       return;
     }
 
+    // ─── Cash / Card / Standard Split Tender ─────────────────────────────────
     try {
-      const splitDetails = paymentMethod === 'split' ? splitPayments : [{ method: paymentMethod, amount: receiptTotals.total }];
+      const splitDetails = paymentMethod === 'split'
+        ? splitPayments
+        : [{ method: paymentMethod, amount: receiptTotals.total }];
       const order = await placeOrder(false, tipInput, splitDetails);
       if (order) {
         const settlement = await completePayment(order.id, paymentMethod, tipInput, splitDetails);
@@ -335,9 +403,9 @@ export default function POSView() {
           paymentSplit: splitDetails
         };
         setLastPaidOrder(receiptData);
+        autoPrintRef.current = true;
         setPrintReceiptOrder(receiptData);
         setShowPaymentModal(false);
-        clearCart();
         setTipInput(0);
       }
     } catch (err) {
@@ -347,7 +415,9 @@ export default function POSView() {
 
   const getChangeAmount = () => {
     const received = parseFloat(cashReceived) || 0;
-    const change = received - totals.total;
+    // In split-bill mode, change is calculated against the per-portion amount, not the full total
+    const amountDue = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+    const change = received - amountDue;
     return change > 0 ? change : 0;
   };
 
@@ -521,7 +591,10 @@ export default function POSView() {
                 <button 
                   className="btn btn-secondary" 
                   style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
-                  onClick={() => setPrintReceiptOrder(lastPaidOrder)}
+                  onClick={() => {
+                    autoPrintRef.current = false; // Manual reprint — do NOT trigger the auto-print effect
+                    setPrintReceiptOrder(lastPaidOrder);
+                  }}
                   title="Print Last Order Receipt"
                 >
                   🖨️ Last Bill
@@ -875,7 +948,7 @@ export default function POSView() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
-              <button className="btn btn-secondary" onClick={() => setShowDiscountModal(false)}>Apply</button>
+              <button className="btn btn-primary" onClick={() => setShowDiscountModal(false)}>Apply</button>
             </div>
           </div>
         </div>
@@ -887,13 +960,28 @@ export default function POSView() {
           <div className="modal-content" style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h2>Select Payment Mode</h2>
-              <button className="modal-close" onClick={() => setShowPaymentModal(false)}>×</button>
+              <button className="modal-close" onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>×</button>
             </div>
 
+            {/* Split Bill Progress Indicator */}
+            {splitBillProgress && (
+              <div style={{ background: 'var(--color-primary-light)', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', textAlign: 'center' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Split Bill Progress</div>
+                <div style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '16px' }}>
+                  Portion {splitBillProgress.paid + 1} of {splitBillProgress.count}
+                </div>
+                <div style={{ fontSize: '13px', marginTop: '4px' }}>
+                  {currencySymbol}{splitBillProgress.portionAmount.toFixed(2)} per portion · {splitBillProgress.paid} collected
+                </div>
+              </div>
+            )}
+
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Final Amount Payable</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
+                {splitBillProgress ? `Portion ${splitBillProgress.paid + 1} Amount` : 'Final Amount Payable'}
+              </p>
               <h3 style={{ fontSize: '36px', fontWeight: '800', color: 'var(--color-primary)' }}>
-                {currencySymbol}{totals.total.toFixed(2)}
+                {currencySymbol}{(splitBillProgress ? splitBillProgress.portionAmount : totals.total).toFixed(2)}
               </h3>
             </div>
 
@@ -951,20 +1039,24 @@ export default function POSView() {
                 
                 {/* Cash helpers */}
                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                  {[totals.total, 10, 20, 50, 100].map((val) => {
-                    const rounded = Math.ceil(val);
-                    return (
-                      <button 
+                  {(() => {
+                    const amountDue = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+                    const roundedUp = Math.ceil(amountDue / 100) * 100;
+                    const noteOptions = [100, 500, 1000, 2000, 5000, 10000];
+                    const helpers = [amountDue, roundedUp, ...noteOptions.filter(n => n > roundedUp)];
+                    const unique = [...new Set(helpers.map(v => Math.round(v)))].slice(0, 5);
+                    return unique.map(val => (
+                      <button
                         key={val}
                         type="button"
-                        className="btn btn-secondary" 
+                        className="btn btn-secondary"
                         style={{ padding: '6px 12px', fontSize: '12px' }}
-                        onClick={() => setCashReceived(rounded.toString())}
+                        onClick={() => setCashReceived(val.toString())}
                       >
-                        {currencySymbol}{rounded}
+                        {currencySymbol}{val}
                       </button>
-                    );
-                  })}
+                    ));
+                  })()}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px' }}>
@@ -1021,11 +1113,15 @@ export default function POSView() {
             )}
 
             <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-              <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => setShowPaymentModal(false)}>
+              <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>
                 Cancel
               </button>
               <button className="btn btn-primary" style={{ flexGrow: 2 }} onClick={handlePaymentComplete}>
-                Complete Settlement
+                {splitBillProgress
+                  ? (splitBillProgress.paid + 1 < splitBillProgress.count
+                      ? `Collect Portion ${splitBillProgress.paid + 1} of ${splitBillProgress.count}`
+                      : `Settle Final Portion & Close Bill`)
+                  : 'Complete Settlement'}
               </button>
             </div>
           </div>
@@ -1491,7 +1587,7 @@ export default function POSView() {
                       key={order.id}
                       style={{
                         display: 'flex',
-                        justify: 'space-between',
+                        justifyContent: 'space-between',
                         alignItems: 'center',
                         background: 'var(--bg-surface)',
                         padding: '12px 16px',
@@ -1582,12 +1678,16 @@ export default function POSView() {
               <button
                 className="btn btn-primary"
                 onClick={() => {
+                  const portionAmount = totals.total / splitCount;
+                  // Initialise split-bill progress state to track each portion collection
+                  setSplitBillProgress({ count: splitCount, portionAmount, paid: 0, collectedPayments: [] });
                   setShowSplitModal(false);
-                  setCashReceived((totals.total / splitCount).toString());
+                  setCashReceived(portionAmount.toFixed(2));
+                  setPaymentMethod('cash');
                   setShowPaymentModal(true);
                 }}
               >
-                Pay Portion 1 of {splitCount} ({currencySymbol}{(totals.total / splitCount).toFixed(2)})
+                Collect Portion 1 of {splitCount} ({currencySymbol}{(totals.total / splitCount).toFixed(2)})
               </button>
             </div>
           </div>

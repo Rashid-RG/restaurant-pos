@@ -35,8 +35,12 @@ class ErrorBoundary extends Component {
 
 function CartSheet({ onCheckout }) {
   const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems } = useCart();
-  const tax = subtotal * 0.10; // 10% tax matching server key key
-  const total = subtotal + tax;
+  // Use the same formula as CartCheckoutView so the cart sidebar and checkout
+  // page show a consistent total. Previously CartSheet used subtotal * 1.10
+  // while checkout adds 10% service charge AND 10% tax (~21% effective markup).
+  const serviceCharge = subtotal * 0.10;
+  const tax = (subtotal + serviceCharge) * 0.10;
+  const total = Math.round(subtotal + serviceCharge + tax);
 
   return (
     <>
@@ -87,8 +91,9 @@ function CartSheet({ onCheckout }) {
         {items.length > 0 && (
           <div className="cart-footer">
             <div className="cart-summary-row"><span>Subtotal</span><span>Rs. {subtotal.toFixed(2)}</span></div>
+            <div className="cart-summary-row"><span>Service Charge (10%)</span><span>Rs. {serviceCharge.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Tax (10%)</span><span>Rs. {tax.toFixed(2)}</span></div>
-            <div className="cart-summary-row total"><span>Total</span><span>Rs. {total.toFixed(2)}</span></div>
+            <div className="cart-summary-row total"><span>Est. Total</span><span>Rs. {total.toFixed(2)}</span></div>
             <button
               className="btn btn-brand"
               style={{ marginTop: 12 }}
@@ -143,9 +148,12 @@ function InstallPrompt() {
     };
 
     window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', () => setVisible(false));
+    // Store handler reference so we can properly remove it on cleanup (Bug 10 fix: memory leak)
+    const onInstalled = () => setVisible(false);
+    window.addEventListener('appinstalled', onInstalled);
     return () => {
       window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
 
@@ -286,11 +294,10 @@ function InnerApp() {
           {view !== 'restaurants' && (
             <button
               onClick={() => {
-                if (window.history.state && window.history.length > 1) {
-                  window.history.back();
-                } else {
-                  navigate('restaurants');
-                }
+                // Bug 8 fix: window.history.length > 1 is always true in a real browser
+                // session — it would navigate out of the SPA on first load.
+                // Always navigate within the app instead.
+                navigate('restaurants');
               }}
               style={{
                 background: 'rgba(255,107,53,0.14)',

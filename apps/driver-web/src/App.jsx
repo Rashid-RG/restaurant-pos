@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
 
 
@@ -52,6 +52,18 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState(null);
   const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState(null);
 
+  // Bug 1 fix: ref always holds current activeOrders so GPS watchPosition
+  // callback (registered once) never reads a stale closure value.
+  const activeOrdersRef = useRef([]);
+  useEffect(() => { activeOrdersRef.current = activeOrders; }, [activeOrders]);
+
+  // Bug 3 fix: ref instead of state so polling interval always reads
+  // the latest count without a stale closure.
+  const prevUnassignedCountRef = useRef(0);
+
+  // Bug 6 fix: store the toast auto-dismiss timer so it can be cancelled.
+  const toastTimerRef = useRef(null);
+
   // Login form
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -62,9 +74,12 @@ export default function App() {
   const [reg, setReg] = useState({ name: '', phone: '', password: '', vehicleType: 'Motorbike', plateNumber: '' });
   const [regSubmitting, setRegSubmitting] = useState(false);
 
+  // Bug 6 fix: cancel pending timer before setting a new one to prevent
+  // setState-on-unmounted-component warnings and stale toast flashes.
   const showToast = (text, type = 'info') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMsg({ text, type });
-    setTimeout(() => setToastMsg(null), 3500);
+    toastTimerRef.current = setTimeout(() => { setToastMsg(null); toastTimerRef.current = null; }, 3500);
   };
 
   // ── Auth ──
@@ -78,8 +93,12 @@ export default function App() {
         body: JSON.stringify({ phone: loginPhone, password: loginPassword })
       });
       localStorage.setItem(TOKEN_KEY, res.token);
-      localStorage.setItem(DRIVER_KEY, JSON.stringify(res.driver));
-      setDriver(res.driver);
+      // Bug 2 fix: only persist known safe fields — do not store raw server
+      // response which may contain sensitive or unexpected keys.
+      const { id, name, phone, vehicleType, plateNumber, status } = res.driver;
+      const safeProfile = { id, name, phone, vehicleType, plateNumber, status };
+      localStorage.setItem(DRIVER_KEY, JSON.stringify(safeProfile));
+      setDriver(safeProfile);
       setLoginPassword('');
       showToast(`Welcome, ${res.driver.name}! 🛵`, 'success');
     } catch (err) {
@@ -91,8 +110,16 @@ export default function App() {
 
   const handleLogout = () => {
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setIsGpsActive(false);
+    setWatchId(null);
     setDriver(null);
+    // Bug 4 fix: clear order state so the next driver to log in on the
+    // same device does not briefly see the previous driver's orders.
+    setActiveOrders([]);
+    setAvailableOrders([]);
+    activeOrdersRef.current = [];
+    prevUnassignedCountRef.current = 0;
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(DRIVER_KEY);
   };
@@ -140,13 +167,15 @@ export default function App() {
       const newUnassigned = data.unassigned || [];
       const newAssigned = data.assigned || [];
 
-      // Alert driver with high-professional delivery ringtone if a new delivery is available
-      if (newUnassigned.length > prevUnassignedCount && prevUnassignedCount > 0) {
+      // Bug 3 fix: compare against ref (always current) not a stale state closure.
+      // prevUnassignedCountRef.current is updated immediately after comparison
+      // so every polling cycle sees the real previous value.
+      if (newUnassigned.length > prevUnassignedCountRef.current && prevUnassignedCountRef.current > 0) {
         playDriverAlertRingtone();
         showToast('🔔 New Delivery Ticket Available!', 'info');
       }
+      prevUnassignedCountRef.current = newUnassigned.length;
 
-      setPrevUnassignedCount(newUnassigned.length);
       setActiveOrders(newAssigned);
       setAvailableOrders(newUnassigned);
     } catch (err) {
@@ -180,7 +209,10 @@ export default function App() {
         (pos) => {
           const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setLastCoords(coords);
-          activeOrders.forEach(ord => {
+          // Bug 1 fix: read from activeOrdersRef.current (always up-to-date) instead
+          // of activeOrders (stale closure captured at watchPosition registration time).
+          // Without this, orders claimed AFTER GPS was enabled were never broadcast.
+          activeOrdersRef.current.forEach(ord => {
             apiFetch('/public/driver/location', {
               method: 'POST',
               body: JSON.stringify({ orderId: ord.id, lat: coords.lat, lng: coords.lng })
@@ -243,8 +275,10 @@ export default function App() {
   };
 
   // COD cash the rider still needs to hand over (delivered + cash/COD, not yet collected).
+  // Bug 8 fix: only include activeOrders (this driver's assigned orders).
+  // availableOrders are unassigned and can never be 'delivered', so including
+  // them was a logic error that could produce wrong totals if status semantics change.
   const cashToHandover = activeOrders
-    .concat(availableOrders)
     .filter(o => o.status === 'delivered' && ['cod', 'cash'].includes((o.paymentMethod || '').toLowerCase()) && !o.cashCollected)
     .reduce((sum, o) => sum + (o.total || 0), 0);
 
@@ -395,7 +429,11 @@ export default function App() {
                 {activeOrders.map(ord => {
                   const itemsStr = Array.isArray(ord.items) ? ord.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : 'Delivery Items';
                   const customerPhone = ord.customerPhone || 'N/A';
-                  const waLink = `https://wa.me/${customerPhone.replace(/[\s+-]/g, '')}?text=Hi%20${encodeURIComponent(ord.customerName || 'Customer')},%20I%20am%20your%20GastroFlow%20rider%20for%20Order%20%23${ord.id.slice(-4).toUpperCase()}`;
+                  // Bug 7 fix: convert Sri Lankan local prefix 0771... → +94771...
+                  // The previous regex stripped '+' which made +94 numbers work,
+                  // but left 07x numbers without a country code — WhatsApp couldn't resolve them.
+                  const waPhone = customerPhone.replace(/[\s-]/g, '').replace(/^0/, '+94');
+                  const waLink = `https://wa.me/${waPhone}?text=Hi%20${encodeURIComponent(ord.customerName || 'Customer')},%20I%20am%20your%20GastroFlow%20rider%20for%20Order%20%23${ord.id.slice(-4).toUpperCase()}`;
                   const navLink = (ord.deliveryLat && ord.deliveryLng)
                     ? `https://www.google.com/maps/dir/?api=1&destination=${ord.deliveryLat},${ord.deliveryLng}`
                     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ord.deliveryAddress || '')}`;
@@ -497,7 +535,10 @@ export default function App() {
 // ── Proof of Delivery Modal (HTML5 Canvas Signature Pad & Photo Upload) ──
 function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
   const canvasRef = React.useRef(null);
-  const [isDrawing, setIsDrawing] = React.useState(false);
+  // Bug 5 fix: use a ref instead of useState for the drawing flag.
+  // setIsDrawing(true) is async — when draw(e) was called immediately after
+  // in startDrawing(), isDrawing was still false so the first touch was dropped.
+  const isDrawingRef = React.useRef(false);
   const [hasSignature, setHasSignature] = React.useState(false);
   const [photoDataUri, setPhotoDataUri] = React.useState(null);
 
@@ -511,12 +552,12 @@ function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
   }, []);
 
   const startDrawing = (e) => {
-    setIsDrawing(true);
+    isDrawingRef.current = true;
     draw(e);
   };
 
   const stopDrawing = () => {
-    setIsDrawing(false);
+    isDrawingRef.current = false;
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
@@ -525,7 +566,7 @@ function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
   };
 
   const draw = (e) => {
-    if (!isDrawing) return;
+    if (!isDrawingRef.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');

@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { db, seedDatabase } from '../database/db';
 
+const DB_VERSION = 1;
+
 const POSContext = createContext(null);
 
 export const POSProvider = ({ children }) => {
@@ -549,9 +551,12 @@ export const POSProvider = ({ children }) => {
       );
 
       if (existingIndex > -1) {
-        const nextCart = [...prevCart];
-        nextCart[existingIndex].quantity += quantity;
-        return nextCart;
+        // Immutably update quantity — avoid mutating the original object via shallow copy
+        return prevCart.map((cartItem, idx) =>
+          idx === existingIndex
+            ? { ...cartItem, quantity: cartItem.quantity + quantity }
+            : cartItem
+        );
       }
 
       return [...prevCart, { ...item, quantity, notes, modifiers }];
@@ -563,19 +568,21 @@ export const POSProvider = ({ children }) => {
       setCart((prev) => prev.filter((_, idx) => idx !== cartItemIndex));
       return;
     }
-    setCart((prev) => {
-      const next = [...prev];
-      next[cartItemIndex].quantity = newQuantity;
-      return next;
-    });
+    // Immutably update — shallow array copy still shared the object reference
+    setCart((prev) =>
+      prev.map((item, idx) =>
+        idx === cartItemIndex ? { ...item, quantity: newQuantity } : item
+      )
+    );
   };
 
   const updateCartNotes = (cartItemIndex, notes) => {
-    setCart((prev) => {
-      const next = [...prev];
-      next[cartItemIndex].notes = notes;
-      return next;
-    });
+    // Immutably update notes — avoid direct object mutation on shallow copy
+    setCart((prev) =>
+      prev.map((item, idx) =>
+        idx === cartItemIndex ? { ...item, notes } : item
+      )
+    );
   };
 
   const removeFromCart = (cartItemIndex) => {
@@ -584,8 +591,10 @@ export const POSProvider = ({ children }) => {
 
   const clearCart = () => {
     setCart([]);
-    setSelectedCustomer(null);
     setDiscountValue(0);
+    // selectedCustomer is intentionally preserved so consecutive orders for the same
+    // customer (loyalty workflows, repeat table service) don't require re-selection.
+    // Call setSelectedCustomer(null) explicitly when you need a hard reset.
   };
 
   // Reset POS view states when shifting tables
@@ -667,10 +676,11 @@ export const POSProvider = ({ children }) => {
 
   // Update order status (KDS view or checkout)
   const updateOrderStatus = async (orderId, status) => {
-    // Send status update to server
-    await db.put('orders', { id: orderId, status });
-    
-    // Reload state (this will sync stock returns, table status, etc. in UI)
+    // Merge status into the full existing order object so the server endpoint
+    // receives a complete record and cannot accidentally overwrite other fields
+    // with nulls (previously only { id, status } was sent — a partial-write bug).
+    const existingOrder = orders.find((o) => o.id === orderId) || {};
+    await db.put('orders', { ...existingOrder, id: orderId, status });
     await loadAllData();
   };
 
@@ -736,15 +746,14 @@ export const POSProvider = ({ children }) => {
 
       setLoading(true);
 
-      // Clear current stores
-      await Promise.all([
-        db.clear('settings'),
-        db.clear('categories'),
-        db.clear('menu_items'),
-        db.clear('tables'),
-        db.clear('orders'),
-        db.clear('customers'),
-      ]);
+      // Reset the database with a single server call.
+      // Previously this called db.clear() 6 times which each triggered a full
+      // /api/database/reset — 6 wipes instead of 1. Now done exactly once.
+      const resetToken = localStorage.getItem('gastroflow_token');
+      await fetch('/api/database/reset', {
+        method: 'POST',
+        headers: resetToken ? { Authorization: `Bearer ${resetToken}` } : {}
+      }).catch(() => {});
 
       // Bulk write from backup
       if (backupData.settings) await db.bulkPut('settings', backupData.settings);

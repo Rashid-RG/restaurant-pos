@@ -334,6 +334,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       toast(err.message || 'Failed to place order', 'error');
     } finally {
       setLoading(false);
+      setOtpVerified(false);
     }
   };
 
@@ -361,7 +362,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
     if (orderType === 'delivery' && (!geoLocation || typeof geoLocation.lat !== 'number')) {
       if (address.trim()) {
-        setGeoLocation({ lat: 6.9271, lng: 79.8612, label: address.trim() });
+        toast(
+          '📍 We could not verify your exact location. Your address was recorded but the delivery fee may differ. Pin your location on the map for accurate pricing.',
+          'warning',
+          8000
+        );
       } else {
         toast('Please enter your delivery address or pin your location on the map.', 'error');
         return;
@@ -408,7 +413,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     if (!payhereRedirectData) return;
     const orderId = payhereRedirectData.orderId;
     try {
-      await apiFetch('/payments/payhere/dev-simulate', {
+      await apiFetch('/public/payment/payhere/dev-simulate', {
         method: 'POST',
         body: JSON.stringify({ orderId })
       });

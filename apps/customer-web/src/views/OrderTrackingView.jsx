@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
@@ -46,6 +46,10 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [driverMessages, setDriverMessages] = useState([]);
   const [driverInputMsg, setDriverInputMsg] = useState('');
   const [sendingDriverMsg, setSendingDriverMsg] = useState(false);
+
+  // Bug 7 fix: keep a ref that always holds the current order so polling
+  // intervals and SSE callbacks don't capture a stale closure value.
+  const orderRef = useRef(null);
 
   // ── Real-time Driver Dispatch Status ──
   const [dispatchStatus, setDispatchStatus] = useState(null);
@@ -152,10 +156,13 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     setLoading(true); setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
-      if (order && order.status && data.status !== order.status) {
+      // Bug 7 fix: compare against orderRef.current (always up-to-date) instead
+      // of the `order` state variable which is stale inside this closure.
+      if (orderRef.current && orderRef.current.status && data.status !== orderRef.current.status) {
         playCustomerChime();
         toast(`🔔 Order Status Updated: ${data.status.toUpperCase()}`, 'info');
       }
+      orderRef.current = data;
       setOrder(data);
       if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
       setFeedbackSubmitted(false);
@@ -198,9 +205,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       };
     } catch (err) {}
 
-    // Polling fallback
+    // Polling fallback — reads orderId from orderRef so it is never stale
     const interval = setInterval(() => {
-      fetchOrder(order.id);
+      if (orderRef.current?.id) fetchOrder(orderRef.current.id);
     }, 5000);
 
     // Web Push Notification Registration

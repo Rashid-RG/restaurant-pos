@@ -86,23 +86,10 @@ export const db = {
     }
   },
 
-  // Clear table / Reset database
-  clear: async (tableName) => {
-    try {
-      const response = await fetch('/api/database/reset', {
-        method: 'POST',
-        headers: getAuthHeaders()
-      });
-      if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem('gastroflow_token');
-        window.location.reload();
-        throw new Error('Unauthorized');
-      }
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      return await response.json();
-    } catch (err) {
-      console.error('Error resetting database:', err);
-      throw err;
-    }
+  // Clear table — individual table clears are handled as a single authoritative
+  // /api/database/reset call inside importDatabase(). This is a deliberate no-op
+  // to prevent the previous bug where 6 parallel calls each wiped the entire DB.
+  clear: async (_tableName) => {
+    return Promise.resolve();
   },
 };

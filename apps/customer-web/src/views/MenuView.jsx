@@ -132,7 +132,11 @@ export default function MenuView({ onNavigate, toast }) {
         setShowGroupModal(true);
       }
     }
-  }, [getActiveTenant()]);
+  // Bug 2 fix: getActiveTenant() is a plain synchronous getter, NOT a reactive
+  // value. Placing a function call in the deps array evaluates it at render time
+  // which can cause infinite re-renders if the return value changes. Run once
+  // on mount — the tenant is set synchronously via setActiveTenant() before render.
+  }, []);
 
   // Poll Group Cart items if active
   useEffect(() => {
@@ -211,22 +215,26 @@ export default function MenuView({ onNavigate, toast }) {
       .then(pastOrders => {
         if (!pastOrders || pastOrders.length === 0) return;
         
-        // Count item frequencies in past orders
+        // Bug 6 fix: match past order items by menuItemId (stable ID) instead of
+        // item name string. Name-based matching breaks silently when menu items
+        // are renamed (e.g. "Burger" → "Classic Burger").
         const frequencies = {};
         pastOrders.forEach(order => {
           if (order.items) {
             order.items.forEach(itm => {
-              frequencies[itm.name] = (frequencies[itm.name] || 0) + itm.quantity;
+              const key = itm.menuItemId || itm.id;
+              if (key) frequencies[key] = (frequencies[key] || 0) + (itm.quantity || 1);
             });
           }
         });
 
-        // Map names back to menu items
+        // Map IDs back to current menu items
         const sortedRecs = Object.keys(frequencies)
-          .map(name => menu.items.find(i => i.name === name))
+          .sort((a, b) => frequencies[b] - frequencies[a])
+          .map(id => menu.items.find(i => String(i.id) === String(id)))
           .filter(Boolean)
           .filter(i => i.isAvailable !== 0 && (i.stock === undefined || i.stock > 0))
-          .slice(0, 3); // top 3 favorites
+          .slice(0, 3);
 
         setPersonalRecs(sortedRecs);
       })
