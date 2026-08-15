@@ -362,12 +362,18 @@ async function initTables() {
         ['orders', 'scheduledTime'],
         ['orders', 'scheduledtime'],
         ['orders', 'timestamp'],
+        ['orders', 'paymentTimestamp'],
+        ['orders', 'paymenttimestamp'],
         ['orders', 'acceptedAt'],
         ['orders', 'acceptedat'],
         ['shifts', 'startTime'],
         ['shifts', 'starttime'],
         ['shifts', 'endTime'],
-        ['shifts', 'endtime']
+        ['shifts', 'endtime'],
+        ['audit_logs', 'timestamp'],
+        ['cash_movements', 'timestamp'],
+        ['driver_customer_chats', 'createdAt'],
+        ['driver_customer_chats', 'createdat']
       ];
       for (const [t, c] of timestampCols) {
         try {
@@ -375,10 +381,10 @@ async function initTables() {
             `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? AND LOWER(column_name) = LOWER(?)`,
             [t, c]
           );
-          if (colCheck && colCheck.data_type && colCheck.data_type.toLowerCase() === 'integer') {
+          if (colCheck && colCheck.data_type && colCheck.data_type.toLowerCase() !== 'bigint') {
             const actualCol = colCheck.column_name;
             await dbRun(`ALTER TABLE ${t} ALTER COLUMN "${actualCol}" TYPE BIGINT USING "${actualCol}"::BIGINT`);
-            console.log(`[Pre-Flight Migration] Altered ${t}.${actualCol} from INTEGER to BIGINT in Postgres.`);
+            console.log(`[Pre-Flight Migration] Altered ${t}.${actualCol} from ${colCheck.data_type} to BIGINT in Postgres.`);
           }
         } catch (_) {}
       }
@@ -446,9 +452,9 @@ async function initTables() {
         tax REAL,
         total REAL,
         status TEXT,
-        timestamp INTEGER,
+        timestamp BIGINT,
         paymentMethod TEXT,
-        paymentTimestamp INTEGER
+        paymentTimestamp BIGINT
       )
     `);
 
@@ -530,7 +536,7 @@ async function initTables() {
     await dbRun(`
       CREATE TABLE IF NOT EXISTS audit_logs (
         id TEXT PRIMARY KEY,
-        timestamp INTEGER,
+        timestamp BIGINT,
         userId TEXT,
         username TEXT,
         action TEXT,
@@ -544,8 +550,8 @@ async function initTables() {
         id TEXT PRIMARY KEY,
         userId TEXT,
         username TEXT,
-        startTime INTEGER,
-        endTime INTEGER,
+        startTime BIGINT,
+        endTime BIGINT,
         startFloat REAL,
         endFloat REAL,
         actualCash REAL,
@@ -564,7 +570,7 @@ async function initTables() {
         type TEXT,              -- 'cash_in' | 'cash_out'
         amount REAL NOT NULL,
         reason TEXT,
-        timestamp INTEGER NOT NULL
+        timestamp BIGINT NOT NULL
       )
     `);
 
@@ -815,8 +821,8 @@ async function initTables() {
         issueCategory TEXT DEFAULT 'general',
         message TEXT NOT NULL,
         status TEXT DEFAULT 'open',         -- 'open' | 'in_progress' | 'resolved'
-        createdAt INTEGER NOT NULL,
-        resolvedAt INTEGER
+        createdAt BIGINT NOT NULL,
+        resolvedAt BIGINT
       )
     `);
 
@@ -828,7 +834,7 @@ async function initTables() {
         senderType TEXT NOT NULL,           -- 'customer' | 'staff' | 'ai'
         senderName TEXT,
         message TEXT NOT NULL,
-        createdAt INTEGER NOT NULL,
+        createdAt BIGINT NOT NULL,
         FOREIGN KEY(ticketId) REFERENCES support_tickets(id) ON DELETE CASCADE
       )
     `);
@@ -841,7 +847,7 @@ async function initTables() {
         senderType TEXT NOT NULL,           -- 'customer' | 'driver'
         senderName TEXT,
         message TEXT NOT NULL,
-        createdAt INTEGER NOT NULL,
+        createdAt BIGINT NOT NULL,
         FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE
       )
     `);
