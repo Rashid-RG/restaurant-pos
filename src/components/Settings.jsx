@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
 
 export default function Settings() {
@@ -34,14 +34,20 @@ export default function Settings() {
   const [phone, setPhone] = useState(settings.phone || '');
   const [logoUrl, setLogoUrl] = useState(settings.logoUrl || settings.logo || settings.restaurantLogo || '');
 
+  // Only initialize form fields once from settings when they first load,
+  // preventing periodic 8s background syncs from resetting what the user is currently typing.
+  const initializedRef = React.useRef(false);
   useEffect(() => {
-    setBizName(settings.businessName || settings.restaurantName || '');
-    setCurrency(settings.currencySymbol || 'Rs.');
-    setTax(settings.taxRate ?? '0');
-    setServiceCharge(settings.serviceChargeRate ?? '0');
-    setAddress(settings.address || '');
-    setPhone(settings.phone || '');
-    setLogoUrl(settings.logoUrl || settings.logo || settings.restaurantLogo || '');
+    if (!initializedRef.current && Object.keys(settings || {}).length > 0) {
+      setBizName(settings.businessName || settings.restaurantName || '');
+      setCurrency(settings.currencySymbol || 'Rs.');
+      setTax(settings.taxRate ?? '0');
+      setServiceCharge(settings.serviceChargeRate ?? '0');
+      setAddress(settings.address || '');
+      setPhone(settings.phone || '');
+      setLogoUrl(settings.logoUrl || settings.logo || settings.restaurantLogo || '');
+      initializedRef.current = true;
+    }
   }, [settings]);
 
 

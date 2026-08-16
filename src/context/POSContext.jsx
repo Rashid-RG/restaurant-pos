@@ -212,7 +212,14 @@ export const POSProvider = ({ children }) => {
         } catch (_) {}
       }
 
-      setSettings(settingsObj);
+      setSettings(prev => {
+        const prevKeys = Object.keys(prev || {});
+        const newKeys = Object.keys(settingsObj || {});
+        if (prevKeys.length === newKeys.length && prevKeys.every(k => prev[k] === settingsObj[k])) {
+          return prev;
+        }
+        return settingsObj;
+      });
       setCategories(loadedCats);
       setMenuItems(loadedItems);
       setTables(loadedTables);
