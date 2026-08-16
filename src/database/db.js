@@ -22,9 +22,9 @@ export const db = {
         headers: getAuthHeaders()
       });
       if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem('gastroflow_token');
-        window.location.reload();
-        throw new Error('Unauthorized');
+        const errJson = await response.clone().json().catch(() => ({}));
+        window.dispatchEvent(new CustomEvent('gastroflow_auth_error', { detail: { status: response.status, data: errJson } }));
+        return [];
       }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
@@ -54,9 +54,9 @@ export const db = {
         body: JSON.stringify(value),
       });
       if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem('gastroflow_token');
-        window.location.reload();
-        throw new Error('Unauthorized');
+        const errJson = await response.clone().json().catch(() => ({}));
+        window.dispatchEvent(new CustomEvent('gastroflow_auth_error', { detail: { status: response.status, data: errJson } }));
+        throw new Error(errJson.error || 'Unauthorized');
       }
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || `HTTP error! status: ${response.status}`);
@@ -75,9 +75,9 @@ export const db = {
         headers: getAuthHeaders()
       });
       if (response.status === 401 || response.status === 403) {
-        localStorage.removeItem('gastroflow_token');
-        window.location.reload();
-        throw new Error('Unauthorized');
+        const errJson = await response.clone().json().catch(() => ({}));
+        window.dispatchEvent(new CustomEvent('gastroflow_auth_error', { detail: { status: response.status, data: errJson } }));
+        throw new Error(errJson.error || 'Unauthorized');
       }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       return await response.json();

@@ -189,6 +189,21 @@ export default function MenuView({ onNavigate, toast }) {
             .then(cartData => setGroupCartItems(cartData.items || []))
             .catch(err => console.error('SSE group cart update error:', err));
         }
+
+        if (data.type === 'tenant_status_changed') {
+          if (data.status === 'suspended') {
+            setMenu(prev => ({ ...prev, storeOpen: false }));
+            toast('⚠️ This restaurant store has been suspended by the platform administrator.', 'error');
+          } else if (data.status === 'active') {
+            toast('🎉 This restaurant store is active again!', 'success');
+            fetchMenu();
+          }
+        }
+
+        if (data.type === 'tenant_deleted') {
+          setMenu(prev => ({ ...prev, storeOpen: false, items: [] }));
+          toast('❌ This restaurant store has been removed.', 'error');
+        }
       } catch (_) {}
     };
 

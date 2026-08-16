@@ -46,6 +46,31 @@ export const POSProvider = ({ children }) => {
     return user;
   });
   const [activeShift, setActiveShift] = useState(null);
+  const [tenantLock, setTenantLock] = useState(null); // null | { status: 'suspended' | 'deleted', storeId?: string, storeName?: string, message?: string }
+
+  // Listen for auth/tenant errors dispatched by API calls
+  useEffect(() => {
+    const handleGlobalAuthError = (e) => {
+      const { status, data } = e.detail || {};
+      if (status === 403 && data) {
+        if (data.code === 'TENANT_SUSPENDED' || (data.error && data.error.toLowerCase().includes('suspended'))) {
+          setTenantLock({
+            status: 'suspended',
+            storeId: currentUser?.tenant_id,
+            message: data.error || 'This restaurant store has been suspended.'
+          });
+        } else if (data.code === 'TENANT_DELETED' || (data.error && (data.error.toLowerCase().includes('deleted') || data.error.toLowerCase().includes('no longer exists')))) {
+          setTenantLock({
+            status: 'deleted',
+            storeId: currentUser?.tenant_id,
+            message: data.error || 'This restaurant store has been deleted.'
+          });
+        }
+      }
+    };
+    window.addEventListener('gastroflow_auth_error', handleGlobalAuthError);
+    return () => window.removeEventListener('gastroflow_auth_error', handleGlobalAuthError);
+  }, [currentUser]);
 
   // Database lists
   const [menuItems, setMenuItems] = useState([]);
@@ -75,6 +100,37 @@ export const POSProvider = ({ children }) => {
 
   // Initialize and load data
   const loadAllData = async (isInitial = false) => {
+    // Check tenant existence and status upfront
+    const params = new URLSearchParams(window.location.search);
+    const targetTenant = currentUser?.tenant_id || params.get('tenant') || params.get('tenantId') || 'default_tenant';
+
+    if (currentUser?.role !== 'owner' || targetTenant !== 'default_tenant') {
+      try {
+        const statusRes = await fetch(`/api/public/tenant/status?tenant=${encodeURIComponent(targetTenant)}`);
+        const statusData = await statusRes.json().catch(() => ({}));
+        if (statusRes.status === 404 || statusData.exists === false) {
+          setTenantLock({
+            status: 'deleted',
+            storeId: targetTenant,
+            message: 'This restaurant store has been deleted or cannot be found.'
+          });
+          if (isInitial) setLoading(false);
+          return;
+        } else if (statusData.status === 'suspended') {
+          setTenantLock({
+            status: 'suspended',
+            storeId: targetTenant,
+            storeName: statusData.name,
+            message: 'This restaurant store is currently suspended by the platform administrator.'
+          });
+          if (isInitial) setLoading(false);
+          return;
+        } else if (statusData.status === 'active') {
+          setTenantLock(null);
+        }
+      } catch (_) {}
+    }
+
     if (!localStorage.getItem('gastroflow_token')) {
       setLoading(false);
       return;
@@ -171,10 +227,30 @@ export const POSProvider = ({ children }) => {
   const handleAuthResponse = async (response) => {
     if (response.status === 401 || response.status === 403) {
       let errMessage = '';
+      let errCode = '';
       try {
         const errJson = await response.clone().json();
         errMessage = errJson.error || errJson.message || '';
+        errCode = errJson.code || '';
       } catch (_) {}
+
+      if (errCode === 'TENANT_SUSPENDED' || errMessage.toLowerCase().includes('suspended')) {
+        setTenantLock({
+          status: 'suspended',
+          storeId: currentUser?.tenant_id,
+          message: errMessage || 'This restaurant store has been suspended.'
+        });
+        throw new Error(errMessage || 'Store suspended.');
+      }
+
+      if (errCode === 'TENANT_DELETED' || errMessage.toLowerCase().includes('deleted') || errMessage.toLowerCase().includes('no longer exists')) {
+        setTenantLock({
+          status: 'deleted',
+          storeId: currentUser?.tenant_id,
+          message: errMessage || 'This restaurant store has been deleted.'
+        });
+        throw new Error(errMessage || 'Store deleted.');
+      }
       
       logout();
       showToast('Session expired — please sign in again.', 'error');
@@ -260,7 +336,7 @@ export const POSProvider = ({ children }) => {
       loadAllData(false);
     }, 8000);
 
-    // Live EventSource Stream for instant online order alerts
+    // Live EventSource Stream for instant online order & tenant status alerts
     let es;
     try {
       const posStreamUrl = new URL('/api/stream/pos', window.location.origin);
@@ -277,6 +353,31 @@ export const POSProvider = ({ children }) => {
             loadAllData(false);
           } else if (data.type === 'order_updated' || data.type === 'customer_registered') {
             loadAllData(false);
+          } else if (data.type === 'tenant_status_changed') {
+            const currentTid = currentUser?.tenant_id || new URLSearchParams(window.location.search).get('tenant') || 'default_tenant';
+            if (data.tenantId === currentTid || (currentTid === 'kb2c' && data.tenantId === 'tenant_kb2c')) {
+              if (data.status === 'suspended' && currentUser?.role !== 'owner') {
+                setTenantLock({
+                  status: 'suspended',
+                  storeId: data.tenantId,
+                  storeName: data.storeName,
+                  message: 'This restaurant store has just been suspended by the platform administrator.'
+                });
+              } else if (data.status === 'active') {
+                setTenantLock(null);
+                loadAllData(false);
+              }
+            }
+          } else if (data.type === 'tenant_deleted') {
+            const currentTid = currentUser?.tenant_id || new URLSearchParams(window.location.search).get('tenant') || 'default_tenant';
+            if (data.tenantId === currentTid || (currentTid === 'kb2c' && data.tenantId === 'tenant_kb2c')) {
+              setTenantLock({
+                status: 'deleted',
+                storeId: data.tenantId,
+                storeName: data.storeName,
+                message: 'This restaurant store has been permanently removed by the platform administrator.'
+              });
+            }
           }
         } catch (e) {}
       };
@@ -344,7 +445,18 @@ export const POSProvider = ({ children }) => {
       body: JSON.stringify({ username, password })
     });
     if (!response.ok) {
-      const err = await response.json();
+      const err = await response.json().catch(() => ({}));
+      if (err.code === 'TENANT_SUSPENDED' || (err.error && err.error.toLowerCase().includes('suspended'))) {
+        setTenantLock({
+          status: 'suspended',
+          message: err.error
+        });
+      } else if (err.code === 'TENANT_DELETED' || (err.error && (err.error.toLowerCase().includes('deleted') || err.error.toLowerCase().includes('no longer exists')))) {
+        setTenantLock({
+          status: 'deleted',
+          message: err.error
+        });
+      }
       throw new Error(err.error || 'Login failed');
     }
     const data = await response.json();
@@ -360,6 +472,7 @@ export const POSProvider = ({ children }) => {
       } catch (_) {}
     }
 
+    setTenantLock(null);
     setCurrentUser(data.user);
   };
 
@@ -846,8 +959,10 @@ export const POSProvider = ({ children }) => {
         deleteTable,
         saveCustomer,
 
-        // Auth
+        // Auth & Tenant State
         currentUser,
+        tenantLock,
+        setTenantLock,
         login,
         logout,
         verifyManagerPin,
