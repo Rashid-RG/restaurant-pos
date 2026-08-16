@@ -1561,6 +1561,8 @@ const publicApiLimiter = rateLimit({
 
 // Middleware: Authenticate JWT Token (Staff)
 // BUG-002 fix: use JWT_SECRET from env only, fall back to clearly non-production dev constant
+// Also enforces tenant suspension — if the store is suspended, all staff
+// requests are blocked except for platform owners who manage tenants.
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -1569,7 +1571,7 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Authentication token required.' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET, async (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Token is invalid or has expired.' });
     }
@@ -1578,6 +1580,20 @@ const authenticateToken = (req, res, next) => {
     // Never allow X-Tenant-Id header to override an authenticated user's own tenant
     if (tid === 'kb2c') tid = 'tenant_kb2c';
     req.tenantId = tid;
+
+    // ── Tenant Suspension Check ──────────────────────────────────────
+    // If this tenant is suspended, block all staff access except platform owners
+    // who need to manage (re-activate / delete) stores from the SaaS admin panel.
+    try {
+      const tenantRow = await dbGet('SELECT status FROM tenants WHERE id = ?', [tid]);
+      if (tenantRow && tenantRow.status === 'suspended' && user.role !== 'owner') {
+        return res.status(403).json({
+          error: 'This restaurant store has been suspended. Please contact the platform administrator.',
+          code: 'TENANT_SUSPENDED'
+        });
+      }
+    } catch (_) { /* fail-open: if lookup errors, allow through for backwards compat */ }
+
     next();
   });
 };
