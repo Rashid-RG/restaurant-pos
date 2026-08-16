@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import path from 'path';
 import os from 'os';
+import jwt from 'jsonwebtoken';
 
 const TMP_DB = path.join(os.tmpdir(), `gastroflow_ue_${Date.now()}_${Math.random().toString(36).slice(2)}.db`);
 process.env.DATABASE_FILE = TMP_DB;
@@ -10,6 +11,24 @@ process.env.PAYHERE_MERCHANT_ID = 'TESTMERCHANT';
 
 const { app, dbReady, dbGet, dbRun, calculateOrderETA } = await import('../server.js');
 const request = (await import('supertest')).default;
+
+/** Mint a staff JWT directly (same secret the server uses in test mode) */
+function staffToken(role = 'owner') {
+  return jwt.sign(
+    { id: 'test_admin', username: 'admin', role, tenant_id: 'default_tenant' },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+}
+
+/** Mint a driver JWT (role must be 'driver', driverId claim required by authenticateDriver) */
+function driverToken(driverId) {
+  return jwt.sign(
+    { driverId, name: 'Test Driver', role: 'driver', tenant_id: 'default_tenant' },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+}
 
 describe('Uber Eats-Grade Features Integration Tests', () => {
   const testOrderId = `test_ord_ue_${Date.now()}`;
@@ -24,8 +43,8 @@ describe('Uber Eats-Grade Features Integration Tests', () => {
 
     // Insert order into DB directly so foreign key constraints on orderId are satisfied
     await dbRun(
-      `INSERT OR REPLACE INTO orders 
-       (id, tenant_id, customerName, customerPhone, diningType, total, status, timestamp) 
+      `INSERT OR REPLACE INTO orders
+       (id, tenant_id, customerName, customerPhone, diningType, total, status, timestamp)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [testOrderId, 'default_tenant', 'Uber Eats Tester', '+94760130922', 'delivery', 1500, 'pending', Date.now()]
     );
@@ -49,34 +68,42 @@ describe('Uber Eats-Grade Features Integration Tests', () => {
   });
 
   it('assigns multi-order delivery batch to driver and retrieves active batch', async () => {
+    const token = staffToken('owner');
+
+    // BUG-003 fix: endpoint now requires staff JWT with owner/manager role
     const assignRes = await request(app)
       .post('/api/public/driver/assign-batch')
+      .set('Authorization', `Bearer ${token}`)
       .send({ driverId: testDriverId, orderIds: [testOrderId] });
-    
+
     expect(assignRes.status).toBe(200);
     expect(assignRes.body.success).toBe(true);
 
-    const batchRes = await request(app).get(`/api/driver/active-batch?driverId=${testDriverId}`);
+    // BUG-004 fix: endpoint now requires driver JWT — identity from token, not query param
+    const dToken = driverToken(testDriverId);
+    const batchRes = await request(app)
+      .get('/api/driver/active-batch')
+      .set('Authorization', `Bearer ${dToken}`);
     expect(batchRes.status).toBe(200);
     expect(batchRes.body.orders.length).toBeGreaterThanOrEqual(1);
     expect(batchRes.body.orders[0].id).toBe(testOrderId);
   });
 
   it('sends and retrieves live in-app driver-customer chat messages', async () => {
-    // Send customer message
+    // BUG-005 fix: endpoints now require JWT; staff (owner) token can access any order's chat
+    const token = staffToken('owner');
+
     const sendRes = await request(app)
       .post(`/api/orders/${testOrderId}/driver-chat`)
-      .send({
-        senderType: 'customer',
-        senderName: 'Uber Eats Tester',
-        message: 'Please leave the food at the front door.'
-      });
+      .set('Authorization', `Bearer ${token}`)
+      .send({ message: 'Please leave the food at the front door.' });
 
     expect(sendRes.status).toBe(201);
     expect(sendRes.body.success).toBe(true);
 
-    // Retrieve chat messages
-    const getRes = await request(app).get(`/api/orders/${testOrderId}/driver-chat`);
+    const getRes = await request(app)
+      .get(`/api/orders/${testOrderId}/driver-chat`)
+      .set('Authorization', `Bearer ${token}`);
     expect(getRes.status).toBe(200);
     expect(getRes.body.length).toBeGreaterThanOrEqual(1);
     expect(getRes.body[0].message).toBe('Please leave the food at the front door.');
