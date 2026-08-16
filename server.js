@@ -66,25 +66,18 @@ const INSECURE_PAYHERE_DEFAULTS = ['mock_merchant_secret', '4a8b9c10d2e3f4'];
 if (process.env.NODE_ENV === 'production') {
   console.log('[Production] Booting GastroFlow Backend in production mode...');
   if (!process.env.JWT_SECRET || INSECURE_JWT_DEFAULTS.includes(process.env.JWT_SECRET.trim())) {
-    console.error('[FATAL] JWT_SECRET is missing or uses a known-insecure default. Set a strong secret in your environment variables.');
-    // Auto-generate a session-scoped secret so the process doesn't crash in hosted environments
-    // but log a prominent warning so operators know to fix it.
-    process.env.JWT_SECRET = crypto.randomBytes(64).toString('hex');
-    console.warn('[Production Warning] Auto-generated a session-scoped JWT_SECRET. Tokens will be invalidated on restart. Set JWT_SECRET in environment to fix.');
+    throw new Error('JWT_SECRET is missing or uses a known-insecure default. Refusing to start production server.');
   } else {
     console.log('[Production Success] JWT_SECRET loaded successfully from Environment Variables.');
   }
   if (!process.env.PAYHERE_MERCHANT_SECRET || INSECURE_PAYHERE_DEFAULTS.includes(process.env.PAYHERE_MERCHANT_SECRET.trim())) {
-    console.warn('[Production Warning] PAYHERE_SECRET is missing or insecure. Auto-generating a random secret for sandbox testing...');
-    process.env.PAYHERE_MERCHANT_SECRET = crypto.randomBytes(32).toString('hex');
-    process.env.PAYHERE_SECRET = process.env.PAYHERE_MERCHANT_SECRET;
+    throw new Error('PAYHERE_MERCHANT_SECRET is missing or insecure. Refusing to start production server.');
   }
   // BUG-013: Enforce strong admin password in production
   const adminPwd = process.env.ADMIN_PASSWORD || '';
   const WEAK_ADMIN_PASSWORDS = ['admin123', 'admin', '123456', 'password', 'admin@123', ''];
   if (WEAK_ADMIN_PASSWORDS.includes(adminPwd.trim())) {
-    console.error('[SECURITY WARNING] ADMIN_PASSWORD is missing or too weak. The default admin account will be insecure.');
-    console.error('[SECURITY WARNING] Set a strong ADMIN_PASSWORD environment variable before going live.');
+    throw new Error('ADMIN_PASSWORD is missing or too weak. Refusing to start production server.');
   }
 }
 
@@ -167,18 +160,28 @@ function generateStrongPassword(length = 10) {
   const syms = '!@#$%&*';
 
   let pwd = [
-    uppers[Math.floor(Math.random() * uppers.length)],
-    lowers[Math.floor(Math.random() * lowers.length)],
-    nums[Math.floor(Math.random() * nums.length)],
-    syms[Math.floor(Math.random() * syms.length)]
+    uppers[crypto.randomInt(uppers.length)],
+    lowers[crypto.randomInt(lowers.length)],
+    nums[crypto.randomInt(nums.length)],
+    syms[crypto.randomInt(syms.length)]
   ];
 
   const allChars = uppers + lowers + nums + syms;
   for (let i = 4; i < length; i++) {
-    pwd.push(allChars[Math.floor(Math.random() * allChars.length)]);
+    pwd.push(allChars[crypto.randomInt(allChars.length)]);
   }
 
-  return pwd.sort(() => 0.5 - Math.random()).join('');
+  for (let i = pwd.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [pwd[i], pwd[j]] = [pwd[j], pwd[i]];
+  }
+  return pwd.join('');
+}
+
+function generateSecurePin(length = 6) {
+  let pin = '';
+  for (let i = 0; i < length; i++) pin += crypto.randomInt(10).toString();
+  return pin;
 }
 
 app.use(cors({
@@ -1280,14 +1283,15 @@ async function seedDatabase(tenantId) {
       }
     }
 
-    // Ensure default master admin user exists and has correct active credentials
+    // Development-only sample accounts. Production operators must provision a
+    // strong owner through environment/bootstrap tooling, never a hard-coded seed.
     const masterAdminUser = process.env.ADMIN_USERNAME || 'admin';
-    const masterAdminPass = process.env.ADMIN_PASSWORD || 'admin123';
+    const masterAdminPass = process.env.ADMIN_PASSWORD || (process.env.NODE_ENV === 'production' ? '' : 'admin123');
     const masterAdminHash = await bcrypt.hash(masterAdminPass, 10);
     const staffPasswordHash = await bcrypt.hash('123456', 10);
 
     const adminUser = await dbGet('SELECT * FROM users WHERE username = ? OR id = ?', [masterAdminUser, 'user_admin']);
-    if (!adminUser) {
+    if (!adminUser && process.env.NODE_ENV !== 'production') {
       console.log('Seeding default admin and staff users...');
       await dbRun(`
         INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
@@ -1308,8 +1312,9 @@ async function seedDatabase(tenantId) {
         INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
         VALUES (?, ?, ?, 'kitchen', '4444', 'default_tenant')
       `, ['user_kitchen', 'chef_mario', staffPasswordHash]);
-    } else {
-      // Sync master admin password hash and username on boot so login is 100% reliable
+    } else if (adminUser && process.env.NODE_ENV !== 'production') {
+      // Keep the local development account reproducible. Production passwords are
+      // changed only through the authenticated account-management workflow.
       await dbRun(
         'UPDATE users SET username = ?, passwordHash = ?, role = ?, tenant_id = ? WHERE id = ? OR LOWER(username) = LOWER(?)',
         [masterAdminUser, masterAdminHash, 'owner', 'default_tenant', adminUser.id, masterAdminUser]
@@ -1317,9 +1322,9 @@ async function seedDatabase(tenantId) {
       console.log(`[Boot] Master Admin account "${masterAdminUser}" synced successfully.`);
     }
 
-    // Check drivers seeder
+    // Development demo drivers must never be created in a production tenant.
     const driversCount = await dbGet('SELECT COUNT(*) as count FROM drivers');
-    if (driversCount.count === 0) {
+    if (driversCount.count === 0 && process.env.NODE_ENV !== 'production') {
       console.log('Seeding default delivery drivers...');
       // Seeded drivers get a known dev password ('driver123') so the driver app is
       // testable out of the box. Change/disable in production.
@@ -1350,34 +1355,16 @@ async function seedDatabase(tenantId) {
       if (modifiersCount.count === 0) {
         console.log('Seeding default modifiers...');
         const defaultModifiers = [
-          { id: 'mod1', menuItemId: 'item1', groupName: 'Size', name: 'Regular', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod2', menuItemId: 'item1', groupName: 'Size', name: 'Large', priceDelta: 2.00, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod3', menuItemId: 'item1', groupName: 'Add-ons', name: 'Extra Cheese', priceDelta: 0.80, isMultiSelect: 1, isRequired: 0 },
-          { id: 'mod4', menuItemId: 'item1', groupName: 'Add-ons', name: 'Garlic Sauce', priceDelta: 0.30, isMultiSelect: 1, isRequired: 0 },
-          { id: 'mod5', menuItemId: 'item6', groupName: 'Size', name: 'Personal 9"', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod6', menuItemId: 'item6', groupName: 'Size', name: 'Medium 12"', priceDelta: 4.50, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod7', menuItemId: 'item6', groupName: 'Size', name: 'Large 15"', priceDelta: 8.00, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod8', menuItemId: 'item6', groupName: 'Crust', name: 'Classic Crust', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod9', menuItemId: 'item6', groupName: 'Crust', name: 'Thin Crust', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod10', menuItemId: 'item6', groupName: 'Crust', name: 'Cheese Burst', priceDelta: 2.50, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod11', menuItemId: 'item6', groupName: 'Toppings', name: 'Extra Cheese', priceDelta: 1.20, isMultiSelect: 1, isRequired: 0 },
-          { id: 'mod12', menuItemId: 'item6', groupName: 'Toppings', name: 'Mushrooms', priceDelta: 0.90, isMultiSelect: 1, isRequired: 0 },
-          { id: 'mod13', menuItemId: 'item5', groupName: 'Doneness', name: 'Rare', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod14', menuItemId: 'item5', groupName: 'Doneness', name: 'Medium Rare', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod15', menuItemId: 'item5', groupName: 'Doneness', name: 'Medium', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod16', menuItemId: 'item5', groupName: 'Doneness', name: 'Well Done', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod17', menuItemId: 'item5', groupName: 'Sauce', name: 'Mushroom Sauce', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod18', menuItemId: 'item5', groupName: 'Sauce', name: 'Black Pepper Sauce', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod19', menuItemId: 'item11', groupName: 'Size', name: 'Regular', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod20', menuItemId: 'item11', groupName: 'Size', name: 'Tall Glass', priceDelta: 1.50, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod21', menuItemId: 'item11', groupName: 'Ice Level', name: 'Normal Ice', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod22', menuItemId: 'item11', groupName: 'Ice Level', name: 'Less Ice', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
-          { id: 'mod23', menuItemId: 'item11', groupName: 'Ice Level', name: 'No Ice', priceDelta: 0, isMultiSelect: 0, isRequired: 1 }
+          { id: 'mod1', menuItemId: `${tid}_item_chicken_rice`, groupName: 'Portion', name: 'Regular', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
+          { id: 'mod2', menuItemId: `${tid}_item_chicken_rice`, groupName: 'Add-ons', name: 'Extra Curry', priceDelta: 150, isMultiSelect: 1, isRequired: 0 },
+          { id: 'mod3', menuItemId: `${tid}_item_bbq_full`, groupName: 'Add-ons', name: 'Extra Paratha', priceDelta: 100, isMultiSelect: 1, isRequired: 0 },
+          { id: 'mod4', menuItemId: `${tid}_item_mango_juice`, groupName: 'Ice Level', name: 'Normal Ice', priceDelta: 0, isMultiSelect: 0, isRequired: 1 },
+          { id: 'mod5', menuItemId: `${tid}_item_mango_juice`, groupName: 'Ice Level', name: 'No Ice', priceDelta: 0, isMultiSelect: 0, isRequired: 1 }
         ];
         for (const mod of defaultModifiers) {
           await dbRun(
-            'INSERT INTO modifiers (id, menuItemId, groupName, name, priceDelta, isMultiSelect, isRequired) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [mod.id, mod.menuItemId, mod.groupName, mod.name, mod.priceDelta, mod.isMultiSelect, mod.isRequired]
+           'INSERT INTO modifiers (id, menuItemId, groupName, name, priceDelta, isMultiSelect, isRequired, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [mod.id, mod.menuItemId, mod.groupName, mod.name, mod.priceDelta, mod.isMultiSelect, mod.isRequired, tid]
           );
         }
       }
@@ -1400,10 +1387,10 @@ async function seedDatabase(tenantId) {
         }
 
         const defaultRecipes = [
-          { id: 'rec1', menuItemId: 'item1', ingredientId: 'ing1', quantityRequired: 1 },
-          { id: 'rec2', menuItemId: 'item1', ingredientId: 'ing2', quantityRequired: 150 },
-          { id: 'rec3', menuItemId: 'item1', ingredientId: 'ing3', quantityRequired: 80 },
-          { id: 'rec4', menuItemId: 'item1', ingredientId: 'ing4', quantityRequired: 50 }
+          { id: 'rec1', menuItemId: `${tid}_item_chicken_rice`, ingredientId: 'ing1', quantityRequired: 1 },
+          { id: 'rec2', menuItemId: `${tid}_item_chicken_rice`, ingredientId: 'ing2', quantityRequired: 150 },
+          { id: 'rec3', menuItemId: `${tid}_item_chicken_rice`, ingredientId: 'ing3', quantityRequired: 80 },
+          { id: 'rec4', menuItemId: `${tid}_item_chicken_rice`, ingredientId: 'ing4', quantityRequired: 50 }
         ];
         for (const rec of defaultRecipes) {
           await dbRun(
@@ -1482,11 +1469,12 @@ async function seedKb2cStore() {
       [tid, Date.now()]
     );
 
-    const hash = await bcrypt.hash('kb2c@2026', 10);
+    if (process.env.NODE_ENV === 'production') return;
+    const hash = await bcrypt.hash(process.env.KB2C_DEMO_PASSWORD || generateStrongPassword(16), 10);
     await dbRun(
       `INSERT OR IGNORE INTO users (id, username, passwordHash, role, pin, tenant_id, email, phone)
-       VALUES (?, 'kb2c_admin', ?, 'owner', '1234', ?, 'kb2c@restaurant.lk', '0752237947')`,
-      [`usr_kb2c_owner`, hash, tid]
+        VALUES (?, 'kb2c_admin', ?, 'owner', ?, ?, 'kb2c@restaurant.lk', '0752237947')`,
+       [`usr_kb2c_owner`, hash, await bcrypt.hash(generateSecurePin(), 10), tid]
     );
 
     const kb2cSettings = [
@@ -2191,20 +2179,6 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
 });
 
 // POST /api/menu/clear-store-menu — Wipes all menu items and categories for active tenant
-app.post('/api/menu/clear-store-menu', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
-  try {
-    const tenantId = req.tenantId || 'default_tenant';
-    await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
-    await dbRun('DELETE FROM categories WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
-    await writeAuditLog(req.user.id, req.user.username, 'clear_store_menu', `Cleared store menu & categories for ${tenantId}`);
-    res.json({ success: true, message: 'Store menu & categories cleared successfully! You can now build your custom menu.' });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// Generic Table CRUD Endpoints (Categories, Menu Items, Tables, Customers)
-const CRUD_TABLES = ['categories', 'menu_items', 'tables', 'customers'];
 
 // Bulk Clear-All Menu Items Endpoint
 app.post(['/api/menu_items/clear-all', '/api/menu/clear-all'], authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
@@ -2237,6 +2211,9 @@ app.post(['/api/categories/clear-all'], authenticateToken, requireRole(['owner',
     res.status(500).json({ error: errMsg(err) });
   }
 });
+
+// Generic Table CRUD Endpoints (Categories, Menu Items, Tables, Customers)
+const CRUD_TABLES = ['categories', 'menu_items', 'tables', 'customers'];
 
 for (const tableName of CRUD_TABLES) {
   app.get(`/api/${tableName}`, authenticateToken, async (req, res) => {
@@ -3990,10 +3967,16 @@ app.post('/api/users', authenticateToken, requireRole(['owner', 'manager']), val
   }
 });
 
-app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+app.delete('/api/users/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id } = req.params;
   try {
-    await dbRun('DELETE FROM users WHERE id = ?', [id]);
+    const target = await dbGet('SELECT id, role FROM users WHERE id = ? AND tenant_id = ?', [id, req.tenantId]);
+    if (!target) return res.status(404).json({ error: 'User not found.' });
+    if (target.id === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account.' });
+    if (req.user.role !== 'owner' && target.role === 'owner') {
+      return res.status(403).json({ error: 'Only an owner can delete another owner account.' });
+    }
+    await dbRun('DELETE FROM users WHERE id = ? AND tenant_id = ?', [id, req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'delete_user', `Deleted user ${id}`);
     res.json({ success: true, message: 'User deleted successfully.' });
   } catch (err) {
@@ -5861,16 +5844,21 @@ app.post('/api/public/orders/:id/driver-location', publicApiLimiter, async (req,
 });
 
 // ── 3.5 PayHere Payment Gateway Sandbox & Live Integration (Public) ──
-app.post('/api/public/payment/payhere/hash', (req, res) => {
+app.post('/api/public/payment/payhere/hash', publicApiLimiter, async (req, res) => {
   try {
-    const { orderId, amount, currency = 'LKR' } = req.body;
-    if (!orderId || !amount) {
-      return res.status(400).json({ error: 'orderId and amount are required' });
+    const { orderId, currency = 'LKR' } = req.body;
+    if (!orderId) {
+      return res.status(400).json({ error: 'orderId is required' });
     }
 
-    const merchantId = process.env.PAYHERE_MERCHANT_ID || '1220000';
-    const merchantSecret = process.env.PAYHERE_SECRET || '4a8b9c10d2e3f4';
-    const formattedAmount = Number(amount).toFixed(2);
+    const tenantId = await resolvePublicTenant(req);
+    const order = await dbGet('SELECT id, total FROM orders WHERE id = ? AND tenant_id = ?', [orderId, tenantId]);
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+    const merchantId = process.env.PAYHERE_MERCHANT_ID;
+    const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
+    if (!merchantId || !merchantSecret) return res.status(503).json({ error: 'Online payments are not configured.' });
+    const formattedAmount = Number(order.total).toFixed(2);
 
     const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
     const hashStr = merchantId + orderId + formattedAmount + currency + hashedSecret;
@@ -5902,7 +5890,8 @@ app.post('/api/public/payment/payhere/notify', express.urlencoded({ extended: tr
       md5sig
     } = req.body;
 
-    const merchantSecret = process.env.PAYHERE_SECRET || '4a8b9c10d2e3f4';
+    const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
+    if (!merchantSecret) return res.status(503).send('Payment gateway is not configured');
     const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
     const expectedHashStr = merchant_id + order_id + payhere_amount + payhere_currency + status_code + hashedSecret;
     const expectedHash = crypto.createHash('md5').update(expectedHashStr).digest('hex').toUpperCase();
@@ -6492,7 +6481,8 @@ app.post('/api/saas/tenants', requireRole(['owner']), requirePlatformAdmin, vali
       }
       const tempPassword = ownerPassword || crypto.randomBytes(6).toString('hex');
       const passwordHash = await bcrypt.hash(tempPassword, 10);
-      const pinHash = await bcrypt.hash(String(ownerPin || '1234'), 10);
+      const generatedPin = ownerPin || generateSecurePin();
+      const pinHash = await bcrypt.hash(String(generatedPin), 10);
       const uid = `user_${Date.now()}`;
       await dbRun(
         'INSERT INTO users (id, username, passwordHash, role, pin, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -6506,7 +6496,7 @@ app.post('/api/saas/tenants', requireRole(['owner']), requirePlatformAdmin, vali
         ownerCredentials: {
           username: uname,
           password: ownerPassword ? '(as provided)' : tempPassword,
-          pin: ownerPin ? '(as provided)' : '1234',
+          pin: ownerPin ? '(as provided)' : generatedPin,
           note: 'Share securely. The owner should change the password and PIN on first login.'
         }
       });

@@ -7,12 +7,12 @@
 
 | Credential | Platform | Action Required |
 |---|---|---|
-| `NOTIFY_LK_API_KEY` (value: `vZU61cOOuVoBiRxwmGdQ`) | notify.lk dashboard | Generate a new API key |
-| `EMAIL_PASS` (Gmail App Password: `bffwxxbuqcordfvl`) | Google Account > Security > App Passwords | Revoke and regenerate |
-| `PAYHERE_MERCHANT_SECRET` (`4OcPJrUbZxs8n4V8...`) | payhere.lk dashboard | Re-generate Merchant Secret |
-| `JWT_SECRET` (`super_secret_restaurant_pos_key_2026`) | Environment variable | Replace with `openssl rand -hex 64` output |
+| `NOTIFY_LK_API_KEY` (previously exposed) | notify.lk dashboard | Generate a new API key |
+| `EMAIL_PASS` (previously exposed) | Google Account > Security > App Passwords | Revoke and regenerate |
+| `PAYHERE_MERCHANT_SECRET` (previously exposed) | payhere.lk dashboard | Re-generate Merchant Secret |
+| `JWT_SECRET` (previously exposed) | Environment variable | Replace with `openssl rand -hex 64` output |
 | `CUSTOMER_JWT_SECRET` | Environment variable | Replace with `openssl rand -hex 64` output |
-| `ADMIN_PASSWORD` (`admin123`) | App seeding | Set a strong password in env before next deploy |
+| `ADMIN_PASSWORD` (previously exposed) | App seeding | Set a strong password in env before next deploy |
 
 ## How to Generate Strong Secrets
 

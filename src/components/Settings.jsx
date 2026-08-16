@@ -227,7 +227,7 @@ export default function Settings() {
     }
   };
 
-  const handleClearAllMenu = async () => {
+  const handleClearStoreMenu = async () => {
     if (!window.confirm('⚠️ CRITICAL CONFIRMATION:\nAre you sure you want to WIPE ALL menu items and categories for your store?\n\nThis will remove all current items so you can start creating your real menu from a 100% clean slate!')) {
       return;
     }
