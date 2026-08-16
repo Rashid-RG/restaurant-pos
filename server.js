@@ -1099,7 +1099,7 @@ async function initTables() {
 
     // Enforce tenant_id across all domain tables for complete multi-tenancy isolation (Phase 1)
     const tablesNeedingTenantId = [
-      'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
+      'settings', 'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
       'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'ingredients'
     ];
     for (const tbl of tablesNeedingTenantId) {
@@ -1141,10 +1141,12 @@ async function initTables() {
 async function seedDatabase(tenantId) {
   const tid = tenantId || 'default_tenant';
   try {
-    // Check categories for THIS tenant
+    // Check if categories have already been initialized / seeded for THIS tenant
+    const catSeededSetting = await dbGet("SELECT value FROM settings WHERE tenant_id = ? AND key = 'categories_initial_seeded'", [tid]).catch(() => null);
     const categoriesCount = await dbGet('SELECT COUNT(*) as count FROM categories WHERE tenant_id = ?', [tid]);
-    if (!categoriesCount || categoriesCount.count === 0) {
+    if (!catSeededSetting && (!categoriesCount || categoriesCount.count === 0)) {
       console.log(`Seeding default Sri Lanka categories for tenant: ${tid}`);
+      await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'categories_initial_seeded', '1')", [tid]).catch(() => {});
       const defaultCategories = [
         { id: `${tid}_rice_curry`, name: 'Rice & Curry', emoji: '🍚' },
         { id: `${tid}_bbq_grill`, name: 'BBQ & Grill', emoji: '🍖' },
@@ -1170,10 +1172,12 @@ async function seedDatabase(tenantId) {
       }
     }
 
-    // Check menu_items for THIS specific tenant
+    // Check menu_items for THIS specific tenant (only seed if not already initialized)
+    const menuSeededSetting = await dbGet("SELECT value FROM settings WHERE tenant_id = ? AND key = 'menu_initial_seeded'", [tid]).catch(() => null);
     const itemsCount = await dbGet('SELECT COUNT(*) as count FROM menu_items WHERE tenant_id = ?', [tid]);
-    if (!itemsCount || itemsCount.count === 0) {
+    if (!menuSeededSetting && (!itemsCount || itemsCount.count === 0)) {
       console.log(`Seeding default Sri Lanka menu items for tenant: ${tid}...`);
+      await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'menu_initial_seeded', '1')", [tid]).catch(() => {});
       const defaultItems = [
         { id: `${tid}_item_chicken_rice`, name: 'Chicken Rice & Curry', price: 950, cost: 400, category: `${tid}_rice_curry`, emoji: '🍗', stock: 50, minStock: 10, description: 'Traditional Sri Lankan rice served with chicken curry, dhal, and 3 vegetable curries.', isHalal: 1, preparationTime: 15 },
         { id: `${tid}_item_beef_kottu`, name: 'Beef Kottu Roti', price: 1100, cost: 500, category: `${tid}_kottu_roti`, emoji: '🥘', stock: 40, minStock: 10, description: 'Chopped flatbread wok-fried with seasoned beef, eggs, onions, and spicy gravy.', isHalal: 1, preparationTime: 15 },
@@ -2202,6 +2206,38 @@ app.post('/api/menu/clear-store-menu', authenticateToken, requireRole(['owner', 
 // Generic Table CRUD Endpoints (Categories, Menu Items, Tables, Customers)
 const CRUD_TABLES = ['categories', 'menu_items', 'tables', 'customers'];
 
+// Bulk Clear-All Menu Items Endpoint
+app.post(['/api/menu_items/clear-all', '/api/menu/clear-all'], authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
+  try {
+    const tenantId = req.tenantId || 'default_tenant';
+    await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+    await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'menu_initial_seeded', '1')", [tenantId]).catch(() => {});
+    try {
+      notifyPublicStore({ type: 'menu_cleared' }, tenantId);
+      notifyPOS({ type: 'menu_cleared' }, tenantId);
+    } catch (_) {}
+    res.json({ success: true, message: 'All menu items cleared successfully from database.' });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// Bulk Clear-All Categories Endpoint
+app.post(['/api/categories/clear-all'], authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
+  try {
+    const tenantId = req.tenantId || 'default_tenant';
+    await dbRun('DELETE FROM categories WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+    await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'categories_initial_seeded', '1')", [tenantId]).catch(() => {});
+    try {
+      notifyPublicStore({ type: 'categories_cleared' }, tenantId);
+      notifyPOS({ type: 'categories_cleared' }, tenantId);
+    } catch (_) {}
+    res.json({ success: true, message: 'All categories cleared successfully from database.' });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
 for (const tableName of CRUD_TABLES) {
   app.get(`/api/${tableName}`, authenticateToken, async (req, res) => {
     try {
@@ -2245,11 +2281,22 @@ for (const tableName of CRUD_TABLES) {
     }
   });
 
-  app.delete(`/api/${tableName}/:id`, authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  app.delete(`/api/${tableName}/:id`, authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
     const { id } = req.params;
     try {
       const tenantId = req.tenantId || 'default_tenant';
       await dbRun(`DELETE FROM ${tableName} WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)`, [id, tenantId]);
+      if (tableName === 'menu_items') {
+        try {
+          notifyPublicStore({ type: 'item_deleted', itemId: id }, tenantId);
+          notifyPOS({ type: 'item_deleted', itemId: id }, tenantId);
+        } catch (_) {}
+      } else if (tableName === 'categories') {
+        try {
+          notifyPublicStore({ type: 'category_deleted', categoryId: id }, tenantId);
+          notifyPOS({ type: 'category_deleted', categoryId: id }, tenantId);
+        } catch (_) {}
+      }
       res.json({ success: true, id });
     } catch (err) {
       res.status(500).json({ error: errMsg(err) });

@@ -506,6 +506,32 @@ export const POSProvider = ({ children }) => {
     setMenuItems((prev) => prev.filter((i) => i.id !== itemId));
   };
 
+  const clearAllMenuItems = async () => {
+    const token = localStorage.getItem('gastroflow_token');
+    const res = await fetch('/api/menu_items/clear-all', {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to clear menu items from database');
+    }
+    setMenuItems([]);
+  };
+
+  const clearAllCategories = async () => {
+    const token = localStorage.getItem('gastroflow_token');
+    const res = await fetch('/api/categories/clear-all', {
+      method: 'POST',
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to clear categories from database');
+    }
+    setCategories([]);
+  };
+
   // Tables CRUD
   const saveTable = async (table) => {
     await db.put('tables', table);
@@ -811,9 +837,11 @@ export const POSProvider = ({ children }) => {
 
         // CRUD utilities
         saveCategory,
-         deleteCategory,
+        deleteCategory,
+        clearAllCategories,
         saveMenuItem,
         deleteMenuItem,
+        clearAllMenuItems,
         saveTable,
         deleteTable,
         saveCustomer,

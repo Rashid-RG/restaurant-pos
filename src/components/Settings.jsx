@@ -9,9 +9,11 @@ export default function Settings() {
     menuItems,
     saveMenuItem,
     deleteMenuItem,
+    clearAllMenuItems,
     categories,
     saveCategory,
     deleteCategory,
+    clearAllCategories,
     exportDatabase,
     importDatabase,
     resetAllDatabase,
@@ -323,8 +325,30 @@ export default function Settings() {
   };
 
   const handleDeleteItemClick = async (itemId) => {
-    if (confirm('Are you sure you want to delete this menu item?')) {
-      await deleteMenuItem(itemId);
+    const item = menuItems.find(i => i.id === itemId);
+    const itemName = item ? item.name : 'this item';
+    if (confirm(`🗑️ Are you sure you want to delete "${itemName}" from the database?`)) {
+      try {
+        await deleteMenuItem(itemId);
+        showToast(`🗑️ "${itemName}" deleted successfully!`, 'info');
+      } catch (err) {
+        showToast('Error deleting menu item: ' + err.message, 'error');
+      }
+    }
+  };
+
+  const handleClearAllMenu = async () => {
+    if (menuItems.length === 0) {
+      showToast('Menu is already empty.', 'info');
+      return;
+    }
+    if (confirm('⚠️ Are you sure you want to delete ALL menu items from the database? This will remove all old/demo items so you can start adding your real menu.')) {
+      try {
+        await clearAllMenuItems();
+        showToast('🗑️ All menu items have been removed from the database.', 'success');
+      } catch (err) {
+        showToast('Failed to clear menu items: ' + err.message, 'error');
+      }
     }
   };
 
@@ -332,6 +356,13 @@ export default function Settings() {
     setEditCat(null);
     setCatName('');
     setCatEmoji('🍕');
+    setShowCatModal(true);
+  };
+
+  const handleOpenCatEdit = (cat) => {
+    setEditCat(cat);
+    setCatName(cat.name || '');
+    setCatEmoji(cat.emoji || '🍛');
     setShowCatModal(true);
   };
 
@@ -355,8 +386,30 @@ export default function Settings() {
   };
 
   const handleDeleteCatClick = async (catId) => {
-    if (confirm('Are you sure you want to delete this category? Items in this category might become unclassified.')) {
-      await deleteCategory(catId);
+    const cat = categories.find(c => c.id === catId);
+    const catNameStr = cat ? cat.name : 'this category';
+    if (confirm(`🗑️ Are you sure you want to delete category "${catNameStr}"? Items in this category might become unclassified.`)) {
+      try {
+        await deleteCategory(catId);
+        showToast(`🗑️ Category "${catNameStr}" deleted.`, 'info');
+      } catch (err) {
+        showToast('Error deleting category: ' + err.message, 'error');
+      }
+    }
+  };
+
+  const handleClearAllCategories = async () => {
+    if (categories.length === 0) {
+      showToast('Categories are already empty.', 'info');
+      return;
+    }
+    if (confirm('⚠️ Are you sure you want to delete ALL categories from the database?')) {
+      try {
+        await clearAllCategories();
+        showToast('🗑️ All categories have been removed from the database.', 'success');
+      } catch (err) {
+        showToast('Failed to clear categories: ' + err.message, 'error');
+      }
     }
   };
 
@@ -616,40 +669,63 @@ export default function Settings() {
                 
                 {/* Categories block */}
                 <div style={{ marginBottom: '40px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700' }}>Menu Categories</h3>
-                    <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={handleOpenCatAdd}>
-                      ＋ Add Category
-                    </button>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <h3 style={{ fontSize: '16px', fontWeight: '700', margin: 0 }}>Menu Categories</h3>
+                      <span className="badge badge-secondary" style={{ fontSize: '12px' }}>{categories.length} categories</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {categories.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ padding: '5px 10px', fontSize: '12px', color: '#ef4444', background: '#ef444415', border: '1px solid #ef444430' }}
+                          onClick={handleClearAllCategories}
+                        >
+                          🗑️ Clear All Categories
+                        </button>
+                      )}
+                      <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={handleOpenCatAdd}>
+                        ＋ Add Category
+                      </button>
+                    </div>
                   </div>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                    {categories.map((cat) => (
-                      <div
-                        key={cat.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          background: 'var(--bg-surface)',
-                          border: '1px solid var(--border-color)',
-                          padding: '8px 16px',
-                          borderRadius: '50px',
-                          fontSize: '13px',
-                          fontWeight: '600'
-                        }}
-                      >
-                        <span>{cat.emoji}</span>
-                        <span>{cat.name}</span>
-                        <button
-                          style={{ color: 'var(--color-danger)', marginLeft: '8px', fontSize: '16px', fontWeight: 'bold' }}
-                          onClick={() => handleDeleteCatClick(cat.id)}
+                  {categories.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', background: 'var(--bg-surface)', borderRadius: '10px', border: '1px dashed var(--border-color)', color: 'var(--text-muted)', fontSize: '13px' }}>
+                      No categories yet. Click <strong>＋ Add Category</strong> to create your first category.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                      {categories.map((cat) => (
+                        <div
+                          key={cat.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            background: 'var(--bg-surface)',
+                            border: '1px solid var(--border-color)',
+                            padding: '8px 16px',
+                            borderRadius: '50px',
+                            fontSize: '13px',
+                            fontWeight: '600'
+                          }}
                         >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                          <span style={{ cursor: 'pointer' }} onClick={() => handleOpenCatEdit(cat)} title="Click to edit category">{cat.emoji}</span>
+                          <span style={{ cursor: 'pointer' }} onClick={() => handleOpenCatEdit(cat)} title="Click to edit category">{cat.name}</span>
+                          <button
+                            type="button"
+                            style={{ color: 'var(--color-danger)', marginLeft: '8px', fontSize: '16px', fontWeight: 'bold', background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+                            title="Delete category from database"
+                            onClick={() => handleDeleteCatClick(cat.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Menu items block */}
@@ -1713,9 +1789,31 @@ export default function Settings() {
                 </label>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '8px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowItemModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" style={{ minWidth: '160px' }}>💾 Save to Database</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+                {editItem ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ background: '#ef444415', color: '#ef4444', border: '1px solid #ef444440', fontWeight: 700, padding: '8px 16px' }}
+                    onClick={async () => {
+                      if (confirm(`🗑️ Are you sure you want to delete "${editItem.name}" from the database?`)) {
+                        try {
+                          await deleteMenuItem(editItem.id);
+                          showToast(`🗑️ "${editItem.name}" deleted from database.`, 'info');
+                          setShowItemModal(false);
+                        } catch (err) {
+                          showToast('Error deleting item: ' + err.message, 'error');
+                        }
+                      }
+                    }}
+                  >
+                    🗑️ Delete Item
+                  </button>
+                ) : <div />}
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowItemModal(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary" style={{ minWidth: '160px' }}>💾 Save to Database</button>
+                </div>
               </div>
             </form>
           </div>
@@ -1790,13 +1888,35 @@ export default function Settings() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCatModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  💾 Save Category
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' }}>
+                {editCat ? (
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ background: '#ef444415', color: '#ef4444', border: '1px solid #ef444440', fontWeight: 700, padding: '8px 16px' }}
+                    onClick={async () => {
+                      if (confirm(`🗑️ Are you sure you want to delete category "${editCat.name}"?`)) {
+                        try {
+                          await deleteCategory(editCat.id);
+                          showToast(`🗑️ Category "${editCat.name}" deleted.`, 'info');
+                          setShowCatModal(false);
+                        } catch (err) {
+                          showToast('Error deleting category: ' + err.message, 'error');
+                        }
+                      }
+                    }}
+                  >
+                    🗑️ Delete Category
+                  </button>
+                ) : <div />}
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowCatModal(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    💾 Save Category
+                  </button>
+                </div>
               </div>
             </form>
           </div>
