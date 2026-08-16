@@ -100,11 +100,13 @@ export const POSProvider = ({ children }) => {
 
   // Initialize and load data
   const loadAllData = async (isInitial = false) => {
-    // Check tenant existence and status upfront
+    // Check tenant existence and status upfront - URL parameter takes precedence over saved session
     const params = new URLSearchParams(window.location.search);
-    const targetTenant = currentUser?.tenant_id || params.get('tenant') || params.get('tenantId') || 'default_tenant';
+    const urlTenant = params.get('tenant') || params.get('tenantId');
+    const targetTenant = urlTenant || currentUser?.tenant_id || 'default_tenant';
 
-    if (currentUser?.role !== 'owner' || targetTenant !== 'default_tenant') {
+    // Verify tenant if an explicit store is in the URL or user belongs to a specific tenant
+    if (urlTenant || (currentUser && currentUser.tenant_id !== 'default_tenant')) {
       try {
         const statusRes = await fetch(`/api/public/tenant/status?tenant=${encodeURIComponent(targetTenant)}`);
         const statusData = await statusRes.json().catch(() => ({}));
@@ -112,7 +114,7 @@ export const POSProvider = ({ children }) => {
           setTenantLock({
             status: 'deleted',
             storeId: targetTenant,
-            message: 'This restaurant store has been deleted or cannot be found.'
+            message: `The restaurant store "${targetTenant}" was not found or does not exist on this platform.`
           });
           if (isInitial) setLoading(false);
           return;
@@ -121,7 +123,7 @@ export const POSProvider = ({ children }) => {
             status: 'suspended',
             storeId: targetTenant,
             storeName: statusData.name,
-            message: 'This restaurant store is currently suspended by the platform administrator.'
+            message: `The restaurant store "${statusData.name || targetTenant}" is currently suspended by the platform administrator.`
           });
           if (isInitial) setLoading(false);
           return;

@@ -1658,8 +1658,8 @@ const requireRole = (allowedRoles) => {
 async function resolvePublicTenant(req) {
   const explicitId = req.query.tenantId || req.headers['x-tenant-id'];
   if (explicitId) {
-    const raw = String(explicitId);
-    if (raw === 'default_tenant' || raw === 'default' || raw === 'kb2c') return 'tenant_kb2c';
+    const raw = String(explicitId).trim();
+    if (raw === 'default' || raw === 'default_tenant') return 'default_tenant';
     try {
       const row = await dbGet("SELECT id FROM tenants WHERE id = ? OR subdomain = ?", [raw, raw]);
       if (row) return row.id;
@@ -1668,23 +1668,15 @@ async function resolvePublicTenant(req) {
   }
   const sub = req.query.tenant || req.headers['x-tenant-subdomain'];
   if (sub) {
-    const raw = String(sub);
-    if (raw === 'default_tenant' || raw === 'default' || raw === 'kb2c') return 'tenant_kb2c';
+    const raw = String(sub).trim();
+    if (raw === 'default' || raw === 'default_tenant') return 'default_tenant';
     try {
       const row = await dbGet("SELECT id FROM tenants WHERE subdomain = ? OR id = ?", [raw, raw]);
       if (row) return row.id;
     } catch (_) {}
     return raw;
   }
-  try {
-    const allTenants = await dbAll("SELECT id, subdomain FROM tenants WHERE status = 'active'");
-    if (allTenants && allTenants.length > 0) {
-      const kb2c = allTenants.find(t => t.id === 'tenant_kb2c' || t.subdomain === 'kb2c');
-      if (kb2c) return kb2c.id;
-      if (allTenants.length === 1) return allTenants[0].id;
-    }
-  } catch (_) {}
-  return 'tenant_kb2c';
+  return 'default_tenant';
 }
 
 // ── Per-tenant settings helpers ──────────────────────────────────────────────
@@ -3816,7 +3808,7 @@ Return valid JSON:
 // GET /api/orders — Fetch all orders with order_items for POS & Admin
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const tenantId = req.tenantId || 'tenant_kb2c';
+    const tenantId = req.tenantId || 'default_tenant';
     const orders = await dbAll(
       `SELECT * FROM orders WHERE tenant_id = ? ORDER BY timestamp DESC`,
       [tenantId]
@@ -3937,19 +3929,12 @@ async function syncAllRealCustomersToCrm(tenantId) {
 // GET /api/customers — Fetch real customers list for Customers & Loyalty view (joins online customer accounts & order history)
 app.get('/api/customers', authenticateToken, async (req, res) => {
   try {
-    const tenantId = req.tenantId || 'tenant_kb2c';
+    const tenantId = req.tenantId || 'default_tenant';
     await syncAllRealCustomersToCrm(tenantId);
 
-    // Auto-migrate any unassigned / legacy customers to active tenant ID if applicable
-    if (tenantId === 'tenant_kb2c') {
-      await dbRun(
-        `UPDATE customers SET tenant_id = 'tenant_kb2c' WHERE tenant_id = 'default_tenant' OR tenant_id = 'kb2c' OR tenant_id IS NULL`
-      ).catch(() => {});
-    }
-
     const customers = await dbAll(
-      `SELECT * FROM customers WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = 'tenant_kb2c') ORDER BY totalSpent DESC, name ASC`,
-      [tenantId, tenantId]
+      `SELECT * FROM customers WHERE tenant_id = ? ORDER BY totalSpent DESC, name ASC`,
+      [tenantId]
     );
     res.json(customers);
   } catch (err) {
@@ -4596,7 +4581,7 @@ app.get('/api/public/tenant/status', publicApiLimiter, async (req, res) => {
 // GET /api/menu — Alias for /api/menu_items for POS menu syncing
 app.get('/api/menu', authenticateToken, async (req, res) => {
   try {
-    const tenantId = req.tenantId || 'tenant_kb2c';
+    const tenantId = req.tenantId || 'default_tenant';
     const rows = await dbAll(
       `SELECT * FROM menu_items WHERE tenant_id = ?`,
       [tenantId]
@@ -4612,12 +4597,12 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
     const categories = await dbAll(
-      `SELECT id, name, emoji FROM categories WHERE (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL) ORDER BY name`,
+      `SELECT id, name, emoji FROM categories WHERE tenant_id = ? ORDER BY name`,
       [tenantId]
     );
     const items = await dbAll(
       `SELECT id, name, price, category, emoji, stock, description, dietaryTags, imageUrl, isAvailable FROM menu_items
-       WHERE (isAvailable = 1 OR isAvailable IS NULL) AND (tenant_id = ? OR tenant_id = 'tenant_kb2c' OR tenant_id = 'kb2c' OR tenant_id = 'default_tenant' OR tenant_id IS NULL) ORDER BY name`,
+       WHERE (isAvailable = 1 OR isAvailable IS NULL) AND tenant_id = ? ORDER BY name`,
       [tenantId]
     );
 
