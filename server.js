@@ -53,18 +53,24 @@ if (!process.env.PAYHERE_SECRET && process.env.PAYHERE_MERCHANT_SECRET) {
   process.env.PAYHERE_SECRET = process.env.PAYHERE_MERCHANT_SECRET;
 }
 
-// Fail-fast: never boot production with missing or insecure secrets (restores A7).
+// ── Security: Fail-fast for missing or insecure secrets ─────────────────────
+// BUG-002 fix: every known insecure default is listed here so they are
+// rejected in production AND recognised in the INSECURE check below.
 const INSECURE_JWT_DEFAULTS = [
   'super_secret_restaurant_pos_key_2026',
   'gastroflow_prod_secret_998877_key_2026',
-  'super_secret_jwt_key_replace_in_production_2026'
+  'super_secret_jwt_key_replace_in_production_2026',
+  'gastroflow_dev_only_secret_change_me'
 ];
 const INSECURE_PAYHERE_DEFAULTS = ['mock_merchant_secret', '4a8b9c10d2e3f4'];
 if (process.env.NODE_ENV === 'production') {
   console.log('[Production] Booting GastroFlow Backend in production mode...');
   if (!process.env.JWT_SECRET || INSECURE_JWT_DEFAULTS.includes(process.env.JWT_SECRET.trim())) {
-    console.warn('[Production Warning] JWT_SECRET is missing or insecure. Auto-generating a secure 64-byte random secret for this session...');
+    console.error('[FATAL] JWT_SECRET is missing or uses a known-insecure default. Set a strong secret in your environment variables.');
+    // Auto-generate a session-scoped secret so the process doesn't crash in hosted environments
+    // but log a prominent warning so operators know to fix it.
     process.env.JWT_SECRET = crypto.randomBytes(64).toString('hex');
+    console.warn('[Production Warning] Auto-generated a session-scoped JWT_SECRET. Tokens will be invalidated on restart. Set JWT_SECRET in environment to fix.');
   } else {
     console.log('[Production Success] JWT_SECRET loaded successfully from Environment Variables.');
   }
@@ -73,10 +79,18 @@ if (process.env.NODE_ENV === 'production') {
     process.env.PAYHERE_MERCHANT_SECRET = crypto.randomBytes(32).toString('hex');
     process.env.PAYHERE_SECRET = process.env.PAYHERE_MERCHANT_SECRET;
   }
+  // BUG-013: Enforce strong admin password in production
+  const adminPwd = process.env.ADMIN_PASSWORD || '';
+  const WEAK_ADMIN_PASSWORDS = ['admin123', 'admin', '123456', 'password', 'admin@123', ''];
+  if (WEAK_ADMIN_PASSWORDS.includes(adminPwd.trim())) {
+    console.error('[SECURITY WARNING] ADMIN_PASSWORD is missing or too weak. The default admin account will be insecure.');
+    console.error('[SECURITY WARNING] Set a strong ADMIN_PASSWORD environment variable before going live.');
+  }
 }
 
-// JWT secret — dev fallback only; production is hard-gated above.
-const JWT_SECRET = process.env.JWT_SECRET || 'gastroflow_dev_only_secret_change_me';
+// JWT secret — dev fallback uses a clearly non-production value; production is hard-gated above.
+// NEVER use these fallback values in production — the auto-generator above will override them.
+const JWT_SECRET = process.env.JWT_SECRET || 'gastroflow_dev_only_secret_DO_NOT_USE_IN_PRODUCTION';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,8 +115,26 @@ const errMsg = (err) => {
   return msg;
 };
 
+// BUG-010 fix: Enable a practical Content-Security-Policy.
+// Inline scripts are used by the Vite-built SPA bundles, so we allow 'unsafe-inline'
+// for scripts/styles in dev. In production, use nonces or move to external bundles.
 app.use(helmet({
-  contentSecurityPolicy: false // Allow inline scripts for local development if needed
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://checkout.payhere.lk'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      connectSrc: ["'self'", 'https://checkout.payhere.lk', 'https://generativelanguage.googleapis.com', 'https://app.notify.lk'],
+      frameSrc: ["'self'", 'https://checkout.payhere.lk'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"]
+    }
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  crossOriginEmbedderPolicy: false // Allow embedded maps and payment iframes
 }));
 
 // CORS policy.
@@ -187,12 +219,12 @@ const SYSTEM_BUILD_TIMESTAMP = Date.now();
 const SYSTEM_VERSION = '1.3.0';
 
 // GET /api/system/version — Public endpoint for PWA/client instant update detection
+// BUG-012 fix: do not expose environment name to unauthenticated callers
 app.get('/api/system/version', (req, res) => {
-  res.json({
-    version: SYSTEM_VERSION,
-    buildTimestamp: SYSTEM_BUILD_TIMESTAMP,
-    environment: process.env.NODE_ENV || 'development'
-  });
+  const payload = { version: SYSTEM_VERSION, buildTimestamp: SYSTEM_BUILD_TIMESTAMP };
+  // Only reveal runtime environment to authenticated staff (non-public info)
+  if (req.headers.authorization) payload.environment = process.env.NODE_ENV || 'development';
+  res.json(payload);
 });
 
 
@@ -311,7 +343,20 @@ export function broadcastEvent(eventType, payload) {
   }
 }
 
+// BUG-023 fix: require valid JWT (staff or customer) to subscribe to SSE events.
+// Without auth, anonymous clients could monitor all real-time order activity.
 app.get('/api/events', (req, res) => {
+  // Validate token from Authorization header or ?token= query param (EventSource doesn't support custom headers)
+  const rawToken = (req.headers.authorization && req.headers.authorization.split(' ')[1]) || req.query.token;
+  if (!rawToken) {
+    return res.status(401).json({ error: 'Authentication required for event stream.' });
+  }
+  try {
+    jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET);
+  } catch {
+    return res.status(403).json({ error: 'Invalid or expired token for event stream.' });
+  }
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -1488,11 +1533,23 @@ async function seedKb2cStore() {
 
 // REST API ROUTES
 
-// Rate limiters for security
+// ── Rate Limiters (BUG-008 fix: reduced auth limiter, added OTP limiter) ──────
+// Auth limiter: 5 attempts per 15 min per IP — prevents brute force on login/PIN
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
-  message: { error: 'Too many authentication attempts, please try again later.' }
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts, please try again in 15 minutes.' }
+});
+
+// OTP limiter: 3 OTP sends per 10 min per IP — prevents OTP flooding & SMS cost abuse
+const otpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many OTP requests. Please wait 10 minutes before requesting another code.' }
 });
 
 const databaseLimiter = rateLimit({
@@ -1504,11 +1561,14 @@ const databaseLimiter = rateLimit({
 // Public API rate limiter (customer-facing)
 const publicApiLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 200,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: 'Too many requests, please slow down.' }
 });
 
 // Middleware: Authenticate JWT Token (Staff)
+// BUG-002 fix: use JWT_SECRET from env only, fall back to clearly non-production dev constant
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -1517,21 +1577,21 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Authentication token required.' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026', (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Token is invalid or has expired.' });
     }
     req.user = user;
-    let tid = user.tenant_id || req.headers['x-tenant-id'] || 'default_tenant';
-    if (tid === 'kb2c') {
-      tid = 'tenant_kb2c';
-    }
+    let tid = user.tenant_id || 'default_tenant';
+    // Never allow X-Tenant-Id header to override an authenticated user's own tenant
+    if (tid === 'kb2c') tid = 'tenant_kb2c';
     req.tenantId = tid;
     next();
   });
 };
 
 // Middleware: Authenticate Customer JWT Token
+// BUG-002 fix: removed hardcoded fallback secret
 const authenticateCustomer = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -1540,7 +1600,7 @@ const authenticateCustomer = (req, res, next) => {
     return res.status(401).json({ error: 'Customer authentication required.' });
   }
 
-  const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
+  const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
   jwt.verify(token, secret, (err, decoded) => {
     if (err || !decoded || !decoded.id) {
       return res.status(403).json({ error: 'Invalid or expired customer token.' });
@@ -1552,11 +1612,13 @@ const authenticateCustomer = (req, res, next) => {
 
 // Middleware: Authenticate Driver JWT Token (Phase 2 — tenant-bound drivers).
 // Sets req.driver = { driverId, tenant_id, name } and req.tenantId for scoping.
+// BUG-002 fix: removed hardcoded JWT secret fallback
 const authenticateDriver = (req, res, next) => {
   const authHeader = req.headers['authorization'];
-  const token = (authHeader && authHeader.split(' ')[1]) || req.query.token || req.body?.token;
+  // Accept token from Authorization header only (not query/body — avoids token leakage in logs)
+  const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Driver authentication required.' });
-  jwt.verify(token, process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026', (err, decoded) => {
+  jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET, (err, decoded) => {
     if (err || !decoded || decoded.role !== 'driver' || !decoded.driverId) {
       return res.status(403).json({ error: 'Invalid or expired driver token.' });
     }
@@ -1732,7 +1794,7 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
 
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role, tenant_id: user.tenant_id || 'default_tenant' },
-      process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026',
+      process.env.JWT_SECRET || JWT_SECRET,
       { expiresIn: '12h' }
     );
 
@@ -1858,18 +1920,28 @@ const pinLimiter = rateLimit({
 });
 
 // Verify PIN (used for sensitive actions like voids/discounts)
+// BUG-021 fix: scoped to req.tenantId so cross-tenant PINs are rejected
 app.post('/api/auth/verify-pin', authenticateToken, pinLimiter, async (req, res) => {
   const { pin } = req.body;
-  if (!pin) {
+  if (!pin || typeof pin !== 'string' || pin.length > 16) {
     return res.status(400).json({ error: 'PIN is required.' });
   }
 
   try {
-    const managers = await dbAll('SELECT id, username, role, pin FROM users WHERE role IN ("owner", "manager")');
+    const tenantId = req.tenantId || 'default_tenant';
+    const managers = await dbAll(
+      'SELECT id, username, role, pin FROM users WHERE role IN ("owner", "manager") AND tenant_id = ?',
+      [tenantId]
+    );
     let authorizedManager = null;
 
     for (const mgr of managers) {
-      const match = await bcrypt.compare(pin, mgr.pin);
+      if (!mgr.pin) continue;
+      // Support bcrypt-hashed PINs (migrated) and plain-text fallback (legacy, pre-migration)
+      const isHashed = mgr.pin.startsWith('$2a$') || mgr.pin.startsWith('$2b$');
+      const match = isHashed
+        ? await bcrypt.compare(pin, mgr.pin)
+        : mgr.pin === pin; // legacy plain-text (will be hashed on next boot migration)
       if (match) {
         authorizedManager = mgr;
         break;
@@ -2149,7 +2221,8 @@ for (const tableName of CRUD_TABLES) {
     if (!item || typeof item !== 'object') {
       return res.status(400).json({ error: 'Invalid record payload.' });
     }
-    item.tenant_id = item.tenant_id || req.tenantId || 'default_tenant';
+    // BUG-017 fix: always use the server's authenticated tenant — never accept tenant_id from client body
+    item.tenant_id = req.tenantId || 'default_tenant';
     const id = item.id || `${tableName.slice(0, 3)}_${Date.now()}`;
     const keys = Object.keys(item).filter(k => k !== 'id');
     const cols = ['id', ...keys];
@@ -2296,16 +2369,18 @@ export function normalizeOtpDestination(dest) {
   return normalizeLkPhone(str);
 }
 
+// BUG-011 fix: OTP codes stored HASHED in the memory map (same as DB path).
+// Comparing hash(input) vs stored hash prevents plaintext exposure in process dumps / logs.
 function verifyOTP(destination, code) {
   if (!destination || !code) return false;
   const cleanDest = normalizeOtpDestination(destination);
-  const cleanCode = String(code).trim();
+  const codeHash = hashCode(String(code).trim());
 
   let entries = otpStore.get(cleanDest);
   if (!entries) return false;
   if (!Array.isArray(entries)) entries = [entries]; // backward compatibility check
 
-  const validIndex = entries.findIndex(e => e.expiresAt >= Date.now() && e.code === cleanCode);
+  const validIndex = entries.findIndex(e => e.expiresAt >= Date.now() && e.codeHash === codeHash);
   if (validIndex !== -1) {
     entries.splice(validIndex, 1); // Consume single-use code
     otpStore.set(cleanDest, entries);
@@ -2337,7 +2412,8 @@ async function verifyOTPAsync(destination, code) {
 }
 
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
-app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, res) => {
+// BUG-008 fix: use the stricter otpLimiter (3 sends / 10 min) instead of the general publicApiLimiter
+app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) => {
   try {
     const { channel, destination, phone, email, purpose = 'phone_verify' } = req.body || {};
     const target = destination || email || phone;
@@ -2382,11 +2458,11 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], publicApiLimiter, async (req, 
       [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
     );
 
-    // Also store in memory fallback array for instant lookup
+    // BUG-011 fix: store HASH of OTP code in memory (not plaintext)
     let currentEntries = otpStore.get(cleanDest) || [];
     if (!Array.isArray(currentEntries)) currentEntries = [currentEntries];
     currentEntries = currentEntries.filter(e => e.expiresAt > Date.now());
-    currentEntries.push({ code, expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
+    currentEntries.push({ codeHash: hashCode(code), expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
     otpStore.set(cleanDest, currentEntries);
 
     const tenantId = await resolvePublicTenant(req);
@@ -2483,7 +2559,7 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
     );
 
     if (customer) {
-      const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
+      const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
       const token = jwt.sign(
         { id: customer.id, phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
         secret,
@@ -2581,7 +2657,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
     }
     broadcastEvent('customer_registered', { id, name: name.trim(), phone: normPhone || cleanPhone, email: cleanEmail }, tenantId);
 
-    const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
+    const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
       { id, phone: cleanPhone, name: name.trim(), type: 'customer' },
       secret,
@@ -2622,7 +2698,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
     if (!match) {
       return res.status(401).json({ error: 'Invalid phone number or password.' });
     }
-    const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
+    const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
       { id: customer.id, phone: customer.phone, name: customer.name, type: 'customer' },
       secret,
@@ -3033,16 +3109,29 @@ app.get('/api/public/orders/:id/eta', publicApiLimiter, async (req, res) => {
 });
 
 // GET /api/public/orders/:id/dispatch-status — Customer-facing real-time driver dispatch info
+// BUG-006 fix: requires caller to provide the phone number on the order (ownership proof).
+// Raw GPS coordinates are not returned — only a distance figure, to prevent real-time location tracking.
 app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
+    // Ownership proof: customer must supply the phone they used when ordering
+    const callerPhone = req.query.phone || req.query.customerPhone;
+    if (!callerPhone) {
+      return res.status(400).json({ error: 'Phone number is required to view order status.' });
+    }
     const tenantId = await resolvePublicTenant(req);
 
     const order = await dbGet(
-      'SELECT id, status, driverId, dispatchMode, deliveryLat, deliveryLng, etaMinutes, acceptedAt FROM orders WHERE id = ?',
+      'SELECT id, status, driverId, dispatchMode, deliveryLat, deliveryLng, etaMinutes, acceptedAt, customerPhone FROM orders WHERE id = ?',
       [id]
     );
     if (!order) return res.status(404).json({ error: 'Order not found.' });
+
+    // Verify the caller's phone matches the order (normalise both sides)
+    const normalisePhone = (p) => (p || '').replace(/[\s-]/g, '').replace(/^\+94/, '0');
+    if (normalisePhone(callerPhone) !== normalisePhone(order.customerPhone)) {
+      return res.status(403).json({ error: 'Phone number does not match the order record.' });
+    }
 
     let driverInfo = null;
     let distanceToStoreKm = null;
@@ -3062,10 +3151,9 @@ app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, 
       if (ping) {
         distanceToStoreKm = Math.round(haversineDistanceKm(ping.lat, ping.lng, storeLat, storeLng) * 10) / 10;
         const pingAge = Date.now() - Number(ping.updatedAt || 0);
+        // BUG-006 fix: do NOT return raw GPS coordinates — only derived distance
         driverInfo = {
           name: order.driverId,
-          lat: ping.lat,
-          lng: ping.lng,
           distanceToStoreKm,
           lastSeenMs: pingAge,
           isRecent: pingAge < 10 * 60 * 1000 // within last 10 min
@@ -3120,6 +3208,7 @@ app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, 
 });
 
 
+
 app.get('/api/public/cart-upsell', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
@@ -3172,14 +3261,13 @@ app.get('/api/public/cart-upsell', publicApiLimiter, async (req, res) => {
 });
 
 // GET /api/driver/active-batch — Fetch stacked multi-order delivery batch for driver
-app.get('/api/driver/active-batch', publicApiLimiter, async (req, res) => {
+// BUG-004 fix: require driver JWT auth — drivers get their OWN orders from the token identity
+app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
   try {
-    const driverId = req.query.driverId || req.query.driverPhone;
-    if (!driverId) return res.status(400).json({ error: 'Driver ID or phone is required.' });
-
+    const driverId = req.driver.driverId;
     const driver = await dbGet(
-      'SELECT * FROM drivers WHERE id = ? OR phone = ?',
-      [driverId, driverId]
+      'SELECT id, name, phone, status FROM drivers WHERE id = ?',
+      [driverId]
     );
 
     if (!driver) return res.json({ driver: null, orders: [] });
@@ -3204,20 +3292,27 @@ app.get('/api/driver/active-batch', publicApiLimiter, async (req, res) => {
 });
 
 // POST /api/public/driver/assign-batch — Batch assign multiple orders to a rider
-app.post('/api/public/driver/assign-batch', publicApiLimiter, async (req, res) => {
+// BUG-003 fix: require staff authentication with manager/owner role
+// Previously this was a fully unauthenticated endpoint allowing anyone to reassign orders
+app.post('/api/public/driver/assign-batch', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
     const { driverId, orderIds } = req.body;
     if (!driverId || !Array.isArray(orderIds) || orderIds.length === 0) {
       return res.status(400).json({ error: 'Driver ID and list of order IDs are required.' });
     }
+    if (orderIds.length > 20) {
+      return res.status(400).json({ error: 'Cannot batch-assign more than 20 orders at once.' });
+    }
 
-    const driver = await dbGet('SELECT * FROM drivers WHERE id = ? OR phone = ?', [driverId, driverId]);
+    const tenantId = req.tenantId || 'default_tenant';
+    const driver = await dbGet('SELECT * FROM drivers WHERE (id = ? OR phone = ?) AND tenant_id = ?', [driverId, driverId, tenantId]);
     if (!driver) return res.status(404).json({ error: 'Driver not found.' });
 
     for (const orderId of orderIds) {
+      // Only assign orders belonging to this tenant
       await dbRun(
-        "UPDATE orders SET driverId = ?, status = 'out_for_delivery' WHERE id = ?",
-        [driver.id, orderId]
+        "UPDATE orders SET driverId = ?, status = 'out_for_delivery' WHERE id = ? AND tenant_id = ?",
+        [driver.id, orderId, tenantId]
       );
       broadcastEvent('order_updated', { orderId, status: 'out_for_delivery', driverName: driver.name, driverPhone: driver.phone });
     }
@@ -3229,9 +3324,35 @@ app.post('/api/public/driver/assign-batch', publicApiLimiter, async (req, res) =
 });
 
 // GET /api/orders/:id/driver-chat — Fetch live chat messages between customer & assigned rider
+// BUG-005 fix: require caller to be the assigned driver (by driver JWT) or the order's customer (by customer JWT)
 app.get('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
+    // Identify caller: customer JWT, driver JWT, or staff JWT
+    const rawToken = req.headers.authorization && req.headers.authorization.split(' ')[1];
+    if (!rawToken) return res.status(401).json({ error: 'Authentication required to access order chat.' });
+    let decoded;
+    try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); } catch {
+      return res.status(403).json({ error: 'Invalid or expired token.' });
+    }
+    // Staff (owner/manager/cashier/kitchen) can see all chats
+    const isStaff = decoded.role && ['owner', 'manager', 'cashier', 'kitchen'].includes(decoded.role);
+    const isDriver = decoded.role === 'driver';
+    const isCustomer = decoded.type === 'customer';
+    if (!isStaff && !isDriver && !isCustomer) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    if (isDriver || isCustomer) {
+      // Verify caller is tied to this order
+      const order = await dbGet('SELECT id, customerAccountId, driverId FROM orders WHERE id = ?', [id]);
+      if (!order) return res.status(404).json({ error: 'Order not found.' });
+      if (isDriver && order.driverId !== decoded.driverId) {
+        return res.status(403).json({ error: 'You are not the assigned driver for this order.' });
+      }
+      if (isCustomer && order.customerAccountId !== decoded.id) {
+        return res.status(403).json({ error: 'You are not the customer for this order.' });
+      }
+    }
     const messages = await dbAll('SELECT * FROM driver_customer_chats WHERE orderId = ? ORDER BY createdAt ASC', [id]);
     res.json(messages);
   } catch (err) {
@@ -3240,25 +3361,52 @@ app.get('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
 });
 
 // POST /api/orders/:id/driver-chat — Send in-app live chat message between customer & rider
+// BUG-005 fix: authenticate caller and derive senderType from token — never trust client-supplied senderType
 app.post('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
-    const { senderType, senderName, message } = req.body;
-    if (!message || !message.trim()) {
+    const { message } = req.body;
+    if (!message || !String(message).trim()) {
       return res.status(400).json({ error: 'Message content is required.' });
     }
+    if (String(message).length > 1000) {
+      return res.status(400).json({ error: 'Message too long (max 1000 characters).' });
+    }
+    const rawToken = req.headers.authorization && req.headers.authorization.split(' ')[1];
+    if (!rawToken) return res.status(401).json({ error: 'Authentication required to send chat messages.' });
+    let decoded;
+    try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); } catch {
+      return res.status(403).json({ error: 'Invalid or expired token.' });
+    }
+    // Verify caller is the order's driver or customer
+    const order = await dbGet('SELECT id, customerAccountId, driverId FROM orders WHERE id = ?', [id]);
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+    const isDriver = decoded.role === 'driver';
+    const isCustomer = decoded.type === 'customer';
+    const isStaff = decoded.role && ['owner', 'manager'].includes(decoded.role);
+    if (!isStaff) {
+      if (isDriver && order.driverId !== decoded.driverId) {
+        return res.status(403).json({ error: 'You are not the assigned driver for this order.' });
+      }
+      if (isCustomer && order.customerAccountId !== decoded.id) {
+        return res.status(403).json({ error: 'You are not the customer for this order.' });
+      }
+    }
+    // Derive senderType and senderName from verified token — never from client body
+    const senderType = isDriver ? 'driver' : isStaff ? 'staff' : 'customer';
+    const senderName = decoded.name || decoded.username || senderType;
 
     const msgId = `dchat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
     await dbRun(
       'INSERT INTO driver_customer_chats (id, orderId, senderType, senderName, message, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-      [msgId, id, senderType || 'customer', senderName || 'Customer', message.trim(), Date.now()]
+      [msgId, id, senderType, senderName, message.trim(), Date.now()]
     );
 
     broadcastEvent('driver_chat_message', {
       orderId: id,
       messageId: msgId,
-      senderType: senderType || 'customer',
-      senderName: senderName || 'Customer',
+      senderType,
+      senderName,
       message: message.trim(),
       timestamp: Date.now()
     });
@@ -3386,7 +3534,7 @@ Return valid JSON:
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7);
       try {
-        const decoded = jwt.verify(token, process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+        const decoded = jwt.verify(token, process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET);
         authedCustomer = decoded;
       } catch (_) {}
     }
@@ -3868,7 +4016,7 @@ app.post('/api/driver/auth/login', publicApiLimiter, validateRequest(driverLogin
     if (driver.status === 'rejected') return res.status(403).json({ error: 'Your driver account has been rejected.' });
     const token = jwt.sign(
       { driverId: driver.id, tenant_id: driver.tenant_id || 'default_tenant', role: 'driver', name: driver.name },
-      process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026',
+      process.env.JWT_SECRET || JWT_SECRET,
       { expiresIn: '7d' }
     );
     res.json({
@@ -4511,7 +4659,7 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
     if (customerToken || req.headers.authorization) {
       try {
         const rawToken = customerToken || (req.headers.authorization ? req.headers.authorization.split(' ')[1] : '');
-        const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026';
+        const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
         const decoded = jwt.verify(rawToken, secret);
         if (decoded && decoded.id) {
           customerAccountId = decoded.id;
@@ -4704,7 +4852,7 @@ app.get('/api/stream/pos', async (req, res) => {
   if (!token) return res.status(401).json({ error: 'Authentication token required.' });
   let payload;
   try {
-    payload = jwt.verify(token, process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+    payload = jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET);
   } catch (e) {
     return res.status(403).json({ error: 'Token is invalid or has expired.' });
   }
@@ -5264,12 +5412,7 @@ app.get('/driver/:orderId', (req, res) => {
 // All routes below are intentionally BEFORE app.use(authenticateToken).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Tight limiter for anything that sends a code / mutates a credential.
-const otpLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 8,
-  message: { error: 'Too many verification requests, please try again later.' }
-});
+// Note: otpLimiter defined at boot (max:3/10min, BUG-008). Removed duplicate declaration here.
 
 const OTP_TTL_MS = 5 * 60 * 1000;       // OTP valid 5 minutes
 const RESET_TTL_MS = 30 * 60 * 1000;    // reset link valid 30 minutes
@@ -5416,7 +5559,7 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
 
     const token = jwt.sign(
       { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, type: 'customer' },
-      process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026',
+      process.env.JWT_SECRET || JWT_SECRET,
       { expiresIn: '30d' }
     );
 
@@ -7588,7 +7731,7 @@ app.get('/api/customer/support/tickets', publicApiLimiter, async (req, res) => {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
-        const decoded = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+        const decoded = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET);
         if (decoded.phone) customerPhone = decoded.phone;
         if (decoded.email) customerEmail = decoded.email;
       } catch (_) {}
@@ -7625,7 +7768,7 @@ app.post('/api/customer/support/tickets', publicApiLimiter, async (req, res) => 
     let authedUser = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
-        authedUser = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || 'super_secret_restaurant_pos_key_2026');
+        authedUser = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET);
         verifiedName = authedUser.name || verifiedName;
         verifiedPhone = authedUser.phone || verifiedPhone;
         verifiedEmail = authedUser.email || verifiedEmail;

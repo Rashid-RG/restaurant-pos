@@ -9,11 +9,23 @@ import jwt from 'jsonwebtoken';
 export function createAuthRouter({ dbGet, dbRun, dbAll, JWT_SECRET, publicApiLimiter, authenticateToken }) {
   const router = express.Router();
 
+  // Safe error message helper — never leak raw DB/stack traces to clients
+  const safeErr = (err) => {
+    const msg = typeof err === 'string' ? err : (err?.message || 'An unexpected error occurred.');
+    const isRawDb = /SQLITE_ERROR|syntax error|relation ".*" does not exist|connect ECONNREFUSED/i.test(msg);
+    if (process.env.NODE_ENV === 'production' && isRawDb) return 'An unexpected error occurred. Please try again.';
+    return msg;
+  };
+
   // POST /api/auth/login — Staff POS Login
   router.post('/auth/login', publicApiLimiter, async (req, res) => {
     try {
       const { username, password } = req.body;
       if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
+      // Enforce max lengths to prevent bcrypt DoS
+      if (String(username).length > 256 || String(password).length > 128) {
+        return res.status(400).json({ error: 'Invalid credentials.' });
+      }
 
       const user = await dbGet('SELECT * FROM users WHERE username = ?', [username.trim()]);
       if (!user) return res.status(401).json({ error: 'Invalid username or password' });
@@ -29,7 +41,7 @@ export function createAuthRouter({ dbGet, dbRun, dbAll, JWT_SECRET, publicApiLim
 
       res.json({ token, user: { id: user.id, username: user.username, role: user.role } });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: safeErr(err) });
     }
   });
 
@@ -53,7 +65,7 @@ export function createAuthRouter({ dbGet, dbRun, dbAll, JWT_SECRET, publicApiLim
       if (!isValid) return res.status(401).json({ error: 'Invalid manager PIN' });
       res.json({ success: true, message: 'Manager PIN verified successfully' });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: safeErr(err) });
     }
   });
 
