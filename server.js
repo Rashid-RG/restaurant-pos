@@ -1581,11 +1581,17 @@ const authenticateToken = (req, res, next) => {
     if (tid === 'kb2c') tid = 'tenant_kb2c';
     req.tenantId = tid;
 
-    // ── Tenant Suspension Check ──────────────────────────────────────
-    // If this tenant is suspended, block all staff access except platform owners
-    // who need to manage (re-activate / delete) stores from the SaaS admin panel.
+    // ── Tenant Existence & Suspension Check ─────────────────────────────
+    // Block access if the tenant was deleted or suspended. Platform owners
+    // bypass so they can manage (re-activate / delete) stores via the SaaS panel.
     try {
       const tenantRow = await dbGet('SELECT status FROM tenants WHERE id = ?', [tid]);
+      if (!tenantRow && user.role !== 'owner') {
+        return res.status(403).json({
+          error: 'This restaurant store no longer exists. It may have been deleted by the platform administrator.',
+          code: 'TENANT_DELETED'
+        });
+      }
       if (tenantRow && tenantRow.status === 'suspended' && user.role !== 'owner') {
         return res.status(403).json({
           error: 'This restaurant store has been suspended. Please contact the platform administrator.',
