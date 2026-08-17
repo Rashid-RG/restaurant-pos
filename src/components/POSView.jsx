@@ -48,6 +48,14 @@ export default function POSView() {
 
   // Modals visibility
   const [showTableModal, setShowTableModal] = useState(false);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryInfo, setDeliveryInfo] = useState({
+    customerName: "",
+    phone: "",
+    address: "",
+    fee: 0,
+    notes: ""
+  });
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -148,7 +156,7 @@ export default function POSView() {
     return matchesSearch && matchesCategory;
   });
 
-  const totals = getCartTotals(tipInput);
+  const totals = getCartTotals(tipInput, deliveryInfo.fee);
 
   // Open customizer modal for item
   const handleItemClick = (item) => {
@@ -388,11 +396,24 @@ export default function POSView() {
       const splitDetails = paymentMethod === 'split'
         ? splitPayments
         : [{ method: paymentMethod, amount: receiptTotals.total }];
-      const order = await placeOrder(false, tipInput, splitDetails);
+      const extraOrderData = {
+        customerName: selectedCustomer ? selectedCustomer.name : (deliveryInfo.customerName || null),
+        customerPhone: selectedCustomer ? selectedCustomer.phone : (deliveryInfo.phone || null),
+        deliveryAddress: deliveryInfo.address || (selectedCustomer ? selectedCustomer.address : null),
+        deliveryFee: diningType === 'delivery' ? parseFloat(deliveryInfo.fee || 0) : 0,
+        notes: deliveryInfo.notes || ''
+      };
+      const order = await placeOrder(false, tipInput, splitDetails, extraOrderData);
       if (order) {
         const settlement = await completePayment(order.id, paymentMethod, tipInput, splitDetails);
         const receiptData = {
           ...order,
+          orderType: diningType,
+          tableId: order.tableId,
+          customerName: extraOrderData.customerName,
+          customerPhone: extraOrderData.customerPhone,
+          deliveryAddress: extraOrderData.deliveryAddress,
+          deliveryFee: receiptTotals.deliveryFee,
           paymentMethod,
           paymentTimestamp: Date.now(),
           invoiceNumber: settlement?.invoiceNumber || null,
@@ -649,6 +670,7 @@ export default function POSView() {
               onClick={() => {
                 setDiningType('takeaway');
                 setSelectedTable(null);
+                showToast('🥡 Order mode set to Takeaway Pickup', 'info');
               }}
             >
               🥡 Takeaway
@@ -659,9 +681,10 @@ export default function POSView() {
               onClick={() => {
                 setDiningType('delivery');
                 setSelectedTable(null);
+                setShowDeliveryModal(true);
               }}
             >
-              🛵 Delivery
+              🛵 {deliveryInfo.customerName ? `Delivery: ${deliveryInfo.customerName}` : (deliveryInfo.address ? `Delivery: ${deliveryInfo.address.slice(0, 14)}...` : 'Delivery')}
             </button>
 
             {/* Customer Toggle */}
@@ -811,6 +834,90 @@ export default function POSView() {
               <button className="btn btn-secondary" onClick={() => setShowCustomizerModal(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleCustomizerSubmit}>Add to Cart</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3a-2. Delivery Details Modal */}
+      {showDeliveryModal && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h2>🛵 Delivery Order Details</h2>
+              <button className="modal-close" onClick={() => setShowDeliveryModal(false)}>×</button>
+            </div>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              setShowDeliveryModal(false);
+              showToast('🛵 Delivery details saved for this order', 'success');
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', margin: '16px 0' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Customer Name *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. John Doe / Customer Name"
+                    value={deliveryInfo.customerName}
+                    onChange={(e) => setDeliveryInfo(prev => ({ ...prev, customerName: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Contact Phone Number *</label>
+                  <input
+                    type="tel"
+                    className="form-input"
+                    placeholder="e.g. 0771234567"
+                    value={deliveryInfo.phone}
+                    onChange={(e) => setDeliveryInfo(prev => ({ ...prev, phone: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Delivery Drop-off Address *</label>
+                  <textarea
+                    className="form-input"
+                    rows="3"
+                    placeholder="Full street address, landmark, building/apartment #..."
+                    value={deliveryInfo.address}
+                    onChange={(e) => setDeliveryInfo(prev => ({ ...prev, address: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Delivery Fee ({currencySymbol})</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="form-input"
+                      placeholder="0.00"
+                      value={deliveryInfo.fee || ''}
+                      onChange={(e) => setDeliveryInfo(prev => ({ ...prev, fee: parseFloat(e.target.value) || 0 }))}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', marginBottom: '4px', display: 'block' }}>Special Notes</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. Call upon arrival"
+                      value={deliveryInfo.notes}
+                      onChange={(e) => setDeliveryInfo(prev => ({ ...prev, notes: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowDeliveryModal(false)}>
+                  Close
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
+                  Confirm Delivery Details
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1394,14 +1501,16 @@ export default function POSView() {
                 src={settings.logoUrl || settings.logo || settings.restaurantLogo}
                 alt="Logo"
                 className="receipt-logo"
-                style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block' }}
+                style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block', objectFit: 'contain' }}
               />
             ) : (
-              <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍕</div>
+              <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍽️</div>
             )}
-            <h3 style={{ margin: '0 0 2px 0', fontSize: '15px' }}>{settings.businessName || 'GastroFlow Bistro'}</h3>
-            <p style={{ margin: '0 0 2px 0' }}>{settings.address || '12 Galle Road, Colombo 03, Sri Lanka'}</p>
-            <p style={{ margin: '0 0 2px 0' }}>Tel: {settings.phone || '+94 76 013 0922'}</p>
+            <h3 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
+              {settings.restaurantName || settings.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
+            </h3>
+            {settings.address && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>{settings.address}</p>}
+            {settings.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
           </div>
           <div className="receipt-divider"></div>
           <p>Date: {new Date(printReceiptOrder.timestamp || Date.now()).toLocaleString()}</p>
@@ -1438,6 +1547,12 @@ export default function POSView() {
             <div className="receipt-row">
               <span>Service Charge ({settings.serviceChargeRate || 10}%):</span>
               <span>{currencySymbol}{printReceiptOrder.serviceCharge?.toFixed(2)}</span>
+            </div>
+          )}
+          {printReceiptOrder.deliveryFee > 0 && (
+            <div className="receipt-row">
+              <span>Delivery Fee:</span>
+              <span>{currencySymbol}{printReceiptOrder.deliveryFee?.toFixed(2)}</span>
             </div>
           )}
           <div className="receipt-row">

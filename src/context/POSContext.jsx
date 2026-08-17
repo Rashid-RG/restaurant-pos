@@ -758,7 +758,7 @@ export const POSProvider = ({ children }) => {
   };
 
   // Calculate Subtotal, Tax, Discount, and Total
-  const getCartTotals = (tipVal = 0) => {
+  const getCartTotals = (tipVal = 0, deliveryFeeVal = 0) => {
     const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
     
     let discount = 0;
@@ -775,7 +775,9 @@ export const POSProvider = ({ children }) => {
     const taxRate = parseFloat(settings.taxRate || 0);
     const tax = ((subtotal - discount + serviceCharge) * taxRate) / 100;
 
-    const rawTotal = subtotal - discount + serviceCharge + tax + parseFloat(tipVal || 0);
+    const deliveryFee = diningType === 'delivery' ? parseFloat(deliveryFeeVal || 0) : 0;
+
+    const rawTotal = subtotal - discount + serviceCharge + tax + parseFloat(tipVal || 0) + deliveryFee;
     const total = Math.round(rawTotal);
     const roundedAmount = total - rawTotal;
 
@@ -784,6 +786,7 @@ export const POSProvider = ({ children }) => {
       discount: parseFloat(discount.toFixed(2)),
       serviceCharge: parseFloat(serviceCharge.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
+      deliveryFee: parseFloat(deliveryFee.toFixed(2)),
       tip: parseFloat((tipVal || 0).toFixed(2)),
       roundedAmount: parseFloat(roundedAmount.toFixed(2)),
       total: total,
@@ -791,7 +794,7 @@ export const POSProvider = ({ children }) => {
   };
 
   // Place Order / Create Ticket (KOT)
-  const placeOrder = async (isHold = false, tipVal = 0, splitDetails = null) => {
+  const placeOrder = async (isHold = false, tipVal = 0, splitDetails = null, extraOrderData = {}) => {
     if (cart.length === 0) return null;
 
     const orderId = `ord_${Date.now()}`;
@@ -801,6 +804,10 @@ export const POSProvider = ({ children }) => {
       tableId: diningType === 'dine-in' && selectedTable ? selectedTable.id : null,
       diningType,
       customerId: selectedCustomer ? selectedCustomer.id : null,
+      customerName: selectedCustomer ? selectedCustomer.name : (extraOrderData.customerName || null),
+      customerPhone: selectedCustomer ? selectedCustomer.phone : (extraOrderData.customerPhone || null),
+      deliveryAddress: extraOrderData.deliveryAddress || (selectedCustomer ? selectedCustomer.address : null),
+      deliveryFee: extraOrderData.deliveryFee || 0,
       items: cart.map(item => ({ id: item.id, quantity: item.quantity, notes: item.notes || '' })),
       discountType,
       discountValue,
@@ -808,7 +815,8 @@ export const POSProvider = ({ children }) => {
       timestamp: Date.now(),
       paymentMethod: null,
       tip: tipVal,
-      paymentSplit: splitDetails
+      paymentSplit: splitDetails,
+      ...extraOrderData
     };
 
     // Save order

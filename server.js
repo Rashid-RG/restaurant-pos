@@ -2110,12 +2110,22 @@ app.post('/api/payments/payhere/dev-simulate', publicApiLimiter, async (req, res
 // GET /api/settings
 app.get('/api/settings', authenticateToken, async (req, res) => {
   try {
-    const tenantId = req.tenantId || await resolvePublicTenant(req);
+    const tenantId = req.tenantId || 'default_tenant';
     const rows = await dbAll('SELECT key, value FROM settings WHERE tenant_id = ?', [tenantId]);
     const settingsMap = {};
     for (const r of rows) {
       settingsMap[r.key] = r.value;
     }
+
+    // Auto-fallback to tenant name if restaurantName / businessName is not yet set
+    if (!settingsMap.restaurantName && !settingsMap.businessName) {
+      const tenantRow = await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]);
+      if (tenantRow && tenantRow.name) {
+        settingsMap.restaurantName = tenantRow.name;
+        settingsMap.businessName = tenantRow.name;
+      }
+    }
+
     res.json(settingsMap);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -2131,6 +2141,17 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
   try {
     const tenantId = req.tenantId || 'default_tenant';
     await setSetting(tenantId, key, value);
+
+    // Propagate store changes to open POS and Customer clients
+    const STORE_CONTROL_KEYS = new Set([
+      'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime',
+      'businessName', 'restaurantName', 'logoUrl', 'logo', 'phone', 'address', 'currencySymbol', 'taxRate', 'serviceChargeRate'
+    ]);
+    if (STORE_CONTROL_KEYS.has(key)) {
+      notifyPublicStore({ type: 'settings_updated', key, value }, tenantId);
+      notifyPOS({ type: 'settings_updated', key, value }, tenantId);
+    }
+
     res.json({ success: true, key, value });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -6181,46 +6202,6 @@ app.get('/api/inventory/purchase-orders', requireRole(['owner', 'manager']), asy
       [req.tenantId]
     );
     res.json({ lowStockIngredients });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// 1. Settings Routes
-app.get('/api/settings', async (req, res) => {
-  try {
-    const rows = await dbAll('SELECT key, value FROM settings WHERE tenant_id = ?', [req.tenantId]);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/settings', requireRole(['owner', 'manager']), async (req, res) => {
-  const { key, value } = req.body;
-  try {
-    await setSetting(req.tenantId, key, value);
-    await writeAuditLog(req.user.id, req.user.username, 'update_setting', `Updated setting ${key} = ${value}`);
-    res.json({ key, value });
-
-    // Propagate store-control changes to all connected customer app clients instantly.
-    // This is best-effort (fire-and-forget after the response is sent).
-    const STORE_CONTROL_KEYS = new Set([
-      'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime'
-    ]);
-    if (STORE_CONTROL_KEYS.has(key)) {
-      // Re-read all prep-time settings so the SSE payload is always consistent.
-      const s = await getSettingsMap(req.tenantId, ['storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
-      notifyPublicStore({
-        type: 'store_update',
-        storeOpen: (s.storeOpen ?? 'true') === 'true',
-        prepTime: {
-          dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
-          takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
-          delivery: Number(s.deliveryPrepTime || s.defaultPrepTime || 35)
-        }
-      }, req.tenantId);
-    }
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
