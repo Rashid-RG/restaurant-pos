@@ -45,6 +45,7 @@ export function getFoodImageForItem(item) {
 
 export default function POSView() {
   const {
+    currentUser,
     menuItems,
     categories,
     tables,
@@ -1552,11 +1553,11 @@ export default function POSView() {
 
       {/* Hidden print receipt window (triggered on complete) */}
       {printReceiptOrder && (
-        <div className={`receipt-print-area ${settings.printerPaperWidth === '58mm' ? 'paper-58mm' : 'paper-80mm'}`}>
+        <div className={`receipt-print-area ${settings?.printerPaperWidth === '58mm' ? 'paper-58mm' : 'paper-80mm'}`}>
           <div className="receipt-center">
-            {settings.logoUrl || settings.logo || settings.restaurantLogo ? (
+            {settings?.logoUrl || settings?.logo || settings?.restaurantLogo ? (
               <img
-                src={settings.logoUrl || settings.logo || settings.restaurantLogo}
+                src={settings?.logoUrl || settings?.logo || settings?.restaurantLogo}
                 alt="Logo"
                 className="receipt-logo"
                 style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block', objectFit: 'contain' }}
@@ -1565,10 +1566,10 @@ export default function POSView() {
               <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍽️</div>
             )}
             <h3 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
-              {settings.restaurantName || settings.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
+              {settings?.restaurantName || settings?.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
             </h3>
-            {settings.address && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>{settings.address}</p>}
-            {settings.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
+            {settings?.address && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>{settings.address}</p>}
+            {settings?.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
           </div>
           <div className="receipt-divider"></div>
           <p>Date: {new Date(printReceiptOrder.timestamp || Date.now()).toLocaleString()}</p>
@@ -1577,7 +1578,7 @@ export default function POSView() {
           )}
           <p>Order ID: #{printReceiptOrder.id?.slice(-6).toUpperCase()}</p>
           <p>Type: {(printReceiptOrder.orderType || printReceiptOrder.diningType || 'POS')?.toUpperCase()}</p>
-          {printReceiptOrder.tableId && <p>Table: {tables.find(t => t.id === printReceiptOrder.tableId)?.number}</p>}
+          {printReceiptOrder.tableId && <p>Table: {tables?.find(t => t.id === printReceiptOrder.tableId)?.number || printReceiptOrder.tableId}</p>}
           {printReceiptOrder.customerName && <p>Customer: {printReceiptOrder.customerName}</p>}
           {printReceiptOrder.customerPhone && <p>Phone: {printReceiptOrder.customerPhone}</p>}
           {printReceiptOrder.deliveryAddress && <p>Address: {printReceiptOrder.deliveryAddress}</p>}
@@ -1586,57 +1587,57 @@ export default function POSView() {
           {printReceiptOrder.items?.map((item, idx) => (
             <div key={idx} className="receipt-row">
               <span>{item.quantity}x {item.name}</span>
-              <span>{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+              <span>{currencySymbol}{((item.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
             </div>
           ))}
 
           <div className="receipt-divider"></div>
           <div className="receipt-row">
             <span>Subtotal:</span>
-            <span>{currencySymbol}{printReceiptOrder.subtotal?.toFixed(2)}</span>
+            <span>{currencySymbol}{(printReceiptOrder.subtotal || 0).toFixed(2)}</span>
           </div>
-          {printReceiptOrder.discount > 0 && (
+          {(printReceiptOrder.discount || 0) > 0 && (
             <div className="receipt-row">
-              <span>Discount ({printReceiptOrder.discountValue}{printReceiptOrder.discountType === 'percent' ? '%' : ''}):</span>
-              <span>-{currencySymbol}{printReceiptOrder.discount?.toFixed(2)}</span>
+              <span>Discount ({printReceiptOrder.discountValue || 0}{printReceiptOrder.discountType === 'percent' ? '%' : ''}):</span>
+              <span>-{currencySymbol}{(printReceiptOrder.discount || 0).toFixed(2)}</span>
             </div>
           )}
-          {printReceiptOrder.serviceCharge > 0 && (
+          {(printReceiptOrder.serviceCharge || 0) > 0 && (
             <div className="receipt-row">
-              <span>Service Charge ({settings.serviceChargeRate || 10}%):</span>
-              <span>{currencySymbol}{printReceiptOrder.serviceCharge?.toFixed(2)}</span>
+              <span>Service Charge ({settings?.serviceChargeRate || 10}%):</span>
+              <span>{currencySymbol}{(printReceiptOrder.serviceCharge || 0).toFixed(2)}</span>
             </div>
           )}
-          {printReceiptOrder.deliveryFee > 0 && (
+          {(printReceiptOrder.deliveryFee || 0) > 0 && (
             <div className="receipt-row">
               <span>Delivery Fee:</span>
-              <span>{currencySymbol}{printReceiptOrder.deliveryFee?.toFixed(2)}</span>
+              <span>{currencySymbol}{(printReceiptOrder.deliveryFee || 0).toFixed(2)}</span>
             </div>
           )}
           <div className="receipt-row">
-            <span>Tax ({settings.taxRate}%):</span>
-            <span>{currencySymbol}{printReceiptOrder.tax?.toFixed(2)}</span>
+            <span>Tax ({settings?.taxRate || 0}%):</span>
+            <span>{currencySymbol}{(printReceiptOrder.tax || 0).toFixed(2)}</span>
           </div>
-          {printReceiptOrder.tip > 0 && (
+          {(printReceiptOrder.tip || 0) > 0 && (
             <div className="receipt-row">
               <span>Tip:</span>
-              <span>{currencySymbol}{printReceiptOrder.tip?.toFixed(2)}</span>
+              <span>{currencySymbol}{(printReceiptOrder.tip || 0).toFixed(2)}</span>
             </div>
           )}
-          {printReceiptOrder.roundedAmount !== 0 && (
+          {(printReceiptOrder.roundedAmount || 0) !== 0 && (
             <div className="receipt-row">
               <span>Rounding Adj:</span>
-              <span>{currencySymbol}{printReceiptOrder.roundedAmount?.toFixed(2)}</span>
+              <span>{currencySymbol}{(printReceiptOrder.roundedAmount || 0).toFixed(2)}</span>
             </div>
           )}
           <div className="receipt-divider"></div>
           <div className="receipt-row receipt-totals" style={{ fontWeight: 'bold', fontSize: '15px' }}>
             <span>TOTAL AMOUNT:</span>
-            <span>{currencySymbol}{printReceiptOrder.total?.toFixed(2)}</span>
+            <span>{currencySymbol}{(printReceiptOrder.total || 0).toFixed(2)}</span>
           </div>
           <div className="receipt-divider"></div>
           <div className="receipt-center">
-            <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase()}</p>
+            <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
             {(() => {
               if (!printReceiptOrder.paymentSplit) return null;
               try {
