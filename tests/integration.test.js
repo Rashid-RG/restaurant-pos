@@ -214,4 +214,26 @@ describe('SaaS plan limits + usage metering', () => {
       .send({ username: `seat_ok_${Date.now()}`, role: 'cashier', pin: '9999' });
     expect(ok.status).toBe(200);
   });
+
+  it('persists and retrieves custom base64 image on menu items without falling back', async () => {
+    const customDataUrl = 'data:image/jpeg;base64,' + 'A'.repeat(500);
+    const saveRes = await request(app).post('/api/menu_items')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        id: 'test_item_custom_photo_1',
+        name: 'BBQ with Rice',
+        price: 950,
+        category: 'cat_specials',
+        imageUrl: customDataUrl
+      });
+    expect(saveRes.status).toBe(200);
+    expect(saveRes.body.imageUrl).toBe(customDataUrl);
+
+    const getRes = await request(app).get('/api/menu_items')
+      .set('Authorization', `Bearer ${token}`);
+    expect(getRes.status).toBe(200);
+    const item = getRes.body.find(i => i.id === 'test_item_custom_photo_1');
+    expect(item).toBeDefined();
+    expect(item.imageUrl).toBe(customDataUrl);
+  });
 });
