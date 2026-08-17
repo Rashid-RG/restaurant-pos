@@ -437,6 +437,8 @@ export default function Settings() {
     e.preventDefault();
     if (!itemName || !itemPrice) return;
 
+    const finalImage = itemImageUrl || itemImagePreview || editItem?.imageUrl || '';
+
     const saved = {
       id: editItem ? editItem.id : `item_${Date.now()}`,
       name: itemName,
@@ -447,7 +449,7 @@ export default function Settings() {
       stock: parseInt(itemStock) || 0,
       minStock: parseInt(itemMinStock) || 0,
       description: itemDesc,
-      imageUrl: itemImageUrl,
+      imageUrl: finalImage,
       dietaryTags: itemDietaryTags,
       allergens: itemAllergens,
       isAvailable: itemIsAvailable ? 1 : 0,
@@ -458,7 +460,7 @@ export default function Settings() {
     };
 
     await saveMenuItem(saved);
-    showToast(`✅ "${itemName}" saved to database!`, 'success');
+    showToast(`✅ "${itemName}" saved successfully with photo!`, 'success');
     setShowItemModal(false);
   };
 
@@ -1779,11 +1781,11 @@ export default function Settings() {
                 {/* Tab 1: Device File Upload */}
                 {imageUploadMode === 'file' && (
                   <div style={{
-                    border: '2px dashed var(--border-color)',
+                    border: '2px dashed var(--color-primary)',
                     borderRadius: '10px',
-                    padding: '20px',
+                    padding: '24px 20px',
                     textAlign: 'center',
-                    background: 'var(--bg-card)',
+                    background: 'rgba(99, 102, 241, 0.05)',
                     cursor: 'pointer',
                     position: 'relative'
                   }}>
@@ -1794,12 +1796,19 @@ export default function Settings() {
                       style={{
                         position: 'absolute',
                         top: 0, left: 0, width: '100%', height: '100%',
-                        opacity: 0, cursor: 'pointer'
+                        opacity: 0, cursor: 'pointer', zIndex: 5
                       }}
                     />
-                    <div style={{ fontSize: '32px', marginBottom: '6px' }}>📸</div>
-                    <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '13px' }}>Click or Drop dish photo here</p>
-                    <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>PNG, JPG, WebP. Auto-compressed for instantaneous POS loading.</p>
+                    <div style={{ fontSize: '36px', marginBottom: '8px' }}>📸</div>
+                    <p style={{ margin: '0 0 6px 0', fontWeight: 700, fontSize: '14px' }}>Click or Drop dish photo here</p>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ pointerEvents: 'none', padding: '6px 16px', fontSize: '12px', fontWeight: 700, margin: '4px 0 8px 0' }}
+                    >
+                      📁 Browse Photo from Device
+                    </button>
+                    <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>Supports JPG, PNG, WebP, Camera uploads</p>
                   </div>
                 )}
 
