@@ -6396,12 +6396,58 @@ app.delete('/api/categories/:id', requireRole(['owner', 'manager']), async (req,
   }
 });
 
+function getFoodPhotoFallback(item) {
+  if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
+  if (item?.image && typeof item.image === 'string' && item.image.trim() !== '') return item.image;
+  
+  const text = `${item?.name || ''} ${item?.category || ''} ${item?.description || ''}`.toLowerCase();
+  
+  if (text.includes('bbq') || text.includes('grill') || text.includes('roast')) {
+    return 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('biriyani') || text.includes('briyani') || text.includes('biryani')) {
+    return 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('kottu') || text.includes('kotthu') || text.includes('noodle') || text.includes('pasta')) {
+    return 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('rice') || text.includes('curry') || text.includes('dhal')) {
+    return 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('burger') || text.includes('sandwich') || text.includes('sub')) {
+    return 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('pizza')) {
+    return 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('chicken') || text.includes('crispy') || text.includes('wing') || text.includes('drumstick')) {
+    return 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('fish') || text.includes('seafood') || text.includes('prawn') || text.includes('crab') || text.includes('calamari')) {
+    return 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('juice') || text.includes('shake') || text.includes('smoothie') || text.includes('drink') || text.includes('beverage') || text.includes('tea') || text.includes('coffee')) {
+    return 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('cake') || text.includes('dessert') || text.includes('ice cream') || text.includes('pudding')) {
+    return 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80';
+  }
+  if (text.includes('roti') || text.includes('paratha') || text.includes('samosa') || text.includes('roll') || text.includes('short')) {
+    return 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80';
+  }
+  return 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80';
+}
+
 // 3. Menu Item Routes
 app.get('/api/menu_items', authenticateToken, async (req, res) => {
   try {
     const tid = req.tenantId || 'default_tenant';
     const rows = await dbAll('SELECT * FROM menu_items WHERE tenant_id = ?', [tid]);
-    res.json(rows || []);
+    const itemsWithPhotos = (rows || []).map(r => ({
+      ...r,
+      imageUrl: getFoodPhotoFallback(r)
+    }));
+    res.json(itemsWithPhotos);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -6419,6 +6465,7 @@ app.post('/api/menu_items', authenticateToken, requireRole(['owner', 'manager'])
     const prevAvail = prevRow?.isAvailable;
     const newAvail = isAvailable !== undefined ? parseInt(isAvailable, 10) : 1;
     const halalVal = isHalal ? 1 : 0;
+    const resolvedImageUrl = getFoodPhotoFallback({ imageUrl, name, category, description });
 
     await dbRun(`
       INSERT OR REPLACE INTO menu_items
@@ -6429,7 +6476,7 @@ app.post('/api/menu_items', authenticateToken, requireRole(['owner', 'manager'])
     `, [
       id, name, price, cost, category, emoji,
       parseInt(stock) || 0, parseInt(minStock) || 0, description,
-      imageUrl || null, dietaryTags || null, allergens || null, newAvail,
+      resolvedImageUrl, dietaryTags || null, allergens || null, newAvail,
       parseInt(spiceLevel) || 0, halalVal,
       parseInt(preparationTime) || 0, portionSize || null,
       tid
@@ -6438,7 +6485,7 @@ app.post('/api/menu_items', authenticateToken, requireRole(['owner', 'manager'])
       `Created/updated menu item ${name} (${id}) — price=${price}, stock=${stock}, halal=${halalVal}`);
     const saved = {
       id, name, price, cost, category, emoji, stock, minStock, description,
-      imageUrl, dietaryTags, allergens, isAvailable: newAvail,
+      imageUrl: resolvedImageUrl, dietaryTags, allergens, isAvailable: newAvail,
       spiceLevel, isHalal: halalVal, preparationTime, portionSize
     };
     res.json(saved);
