@@ -146,17 +146,44 @@ export default function Settings() {
     });
   };
 
-  const handleImageFileChange = async (e) => {
+  const handleImageFileChange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    try {
-      const compressedDataUrl = await compressImage(file);
-      setItemImageUrl(compressedDataUrl);
-      setItemImagePreview(compressedDataUrl);
-      showToast('📷 Food photo attached & optimized!', 'success');
-    } catch (err) {
-      showToast('Image upload error: ' + err.message, 'error');
-    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target.result;
+      setItemImageUrl(dataUrl);
+      setItemImagePreview(dataUrl);
+      showToast('📷 Photo selected! Click Save Changes to apply.', 'success');
+
+      try {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const maxWidth = 800;
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.85);
+            if (compressed && compressed.length > 50) {
+              setItemImageUrl(compressed);
+              setItemImagePreview(compressed);
+            }
+          } catch (_) {}
+        };
+        img.src = dataUrl;
+      } catch (_) {}
+    };
+    reader.readAsDataURL(file);
   };
 
   const toggleDietaryTag = (tagValue) => {
@@ -812,19 +839,16 @@ export default function Settings() {
                         <tbody>
                           {menuItems.map((item) => (
                             <tr key={item.id}>
-                              <td style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {item.imageUrl || item.image ? (
-                                  <img
-                                    src={item.imageUrl || item.image}
-                                    alt={item.name}
-                                    style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border-color)' }}
-                                    onError={(e) => {
-                                      e.target.style.display = 'none';
-                                      if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = 'inline-block';
-                                    }}
-                                  />
-                                ) : null}
-                                <span style={{ fontSize: '18px', display: (item.imageUrl || item.image) ? 'none' : 'inline-block' }}>{item.emoji || '🍽️'}</span>
+                              <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <img
+                                  src={item.imageUrl || item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80'}
+                                  alt={item.name}
+                                  style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border-color)', flexShrink: 0 }}
+                                  onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80';
+                                  }}
+                                />
                                 <span style={{ fontWeight: '600' }}>{item.name}</span>
                               </td>
                               <td>{categories.find((c) => c.id === item.category)?.name || item.category}</td>
