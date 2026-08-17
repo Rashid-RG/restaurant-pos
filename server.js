@@ -2135,25 +2135,31 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
 
 // POST /api/settings
 app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
-  const { key, value } = req.body || {};
-  if (!key) {
-    return res.status(400).json({ error: 'Key is required.' });
-  }
+  const body = req.body || {};
   try {
     const tenantId = req.tenantId || 'default_tenant';
-    await setSetting(tenantId, key, value);
 
-    // Propagate store changes to open POS and Customer clients
-    const STORE_CONTROL_KEYS = new Set([
-      'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime',
-      'businessName', 'restaurantName', 'logoUrl', 'logo', 'phone', 'address', 'currencySymbol', 'taxRate', 'serviceChargeRate'
-    ]);
-    if (STORE_CONTROL_KEYS.has(key)) {
-      notifyPublicStore({ type: 'settings_updated', key, value }, tenantId);
-      notifyPOS({ type: 'settings_updated', key, value }, tenantId);
+    // 1. Single setting update: { key, value }
+    if (body.key !== undefined) {
+      await setSetting(tenantId, body.key, body.value);
+      notifyPublicStore({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
+      notifyPOS({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
+      return res.json({ success: true, key: body.key, value: body.value });
     }
 
-    res.json({ success: true, key, value });
+    // 2. Bulk settings update: { businessName, address, phone, logoUrl, ... }
+    const settingsEntries = Object.entries(body).filter(([k]) => k !== 'tenant_id' && k !== 'id');
+    if (settingsEntries.length === 0) {
+      return res.status(400).json({ error: 'No settings provided.' });
+    }
+
+    for (const [k, v] of settingsEntries) {
+      await setSetting(tenantId, k, v);
+      notifyPublicStore({ type: 'settings_updated', key: k, value: v }, tenantId);
+      notifyPOS({ type: 'settings_updated', key: k, value: v }, tenantId);
+    }
+
+    res.json({ success: true, count: settingsEntries.length });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

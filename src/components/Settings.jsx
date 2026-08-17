@@ -281,19 +281,84 @@ export default function Settings() {
     }
   };
 
+  const handleLogoFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const rawDataUrl = evt.target.result;
+      setLogoUrl(rawDataUrl);
+      showToast('📷 Shop logo selected! Click "Save & Update Profile" to apply.', 'success');
+
+      try {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const maxDim = 400;
+            let width = img.width;
+            let height = img.height;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.85);
+            if (compressed && compressed.length > 50) {
+              setLogoUrl(compressed);
+            }
+          } catch (_) {}
+        };
+        img.src = rawDataUrl;
+      } catch (_) {}
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSaveBusiness = async (e) => {
     e.preventDefault();
     try {
-      await updateSetting('businessName', bizName);
-      await updateSetting('restaurantName', bizName);
-      await updateSetting('currencySymbol', currency);
-      await updateSetting('taxRate', parseFloat(tax) || 0);
-      await updateSetting('serviceChargeRate', parseFloat(serviceCharge) || 0);
-      await updateSetting('address', address);
-      await updateSetting('phone', phone);
-      await updateSetting('logoUrl', logoUrl);
-      await updateSetting('logo', logoUrl);
-      await updateSetting('restaurantLogo', logoUrl);
+      const payload = {
+        businessName: bizName,
+        restaurantName: bizName,
+        currencySymbol: currency,
+        taxRate: parseFloat(tax) || 0,
+        serviceChargeRate: parseFloat(serviceCharge) || 0,
+        address: address,
+        phone: phone,
+        logoUrl: logoUrl,
+        logo: logoUrl,
+        restaurantLogo: logoUrl
+      };
+      
+      const token = localStorage.getItem('gastroflow_token');
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to save settings');
+      }
+
+      Object.entries(payload).forEach(([k, v]) => {
+        updateSetting(k, v);
+      });
+
       showToast('🎉 Business profile & shop logo updated successfully!', 'success');
     } catch (err) {
       showToast('Save error: ' + (err.message || 'Failed to save settings'), 'error');
@@ -341,7 +406,7 @@ export default function Settings() {
     setItemIsHalal(false);
     setItemPrepTime('');
     setItemPortionSize('Regular');
-    setImageUploadMode('url');
+    setImageUploadMode('file');
     setShowItemModal(true);
   };
 
@@ -364,7 +429,7 @@ export default function Settings() {
     setItemIsHalal(item.isHalal === 1 || item.isHalal === true);
     setItemPrepTime(item.preparationTime ? item.preparationTime.toString() : '');
     setItemPortionSize(item.portionSize || 'Regular');
-    setImageUploadMode('url');
+    setImageUploadMode('file');
     setShowItemModal(true);
   };
 
@@ -685,16 +750,7 @@ export default function Settings() {
                           accept="image/*"
                           className="form-input"
                           style={{ padding: '8px', marginBottom: '8px' }}
-                          onChange={(e) => {
-                            const file = e.target.files && e.target.files[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (evt) => {
-                                setLogoUrl(evt.target.result);
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
+                          onChange={handleLogoFileChange}
                         />
                         <input
                           type="text"
@@ -1657,7 +1713,6 @@ export default function Settings() {
                       src={itemImagePreview}
                       alt="Food Preview"
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      onError={() => setItemImagePreview('')}
                     />
                     <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '8px 12px', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', color: '#fff', fontSize: '12px', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span>{itemName || 'Dish Preview'}</span>
