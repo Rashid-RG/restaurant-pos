@@ -580,20 +580,43 @@ export default function POSView() {
                     onClick={() => handleItemClick(item)}
                     style={{ opacity: isOutOfStock ? 0.5 : 1, cursor: isOutOfStock ? 'not-allowed' : 'pointer' }}
                   >
-                    <span 
-                      className="menu-item-stock" 
-                      style={{ 
-                        background: isOutOfStock ? 'var(--color-danger-light)' : (isLowStock ? 'var(--color-warning-light)' : 'var(--color-success-light)'),
-                        color: isOutOfStock ? 'var(--color-danger)' : (isLowStock ? 'var(--color-warning)' : 'var(--color-success)')
-                      }}
-                    >
-                      {isOutOfStock ? 'Out of Stock' : `${item.stock} left`}
-                    </span>
-                    <div className="menu-item-emoji">{item.emoji}</div>
+                    <div className="menu-item-media-box">
+                      {item.imageUrl || item.image ? (
+                        <img
+                          src={item.imageUrl || item.image}
+                          alt={item.name}
+                          className="menu-item-card-img"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            if (e.target.nextElementSibling) {
+                              e.target.nextElementSibling.style.display = 'flex';
+                            }
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        className="menu-item-emoji-box"
+                        style={{ display: (item.imageUrl || item.image) ? 'none' : 'flex' }}
+                      >
+                        <span className="menu-item-emoji-char">{item.emoji || '🍛'}</span>
+                      </div>
+                      <span 
+                        className="menu-item-stock-tag" 
+                        style={{ 
+                          background: isOutOfStock ? 'rgba(239, 68, 68, 0.9)' : (isLowStock ? 'rgba(245, 158, 11, 0.9)' : 'rgba(16, 185, 129, 0.85)'),
+                          color: '#fff'
+                        }}
+                      >
+                        {isOutOfStock ? 'Out of Stock' : `${item.stock} left`}
+                      </span>
+                    </div>
+
                     <div className="menu-item-info">
                       <h4>{item.name}</h4>
-                      <p>{item.description || 'No description available.'}</p>
+                      <p>{item.description || 'Freshly prepared delicious item.'}</p>
                     </div>
+
                     <div className="menu-item-footer">
                       <span className="menu-item-price">{currencySymbol}{item.price.toFixed(2)}</span>
                       <button className="btn btn-icon" style={{ width: '32px', height: '32px', borderRadius: '6px' }} disabled={isOutOfStock}>

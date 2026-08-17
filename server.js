@@ -1182,26 +1182,26 @@ async function seedDatabase(tenantId) {
       console.log(`Seeding default Sri Lanka menu items for tenant: ${tid}...`);
       await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'menu_initial_seeded', '1')", [tid]).catch(() => {});
       const defaultItems = [
-        { id: `${tid}_item_chicken_rice`, name: 'Chicken Rice & Curry', price: 950, cost: 400, category: `${tid}_rice_curry`, emoji: '🍗', stock: 50, minStock: 10, description: 'Traditional Sri Lankan rice served with chicken curry, dhal, and 3 vegetable curries.', isHalal: 1, preparationTime: 15 },
-        { id: `${tid}_item_beef_kottu`, name: 'Beef Kottu Roti', price: 1100, cost: 500, category: `${tid}_kottu_roti`, emoji: '🥘', stock: 40, minStock: 10, description: 'Chopped flatbread wok-fried with seasoned beef, eggs, onions, and spicy gravy.', isHalal: 1, preparationTime: 15 },
-        { id: `${tid}_item_cheese_kottu`, name: 'Cheese Chicken Kottu', price: 1300, cost: 600, category: `${tid}_kottu_roti`, emoji: '🧀', isHalal: 1, preparationTime: 18 },
-        { id: `${tid}_item_bbq_quarter`, name: 'Quarter BBQ Chicken', price: 650, cost: 300, category: `${tid}_bbq_grill`, emoji: '🔥', stock: 30, minStock: 5, description: 'Charcoal-grilled quarter chicken marinated in smoky Sri Lankan spices.', isHalal: 1, preparationTime: 20 },
-        { id: `${tid}_item_bbq_full`, name: 'Full BBQ Chicken with 4 Paratha', price: 1850, cost: 900, category: `${tid}_bbq_grill`, emoji: '🍗', isHalal: 1, preparationTime: 25 },
-        { id: `${tid}_item_seafood_rice`, name: 'Seafood Fried Rice', price: 1600, cost: 750, category: `${tid}_seafood`, emoji: '🦐', stock: 25, minStock: 5, description: 'Wok-fried basmati rice with prawns, calamari, egg, and spring onions.', isHalal: 0, preparationTime: 20 },
-        { id: `${tid}_item_egg_roti`, name: 'Egg Roti with Gravy', price: 250, cost: 80, category: `${tid}_short_eats`, emoji: '🍳', stock: 60, minStock: 15, description: 'Freshly baked griddle roti folded with egg and served with curry dipping sauce.', isHalal: 1, preparationTime: 10 },
-        { id: `${tid}_item_mango_juice`, name: 'Fresh Mango Juice', price: 350, cost: 120, category: `${tid}_beverages`, emoji: '🥤', stock: 50, minStock: 10, description: 'Chilled 100% natural tropical mango juice.', isHalal: 1, preparationTime: 5 },
-        { id: `${tid}_item_woodapple`, name: 'Woodapple Juice', price: 300, cost: 100, category: `${tid}_beverages`, emoji: '🍹', stock: 45, minStock: 10, description: 'Authentic Sri Lankan woodapple blend with coconut milk and brown sugar.', isHalal: 1, preparationTime: 5 }
+        { id: `${tid}_item_chicken_rice`, name: 'Chicken Rice & Curry', price: 950, cost: 400, category: `${tid}_rice_curry`, emoji: '🍗', stock: 50, minStock: 10, description: 'Traditional Sri Lankan rice served with chicken curry, dhal, and 3 vegetable curries.', isHalal: 1, preparationTime: 15, imageUrl: 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_beef_kottu`, name: 'Beef Kottu Roti', price: 1100, cost: 500, category: `${tid}_kottu_roti`, emoji: '🥘', stock: 40, minStock: 10, description: 'Chopped flatbread wok-fried with seasoned beef, eggs, onions, and spicy gravy.', isHalal: 1, preparationTime: 15, imageUrl: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_cheese_kottu`, name: 'Cheese Chicken Kottu', price: 1300, cost: 600, category: `${tid}_kottu_roti`, emoji: '🧀', stock: 35, minStock: 10, description: 'Wok-fried chicken kottu overloaded with melted cheddar and spices.', isHalal: 1, preparationTime: 18, imageUrl: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_bbq_quarter`, name: 'Quarter BBQ Chicken', price: 650, cost: 300, category: `${tid}_bbq_grill`, emoji: '🔥', stock: 30, minStock: 5, description: 'Charcoal-grilled quarter chicken marinated in smoky Sri Lankan spices.', isHalal: 1, preparationTime: 20, imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_bbq_full`, name: 'Full BBQ Chicken with 4 Paratha', price: 1850, cost: 900, category: `${tid}_bbq_grill`, emoji: '🍗', stock: 20, minStock: 5, description: 'Whole roast BBQ chicken served with garlic butter parathas.', isHalal: 1, preparationTime: 25, imageUrl: 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_seafood_rice`, name: 'Seafood Fried Rice', price: 1600, cost: 750, category: `${tid}_seafood`, emoji: '🦐', stock: 25, minStock: 5, description: 'Wok-fried basmati rice with prawns, calamari, egg, and spring onions.', isHalal: 0, preparationTime: 20, imageUrl: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_egg_roti`, name: 'Egg Roti with Gravy', price: 250, cost: 80, category: `${tid}_short_eats`, emoji: '🍳', stock: 60, minStock: 15, description: 'Freshly baked griddle roti folded with egg and served with curry dipping sauce.', isHalal: 1, preparationTime: 10, imageUrl: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_mango_juice`, name: 'Fresh Mango Juice', price: 350, cost: 120, category: `${tid}_beverages`, emoji: '🥤', stock: 50, minStock: 10, description: 'Chilled 100% natural tropical mango juice.', isHalal: 1, preparationTime: 5, imageUrl: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=600&auto=format&fit=crop&q=80' },
+        { id: `${tid}_item_woodapple`, name: 'Woodapple Juice', price: 300, cost: 100, category: `${tid}_beverages`, emoji: '🍹', stock: 45, minStock: 10, description: 'Authentic Sri Lankan woodapple blend with coconut milk and brown sugar.', isHalal: 1, preparationTime: 5, imageUrl: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80' }
       ];
       for (const item of defaultItems) {
         await dbRun(`
-          INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, isHalal, preparationTime, tenant_id, isAvailable)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-          ON CONFLICT(id) DO NOTHING
-        `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description, item.isHalal, item.preparationTime, tid]).catch(() => {
+          INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, isHalal, preparationTime, imageUrl, tenant_id, isAvailable)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          ON CONFLICT(id) DO UPDATE SET imageUrl = excluded.imageUrl WHERE menu_items.imageUrl IS NULL
+        `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description, item.isHalal, item.preparationTime, item.imageUrl, tid]).catch(() => {
           return dbRun(`
-            INSERT OR IGNORE INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, isHalal, preparationTime, tenant_id, isAvailable)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-          `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description, item.isHalal, item.preparationTime, tid]);
+            INSERT OR IGNORE INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, isHalal, preparationTime, imageUrl, tenant_id, isAvailable)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+          `, [item.id, item.name, item.price, item.cost, item.category, item.emoji, item.stock, item.minStock, item.description, item.isHalal, item.preparationTime, item.imageUrl, tid]);
         });
       }
     }
@@ -6208,7 +6208,7 @@ app.get('/api/inventory/purchase-orders', requireRole(['owner', 'manager']), asy
 });
 
 // 2. Category Routes
-app.get('/api/categories', async (req, res) => {
+app.get('/api/categories', authenticateToken, async (req, res) => {
   try {
     const tid = req.tenantId || 'default_tenant';
     let rows = await dbAll('SELECT * FROM categories WHERE tenant_id = ?', [tid]);
@@ -6222,7 +6222,7 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
-app.post('/api/categories', requireRole(['owner', 'manager']), async (req, res) => {
+app.post('/api/categories', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id, name, emoji } = req.body || {};
   if (!name) return res.status(400).json({ error: 'Category name is required.' });
   const tid = req.tenantId || 'default_tenant';
@@ -6243,7 +6243,7 @@ app.post('/api/categories', requireRole(['owner', 'manager']), async (req, res) 
   }
 });
 
-app.delete('/api/categories/:id', requireRole(['owner', 'manager']), async (req, res) => {
+app.delete('/api/categories/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id } = req.params;
   try {
     const tid = req.tenantId || 'default_tenant';
@@ -6396,23 +6396,25 @@ app.delete('/api/categories/:id', requireRole(['owner', 'manager']), async (req,
 });
 
 // 3. Menu Item Routes
-app.get('/api/menu_items', async (req, res) => {
+app.get('/api/menu_items', authenticateToken, async (req, res) => {
   try {
-    const rows = await dbAll('SELECT * FROM menu_items WHERE tenant_id = ?', [req.tenantId]);
-    res.json(rows);
+    const tid = req.tenantId || 'default_tenant';
+    const rows = await dbAll('SELECT * FROM menu_items WHERE tenant_id = ?', [tid]);
+    res.json(rows || []);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.post('/api/menu_items', requireRole(['owner', 'manager']), async (req, res) => {
+app.post('/api/menu_items', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const {
     id, name, price, cost, category, emoji, stock, minStock,
     description, imageUrl, dietaryTags, allergens, isAvailable,
     spiceLevel, isHalal, preparationTime, portionSize
   } = req.body;
   try {
-    const prevRow = await dbGet('SELECT isAvailable FROM menu_items WHERE id = ?', [id]);
+    const tid = req.tenantId || 'default_tenant';
+    const prevRow = await dbGet('SELECT isAvailable FROM menu_items WHERE id = ? AND tenant_id = ?', [id, tid]);
     const prevAvail = prevRow?.isAvailable;
     const newAvail = isAvailable !== undefined ? parseInt(isAvailable, 10) : 1;
     const halalVal = isHalal ? 1 : 0;
@@ -6429,7 +6431,7 @@ app.post('/api/menu_items', requireRole(['owner', 'manager']), async (req, res) 
       imageUrl || null, dietaryTags || null, allergens || null, newAvail,
       parseInt(spiceLevel) || 0, halalVal,
       parseInt(preparationTime) || 0, portionSize || null,
-      req.tenantId
+      tid
     ]);
     await writeAuditLog(req.user.id, req.user.username, 'save_menu_item',
       `Created/updated menu item ${name} (${id}) — price=${price}, stock=${stock}, halal=${halalVal}`);
@@ -6442,17 +6444,18 @@ app.post('/api/menu_items', requireRole(['owner', 'manager']), async (req, res) 
 
     // Push live availability update to customer app and POS screens
     if (prevAvail !== undefined && prevAvail !== newAvail) {
-      notifyPublicStore({ type: 'item_availability', itemId: id, isAvailable: newAvail === 1 }, req.tenantId);
-      notifyPOS({ type: 'item_availability_changed', itemId: id, name, isAvailable: newAvail === 1 }, req.tenantId);
+      notifyPublicStore({ type: 'item_availability', itemId: id, isAvailable: newAvail === 1 }, tid);
+      notifyPOS({ type: 'item_availability_changed', itemId: id, name, isAvailable: newAvail === 1 }, tid);
     }
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
 });
 
-app.delete('/api/menu_items/:id', requireRole(['owner', 'manager']), async (req, res) => {
+app.delete('/api/menu_items/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    await dbRun('DELETE FROM menu_items WHERE id = ? AND tenant_id = ?', [req.params.id, req.tenantId]);
+    const tid = req.tenantId || 'default_tenant';
+    await dbRun('DELETE FROM menu_items WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
     await writeAuditLog(req.user.id, req.user.username, 'delete_menu_item', `Deleted menu item ${req.params.id}`);
     res.json({ success: true });
   } catch (err) {

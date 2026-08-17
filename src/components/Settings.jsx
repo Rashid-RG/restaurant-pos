@@ -105,20 +105,58 @@ export default function Settings() {
     { label: '🥚 Contains Egg', value: 'egg' },
   ];
 
-  const handleImageFileChange = (e) => {
-    const file = e.target.files[0];
+  // Curated High-Definition Food Photography Preset Library
+  const PRESET_FOOD_PHOTOS = [
+    { name: 'Rice & Curry', emoji: '🍛', url: 'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Biriyani', emoji: '🍗', url: 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Kottu Roti', emoji: '🍜', url: 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&auto=format&fit=crop&q=80' },
+    { name: 'BBQ & Grill', emoji: '🍖', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Crispy Chicken', emoji: '🍗', url: 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Burger', emoji: '🍔', url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Pizza', emoji: '🍕', url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Seafood Fish', emoji: '🐟', url: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Short Eats', emoji: '🥐', url: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Dessert Cake', emoji: '🍰', url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Juice / Shake', emoji: '🥤', url: 'https://images.unsplash.com/photo-1553530666-ba11a7da3888?w=600&auto=format&fit=crop&q=80' },
+    { name: 'Hot Coffee', emoji: '☕', url: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&auto=format&fit=crop&q=80' },
+  ];
+
+  const compressImage = (file, maxWidth = 800, quality = 0.82) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageFileChange = async (e) => {
+    const file = e.target.files && e.target.files[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      showToast('Image must be under 2MB', 'error');
-      return;
+    try {
+      const compressedDataUrl = await compressImage(file);
+      setItemImageUrl(compressedDataUrl);
+      setItemImagePreview(compressedDataUrl);
+      showToast('📷 Food photo attached & optimized!', 'success');
+    } catch (err) {
+      showToast('Image upload error: ' + err.message, 'error');
     }
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const dataUrl = evt.target.result;
-      setItemImageUrl(dataUrl);
-      setItemImagePreview(dataUrl);
-    };
-    reader.readAsDataURL(file);
   };
 
   const toggleDietaryTag = (tagValue) => {
@@ -1552,59 +1590,186 @@ export default function Settings() {
 
             <form onSubmit={handleSaveItem}>
 
-              {/* ── IMAGE SECTION ── */}
-              <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', padding: '16px', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
-                <label style={{ fontWeight: 700, fontSize: '13px', marginBottom: '10px', display: 'block' }}>📷 Food Photo</label>
+              {/* ── PREMIUM FOOD PHOTO SECTION ── */}
+              <div style={{ background: 'var(--bg-surface)', borderRadius: '14px', padding: '18px', marginBottom: '20px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <label style={{ fontWeight: 800, fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>📷 Food Photo</span>
+                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', background: itemImageUrl ? 'rgba(16, 185, 129, 0.15)' : 'rgba(99, 102, 241, 0.15)', color: itemImageUrl ? '#10b981' : '#6366f1', fontWeight: 600 }}>
+                      {itemImageUrl ? '✓ Photo Attached' : 'Optional'}
+                    </span>
+                  </label>
+                  {itemImageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setItemImageUrl('');
+                        setItemImagePreview('');
+                      }}
+                      style={{ fontSize: '12px', color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      🗑️ Remove Photo
+                    </button>
+                  )}
+                </div>
 
-                {/* Image Preview */}
-                {itemImagePreview && (
-                  <div style={{ textAlign: 'center', marginBottom: '12px' }}>
+                {/* Live Food Preview Card */}
+                {itemImagePreview ? (
+                  <div style={{ position: 'relative', width: '100%', height: '170px', borderRadius: '12px', overflow: 'hidden', marginBottom: '14px', border: '2px solid rgba(99, 102, 241, 0.3)', boxShadow: '0 8px 20px rgba(0,0,0,0.2)' }}>
                     <img
                       src={itemImagePreview}
-                      alt="Preview"
-                      style={{ width: '100%', maxHeight: '180px', objectFit: 'cover', borderRadius: '10px', border: '2px solid var(--border-color)' }}
+                      alt="Food Preview"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       onError={() => setItemImagePreview('')}
                     />
+                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '8px 12px', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', color: '#fff', fontSize: '12px', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>{itemName || 'Dish Preview'}</span>
+                      <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px' }}>Live POS Banner</span>
+                    </div>
                   </div>
-                )}
+                ) : null}
 
-                {/* Mode toggle */}
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                  <button type="button"
+                {/* Tab selector */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                  <button
+                    type="button"
                     onClick={() => setImageUploadMode('file')}
-                    style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
-                      background: imageUploadMode === 'file' ? 'var(--color-primary)' : 'var(--bg-card)', color: imageUploadMode === 'file' ? '#fff' : 'var(--text-main)' }}>
-                    📁 Upload from Device
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid ' + (imageUploadMode === 'file' ? 'var(--color-primary)' : 'var(--border-color)'),
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                      fontSize: '12px',
+                      background: imageUploadMode === 'file' ? 'var(--color-primary)' : 'var(--bg-card)',
+                      color: imageUploadMode === 'file' ? '#fff' : 'var(--text-main)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    📁 Upload File
                   </button>
-                  <button type="button"
+                  <button
+                    type="button"
+                    onClick={() => setImageUploadMode('preset')}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid ' + (imageUploadMode === 'preset' ? 'var(--color-primary)' : 'var(--border-color)'),
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                      fontSize: '12px',
+                      background: imageUploadMode === 'preset' ? 'var(--color-primary)' : 'var(--bg-card)',
+                      color: imageUploadMode === 'preset' ? '#fff' : 'var(--text-main)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    ✨ Photo Presets
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setImageUploadMode('url')}
-                    style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
-                      background: imageUploadMode === 'url' ? 'var(--color-primary)' : 'var(--bg-card)', color: imageUploadMode === 'url' ? '#fff' : 'var(--text-main)' }}>
-                    🔗 Paste Image URL
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid ' + (imageUploadMode === 'url' ? 'var(--color-primary)' : 'var(--border-color)'),
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                      fontSize: '12px',
+                      background: imageUploadMode === 'url' ? 'var(--color-primary)' : 'var(--bg-card)',
+                      color: imageUploadMode === 'url' ? '#fff' : 'var(--text-main)',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    🔗 Paste Link
                   </button>
                 </div>
 
-                {imageUploadMode === 'file' ? (
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="form-input"
-                    onChange={handleImageFileChange}
-                    style={{ padding: '8px' }}
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="https://example.com/rice-curry.jpg"
-                    value={itemImageUrl}
-                    onChange={(e) => {
-                      setItemImageUrl(e.target.value);
-                      setItemImagePreview(e.target.value);
-                    }}
-                  />
+                {/* Tab 1: Device File Upload */}
+                {imageUploadMode === 'file' && (
+                  <div style={{
+                    border: '2px dashed var(--border-color)',
+                    borderRadius: '10px',
+                    padding: '20px',
+                    textAlign: 'center',
+                    background: 'var(--bg-card)',
+                    cursor: 'pointer',
+                    position: 'relative'
+                  }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageFileChange}
+                      style={{
+                        position: 'absolute',
+                        top: 0, left: 0, width: '100%', height: '100%',
+                        opacity: 0, cursor: 'pointer'
+                      }}
+                    />
+                    <div style={{ fontSize: '32px', marginBottom: '6px' }}>📸</div>
+                    <p style={{ margin: '0 0 4px 0', fontWeight: 700, fontSize: '13px' }}>Click or Drop dish photo here</p>
+                    <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)' }}>PNG, JPG, WebP. Auto-compressed for instantaneous POS loading.</p>
+                  </div>
                 )}
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>Max 2MB. JPG, PNG, WebP supported. Image saves directly to database.</p>
+
+                {/* Tab 2: High-Definition Preset Gallery */}
+                {imageUploadMode === 'preset' && (
+                  <div>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                      Choose a professional food photo preset to instantly apply to this dish:
+                    </p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px', maxHeight: '160px', overflowY: 'auto', padding: '4px' }}>
+                      {PRESET_FOOD_PHOTOS.map((preset, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => {
+                            setItemImageUrl(preset.url);
+                            setItemImagePreview(preset.url);
+                            setItemEmoji(preset.emoji);
+                            showToast('✨ Preset ' + preset.name + ' applied!', 'success');
+                          }}
+                          style={{
+                            borderRadius: '8px',
+                            overflow: 'hidden',
+                            cursor: 'pointer',
+                            border: itemImageUrl === preset.url ? '2px solid var(--color-primary)' : '1px solid var(--border-color)',
+                            background: 'var(--bg-card)',
+                            textAlign: 'center',
+                            transition: 'all 0.2s',
+                            boxShadow: itemImageUrl === preset.url ? '0 0 8px rgba(99, 102, 241, 0.5)' : 'none'
+                          }}
+                        >
+                          <img
+                            src={preset.url}
+                            alt={preset.name}
+                            style={{ width: '100%', height: '56px', objectFit: 'cover' }}
+                            loading="lazy"
+                          />
+                          <div style={{ fontSize: '10px', fontWeight: 700, padding: '4px 2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {preset.emoji} {preset.name}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab 3: Paste Image URL */}
+                {imageUploadMode === 'url' && (
+                  <div>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="https://images.unsplash.com/photo-..."
+                      value={itemImageUrl}
+                      onChange={(e) => {
+                        setItemImageUrl(e.target.value);
+                        setItemImagePreview(e.target.value);
+                      }}
+                      style={{ fontSize: '13px' }}
+                    />
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>Paste any direct web image link (HTTPS).</p>
+                  </div>
+                )}
               </div>
 
               {/* ── BASIC INFO ── */}
