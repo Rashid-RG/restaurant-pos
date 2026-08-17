@@ -1102,6 +1102,7 @@ async function initTables() {
 
     // Enforce tenant_id across all domain tables for complete multi-tenancy isolation (Phase 1)
     const tablesNeedingTenantId = [
+      'menu_items', 'tables', 'orders', 'customers', 'order_items',
       'settings', 'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
       'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'ingredients'
     ];
@@ -6442,7 +6443,9 @@ app.post('/api/menu_items', authenticateToken, requireRole(['owner', 'manager'])
     };
     res.json(saved);
 
-    // Push live availability update to customer app and POS screens
+    // Push live availability and menu update to customer app and POS screens
+    notifyPublicStore({ type: 'menu_updated', item: saved }, tid);
+    notifyPOS({ type: 'menu_updated', item: saved }, tid);
     if (prevAvail !== undefined && prevAvail !== newAvail) {
       notifyPublicStore({ type: 'item_availability', itemId: id, isAvailable: newAvail === 1 }, tid);
       notifyPOS({ type: 'item_availability_changed', itemId: id, name, isAvailable: newAvail === 1 }, tid);
@@ -6457,6 +6460,8 @@ app.delete('/api/menu_items/:id', authenticateToken, requireRole(['owner', 'mana
     const tid = req.tenantId || 'default_tenant';
     await dbRun('DELETE FROM menu_items WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
     await writeAuditLog(req.user.id, req.user.username, 'delete_menu_item', `Deleted menu item ${req.params.id}`);
+    notifyPublicStore({ type: 'menu_updated', deletedItemId: req.params.id }, tid);
+    notifyPOS({ type: 'menu_updated', deletedItemId: req.params.id }, tid);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });

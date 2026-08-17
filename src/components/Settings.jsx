@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
 
 export default function Settings() {
@@ -812,8 +812,19 @@ export default function Settings() {
                         <tbody>
                           {menuItems.map((item) => (
                             <tr key={item.id}>
-                              <td>
-                                <span style={{ fontSize: '18px', marginRight: '8px' }}>{item.emoji}</span>
+                              <td style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {item.imageUrl || item.image ? (
+                                  <img
+                                    src={item.imageUrl || item.image}
+                                    alt={item.name}
+                                    style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border-color)' }}
+                                    onError={(e) => {
+                                      e.target.style.display = 'none';
+                                      if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = 'inline-block';
+                                    }}
+                                  />
+                                ) : null}
+                                <span style={{ fontSize: '18px', display: (item.imageUrl || item.image) ? 'none' : 'inline-block' }}>{item.emoji || '🍽️'}</span>
                                 <span style={{ fontWeight: '600' }}>{item.name}</span>
                               </td>
                               <td>{categories.find((c) => c.id === item.category)?.name || item.category}</td>

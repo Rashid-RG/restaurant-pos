@@ -611,16 +611,18 @@ export const POSProvider = ({ children }) => {
 
   // Menu Items CRUD
   const saveMenuItem = async (item) => {
-    await db.put('menu_items', item);
+    const saved = await db.put('menu_items', item);
+    const resolved = { ...item, ...(saved && typeof saved === 'object' ? saved : {}) };
     setMenuItems((prev) => {
       const idx = prev.findIndex((i) => i.id === item.id);
       if (idx > -1) {
         const next = [...prev];
-        next[idx] = item;
+        next[idx] = resolved;
         return next;
       }
-      return [...prev, item];
+      return [...prev, resolved];
     });
+    loadAllData(false);
   };
 
   const deleteMenuItem = async (itemId) => {

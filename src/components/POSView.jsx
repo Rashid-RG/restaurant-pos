@@ -589,9 +589,8 @@ export default function POSView() {
                           loading="lazy"
                           onError={(e) => {
                             e.target.style.display = 'none';
-                            if (e.target.nextElementSibling) {
-                              e.target.nextElementSibling.style.display = 'flex';
-                            }
+                            const fallback = e.target.parentElement?.querySelector('.menu-item-emoji-box');
+                            if (fallback) fallback.style.display = 'flex';
                           }}
                         />
                       ) : null}
