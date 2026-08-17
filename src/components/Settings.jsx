@@ -292,6 +292,8 @@ export default function Settings() {
       await updateSetting('address', address);
       await updateSetting('phone', phone);
       await updateSetting('logoUrl', logoUrl);
+      await updateSetting('logo', logoUrl);
+      await updateSetting('restaurantLogo', logoUrl);
       showToast('🎉 Business profile & shop logo updated successfully!', 'success');
     } catch (err) {
       showToast('Save error: ' + (err.message || 'Failed to save settings'), 'error');

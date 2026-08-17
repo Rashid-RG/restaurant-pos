@@ -28,8 +28,11 @@ export const db = {
       }
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      // Always return an array — guard against server error objects
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) return data;
+      if (tableName === 'settings' && data && typeof data === 'object') {
+        return Object.entries(data).map(([key, value]) => ({ key, value }));
+      }
+      return [];
     } catch (err) {
       console.error(`Error querying GET /api/${tableName}:`, err);
       return [];

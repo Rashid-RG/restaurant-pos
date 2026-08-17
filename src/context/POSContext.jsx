@@ -200,6 +200,10 @@ export const POSProvider = ({ children }) => {
               serverSettings.forEach(item => {
                 settingsObj[item.key] = item.value;
               });
+            } else if (serverSettings && typeof serverSettings === 'object') {
+              Object.entries(serverSettings).forEach(([k, v]) => {
+                settingsObj[k] = v;
+              });
             }
           }
           if (custRes?.ok) {
