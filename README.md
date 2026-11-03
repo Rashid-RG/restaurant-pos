@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![GastroFlow Banner](https://img.shields.io/badge/GastroFlow-SaaS_Commercial_Platform-ff6b35?style=for-the-badge&logo=fastapi&logoColor=white)
+![GastroFlow Banner](https://img.shields.io/badge/GastroFlow-Open_Source_MIT-ff6b35?style=for-the-badge&logo=fastapi&logoColor=white)
 ![Build Status](https://img.shields.io/badge/Build-Passing_100%25-10b981?style=for-the-badge&logo=vite&logoColor=white)
 ![Tests](https://img.shields.io/badge/Tests-87_Passed-3b82f6?style=for-the-badge&logo=vitest&logoColor=white)
 ![Real-Time](https://img.shields.io/badge/Real--Time-SSE_Sync-8b5cf6?style=for-the-badge&logo=socketdotio&logoColor=white)
@@ -154,5 +154,8 @@ npm test
 ## 📄 Credits & Ownership
 
 Crafted & Engineered by **RS Technologies 🇱🇰**  
-**Founder & Chief Architect:** M.R.M Rashid  
-*Certified Proprietary SaaS Engine · All Rights Reserved.*
+**Founder & Chief Architect:** Mohammed Rashid ([Rashid-RG](https://github.com/Rashid-RG))
+
+Source code is licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2026 Mohammed Rashid (Rashid-RG).

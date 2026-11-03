@@ -1,6 +1,8 @@
 {
   "name": "restaurant-pos",
   "private": true,
+  "license": "MIT",
+  "author": "Mohammed Rashid (Rashid-RG)",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
