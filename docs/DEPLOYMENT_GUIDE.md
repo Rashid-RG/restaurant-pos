@@ -8,7 +8,7 @@ Use Node 24. Build with `npm ci && npm run build:all`, start with `npm run start
 
 Set `NODE_ENV=production`, explicit HTTPS `CORS_ORIGIN` values, distinct random `JWT_SECRET` and `CUSTOMER_JWT_SECRET` values of at least 32 characters, `ADMIN_USERNAME`, a unique 12–72-byte `ADMIN_PASSWORD`, and a non-trivial six-digit `ADMIN_PIN`. Enter secrets directly in the hosting provider dashboard; never commit them. Initial owner credentials bootstrap the account; changing these variables is not a password reset workflow.
 
-Configure `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_NOTIFY_URL` and `PAYHERE_SANDBOX=true` for staging. The notify URL must be a reachable HTTPS callback such as `https://YOUR_HOST/api/payments/payhere/webhook`. Complete real sandbox callback tests, including wrong amount, wrong currency and concurrent duplicate callbacks, before taking payments. Switching to live mode requires separate merchant validation.
+For cash-only staging, set `PAYHERE_ENABLED=false`; gateway initiation and callbacks are disabled and online payment choices are hidden. Otherwise configure `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_NOTIFY_URL` and `PAYHERE_SANDBOX=true` for staging. The notify URL must be a reachable HTTPS callback such as `https://YOUR_HOST/api/payments/payhere/webhook`. Complete real sandbox callback tests, including wrong amount, wrong currency and concurrent duplicate callbacks, before taking payments. Switching to live mode requires separate merchant validation.
 
 Set `TRUST_PROXY=1` only when exactly one trusted reverse proxy sits in front of the app. Other topologies require an explicit trust policy before deployment.
 
@@ -40,3 +40,9 @@ Sources: [Render free services](https://render.com/docs/free), [Turso pricing](h
 ## Release evidence
 
 Read [the full review](COMPREHENSIVE_REVIEW_2026-11-05.md) and its launch gaps. Local tests are evidence for the tested scenarios only. Docker execution, hosted CI, external database behavior, payment provider callbacks, notification delivery and hardware operation still need their own passing evidence.
+
+## Isolated free staging
+
+Use a separate free Render service on the reviewed branch, a separate libSQL database, distinct JWT secrets and a new bootstrap owner. Set `PAYHERE_ENABLED=false` until staging merchant settings have been independently verified. Configure the service's actual HTTPS origin in `CORS_ORIGIN` and `/api/health` as the readiness path. Do not copy the production `DATABASE_URL` or replace its data.
+
+Staging starts without demo records. Add sample menu and driver accounts through authenticated administration, or rehearse a separately approved migration. A successful empty staging deployment does not establish migration of the existing restaurant database.

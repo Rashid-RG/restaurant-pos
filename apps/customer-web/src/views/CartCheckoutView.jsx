@@ -874,7 +874,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Payment Method</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            {LOCAL_PAYMENTS.map(p => (
+            {LOCAL_PAYMENTS.filter(p => p.id !== 'payhere' || rates.payhereEnabled === true).map(p => (
               <label 
                 key={p.id} 
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(0,0,0,0.02)', borderRadius: 8, cursor: 'pointer' }}

@@ -14,8 +14,8 @@ export function CartProvider({ children }) {
     }
   });
   const [cartOpen, setCartOpen] = useState(false);
-  const [rates, setRates] = useState({ taxRate: 0, serviceChargeRate: 0 });
-  useEffect(() => { apiFetch('/public/menu').then(menu => setRates({ taxRate: Number(menu.taxRate || 0), serviceChargeRate: Number(menu.serviceChargeRate || 0) })).catch(() => {}); }, []);
+  const [rates, setRates] = useState({ taxRate: 0, serviceChargeRate: 0, payhereEnabled: false });
+  useEffect(() => { apiFetch('/public/menu').then(menu => setRates({ taxRate: Number(menu.taxRate || 0), serviceChargeRate: Number(menu.serviceChargeRate || 0), payhereEnabled: menu.payhereEnabled === true })).catch(() => {}); }, []);
 
   // Sync cart items to localStorage on change
   useEffect(() => {

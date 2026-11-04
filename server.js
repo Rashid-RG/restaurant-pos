@@ -80,7 +80,7 @@ if (process.env.NODE_ENV === 'production') {
   } else {
     console.log('[Production Success] JWT_SECRET loaded successfully from Environment Variables.');
   }
-  if (!process.env.PAYHERE_MERCHANT_SECRET || INSECURE_PAYHERE_DEFAULTS.includes(process.env.PAYHERE_MERCHANT_SECRET.trim())) {
+  if (process.env.PAYHERE_ENABLED !== 'false' && (!process.env.PAYHERE_MERCHANT_SECRET || INSECURE_PAYHERE_DEFAULTS.includes(process.env.PAYHERE_MERCHANT_SECRET.trim()))) {
     throw new Error('PAYHERE_MERCHANT_SECRET is missing or insecure. Refusing to start production server.');
   }
   // BUG-013: Enforce strong admin password in production
@@ -225,6 +225,12 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' })); // Limit body size for security
+// A cash-only deployment must never initiate, sign or accept online payments.
+app.use(['/api/payments/payhere', '/api/public/payment/payhere'], (req, res, next) => {
+  if (process.env.PAYHERE_ENABLED === 'false') return res.status(503).json({ error: 'Online payments are unavailable for this deployment.' });
+  next();
+});
+
 
 // ── Observability: structured request logging ──
 // One JSON line per API request (method, path, status, latency, tenant). Silenced
@@ -2243,6 +2249,7 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
       }
     }
 
+    settingsMap.payhereEnabled = process.env.PAYHERE_ENABLED !== 'false';
     res.json(settingsMap);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -4737,6 +4744,7 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
       currencySymbol: st.currencySymbol || 'Rs.',
       taxRate: Number(st.taxRate || 0),
       serviceChargeRate: Number(st.serviceChargeRate || 0),
+      payhereEnabled: process.env.PAYHERE_ENABLED !== 'false',
       categories,
       items: itemsWithModifiers
     });
@@ -4821,6 +4829,8 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
   if (!isValidSriLankanPhone(customerPhone)) {
     return res.status(400).json({ error: 'Please enter a valid Sri Lankan phone number (e.g. 0771234567 or +94771234567).' });
   }
+
+  if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
 
   const type = diningType || orderType || 'takeaway';
   if (type === 'delivery') {

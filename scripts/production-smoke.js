@@ -49,9 +49,9 @@ async function login(base) {
   return (await response.json()).token;
 }
 try {
-  for (const driver of ['sqlite', 'libsql']) {
+  for (const driver of ['sqlite', 'libsql', 'cash-only']) {
     const database = path.join(directory, `${driver}.db`);
-    const env = { ...baseEnv, DATABASE_FILE: database, TURSO_DATABASE_URL: driver === 'libsql' ? `file:${database}` : '', TURSO_AUTH_TOKEN: '' };
+    const env = { ...baseEnv, DATABASE_FILE: database, TURSO_DATABASE_URL: driver === 'libsql' ? `file:${database}` : '', TURSO_AUTH_TOKEN: '', ...(driver === 'cash-only' ? { PAYHERE_ENABLED: 'false', PAYHERE_MERCHANT_ID: '', PAYHERE_MERCHANT_SECRET: '', PAYHERE_NOTIFY_URL: '' } : {}) };
     let service = await boot(env);
     try {
       const token = await login(service.base);
@@ -63,7 +63,7 @@ try {
       const unauthenticated = await fetch(`${service.base}/api/settings`);
       assert.equal(unauthenticated.status, 401);
       const simulation = await fetch(`${service.base}/api/payments/payhere/dev-simulate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      assert.equal(simulation.status, 403);
+      assert.equal(simulation.status, driver === 'cash-only' ? 503 : 403);
       const created = await fetch(`${service.base}/api/categories`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ id: 'persistence_probe', name: 'Restart Persistence', emoji: '✓' }) });
       assert.equal(created.status, 200, await created.text());
     } finally { await stop(service.child); }

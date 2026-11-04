@@ -1210,14 +1210,14 @@ export default function POSView() {
                 <div style={{ fontSize: '24px', marginBottom: '4px' }}>🔀</div>
                 <span>Split Tender</span>
               </div>
-              <div 
+              {settings.payhereEnabled === true && <div
                 className={`payment-mode-card ${paymentMethod === 'payhere' ? 'active' : ''}`}
                 style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center', cursor: 'pointer' }}
                 onClick={() => setPaymentMethod('payhere')}
               >
                 <div style={{ fontSize: '24px', marginBottom: '4px' }}>🇱🇰</div>
                 <span>PayHere Gate</span>
-              </div>
+              </div>}
             </div>
 
             {paymentMethod === 'cash' && (

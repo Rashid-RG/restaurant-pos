@@ -40,6 +40,10 @@ describe('Production environment validation', () => {
   it('accepts explicit production configuration', () => expect(() => validateProductionConfig(env)).not.toThrow());
   it.each(['JWT_SECRET', 'CUSTOMER_JWT_SECRET', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'ADMIN_PIN', 'CORS_ORIGIN', 'PAYHERE_MERCHANT_ID', 'PAYHERE_MERCHANT_SECRET', 'PAYHERE_NOTIFY_URL'])('rejects a missing %s', key => expect(() => validateProductionConfig({ ...env, [key]: '' })).toThrow());
   it('rejects sample secrets', () => expect(() => validateProductionConfig({ ...env, JWT_SECRET: 'CHANGE_ME_TO_A_LONG_RANDOM_STRING' })).toThrow());
+  it('allows explicit cash-only production without gateway credentials', () => {
+    expect(() => validateProductionConfig({ ...env, PAYHERE_ENABLED: 'false', PAYHERE_MERCHANT_ID: '', PAYHERE_MERCHANT_SECRET: '', PAYHERE_NOTIFY_URL: '' })).not.toThrow();
+  });
+  it('rejects ambiguous payment enablement values', () => expect(() => validateProductionConfig({ ...env, PAYHERE_ENABLED: 'no' })).toThrow(/PAYHERE_ENABLED/));
   it('rejects shared staff and customer secrets', () => expect(() => validateProductionConfig({ ...env, CUSTOMER_JWT_SECRET: env.JWT_SECRET })).toThrow());
   it('rejects unvalidated pooled Postgres transactions', () => expect(() => validateProductionConfig({ ...env, DATABASE_URL: 'postgres://localhost/db' })).toThrow(/PostgreSQL/));
 });
@@ -156,5 +160,22 @@ describe('Database transaction ownership', () => {
     unblock();
     await Promise.all([first, second]);
     expect(events).toEqual(['begin','commit','read']);
+  });
+});
+
+
+describe('Cash-only deployment isolation', () => {
+  it('disables gateway routes and advertises their unavailability', async () => {
+    const original = process.env.PAYHERE_ENABLED;
+    process.env.PAYHERE_ENABLED = 'false';
+    try {
+      for (const path of ['/api/payments/payhere/checkout','/api/payments/payhere/webhook','/api/payments/payhere/dev-simulate','/api/public/payment/payhere/hash','/api/public/payment/payhere/notify']) expect((await request(app).post(path).send({})).status).toBe(503);
+      expect((await request(app).get('/api/public/menu')).body.payhereEnabled).toBe(false);
+      expect((await request(app).get('/api/settings').set(auth(admin()))).body.payhereEnabled).toBe(false);
+      expect((await order(undefined, { paymentMethod: 'payhere' })).status).toBe(503);
+    } finally {
+      if (original === undefined) delete process.env.PAYHERE_ENABLED;
+      else process.env.PAYHERE_ENABLED = original;
+    }
   });
 });
