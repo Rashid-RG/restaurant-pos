@@ -15,7 +15,7 @@ const request = (await import('supertest')).default;
 /** Mint a staff JWT directly (same secret the server uses in test mode) */
 function staffToken(role = 'owner') {
   return jwt.sign(
-    { id: 'test_admin', username: 'admin', role, tenant_id: 'default_tenant' },
+    { id: 'user_admin', username: 'admin', role, tenant_id: 'default_tenant' },
     process.env.JWT_SECRET,
     { expiresIn: '1h' }
   );

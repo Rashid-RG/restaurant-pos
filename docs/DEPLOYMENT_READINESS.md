@@ -1,3 +1,5 @@
+> Historical report: its readiness claims are superseded by the [current system review](COMPREHENSIVE_REVIEW_2026-11-05.md). Source-observed features and local tests do not establish a completed production rollout.
+
 # GastroFlow — SaaS Deployment-Readiness Report
 
 **Prepared:** 2026-07-22 · **Updated:** 2026-07-22 (Post-Hardening & Multi-Tenant Security Verification) · **Method:** Deep code verification of all security controls, multi-tenant middleware, role-based access controls, and production infrastructure.

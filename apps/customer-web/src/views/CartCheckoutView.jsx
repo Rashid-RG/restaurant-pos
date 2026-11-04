@@ -17,7 +17,7 @@ const LOCAL_PAYMENTS = [
 ];
 
 export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
-  const { items, subtotal, clearCart, setCartOpen, addItem } = useCart();
+  const { items, subtotal, clearCart, setCartOpen, addItem, rates } = useCart();
   const { customer, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
 
@@ -161,9 +161,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     }
   }
 
-  const taxRate = 0.10; // 10% tax rate
+  const taxRate = rates.taxRate / 100; // 10% tax rate
   const discountTotal = loyaltyDiscount + promoDiscount;
-  const serviceCharge = (subtotal - discountTotal) * 0.10; // 10% service charge
+  const serviceCharge = (subtotal - discountTotal) * rates.serviceChargeRate / 100; // 10% service charge
   const tax = (subtotal - discountTotal + serviceCharge) * taxRate;
   
   // Dynamic delivery fee addition

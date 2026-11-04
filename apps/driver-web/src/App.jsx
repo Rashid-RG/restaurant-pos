@@ -1,3 +1,5 @@
+import { Bike } from 'lucide-react';
+import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
 
@@ -11,12 +13,13 @@ const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
 const apiFetch = async (url, opts = {}) => {
   const token = getToken();
   const res = await fetch(`/api${url}`, {
+    ...opts,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(new URLSearchParams(location.search).get('tenant') ? { 'X-Tenant-Id': new URLSearchParams(location.search).get('tenant') } : {}),
       ...opts.headers
-    },
-    ...opts
+    }
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Request failed');
@@ -44,6 +47,9 @@ function isRushHour() {
 export default function App() {
   const [driver, setDriver] = useState(JSON.parse(localStorage.getItem(DRIVER_KEY) || 'null'));
   const [activeOrders, setActiveOrders] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
+  const [taskTab, setTaskTab] = useState('active');
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isGpsActive, setIsGpsActive] = useState(false);
@@ -177,6 +183,8 @@ export default function App() {
       prevUnassignedCountRef.current = newUnassigned.length;
 
       setActiveOrders(newAssigned);
+      setHistory(data.completed || []);
+      setSummary(data.summary || { completedToday: 0, cashToHandover: 0 });
       setAvailableOrders(newUnassigned);
     } catch (err) {
       if (/token/i.test(err.message)) { handleLogout(); showToast('Session expired — please sign in again', 'warning'); }
@@ -278,12 +286,11 @@ export default function App() {
   // Bug 8 fix: only include activeOrders (this driver's assigned orders).
   // availableOrders are unassigned and can never be 'delivered', so including
   // them was a logic error that could produce wrong totals if status semantics change.
-  const cashToHandover = activeOrders
-    .filter(o => o.status === 'delivered' && ['cod', 'cash'].includes((o.paymentMethod || '').toLowerCase()) && !o.cashCollected)
-    .reduce((sum, o) => sum + (o.total || 0), 0);
+  const cashToHandover = Number(summary.cashToHandover || 0);
+  const visibleOrders = taskTab === 'history' ? history : activeOrders;
 
   return (
-    <div className="driver-app-shell">
+    <div className="driver-app-shell"><ConnectionStatus/>
       <SystemUpdatePrompt />
 
 
@@ -298,18 +305,18 @@ export default function App() {
       )}
 
       <header className="driver-header">
-        <img src="driver-logo.png" alt="GastroDriver" className="driver-logo-img" />
+        <img src={`${import.meta.env.BASE_URL}driver-logo.png`} alt="GastroDriver" className="driver-logo-img" />
         <span className="driver-title">GastroDriver</span>
-        <span className="driver-badge">Fleet Partner</span>
+        <ConnectionStatus compact/><span className="driver-badge">DELIVERY PARTNER</span>
       </header>
 
       <main className="driver-content">
         {!driver ? (
           /* ── Login screen ── */
           <div>
-            <div style={{ textAlign: 'center', margin: '20px 0 24px' }}>
-              <div style={{ fontSize: '3.2rem', marginBottom: 6 }}>🛵</div>
-              <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800 }}>Rider Sign In</h2>
+            <div className="driver-login-intro" style={{ textAlign: 'center', margin: '20px 0 24px' }}>
+              <div className="driver-welcome-icon"><Bike size={40}/></div>
+              <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800 }}>Your next delivery awaits.</h2>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginTop: 4 }}>
                 Sign in with your registered phone and password
               </p>
@@ -339,6 +346,9 @@ export default function App() {
         ) : (
           /* ── Rider dashboard ── */
           <div>
+            <section className="driver-welcome"><span>YOUR DAY, IN MOTION</span><h1>Let’s make every<br/>delivery a good one.</h1><p>Welcome back, {driver.name?.split(' ')[0]}. Your assigned orders and pickup opportunities are all here.</p><ConnectionStatus compact/></section>
+            <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
+
             <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-main)' }}>🛵 {driver.name}</div>
@@ -372,8 +382,10 @@ export default function App() {
               </div>
             )}
 
+            <div className="driver-task-nav" role="tablist" aria-label="Delivery view">{[['active', 'My route'], ['available', 'Available'], ['history', 'Completed']].map(([id, label]) => <button key={id} role="tab" aria-selected={taskTab === id} onClick={() => setTaskTab(id)}>{label}</button>)}</div>
             {/* Available to claim */}
-            {availableOrders.length > 0 && (
+            {taskTab === 'available' && availableOrders.length === 0 && <div className="driver-empty"><strong>You’re all caught up.</strong>Available pickups will appear here automatically.</div>}
+            {taskTab === 'available' && availableOrders.length > 0 && (
               <>
                 <h3 style={{ fontSize: '1.0rem', fontWeight: 800, color: 'var(--text-main)', marginTop: 24, marginBottom: 12 }}>
                   🟢 Available to Claim ({availableOrders.length})
@@ -415,18 +427,19 @@ export default function App() {
               </>
             )}
 
+            {taskTab !== 'available' && <>
             <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-main)', marginTop: 24, marginBottom: 12 }}>
-              📦 My Deliveries ({activeOrders.length})
+              {taskTab === 'history' ? 'Completed deliveries' : 'My route'} ({visibleOrders.length})
             </h3>
 
-            {activeOrders.length === 0 ? (
+            {visibleOrders.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
                 <div style={{ fontSize: '2.4rem', marginBottom: 8 }}>📭</div>
-                <p style={{ margin: 0, fontSize: '0.92rem', fontWeight: 600 }}>No active deliveries right now.</p>
+                <p style={{ margin: 0, fontSize: '0.92rem', fontWeight: 600 }}>{taskTab === 'history' ? 'Completed deliveries will appear here.' : 'No active deliveries. Check Available for your next pickup.'}</p>
               </div>
             ) : (
               <div style={{ display: 'grid', gap: 16 }}>
-                {activeOrders.map(ord => {
+                {visibleOrders.map(ord => {
                   const itemsStr = Array.isArray(ord.items) ? ord.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : 'Delivery Items';
                   const customerPhone = ord.customerPhone || 'N/A';
                   // Bug 7 fix: convert Sri Lankan local prefix 0771... → +94771...
@@ -482,6 +495,7 @@ export default function App() {
                 })}
               </div>
             )}
+            </>}
           </div>
         )}
 

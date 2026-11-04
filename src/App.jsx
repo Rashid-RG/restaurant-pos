@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import WorkspaceTools from './components/WorkspaceTools';
+import { ConnectionStatus } from '../shared/ui/Resilience.jsx';
 import { POSProvider, usePOS } from './context/POSContext';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -87,7 +89,7 @@ function AppContent() {
     <div className="app-container">
       <SystemUpdatePrompt />
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      {renderActiveView()}
+      <div className="workspace"><WorkspaceTools/><ConnectionStatus/>{renderActiveView()}</div>
     </div>
   );
 }

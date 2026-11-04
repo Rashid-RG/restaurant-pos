@@ -1,3 +1,5 @@
+> Historical report: its readiness claims are superseded by the [current system review](COMPREHENSIVE_REVIEW_2026-11-05.md). Source-observed features and local tests do not establish a completed production rollout.
+
 # GastroFlow POS — Consolidated Master Audit Summary
 
 > **Single Source of Truth Document** consolidating system features, security verification, customer PWA integration, hardware connectivity, and production readiness audit findings.

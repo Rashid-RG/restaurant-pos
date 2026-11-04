@@ -1,3 +1,5 @@
+> Historical report: its readiness claims are superseded by the [current system review](docs/COMPREHENSIVE_REVIEW_2026-11-05.md). Source-observed features and local tests do not establish a completed production rollout.
+
 # GastroFlow — Master System Report & Development Blueprint
 
 > **Purpose of this document.** This is the single source of truth for taking GastroFlow from its current state to a **100% production-ready multi-tenant SaaS**. It is written to be handed to a coding agent (Claude Code) and executed section by section. It covers architecture, folder organization, the data model, every feature (with an explicit **KEEP / UPDATE / ADD / UPGRADE** verdict), how the three apps must connect, SaaS readiness, security, a full **UI/UX redesign plan**, and a **phased build order with acceptance criteria**.

@@ -113,8 +113,8 @@ describe('PayHere webhook — signature, amount, idempotency', () => {
 
     const a1 = await request(app).get(`/api/public/orders/${orderA.orderId}`);
     const b1 = await request(app).get(`/api/public/orders/${orderB.orderId}`);
-    expect(a1.body.status).toBe('paid');
-    expect(b1.body.status).toBe('paid');
+    expect(a1.body.paymentStatus).toBe('paid');
+    expect(b1.body.paymentStatus).toBe('paid');
     expect(a1.body.invoiceNumber).toBeTruthy();
     expect(b1.body.invoiceNumber).toBeTruthy();
     // Gapless + sequential: B settled right after A → consecutive numbers.
@@ -123,7 +123,7 @@ describe('PayHere webhook — signature, amount, idempotency', () => {
     // Replay A's webhook — must stay paid with the SAME invoice number (idempotent).
     expect((await settle(orderA)).status).toBe(200);
     const a2 = await request(app).get(`/api/public/orders/${orderA.orderId}`);
-    expect(a2.body.status).toBe('paid');
+    expect(a2.body.paymentStatus).toBe('paid');
     expect(a2.body.invoiceNumber).toBe(a1.body.invoiceNumber);
   });
 });

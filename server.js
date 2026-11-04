@@ -1,4 +1,9 @@
 import express from 'express';
+import { reconcileOfflineSales } from './lib/offline-sales.js';
+import { createLibsqlStore } from './lib/libsql-store.js';
+import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.js';
+import { validateProductionConfig } from './lib/runtime-config.js';
+import { createDatabaseGate } from './lib/database-gate.js';
 import cors from 'cors';
 import sqlite3 from 'sqlite3';
 import { fileURLToPath } from 'url';
@@ -26,7 +31,7 @@ import {
 } from './lib/billing.js';
 import { buildEscPosReceipt, sendToNetworkPrinter } from './lib/printer.js';
 import { normalizePickMeOrder, normalizeUberEatsOrder } from './lib/aggregators.js';
-import { query, execute, isPostgres } from './lib/db_adapter.js';
+
 import {
   validateRequest,
   authLoginSchema,
@@ -42,6 +47,9 @@ import {
 import { getPlan, checkLimit, planList } from './lib/plans.js';
 
 dotenv.config();
+validateProductionConfig(process.env);
+const databaseGate = createDatabaseGate();
+const { query, execute, isPostgres } = await import('./lib/db_adapter.js');
 
 // Normalize PayHere secret naming. The webhook signature path reads PAYHERE_MERCHANT_SECRET
 // while checkout historically read PAYHERE_SECRET. Accept either and mirror them so both work
@@ -89,8 +97,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.set('trust proxy', 1); // Trust reverse proxy on Render / Cloudflare for rate-limiting
+app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false); // Trust reverse proxy on Render / Cloudflare for rate-limiting
 export { app };
+// Express 4 does not automatically forward rejected async handlers.
+for (const method of ['get', 'post', 'put', 'patch', 'delete', 'use']) {
+  const register = app[method].bind(app);
+  app[method] = (...args) => register(...args.map(value => {
+    if (typeof value !== 'function' || value.length === 4) return value;
+    return function guardedHandler(req, res, next) {
+      try { Promise.resolve(value(req, res, next)).catch(next); }
+      catch (error) { next(error); }
+    };
+  }));
+}
+app.use((req, res, next) => databaseGate.withContext(() => {
+  const cleanup = () => databaseGate.rollbackCurrent(() => rawDbRun('ROLLBACK')).catch(error => console.error('[Rollback]', error.message));
+  res.once('finish', cleanup);
+  res.once('close', cleanup);
+  next();
+}));
 const PORT = process.env.PORT || 5000;
 
 // Error-response helper: never leak internal/DB error detail to clients in production.
@@ -115,15 +140,15 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", 'https://checkout.payhere.lk'],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://checkout.payhere.lk', 'https://sandbox.payhere.lk'],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'https://checkout.payhere.lk', 'https://generativelanguage.googleapis.com', 'https://app.notify.lk'],
-      frameSrc: ["'self'", 'https://checkout.payhere.lk'],
+      connectSrc: ["'self'", 'https://checkout.payhere.lk', 'https://generativelanguage.googleapis.com', 'https://app.notify.lk', 'https://nominatim.openstreetmap.org'],
+      frameSrc: ["'self'", 'https://checkout.payhere.lk', 'https://sandbox.payhere.lk'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
-      formAction: ["'self'"]
+      formAction: ["'self'", 'https://www.payhere.lk', 'https://sandbox.payhere.lk']
     }
   },
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
@@ -139,12 +164,12 @@ app.use(helmet({
 //    any origin in dev avoids CORS 500s while keeping production locked down.
 const isProd = process.env.NODE_ENV === 'production';
 const allowedOrigins = [
-  'http://localhost:3000',
+  ...(!isProd ? ['http://localhost:3000',
   'http://localhost:3001',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
   'http://localhost:5173',
-  'http://localhost:5174',
+  'http://localhost:5174'] : []),
   ...String(process.env.CORS_ORIGIN || '').split(',').map(s => s.trim())
 ].filter(Boolean);
 
@@ -196,7 +221,8 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' })); // Limit body size for security
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false, limit: '64kb' })); // Limit body size for security
 
 // ── Observability: structured request logging ──
 // One JSON line per API request (method, path, status, latency, tenant). Silenced
@@ -226,21 +252,30 @@ const SYSTEM_VERSION = '1.3.0';
 app.get('/api/system/version', (req, res) => {
   const payload = { version: SYSTEM_VERSION, buildTimestamp: SYSTEM_BUILD_TIMESTAMP };
   // Only reveal runtime environment to authenticated staff (non-public info)
-  if (req.headers.authorization) payload.environment = process.env.NODE_ENV || 'development';
+  // Runtime configuration is never disclosed by the public version endpoint.
   res.json(payload);
 });
 
 
 // Open SQLite Database (DATABASE_FILE overrides the default, e.g. for isolated tests)
 const dbPath = process.env.DATABASE_FILE || path.join(__dirname, 'restaurant.db');
+const libsqlStore = process.env.TURSO_DATABASE_URL ? createLibsqlStore({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }) : null;
 const sqlite = sqlite3.verbose();
 // Resolves once tables are created AND seeding completes — tests await this so they
 // never race the async seed (note: /api/health returns 200 before seeding finishes).
-let _resolveDbReady;
-export const dbReady = new Promise((resolve) => { _resolveDbReady = resolve; });
-const db = new sqlite.Database(dbPath, (err) => {
+let _resolveDbReady, _rejectDbReady;
+let databaseIsReady = false;
+export const dbReady = new Promise((resolve, reject) => { _resolveDbReady = resolve; _rejectDbReady = reject; });
+// Requests cannot observe half-created schemas or partially seeded accounts.
+app.use('/api', (req, res, next) => {
+  if (!databaseIsReady) return res.status(503).json({ error: 'Service is initializing.', status: 'starting' });
+  next();
+});
+dbReady.catch(err => { console.error('[Database startup failed]', err.message); });
+const db = new sqlite.Database(libsqlStore ? ':memory:' : dbPath, (err) => {
   if (err) {
     console.error('Error opening SQLite database:', err.message);
+    _rejectDbReady(err);
   } else {
     console.log('Connected to local SQLite database at:', dbPath);
     db.run('PRAGMA foreign_keys = ON;', (err) => {
@@ -255,12 +290,13 @@ const db = new sqlite.Database(dbPath, (err) => {
       if (err) console.error('Failed to set synchronous mode:', err.message);
       else console.log('SQLite synchronous level set to NORMAL.');
     });
-    initTables().then(() => _resolveDbReady && _resolveDbReady()).catch((e) => { console.error('DB init failed:', e); _resolveDbReady && _resolveDbReady(); });
+    databaseGate.withContext(() => initTables()).then(() => { databaseIsReady = true; _resolveDbReady(); }).catch(_rejectDbReady);
   }
 });
 
 // Helper functions for promise-based database calls (SQLite & Postgres / Neon DB)
-export const dbRun = async (sql, params = []) => {
+const rawDbRun = async (sql, params = []) => {
+  if (libsqlStore) return libsqlStore.execute(sql, params);
   if (isPostgres) {
     if (/^\s*PRAGMA/i.test(sql)) return;
     let pgSql = sql;
@@ -304,7 +340,8 @@ const normalizeRow = (row) => {
   return newRow;
 };
 
-export const dbAll = async (sql, params = []) => {
+const rawDbAll = async (sql, params = []) => {
+  if (libsqlStore) return (await libsqlStore.execute(sql, params)).rows;
   if (isPostgres) {
     const res = await query(sql, params);
     const rows = res.rows || [];
@@ -318,7 +355,8 @@ export const dbAll = async (sql, params = []) => {
   });
 };
 
-export const dbGet = async (sql, params = []) => {
+const rawDbGet = async (sql, params = []) => {
+  if (libsqlStore) return (await libsqlStore.execute(sql, params)).rows?.[0];
   if (isPostgres) {
     const res = await query(sql, params);
     const row = res.rows && res.rows.length > 0 ? res.rows[0] : null;
@@ -332,12 +370,29 @@ export const dbGet = async (sql, params = []) => {
   });
 };
 
+export const dbRun = (sql, params = []) => databaseGate.run(sql, () => rawDbRun(sql, params));
+export const dbAll = (sql, params = []) => databaseGate.run(sql, () => rawDbAll(sql, params));
+export const dbGet = (sql, params = []) => databaseGate.run(sql, () => rawDbGet(sql, params));
+export const withDatabaseContext = operation => databaseGate.withContext(operation);
+
+function authenticateStaffStream(req, res, next) {
+  if (!req.headers.authorization && typeof req.query.token === 'string') req.headers.authorization = `Bearer ${req.query.token}`;
+  return authenticateToken(req, res, next);
+}
+function keepStreamAlive(req, res) {
+  res.setHeader('X-Accel-Buffering', 'no');
+  const heartbeat = setInterval(() => { if (!res.writableEnded) res.write(': heartbeat\n\n'); }, 15000);
+  heartbeat.unref();
+  res.on('close', () => clearInterval(heartbeat));
+}
+
 // ── Real-Time SSE (Server-Sent Events) Broadcast Infrastructure ──
 const sseClients = new Set();
 
-export function broadcastEvent(eventType, payload) {
+export function broadcastEvent(eventType, payload, tenantId = databaseGate.context.getStore()?.tenantId) {
   const data = JSON.stringify({ type: eventType, data: payload, timestamp: Date.now() });
   for (const client of sseClients) {
+    if (!tenantId || client._tenantId !== tenantId) continue;
     try {
       client.write(`data: ${data}\n\n`);
     } catch (err) {
@@ -348,23 +403,13 @@ export function broadcastEvent(eventType, payload) {
 
 // BUG-023 fix: require valid JWT (staff or customer) to subscribe to SSE events.
 // Without auth, anonymous clients could monitor all real-time order activity.
-app.get('/api/events', (req, res) => {
-  // Validate token from Authorization header or ?token= query param (EventSource doesn't support custom headers)
-  const rawToken = (req.headers.authorization && req.headers.authorization.split(' ')[1]) || req.query.token;
-  if (!rawToken) {
-    return res.status(401).json({ error: 'Authentication required for event stream.' });
-  }
-  try {
-    jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET);
-  } catch {
-    return res.status(403).json({ error: 'Invalid or expired token for event stream.' });
-  }
-
+app.get('/api/events', authenticateStaffStream, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res._tenantId = req.tenantId;
+  keepStreamAlive(req, res);
   res.flushHeaders();
-
   sseClients.add(res);
   req.on('close', () => sseClients.delete(res));
 });
@@ -1126,6 +1171,13 @@ async function initTables() {
       }
     }
 
+    await safeAddColumn('users', 'createdAt', 'BIGINT');
+    await safeAddColumn('orders', 'cashCollected', 'INTEGER DEFAULT 0');
+    await safeAddColumn('orders', 'cashCollectedAt', 'BIGINT');
+    await safeAddColumn('orders', 'paymentStatus', "TEXT DEFAULT 'unpaid'");
+    await dbRun("UPDATE orders SET paymentStatus = 'paid' WHERE status = 'paid' AND paymentStatus = 'unpaid'");
+    await safeAddColumn('support_tickets', 'tenant_id', "TEXT DEFAULT 'default_tenant'");
+
     // Indexes
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_timestamp ON orders(timestamp)`);
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)`);
@@ -1138,6 +1190,7 @@ async function initTables() {
     await seedDatabase();
   } catch (error) {
     console.error('Error initializing tables:', error);
+    throw error;
   }
 }
 
@@ -1145,6 +1198,21 @@ async function initTables() {
 async function seedDatabase(tenantId) {
   const tid = tenantId || 'default_tenant';
   try {
+    if (isProd) {
+      const existingAdmin = await dbGet('SELECT id FROM users WHERE id = ?', ['user_admin']);
+      const staff = await dbAll('SELECT username,passwordHash FROM users');
+      for (const user of staff) {
+        if (user.passwordHash && await bcrypt.compare('admin123', user.passwordHash)) throw new Error('Rotate the development administrator password before production deployment.');
+        if (user.passwordHash && await bcrypt.compare('123456', user.passwordHash)) throw new Error('Rotate development staff passwords before production deployment.');
+      }
+      if (!existingAdmin) {
+        const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
+        const pinHash = await bcrypt.hash(process.env.ADMIN_PIN, 12);
+        await dbRun("INSERT INTO users (id, username, passwordHash, role, pin, tenant_id) VALUES (?, ?, ?, 'owner', ?, 'default_tenant')",
+          ['user_admin', process.env.ADMIN_USERNAME, passwordHash, pinHash]);
+      }
+      return;
+    }
     // Check if categories have already been initialized / seeded for THIS tenant
     const catSeededSetting = await dbGet("SELECT value FROM settings WHERE tenant_id = ? AND key = 'categories_initial_seeded'", [tid]).catch(() => null);
     const categoriesCount = await dbGet('SELECT COUNT(*) as count FROM categories WHERE tenant_id = ?', [tid]);
@@ -1455,6 +1523,7 @@ async function seedDatabase(tenantId) {
     console.log('Database seeding verified successfully.');
   } catch (error) {
     console.error('Seeding database error:', error);
+    throw error;
   }
 }
 
@@ -1564,45 +1633,41 @@ const publicApiLimiter = rateLimit({
 // BUG-002 fix: use JWT_SECRET from env only, fall back to clearly non-production dev constant
 // Also enforces tenant suspension — if the store is suspended, all staff
 // requests are blocked except for platform owners who manage tenants.
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication token required.' });
-  }
-
-  jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET, async (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Token is invalid or has expired.' });
+const STAFF_ROLES = ['owner', 'manager', 'cashier', 'kitchen', 'staff', 'admin'];
+const authenticateToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Authentication token required.' });
+  try {
+    const claims = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    if (!claims.id || !STAFF_ROLES.includes(claims.role) || claims.type === 'customer') {
+      return res.status(403).json({ error: 'A staff token is required.' });
+    }
+    const user = await dbGet('SELECT id, username, role, tenant_id FROM users WHERE id = ?', [claims.id]);
+    if (!user || user.tenant_id !== claims.tenant_id || !STAFF_ROLES.includes(user.role)) {
+      return res.status(403).json({ error: 'Staff account is no longer authorized.' });
+    }
+    const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [user.tenant_id]);
+    if (!tenant || (tenant.status === 'suspended' && user.tenant_id !== 'default_tenant')) {
+      return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
     }
     req.user = user;
-    let tid = user.tenant_id || 'default_tenant';
-    // Never allow X-Tenant-Id header to override an authenticated user's own tenant
-    if (tid === 'kb2c') tid = 'tenant_kb2c';
-    req.tenantId = tid;
-
-    // ── Tenant Existence & Suspension Check ─────────────────────────────
-    // Block access if the tenant was deleted or suspended. Platform owners
-    // bypass so they can manage (re-activate / delete) stores via the SaaS panel.
-    try {
-      const tenantRow = await dbGet('SELECT status FROM tenants WHERE id = ?', [tid]);
-      if (!tenantRow && user.role !== 'owner') {
-        return res.status(403).json({
-          error: 'This restaurant store no longer exists. It may have been deleted by the platform administrator.',
-          code: 'TENANT_DELETED'
-        });
-      }
-      if (tenantRow && tenantRow.status === 'suspended' && user.role !== 'owner') {
-        return res.status(403).json({
-          error: 'This restaurant store has been suspended. Please contact the platform administrator.',
-          code: 'TENANT_SUSPENDED'
-        });
-      }
-    } catch (_) { /* fail-open: if lookup errors, allow through for backwards compat */ }
-
+    req.tenantId = user.tenant_id;
+    if (databaseGate.context.getStore()) databaseGate.context.getStore().tenantId = req.tenantId;
     next();
-  });
+  } catch (err) {
+    if (err instanceof jwt.JsonWebTokenError || err instanceof jwt.TokenExpiredError) {
+      return res.status(403).json({ error: 'Token is invalid or has expired.' });
+    }
+    next(err);
+  }
+};
+
+// Platform authority is separate from ownership of an individual restaurant.
+const requirePlatformAdmin = (req, res, next) => {
+  if (req.tenantId !== 'default_tenant' || req.user?.role !== 'owner') {
+    return res.status(403).json({ error: 'Platform administrator access only.' });
+  }
+  next();
 };
 
 // Middleware: Authenticate Customer JWT Token
@@ -1617,7 +1682,7 @@ const authenticateCustomer = (req, res, next) => {
 
   const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
   jwt.verify(token, secret, (err, decoded) => {
-    if (err || !decoded || !decoded.id) {
+    if (err || !decoded || !decoded.id || decoded.type !== 'customer') {
       return res.status(403).json({ error: 'Invalid or expired customer token.' });
     }
     req.customer = decoded;
@@ -1633,10 +1698,14 @@ const authenticateDriver = (req, res, next) => {
   // Accept token from Authorization header only (not query/body — avoids token leakage in logs)
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Driver authentication required.' });
-  jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET, (err, decoded) => {
+  jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET, async (err, decoded) => {
     if (err || !decoded || decoded.role !== 'driver' || !decoded.driverId) {
       return res.status(403).json({ error: 'Invalid or expired driver token.' });
     }
+    try {
+      const driver = await dbGet('SELECT status FROM drivers WHERE id = ? AND tenant_id = ?', [decoded.driverId, decoded.tenant_id]);
+      if (!driver || ['pending_approval', 'rejected', 'suspended'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
+    } catch (error) { return next(error); }
     req.driver = decoded;
     req.tenantId = decoded.tenant_id || 'default_tenant';
     next();
@@ -1652,6 +1721,41 @@ const requireRole = (allowedRoles) => {
     next();
   };
 };
+
+// Reject writes to an ID owned by another restaurant before any upsert can replace it.
+for (const table of ['categories', 'menu_items', 'tables', 'customers']) {
+  app.post(`/api/${table}`, authenticateToken, async (req, res, next) => {
+    try {
+      if (req.body?.id) {
+        const row = await dbGet(`SELECT tenant_id FROM ${table} WHERE id = ?`, [req.body.id]);
+        if (row && row.tenant_id !== req.tenantId) return res.status(404).json({ error: 'Record not found.' });
+      }
+      next();
+    } catch (err) { next(err); }
+  });
+}
+
+// Protect legacy handlers that address globally unique records by ID. All
+// resource lookups are authorized before the handler can mutate related rows.
+app.use('/api', async (req, res, next) => {
+  const match = req.path.match(/^\/(orders|tables|menu_items|categories|customers|delivery\/drivers|tickets|support\/tickets)(?:\/([^/]+))?/);
+  if (!match || req.path.includes('/driver-chat') || /^\/tables\/[^/]+\/qr$/.test(req.path)) return next();
+  const table = { orders: 'orders', tables: 'tables', menu_items: 'menu_items', categories: 'categories', customers: 'customers', 'delivery/drivers': 'drivers', tickets: 'support_tickets', 'support/tickets': 'support_tickets' }[match[1]];
+  authenticateToken(req, res, async err => {
+    if (err) return next(err);
+    try {
+      const ids = [];
+      if (match[2] && !['offline-sync', 'transfer', 'merge', 'clear-all'].includes(match[2])) ids.push(decodeURIComponent(match[2]));
+      if (req.body?.id) ids.push(req.body.id);
+      if (table === 'tables') ids.push(...['fromTableId', 'toTableId', 'sourceTableId', 'targetTableId'].map(k => req.body?.[k]).filter(Boolean));
+      for (const id of ids) {
+        const row = await dbGet(`SELECT tenant_id FROM ${table} WHERE id = ?`, [id]);
+        if (row && row.tenant_id !== req.tenantId) return res.status(404).json({ error: 'Record not found.' });
+      }
+      next();
+    } catch (error) { next(error); }
+  });
+});
 
 // Resolve the tenant for a PUBLIC (unauthenticated) request. Customer/driver apps
 // identify their restaurant via ?tenantId=<id>, ?tenant=<subdomain>, or the
@@ -1837,8 +1941,9 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
 });
 
 // Register (Owner / Manager only)
-app.post('/api/auth/register', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+app.post('/api/auth/register', authenticateToken, requireRole(['owner', 'manager']), validateRequest(userCreateSchema), async (req, res) => {
   const { username, password, role, pin } = req.body;
+  if (role === 'owner' && req.user.role !== 'owner') return res.status(403).json({ error: 'Only an owner can create another owner.' });
   if (!username || !password || !role || !pin) {
     return res.status(400).json({ error: 'All fields (username, password, role, pin) are required.' });
   }
@@ -1995,11 +2100,14 @@ async function allocateInvoiceNumber() {
 // restores its table, awards loyalty, writes an audit log, and notifies SSE subscribers.
 // Callers must have already authorized the payment (verified webhook signature/amount, or
 // a gated non-production simulation).
-async function settleOrderPaid(order) {
-  if (order.status === 'paid') return;
+async function settleOrderPaid(order, method = 'payhere') {
   await dbRun('BEGIN TRANSACTION');
   try {
-    await dbRun('UPDATE orders SET status = "paid", paymentMethod = "payhere", paymentTimestamp = ? WHERE id = ?', [Date.now(), order.id]);
+    order = await dbGet('SELECT * FROM orders WHERE id = ?', [order.id]);
+    if (order.paymentStatus === 'paid' || order.invoiceNumber) { await dbRun('COMMIT'); return; }
+    if (['cancelled', 'refunded', 'partially_refunded', 'rejected'].includes(order.status)) throw new Error('Order requires payment reconciliation.');
+    const fulfillment = order.source === 'online' || order.status === 'delivered' ? order.status : 'paid';
+    await dbRun("UPDATE orders SET status = ?, paymentStatus = 'paid', paymentMethod = ?, paymentTimestamp = ? WHERE id = ?", [fulfillment, method, Date.now(), order.id]);
 
     // Assign a gapless fiscal invoice number exactly once, at settlement.
     if (!order.invoiceNumber) {
@@ -2040,45 +2148,26 @@ async function settleOrderPaid(order) {
   }
 }
 
-app.post('/api/payments/payhere/webhook', async (req, res) => {
-  const { merchant_id, order_id, payhere_amount, payhere_currency, status_code, md5sig } = req.body;
+// Both legacy callback URLs use the same verified settlement path.
+async function handlePayhereNotification(req, res) {
   try {
-    const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
-    if (!merchantSecret) {
-      return res.status(500).json({ error: 'PayHere Merchant Secret is not configured on the server.' });
+    if (!process.env.PAYHERE_MERCHANT_SECRET || !process.env.PAYHERE_MERCHANT_ID) {
+      return res.status(503).json({ error: 'Online payments are not configured.' });
     }
-
-    const localMd5Secret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
-    const signatureSource = (merchant_id || '') + (order_id || '') + (payhere_amount || '') + (payhere_currency || '') + (status_code || '') + localMd5Secret;
-    const expectedSignature = crypto.createHash('md5').update(signatureSource).digest('hex').toUpperCase();
-
-    // Verify signature unconditionally - refuse missing signatures
-    if (!md5sig || md5sig.toUpperCase() !== expectedSignature) {
-      console.warn(`PayHere signature mismatch! Received: ${md5sig}, Expected: ${expectedSignature}`);
-      return res.status(400).json({ error: 'Invalid signature verification.' });
-    }
-
-    if (String(status_code) === '2') {
-      const order = await dbGet('SELECT * FROM orders WHERE id = ?', [order_id]);
-      if (!order) {
-        return res.status(404).json({ error: 'Order not found.' });
+    if (!verifyPayhereNotification(req.body)) return res.status(400).json({ error: 'Invalid payment notification.' });
+    if (req.body.status_code === '2') {
+      const order = await dbGet('SELECT * FROM orders WHERE id = ?', [req.body.order_id]);
+      if (!order) return res.status(404).json({ error: 'Order not found.' });
+      if (!paymentAmountMatches(order.total, req.body.payhere_amount)) return res.status(400).json({ error: 'Invalid payment amount.' });
+      if (['cancelled', 'refunded', 'partially_refunded', 'rejected'].includes(order.status)) {
+        return res.status(409).json({ error: 'This order requires manual payment reconciliation.' });
       }
-
-      // Verify that the payment amount matches the order total in the database
-      const orderTotalFormatted = Number(order.total).toFixed(2);
-      const payhereAmountFormatted = Number(payhere_amount).toFixed(2);
-      if (orderTotalFormatted !== payhereAmountFormatted) {
-        console.warn(`PayHere payment amount mismatch! Received: ${payhere_amount}, Expected: ${order.total}`);
-        return res.status(400).json({ error: 'Invalid payment amount.' });
-      }
-
       await settleOrderPaid(order);
     }
     res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
+  } catch (err) { res.status(500).json({ error: errMsg(err) }); }
+}
+app.post('/api/payments/payhere/webhook', handlePayhereNotification);
 
 // Non-production sandbox helper: simulate a successful PayHere settlement server-side,
 // used only when there is no real gateway callback in local/dev environments. The server
@@ -2193,9 +2282,9 @@ app.post('/api/shifts/open', authenticateToken, validateRequest(shiftOpenSchema)
     const shiftId = `sh_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
     const startTime = Date.now();
     await dbRun(
-      `INSERT INTO shifts (id, userId, username, startTime, startFloat, status, notes)
-       VALUES (?, ?, ?, ?, ?, 'open', ?)`,
-      [shiftId, req.user.id, req.user.username, startTime, floatVal, notes || '']
+      `INSERT INTO shifts (id, userId, username, startTime, startFloat, status, notes, tenant_id)
+       VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`,
+      [shiftId, req.user.id, req.user.username, startTime, floatVal, notes || '', req.tenantId]
     );
     await writeAuditLog(req.user.id, req.user.username, 'open_shift', `Opened cashier shift with float LKR ${floatVal}`);
     const newShift = await dbGet('SELECT * FROM shifts WHERE id = ?', [shiftId]);
@@ -2219,8 +2308,8 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
     }
     const endTime = Date.now();
     const ordersCount = await dbGet(
-      "SELECT SUM(total) as cashTotal FROM orders WHERE timestamp >= ? AND paymentMethod = 'cash' AND status = 'paid'",
-      [active.startTime]
+      "SELECT SUM(total) as cashTotal FROM orders WHERE timestamp >= ? AND tenant_id = ? AND cashierId = ? AND paymentMethod = 'cash' AND (status = 'paid' OR paymentStatus = 'paid')",
+      [active.startTime, req.tenantId, req.user.id]
     );
     const cashSales = ordersCount?.cashTotal || 0;
     const expectedCash = (active.startFloat || 0) + cashSales;
@@ -2271,74 +2360,7 @@ app.post(['/api/categories/clear-all'], authenticateToken, requireRole(['owner',
   }
 });
 
-// Generic Table CRUD Endpoints (Categories, Menu Items, Tables, Customers)
-const CRUD_TABLES = ['categories', 'menu_items', 'tables', 'customers'];
-
-for (const tableName of CRUD_TABLES) {
-  app.get(`/api/${tableName}`, authenticateToken, async (req, res) => {
-    try {
-      const tenantId = req.tenantId || 'default_tenant';
-      const rows = await dbAll(
-        `SELECT * FROM ${tableName} WHERE tenant_id = ?`,
-        [tenantId]
-      );
-      res.json(rows);
-    } catch (err) {
-      res.status(500).json({ error: errMsg(err) });
-    }
-  });
-
-  app.post(`/api/${tableName}`, authenticateToken, async (req, res) => {
-    const item = { ...req.body };
-    if (!item || typeof item !== 'object') {
-      return res.status(400).json({ error: 'Invalid record payload.' });
-    }
-    // BUG-017 fix: always use the server's authenticated tenant — never accept tenant_id from client body
-    item.tenant_id = req.tenantId || 'default_tenant';
-    const id = item.id || `${tableName.slice(0, 3)}_${Date.now()}`;
-    const keys = Object.keys(item).filter(k => k !== 'id');
-    const cols = ['id', ...keys];
-    const placeholders = cols.map(() => '?').join(', ');
-    const vals = [id, ...keys.map(k => typeof item[k] === 'object' ? JSON.stringify(item[k]) : item[k])];
-
-    try {
-      const existing = await dbGet(`SELECT id FROM ${tableName} WHERE id = ?`, [id]);
-      if (existing) {
-        const updateCols = keys.map(k => `${k} = ?`).join(', ');
-        const updateVals = [...keys.map(k => typeof item[k] === 'object' ? JSON.stringify(item[k]) : item[k]), id];
-        await dbRun(`UPDATE ${tableName} SET ${updateCols} WHERE id = ?`, updateVals);
-      } else {
-        await dbRun(`INSERT INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders})`, vals);
-      }
-      const saved = await dbGet(`SELECT * FROM ${tableName} WHERE id = ?`, [id]);
-      res.json(saved);
-    } catch (err) {
-      res.status(500).json({ error: errMsg(err) });
-    }
-  });
-
-  app.delete(`/api/${tableName}/:id`, authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
-    const { id } = req.params;
-    try {
-      const tenantId = req.tenantId || 'default_tenant';
-      await dbRun(`DELETE FROM ${tableName} WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)`, [id, tenantId]);
-      if (tableName === 'menu_items') {
-        try {
-          notifyPublicStore({ type: 'item_deleted', itemId: id }, tenantId);
-          notifyPOS({ type: 'item_deleted', itemId: id }, tenantId);
-        } catch (_) {}
-      } else if (tableName === 'categories') {
-        try {
-          notifyPublicStore({ type: 'category_deleted', categoryId: id }, tenantId);
-          notifyPOS({ type: 'category_deleted', categoryId: id }, tenantId);
-        } catch (_) {}
-      }
-      res.json({ success: true, id });
-    } catch (err) {
-      res.status(500).json({ error: errMsg(err) });
-    }
-  });
-}
+// Domain-specific handlers below enforce roles, fixed columns and tenant ownership.
 
 // ======================================================
 // CUSTOMER AUTH ENDPOINTS (no staff token required)
@@ -2411,7 +2433,7 @@ async function sendSMS(to, message) {
 
     const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
     const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-    
+
     const body = new URLSearchParams();
     body.append('To', to);
     body.append('From', fromNumber);
@@ -2769,7 +2791,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
   if (!phone || !password) {
     return res.status(400).json({ error: 'Phone number and password are required.' });
   }
-  
+
   const cleanPhone = phone.replace(/[\s-]/g, '');
 
   try {
@@ -3138,9 +3160,9 @@ export async function calculateOrderETA(orderId, tenantId = 'default_tenant') {
     if (!order) return { estimatedMinutes: 25, estimatedDeliveryTime: Date.now() + 25 * 60 * 1000 };
 
     const items = await dbAll(
-      `SELECT m.prepTimeMinutes, oi.quantity 
-       FROM order_items oi 
-       JOIN menu_items m ON oi.menuItemId = m.id 
+      `SELECT m.prepTimeMinutes, oi.quantity
+       FROM order_items oi
+       JOIN menu_items m ON oi.menuItemId = m.id
        WHERE oi.orderId = ?`,
       [orderId]
     );
@@ -3299,8 +3321,8 @@ app.get('/api/public/cart-upsell', publicApiLimiter, async (req, res) => {
     const cartItemIds = cartIdsStr.split(',').filter(Boolean);
 
     const allItems = await dbAll(
-      `SELECT id, name, price, category, emoji, description, dietaryTags 
-       FROM menu_items 
+      `SELECT id, name, price, category, emoji, description, dietaryTags
+       FROM menu_items
        WHERE tenant_id = ? AND (stock IS NULL OR stock > 0)`,
       [tenantId]
     );
@@ -3356,9 +3378,9 @@ app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
     if (!driver) return res.json({ driver: null, orders: [] });
 
     const activeOrders = await dbAll(
-      `SELECT o.*, dl.lat as driverLat, dl.lng as driverLng 
-       FROM orders o 
-       LEFT JOIN driver_locations dl ON o.id = dl.orderId 
+      `SELECT o.*, dl.lat as driverLat, dl.lng as driverLng
+       FROM orders o
+       LEFT JOIN driver_locations dl ON o.id = dl.orderId
        WHERE o.driverId = ? AND o.status IN ('out_for_delivery', 'confirmed', 'preparing', 'ready')
        ORDER BY o.timestamp ASC`,
       [driver.id]
@@ -3415,9 +3437,14 @@ app.get('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
     const rawToken = req.headers.authorization && req.headers.authorization.split(' ')[1];
     if (!rawToken) return res.status(401).json({ error: 'Authentication required to access order chat.' });
     let decoded;
-    try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); } catch {
+    try {
+      try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); }
+      catch { decoded = jwt.verify(rawToken, process.env.CUSTOMER_JWT_SECRET || JWT_SECRET); }
+    } catch {
       return res.status(403).json({ error: 'Invalid or expired token.' });
     }
+    const targetOrder = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [id]);
+    if (!targetOrder || (decoded.type !== 'customer' && targetOrder.tenant_id !== decoded.tenant_id)) return res.status(404).json({ error: 'Order not found.' });
     // Staff (owner/manager/cashier/kitchen) can see all chats
     const isStaff = decoded.role && ['owner', 'manager', 'cashier', 'kitchen'].includes(decoded.role);
     const isDriver = decoded.role === 'driver';
@@ -3427,7 +3454,7 @@ app.get('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
     }
     if (isDriver || isCustomer) {
       // Verify caller is tied to this order
-      const order = await dbGet('SELECT id, customerAccountId, driverId FROM orders WHERE id = ?', [id]);
+      const order = await dbGet('SELECT id, customerAccountId, driverId, tenant_id FROM orders WHERE id = ?', [id]);
       if (!order) return res.status(404).json({ error: 'Order not found.' });
       if (isDriver && order.driverId !== decoded.driverId) {
         return res.status(403).json({ error: 'You are not the assigned driver for this order.' });
@@ -3458,15 +3485,20 @@ app.post('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
     const rawToken = req.headers.authorization && req.headers.authorization.split(' ')[1];
     if (!rawToken) return res.status(401).json({ error: 'Authentication required to send chat messages.' });
     let decoded;
-    try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); } catch {
+    try {
+      try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); }
+      catch { decoded = jwt.verify(rawToken, process.env.CUSTOMER_JWT_SECRET || JWT_SECRET); }
+    } catch {
       return res.status(403).json({ error: 'Invalid or expired token.' });
     }
     // Verify caller is the order's driver or customer
-    const order = await dbGet('SELECT id, customerAccountId, driverId FROM orders WHERE id = ?', [id]);
+    const order = await dbGet('SELECT id, customerAccountId, driverId, tenant_id FROM orders WHERE id = ?', [id]);
     if (!order) return res.status(404).json({ error: 'Order not found.' });
     const isDriver = decoded.role === 'driver';
     const isCustomer = decoded.type === 'customer';
     const isStaff = decoded.role && ['owner', 'manager'].includes(decoded.role);
+    if (!isStaff && !isDriver && !isCustomer) return res.status(403).json({ error: 'Access denied.' });
+    if (!isCustomer && order.tenant_id !== decoded.tenant_id) return res.status(404).json({ error: 'Order not found.' });
     if (!isStaff) {
       if (isDriver && order.driverId !== decoded.driverId) {
         return res.status(403).json({ error: 'You are not the assigned driver for this order.' });
@@ -3758,9 +3790,9 @@ Return valid JSON:
 
     // Intent: Spicy Food / Kottu / Devilled
     if (msg.includes('spicy') || msg.includes('kottu') || msg.includes('devilled') || msg.includes('සැර') || msg.includes('කොත්තු') || msg.includes('காரமான')) {
-      const spicyItems = menuItems.filter(i => 
-        (i.dietaryTags || '').includes('spicy') || 
-        i.name.toLowerCase().includes('kottu') || 
+      const spicyItems = menuItems.filter(i =>
+        (i.dietaryTags || '').includes('spicy') ||
+        i.name.toLowerCase().includes('kottu') ||
         i.name.toLowerCase().includes('devilled') ||
         i.name.toLowerCase().includes('spicy')
       ).slice(0, 3);
@@ -3782,7 +3814,7 @@ Return valid JSON:
     else if (msg.includes('veg') || msg.includes('vegan') || msg.includes('ශාක') || msg.includes('சைவ')) {
       const vegItems = menuItems.filter(i => (i.dietaryTags || '').includes('veg') || (i.dietaryTags || '').includes('vegan')).slice(0, 3);
       recommendedItems = vegItems.length > 0 ? vegItems : menuItems.slice(0, 3);
-      reply = isSinhala 
+      reply = isSinhala
         ? `🌱 අපේ නැවුම් ශාකභක්ෂක (Vegetarian) කෑම වර්ග මෙන්න:`
         : `🌱 Here are our fresh, delicious Vegetarian & Vegan choices:`;
       suggestions = ['🌱 Veg Rice & Curry', '🥗 Salad Specials', '💡 Combo under 2000'];
@@ -3883,10 +3915,10 @@ app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), async (req
 
 async function syncAllRealCustomersToCrm(tenantId) {
   try {
-    const tid = tenantId || 'tenant_kb2c';
+    const tid = tenantId || 'default_tenant';
 
     // 1. Sync from registered customer_accounts
-    const accounts = await dbAll(`SELECT id, name, phone, email, loyaltyPoints, totalSpent FROM customer_accounts`);
+    const accounts = await dbAll(`SELECT id, name, phone, email, loyaltyPoints, totalSpent FROM customer_accounts WHERE tenant_id = ?`, [tid]);
     if (accounts && accounts.length > 0) {
       for (const acc of accounts) {
         const cleanPhone = acc.phone ? acc.phone.trim() : '';
@@ -3894,8 +3926,8 @@ async function syncAllRealCustomersToCrm(tenantId) {
         if (!cleanPhone && !cleanEmail && !acc.id) continue;
 
         const existing = await dbGet(
-          `SELECT id FROM customers WHERE id = ? OR (phone = ? AND phone != '') OR (email = ? AND email != '')`,
-          [acc.id, cleanPhone, cleanEmail]
+          `SELECT id FROM customers WHERE tenant_id = ? AND (id = ? OR (phone = ? AND phone != '') OR (email = ? AND email != ''))`,
+          [tid, acc.id, cleanPhone, cleanEmail]
         );
 
         if (existing) {
@@ -3914,15 +3946,15 @@ async function syncAllRealCustomersToCrm(tenantId) {
 
     // 2. Sync from actual orders (real customer orders)
     const orderStats = await dbAll(
-      `SELECT 
-         customerPhone, 
-         MAX(customerName) as customerName, 
-         MAX(customerEmail) as customerEmail, 
-         COUNT(*) as realOrderCount, 
-         SUM(total) as realTotalSpent 
-       FROM orders 
-       WHERE customerPhone IS NOT NULL AND customerPhone != '' 
-       GROUP BY customerPhone`
+      `SELECT
+         customerPhone,
+         MAX(customerName) as customerName,
+         MAX(customerEmail) as customerEmail,
+         COUNT(*) as realOrderCount,
+         SUM(total) as realTotalSpent
+       FROM orders
+       WHERE tenant_id = ? AND (status = 'paid' OR paymentStatus = 'paid') AND customerPhone IS NOT NULL AND customerPhone != ''
+       GROUP BY customerPhone`, [tid]
     );
 
     if (orderStats && orderStats.length > 0) {
@@ -3932,8 +3964,8 @@ async function syncAllRealCustomersToCrm(tenantId) {
         const cleanEmail = stat.customerEmail ? stat.customerEmail.trim().toLowerCase() : '';
 
         const existing = await dbGet(
-          `SELECT id FROM customers WHERE phone = ?`,
-          [cleanPhone]
+          `SELECT id FROM customers WHERE phone = ? AND tenant_id = ?`,
+          [cleanPhone, tid]
         );
 
         if (existing) {
@@ -3988,7 +4020,7 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
 // ── ADMIN USER MANAGEMENT ENDPOINTS ──
 app.get('/api/users', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const users = await dbAll('SELECT id, username, role, pin, createdAt FROM users WHERE tenant_id = ?', [req.tenantId]);
+    const users = await dbAll('SELECT id, username, role, createdAt FROM users WHERE tenant_id = ?', [req.tenantId]);
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -3996,6 +4028,7 @@ app.get('/api/users', authenticateToken, requireRole(['owner', 'manager']), asyn
 });
 
 app.post('/api/users', authenticateToken, requireRole(['owner', 'manager']), validateRequest(userCreateSchema), async (req, res) => {
+  if (req.body.role === 'owner' && req.user.role !== 'owner') return res.status(403).json({ error: 'Only an owner can create another owner.' });
   const { username, role, pin, password } = req.body;
   if (!username || !role) return res.status(400).json({ error: 'Username and role are required.' });
   try {
@@ -4010,7 +4043,7 @@ app.post('/api/users', authenticateToken, requireRole(['owner', 'manager']), val
     const id = 'usr_' + Date.now();
     const hash = await bcrypt.hash(password || '123456', 10);
     await dbRun('INSERT INTO users (id, username, passwordHash, role, pin, tenant_id) VALUES (?, ?, ?, ?, ?, ?)', [
-      id, username, hash, role, pin || '1234', req.tenantId
+      id, username, hash, role, await bcrypt.hash(pin || generateSecurePin(), 12), req.tenantId
     ]);
     await writeAuditLog(req.user.id, req.user.username, 'create_user', `Created user ${username} with role ${role}`);
     res.json({ success: true, id, message: `User ${username} created successfully!` });
@@ -4332,6 +4365,7 @@ app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
 
 // POST /api/public/restaurants/register — Onboard a new Restaurant / BBQ Shop tenant
 app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) => {
+  if (isProd) return res.status(403).json({ error: 'Contact the platform administrator to provision a restaurant.' });
   const { name, ownerEmail, phone, cuisine, address, password } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'Restaurant name is required.' });
   if (!ownerEmail || !ownerEmail.includes('@')) return res.status(400).json({ error: 'Valid owner email is required.' });
@@ -4418,7 +4452,7 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
 });
 
 // POST /api/saas/tenants — Provision New SaaS Tenant Subdomain
-app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
   const { name, subdomain, ownerEmail, plan = 'pro' } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: 'Restaurant Tenant Name is required.' });
   if (!subdomain || !subdomain.trim()) return res.status(400).json({ error: 'Subdomain Slug is required.' });
@@ -4506,7 +4540,7 @@ app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager'
 });
 
 // GET /api/saas/tenants — List all provisioned SaaS tenant shops
-app.get('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+app.get('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
   try {
     const tenants = await dbAll('SELECT id, name, subdomain, ownerEmail, plan, status, createdAt FROM tenants ORDER BY createdAt DESC');
     const result = (tenants || []).map(t => ({
@@ -4522,7 +4556,7 @@ app.get('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']
 });
 
 // DELETE /api/saas/tenants/:id — Delete store and wipe all its data
-app.delete('/api/saas/tenants/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+app.delete('/api/saas/tenants/:id', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
   const { id } = req.params;
   if (!id || id === 'default_tenant') {
     return res.status(400).json({ error: 'Cannot delete the main default tenant store.' });
@@ -4560,7 +4594,7 @@ app.delete('/api/saas/tenants/:id', authenticateToken, requireRole(['owner', 'ma
 });
 
 // PATCH /api/saas/tenants/:id/status — Toggle active / suspended status
-app.patch('/api/saas/tenants/:id/status', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+app.patch('/api/saas/tenants/:id/status', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body || {};
   if (!status || !['active', 'suspended'].includes(status)) {
@@ -4648,7 +4682,7 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
       modifiers: modifiersMap[item.id] || []
     }));
 
-    const st = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'logo', 'storeOpen', 'defaultPrepTime', 'deliveryFee', 'minimumOrder', 'currencySymbol', 'phone', 'address']);
+    const st = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'logo', 'storeOpen', 'defaultPrepTime', 'deliveryFee', 'minimumOrder', 'currencySymbol', 'phone', 'address', 'taxRate', 'serviceChargeRate']);
 
     res.json({
       tenantId,
@@ -4661,6 +4695,8 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
       deliveryFee: parseFloat(st.deliveryFee || 0),
       minimumOrder: parseFloat(st.minimumOrder || 0),
       currencySymbol: st.currencySymbol || 'Rs.',
+      taxRate: Number(st.taxRate || 0),
+      serviceChargeRate: Number(st.serviceChargeRate || 0),
       categories,
       items: itemsWithModifiers
     });
@@ -4681,7 +4717,7 @@ const publicSSESubscribers = new Set(); // Set(res) — customer app store SSE
 function notifyPublicStore(eventData, tenantId) {
   const payload = `data: ${JSON.stringify(eventData)}\n\n`;
   publicSSESubscribers.forEach(res => {
-    if (tenantId && res._tenantId && res._tenantId !== tenantId) return; // tenant partition
+    if (!tenantId || !res._tenantId || res._tenantId !== tenantId) return; // fail closed
     try { res.write(payload); } catch (e) {}
   });
 }
@@ -4706,7 +4742,7 @@ function notifyOrderStream(orderId, payload) {
 function notifyPOS(eventData, tenantId) {
   const payload = `data: ${JSON.stringify(eventData)}\n\n`;
   posSSESubscribers.forEach(res => {
-    if (tenantId && res._tenantId && res._tenantId !== tenantId) return; // tenant partition
+    if (!tenantId || !res._tenantId || res._tenantId !== tenantId) return; // fail closed
     try { res.write(payload); } catch (e) {}
   });
 }
@@ -4745,7 +4781,7 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
   if (!isValidSriLankanPhone(customerPhone)) {
     return res.status(400).json({ error: 'Please enter a valid Sri Lankan phone number (e.g. 0771234567 or +94771234567).' });
   }
-  
+
   const type = diningType || orderType || 'takeaway';
   if (type === 'delivery') {
     if (!deliveryAddress || !isValidAddress(deliveryAddress)) {
@@ -4775,13 +4811,19 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
         const rawToken = customerToken || (req.headers.authorization ? req.headers.authorization.split(' ')[1] : '');
         const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
         const decoded = jwt.verify(rawToken, secret);
-        if (decoded && decoded.id) {
+        if (decoded && decoded.id && decoded.type === 'customer') {
           customerAccountId = decoded.id;
           isAlreadyVerified = true;
         }
       } catch (e) { /* ignore invalid tokens */ }
     }
 
+    const pointsRequested = Number(loyaltyPointsToRedeem || 0);
+    if (!Number.isSafeInteger(pointsRequested) || pointsRequested < 0) return res.status(400).json({ error: 'Invalid loyalty points.' });
+    if (pointsRequested > 0) {
+      const account = customerAccountId && await dbGet('SELECT loyaltyPoints FROM customer_accounts WHERE id = ? AND tenant_id = ?', [customerAccountId, tenantId]);
+      if (!account || account.loyaltyPoints < pointsRequested) return res.status(400).json({ error: 'Insufficient verified loyalty points.' });
+    }
     // ── Dynamic Distance-Based Delivery Fee (server-authoritative) ──
     let deliveryFee = 0;
     let deliveryDistanceKm = null;
@@ -4824,7 +4866,7 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
       return res.status(400).json({ error: `Minimum order for delivery is Rs. ${minimumOrder}. Your subtotal is Rs. ${bill.subtotal}.` });
     }
 
-    const orderId = `ord_online_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const orderId = `ord_online_${crypto.randomUUID()}`;
     const resolvedPaymentMethod = paymentMethod || 'online_pending';
 
     await dbRun('BEGIN TRANSACTION');
@@ -4832,9 +4874,9 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
     try {
       await dbRun(
         `INSERT INTO orders (
-          id, tableId, diningType, customerId, items, subtotal, 
-          discountType, discountValue, discount, serviceCharge, tax, total, 
-          status, timestamp, paymentMethod, source, customerAccountId, 
+          id, tableId, diningType, customerId, items, subtotal,
+          discountType, discountValue, discount, serviceCharge, tax, total,
+          status, timestamp, paymentMethod, source, customerAccountId,
           deliveryAddress, orderType, customerName, customerPhone,
           scheduledTime, deliveryFee, promotionalDiscount, roundedAmount, tip,
           customerEmail, deliveryLat, deliveryLng, deliveryDistanceKm, etaMinutes, tenant_id
@@ -4876,11 +4918,12 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
       for (const item of bill.resolvedItems) {
         const itemId = `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         await dbRun(
-          `INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [itemId, orderId, item.id, item.name, item.unitPrice, item.quantity, item.notes]
+          `INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [itemId, orderId, item.id, item.name, item.unitPrice, item.quantity, item.notes, tenantId]
         );
         // Atomic stock reduction for menu item (safe non-blocking update)
-        await dbRun('UPDATE menu_items SET stock = MAX(0, COALESCE(stock, 100) - ?) WHERE id = ?', [item.quantity, item.id]);
+        const stockUpdate = await dbRun('UPDATE menu_items SET stock = stock - ? WHERE id = ? AND tenant_id = ? AND (stock IS NULL OR stock >= ?)', [item.quantity, item.id, tenantId, item.quantity]);
+        if (stockUpdate.changes !== 1) throw new Error('Insufficient stock. Refresh the menu and retry.');
 
         // Automatic raw ingredient stock deduction via recipes
         const recipeRows = await dbAll('SELECT ingredientId, quantityRequired FROM recipes WHERE menuItemId = ? AND tenant_id = ?', [item.id, tenantId]);
@@ -4891,8 +4934,9 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
       }
 
       if (customerAccountId && loyaltyPointsToRedeem > 0 && bill.loyaltyDiscount > 0) {
-        await dbRun('UPDATE customer_accounts SET loyaltyPoints = loyaltyPoints - ? WHERE id = ?',
-          [loyaltyPointsToRedeem, customerAccountId]);
+        const redeemed = await dbRun('UPDATE customer_accounts SET loyaltyPoints = loyaltyPoints - ? WHERE id = ? AND tenant_id = ? AND loyaltyPoints >= ?',
+          [loyaltyPointsToRedeem, customerAccountId, tenantId, loyaltyPointsToRedeem]);
+        if (redeemed.changes !== 1) throw new Error('Insufficient loyalty points.');
       }
 
       await dbRun('COMMIT');
@@ -4933,6 +4977,7 @@ app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  keepStreamAlive(req, res);
 
   if (!sseSubscribers.has(orderId)) {
     sseSubscribers.set(orderId, new Set());
@@ -4958,30 +5003,15 @@ app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
 });
 
 // GET /api/stream/pos — Live SSE stream for staff POS
-app.get('/api/stream/pos', async (req, res) => {
-  // EventSource can't send an Authorization header, so the POS passes its JWT as
-  // ?token=. We verify it to (a) authenticate the stream and (b) tag the subscriber
-  // with its tenant so broadcasts never leak across tenants.
-  const token = req.query.token || (req.headers['authorization'] ? req.headers['authorization'].split(' ')[1] : null);
-  if (!token) return res.status(401).json({ error: 'Authentication token required.' });
-  let payload;
-  try {
-    payload = jwt.verify(token, process.env.JWT_SECRET || JWT_SECRET);
-  } catch (e) {
-    return res.status(403).json({ error: 'Token is invalid or has expired.' });
-  }
-
+app.get('/api/stream/pos', authenticateStaffStream, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-
-  res._tenantId = payload.tenant_id || 'default_tenant';
+  keepStreamAlive(req, res);
+  res._tenantId = req.tenantId;
   posSSESubscribers.add(res);
   res.write(`data: ${JSON.stringify({ type: 'connected', at: Date.now() })}\n\n`);
-
-  req.on('close', () => {
-    posSSESubscribers.delete(res);
-  });
+  req.on('close', () => posSSESubscribers.delete(res));
 });
 
 // GET /api/stream/store — Public SSE stream for customer app store-level events.
@@ -4991,6 +5021,7 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  keepStreamAlive(req, res);
 
   res._tenantId = await resolvePublicTenant(req);
   publicSSESubscribers.add(res);
@@ -5018,7 +5049,7 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
 app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
   try {
     const order = await dbGet(
-      `SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, deliveryAddress, deliveryLat, deliveryLng, etaMinutes, acceptedAt, rejectedReason, customerName, customerPhone, invoiceNumber
+      `SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, deliveryAddress, deliveryLat, deliveryLng, etaMinutes, acceptedAt, rejectedReason, customerName, customerPhone, invoiceNumber, paymentStatus
        FROM orders WHERE id = ?`,
       [req.params.id]
     );
@@ -5032,19 +5063,9 @@ app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
 });
 
 // GET /api/public/drivers — List available drivers for delivery dispatch
-app.get('/api/public/drivers', async (req, res) => {
-  try {
-    const drivers = await dbAll("SELECT id, name, phone, role FROM users WHERE role = 'driver' OR role = 'staff'");
-    if (!drivers || drivers.length === 0) {
-      return res.json([
-        { id: 'drv_1', name: 'Kamal Perera', phone: '0771234567', vehicle: 'Scooter (WP BI-4821)', status: 'available' },
-        { id: 'drv_2', name: 'Saman Silva', phone: '0719876543', vehicle: 'Bicycle', status: 'available' }
-      ]);
-    }
-    res.json(drivers);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
+app.get('/api/public/drivers', authenticateToken, async (req, res) => {
+  const drivers = await dbAll('SELECT id,name,status,vehicleType FROM drivers WHERE tenant_id = ?', [req.tenantId]);
+  res.json(drivers);
 });
 
 // GET /api/public/driver/orders — Orders assigned to or available for a driver
@@ -5062,7 +5083,11 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
       "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') ORDER BY timestamp DESC",
       [t]
     );
-    res.json({ assigned: assigned || [], unassigned: unassigned || [] });
+    const completed = await dbAll("SELECT * FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
+    const colomboNow = new Date(Date.now() + 330 * 60000);
+    const dayStart = Date.UTC(colomboNow.getUTCFullYear(), colomboNow.getUTCMonth(), colomboNow.getUTCDate()) - 330 * 60000;
+    const cash = await dbGet("SELECT COALESCE(SUM(total),0) AS amount FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' AND paymentMethod IN ('cash','cod') AND COALESCE(cashCollected,0) = 0", [t, driverId]);
+    res.json({ assigned: assigned || [], unassigned: unassigned || [], completed, summary: { completedToday: completed.filter(order => Number(order.timestamp) >= dayStart).length, cashToHandover: cash?.amount || 0 } });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -5077,7 +5102,8 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
   try {
     const order = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
     if (!order || order.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
-    await dbRun('UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ?', [driverId, orderId, t]);
+    const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
+    if (claimed.changes !== 1) return res.status(409).json({ error: 'This delivery has already been assigned or closed.' });
     notifyPOS({ type: 'driver_assigned', orderId, driverId }, t);
     res.json({ success: true });
   } catch (err) {
@@ -5100,7 +5126,7 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
     return res.status(400).json({ error: 'Invalid delivery status.' });
   }
   try {
-    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
+    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ? AND driverId = ?', [orderId, driverId]);
     if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
     await dbRun('UPDATE orders SET status = ?, driverId = ? WHERE id = ? AND tenant_id = ?', [status, driverId, orderId, t]);
     if (typeof lat === 'number' && typeof lng === 'number') {
@@ -5111,6 +5137,9 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
       notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName: driverId });
     }
     const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
+    if (order && status === 'delivered' && ['cash', 'cod'].includes(order.paymentMethod) && order.paymentStatus !== 'paid') {
+      await settleOrderPaid(order, 'cash');
+    }
     if (order) {
       notifyOrderUpdate(orderId, order);
     }
@@ -5130,7 +5159,7 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
     return res.status(400).json({ error: 'Valid orderId, lat, and lng are required.' });
   }
   try {
-    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
+    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ? AND driverId = ?', [orderId, driverId]);
     if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
     await dbRun(
       'INSERT OR REPLACE INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)',
@@ -5158,7 +5187,7 @@ app.post('/api/public/orders/:id/cancel', publicApiLimiter, async (req, res) => 
     if (order.status !== 'pending') {
       return res.status(409).json({ error: 'This order can no longer be cancelled. Please contact the restaurant.' });
     }
-    if (order.status === 'paid' || order.paymentMethod === 'payhere') {
+    if (order.paymentStatus === 'paid' || order.status === 'paid' || order.paymentMethod === 'payhere') {
       return res.status(409).json({ error: 'Paid orders cannot be cancelled online. Please contact the restaurant.' });
     }
 
@@ -5213,7 +5242,8 @@ app.post('/api/payments/payhere/checkout', publicApiLimiter, async (req, res) =>
       return res.status(404).json({ error: 'Order not found.' });
     }
 
-    const merchantId = process.env.PAYHERE_MERCHANT_ID || '1211122';
+    const merchantId = process.env.PAYHERE_MERCHANT_ID;
+    if (!merchantId) return res.status(503).json({ error: 'Online payments are not configured.' });
     const currency = 'LKR';
     const formattedAmount = Number(order.total).toFixed(2);
 
@@ -5222,12 +5252,12 @@ app.post('/api/payments/payhere/checkout', publicApiLimiter, async (req, res) =>
     const signature = crypto.createHash('md5').update(signatureSource).digest('hex').toUpperCase();
 
     res.json({
-      checkoutUrl: `https://sandbox.payhere.lk/pay/checkout`,
+      checkoutUrl: process.env.PAYHERE_SANDBOX === 'false' ? 'https://www.payhere.lk/pay/checkout' : 'https://sandbox.payhere.lk/pay/checkout',
       merchantId,
       orderId,
       amount: order.total,
       currency,
-      sandbox: true,
+      sandbox: process.env.PAYHERE_SANDBOX !== 'false',
       signature,
       // Server-authoritative callback URL; PayHere invokes this server-to-server (never the browser).
       notifyUrl: process.env.PAYHERE_NOTIFY_URL || ''
@@ -5375,8 +5405,8 @@ app.post('/api/public/group-cart/:id/checkout', publicApiLimiter, async (req, re
       for (const item of bill.resolvedItems) {
         const itemId = `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         await dbRun(
-          `INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [itemId, orderId, item.id, item.name, item.unitPrice, item.quantity, item.notes]
+          `INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [itemId, orderId, item.id, item.name, item.unitPrice, item.quantity, item.notes, tenantId]
         );
         // Atomic stock check and deduction
         const stockResult = await dbRun('UPDATE menu_items SET stock = stock - ? WHERE id = ? AND stock >= ?', [item.quantity, item.id, item.quantity]);
@@ -5908,11 +5938,11 @@ app.get('/api/public/reverse-geocode', geocodeLimiter, async (req, res) => {
 // The driver opens a link (issued by staff) that posts their GPS here. The order id
 // acts as the bearer token (same model as the public status/cancel routes). Each ping
 // is stored and pushed to the customer's live tracking stream.
-app.post('/api/public/orders/:id/driver-location', publicApiLimiter, async (req, res) => {
+app.post('/api/public/orders/:id/driver-location', publicApiLimiter, authenticateDriver, async (req, res) => {
   const { lat, lng, driverName } = req.body || {};
   if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'lat and lng (numbers) are required.' });
   try {
-    const order = await dbGet('SELECT id, status FROM orders WHERE id = ?', [req.params.id]);
+    const order = await dbGet('SELECT id, status FROM orders WHERE id = ? AND tenant_id = ? AND driverId = ?', [req.params.id, req.tenantId, req.driver.driverId]);
     if (!order) return res.status(404).json({ error: 'Order not found.' });
     await dbRun(
       `INSERT INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)
@@ -5930,7 +5960,8 @@ app.post('/api/public/orders/:id/driver-location', publicApiLimiter, async (req,
 // ── 3.5 PayHere Payment Gateway Sandbox & Live Integration (Public) ──
 app.post('/api/public/payment/payhere/hash', publicApiLimiter, async (req, res) => {
   try {
-    const { orderId, currency = 'LKR' } = req.body;
+    const { orderId } = req.body;
+    const currency = 'LKR';
     if (!orderId) {
       return res.status(400).json({ error: 'orderId is required' });
     }
@@ -5962,40 +5993,7 @@ app.post('/api/public/payment/payhere/hash', publicApiLimiter, async (req, res) 
 });
 
 // PayHere Server-to-Server Instant Payment Notification (IPN) Webhook
-app.post('/api/public/payment/payhere/notify', express.urlencoded({ extended: true }), async (req, res) => {
-  try {
-    const {
-      merchant_id,
-      order_id,
-      payment_id,
-      payhere_amount,
-      payhere_currency,
-      status_code,
-      md5sig
-    } = req.body;
-
-    const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET;
-    if (!merchantSecret) return res.status(503).send('Payment gateway is not configured');
-    const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
-    const expectedHashStr = merchant_id + order_id + payhere_amount + payhere_currency + status_code + hashedSecret;
-    const expectedHash = crypto.createHash('md5').update(expectedHashStr).digest('hex').toUpperCase();
-
-    if (md5sig !== expectedHash) {
-      console.warn(`[PayHere Webhook] Invalid MD5 signature for Order #${order_id}`);
-      return res.status(400).send('Invalid Signature');
-    }
-
-    if (String(status_code) === '2') { // 2 = PayHere Paid Status
-      await dbRun(`UPDATE orders SET status = 'paid', paymentStatus = 'paid', paymentRef = ? WHERE id = ?`, [payment_id || 'PAYHERE_SUCCESS', order_id]);
-      console.log(`[PayHere Webhook] Order #${order_id} successfully marked as PAID!`);
-    }
-
-    res.status(200).send('OK');
-  } catch (err) {
-    console.error('[PayHere Webhook Error]', err);
-    res.status(500).send(err.message);
-  }
-});
+app.post('/api/public/payment/payhere/notify', handlePayhereNotification);
 
 // ── Static Frontend Assets & Single Page App (SPA) Routing ──
 const posDistPath = path.join(__dirname, 'dist');
@@ -6044,6 +6042,7 @@ app.get('/api/saas/plans', (req, res) => {
 
 // ── 3.6 Aggregator Webhooks (PickMe / UberEats) ──────────────────────────────
 app.post('/api/public/webhooks/aggregators/:provider', publicApiLimiter, async (req, res) => {
+  if (isProd) return res.status(503).json({ error: 'Aggregator ingestion is disabled until provider signature verification is configured.' });
   try {
     const provider = String(req.params.provider).toLowerCase();
     const tenantId = req.query.tenant || req.headers['x-tenant-id'] || 'default_tenant';
@@ -6163,42 +6162,12 @@ app.post('/api/print/receipt', async (req, res) => {
 });
 
 // ── Offline Sales Bulk Sync Engine ──────────────────────────────────────────
-app.post('/api/orders/offline-sync', async (req, res) => {
+app.post('/api/orders/offline-sync', requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
   try {
-    const { orders = [] } = req.body || {};
-    if (!Array.isArray(orders) || orders.length === 0) {
-      return res.status(400).json({ error: 'No orders provided for sync.' });
-    }
-
-    let syncedCount = 0;
-    for (const offOrder of orders) {
-      const orderId = offOrder.offlineId || `ord_off_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-      
-      const existing = await dbGet('SELECT id FROM orders WHERE id = ? AND tenant_id = ?', [orderId, req.tenantId]);
-      if (existing) continue; // Deduplicate already synced offline sales
-
-      await dbRun(
-        `INSERT INTO orders (id, orderType, total, status, paymentMethod, cashierId, timestamp, tenant_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          orderId,
-          offOrder.orderType || 'dine_in',
-          Number(offOrder.total || 0),
-          'paid',
-          offOrder.paymentMethod || 'cash',
-          req.user.id,
-          offOrder.createdAt || Date.now(),
-          req.tenantId
-        ]
-      );
-      syncedCount++;
-    }
-
-    await writeAuditLog(req.user.id, req.user.username, 'offline_sync', `Synced ${syncedCount} offline cash sales`);
-    res.json({ ok: true, syncedCount });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
+    const result = await reconcileOfflineSales({ dbGet, dbRun, tenantId: req.tenantId, userId: req.user.id }, req.body?.orders);
+    notifyPOS({ type: 'offline_sales_synced', count: result.syncedCount }, req.tenantId);
+    res.json(result);
+  } catch (error) { res.status(409).json({ error: error.message, code: 'RECONCILIATION_REQUIRED' }); }
 });
 
 // ── Purchase Orders & Low Stock Reordering ───────────────────────────────────
@@ -6292,59 +6261,33 @@ app.post('/api/orders/:id/accept', requireRole(['owner', 'manager', 'cashier']),
 // PUT /api/orders/:id/modify — Staff modify order items after KOT sent
 app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
   const orderId = req.params.id;
-  const { items, discountType, discountValue, tip } = req.body;
-
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Order must contain at least one item.' });
-  }
-
+  const { items, discountType, discountValue, tip } = req.body || {};
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Order items are required.' });
+  if (Number(discountValue || 0) > 0 && !['owner', 'manager'].includes(req.user.role)) return res.status(403).json({ error: 'Only a manager can change order discounts.' });
+  await dbRun('BEGIN TRANSACTION');
   try {
-    const existing = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
-    if (!existing) return res.status(404).json({ error: 'Order not found.' });
-
-    // Fetch settings for pricing calculation (tenant-scoped)
-    const settingsObj = await getSettingsMap(req.tenantId, ['taxRate', 'serviceChargeRate']);
-
-    // Pricer helper
-    const subtotal = items.reduce((acc, item) => acc + ((parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1)), 0);
-    let discount = 0;
-    if (discountType === 'percent') discount = subtotal * ((parseFloat(discountValue) || 0) / 100);
-    else if (discountType === 'flat') discount = parseFloat(discountValue) || 0;
-    
-    const taxRate = parseFloat(settingsObj.taxRate) || 0;
-    const serviceChargeRate = parseFloat(settingsObj.serviceChargeRate) || 0;
-    const tax = (subtotal - discount) * (taxRate / 100);
-    const serviceCharge = (subtotal - discount) * (serviceChargeRate / 100);
-    const total = Math.max(0, subtotal - discount + tax + serviceCharge + (parseFloat(tip) || 0));
-
-    await dbRun('BEGIN TRANSACTION');
-
-    // Update order row
-    await dbRun(`
-      UPDATE orders
-      SET items = ?, subtotal = ?, discountType = ?, discountValue = ?, discount = ?, tax = ?, serviceCharge = ?, total = ?
-      WHERE id = ?
-    `, [JSON.stringify(items), subtotal, discountType || 'none', discountValue || 0, discount, tax, serviceCharge, total, orderId]);
-
-    // Replace normalized items
-    await dbRun('DELETE FROM order_items WHERE orderId = ?', [orderId]);
-    for (const item of items) {
-      const itemId = `ord_itm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      await dbRun(`
-        INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [itemId, orderId, item.id, item.name, item.price, item.quantity, item.notes || '']);
+    const existing = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [orderId, req.tenantId]);
+    if (!existing || !['pending', 'hold', 'preparing'].includes(existing.status)) {
+      await dbRun('ROLLBACK');
+      return res.status(409).json({ error: 'Only an open order can be modified.' });
     }
-
+    const oldItems = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [orderId]);
+    for (const item of oldItems) await dbRun('UPDATE menu_items SET stock=stock+? WHERE id=? AND tenant_id=?', [item.quantity, item.menuItemId, req.tenantId]);
+    const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, null, existing.deliveryFee || 0, req.tenantId);
+    await dbRun(`UPDATE orders SET items=?, subtotal=?, discountType=?, discountValue=?, discount=?, tax=?, serviceCharge=?, total=?, tip=?, roundedAmount=? WHERE id=? AND tenant_id=?`,
+      [JSON.stringify(bill.resolvedItems),bill.subtotal,discountType || null,Number(discountValue || 0),bill.totalDiscount,bill.tax,bill.serviceCharge,bill.total,bill.tip,bill.roundedAmount,orderId,req.tenantId]);
+    await dbRun('DELETE FROM order_items WHERE orderId = ?', [orderId]);
+    for (const item of bill.resolvedItems) {
+      const result = await dbRun('UPDATE menu_items SET stock=stock-? WHERE id=? AND tenant_id=? AND (stock IS NULL OR stock>=?)', [item.quantity,item.id,req.tenantId,item.quantity]);
+      if (result.changes !== 1) throw new Error('Insufficient stock.');
+      await dbRun('INSERT INTO order_items (id,orderId,menuItemId,name,price,quantity,notes,tenant_id) VALUES (?,?,?,?,?,?,?,?)', [crypto.randomUUID(),orderId,item.id,item.name,item.unitPrice,item.quantity,item.notes,req.tenantId]);
+    }
     await dbRun('COMMIT');
-
-    await writeAuditLog(req.user.id, req.user.username, 'modify_order', `Modified items for order ${orderId}. New total: LKR ${total}`);
     notifyPOS({ type: 'order_updated', orderId }, req.tenantId);
-
-    res.json({ success: true, orderId, subtotal, total });
-  } catch (err) {
+    res.json({ success: true, orderId, total: bill.total });
+  } catch (error) {
     await dbRun('ROLLBACK');
-    res.status(500).json({ error: errMsg(err) });
+    res.status(400).json({ error: error.message });
   }
 });
 
@@ -6405,9 +6348,9 @@ app.delete('/api/categories/:id', requireRole(['owner', 'manager']), async (req,
 function getFoodPhotoFallback(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
   if (item?.image && typeof item.image === 'string' && item.image.trim() !== '') return item.image;
-  
+
   const text = `${item?.name || ''} ${item?.category || ''} ${item?.description || ''}`.toLowerCase();
-  
+
   if (text.includes('bbq') || text.includes('grill') || text.includes('roast')) {
     return 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80';
   }
@@ -6533,12 +6476,7 @@ app.get('/api/ingredients', async (req, res) => {
 
 // SaaS Super-Admin Tenants Management Endpoints
 // Platform super-admin guard: only the platform tenant's owner may manage tenants.
-const requirePlatformAdmin = (req, res, next) => {
-  if (req.tenantId !== 'default_tenant') {
-    return res.status(403).json({ error: 'Platform administrator access only.' });
-  }
-  next();
-};
+
 
 app.get('/api/saas/tenants', requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
   try {
@@ -6805,7 +6743,7 @@ app.post('/api/tables/merge', requireRole(['owner', 'manager', 'cashier']), asyn
     const remainingItems = await dbAll('SELECT * FROM order_items WHERE orderId = ?', [targetOrderId]);
     const newSubtotal = remainingItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const targetOrder = await dbGet('SELECT * FROM orders WHERE id = ?', [targetOrderId]);
-    
+
     // Apply tax & service charge proportionally
     const taxRate = parseFloat(targetOrder.tax || 0) / (parseFloat(targetOrder.subtotal || 1));
     const newTax = newSubtotal * (isNaN(taxRate) ? 0.10 : taxRate);
@@ -6871,16 +6809,16 @@ app.post('/api/shifts/close', validateRequest(shiftCloseSchema), async (req, res
     // Calculate expected cash: startFloat + cash sales + cash_in movements - cash_out movements
     const cashSales = await dbGet(`
       SELECT SUM(total) as cashTotal FROM orders
-      WHERE status = 'paid' AND paymentMethod = 'cash' AND timestamp >= ? AND tenant_id = ?
+      WHERE (status = 'paid' OR paymentStatus = 'paid') AND paymentMethod = 'cash' AND timestamp >= ? AND tenant_id = ?
     `, [shift.startTime, req.tenantId]);
 
     const cashIn = await dbGet(`
-      SELECT SUM(amount) as inTotal FROM cash_movements 
+      SELECT SUM(amount) as inTotal FROM cash_movements
       WHERE shiftId = ? AND type = 'cash_in'
     `, [shift.id]);
 
     const cashOut = await dbGet(`
-      SELECT SUM(amount) as outTotal FROM cash_movements 
+      SELECT SUM(amount) as outTotal FROM cash_movements
       WHERE shiftId = ? AND type = 'cash_out'
     `, [shift.id]);
 
@@ -6893,7 +6831,7 @@ app.post('/api/shifts/close', validateRequest(shiftCloseSchema), async (req, res
     const endCash = parseFloat(actualCash) || expectedCash;
 
     await dbRun(`
-      UPDATE shifts 
+      UPDATE shifts
       SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = "closed", notes = ?
       WHERE id = ?
     `, [Date.now(), endCash, endCash, expectedCash, notes || '', shift.id]);
@@ -6948,7 +6886,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
   const userId = req.user?.id || 'usr_pos';
   const username = req.user?.username || 'pos_user';
-  const tenantId = req.tenantId || 'tenant_kb2c';
+  const tenantId = req.tenantId || 'default_tenant';
 
   try {
     // Check if order already exists
@@ -6958,6 +6896,10 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
       // ORDER UPDATE (Status change / Payment settlement)
       const newStatus = status || existingOrder.status;
       const oldStatus = existingOrder.status;
+      if (!['pending', 'hold', 'preparing', 'ready', 'served', 'paid', 'cancelled'].includes(newStatus)) return res.status(400).json({ error: 'Invalid order status.' });
+      if (['paid', 'cancelled', 'rejected', 'refunded', 'partially_refunded'].includes(oldStatus) && newStatus !== oldStatus) return res.status(409).json({ error: 'A settled or closed order cannot be reopened.' });
+      if (newStatus === 'paid' && ['payhere', 'online_pending'].includes(paymentMethod || existingOrder.paymentMethod)) return res.status(409).json({ error: 'Online payment must be confirmed by the gateway.' });
+
 
       await dbRun('BEGIN TRANSACTION');
 
@@ -6976,6 +6918,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         }
 
         if (newStatus === 'paid' && oldStatus !== 'paid') {
+          await dbRun("UPDATE orders SET paymentStatus = 'paid' WHERE id = ?", [id]);
           // Free table
           if (existingOrder.tableId) {
             await dbRun('UPDATE tables SET status = "free", currentOrderId = NULL WHERE id = ?', [existingOrder.tableId]);
@@ -6984,8 +6927,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           // Loyalty points accrual (Walk-in customer)
           if (existingOrder.customerId) {
             await dbRun(`
-              UPDATE customers 
-              SET points = COALESCE(points, 0) + ?, orderCount = COALESCE(orderCount, 0) + 1, totalSpent = COALESCE(totalSpent, 0) + ? 
+              UPDATE customers
+              SET points = COALESCE(points, 0) + ?, orderCount = COALESCE(orderCount, 0) + 1, totalSpent = COALESCE(totalSpent, 0) + ?
               WHERE id = ?
             `, [earnedPoints, existingOrder.total || 0, existingOrder.customerId]);
           }
@@ -7007,12 +6950,12 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
         // Update orders table
         await dbRun(`
-          UPDATE orders 
+          UPDATE orders
           SET status = ?, paymentMethod = ?, paymentTimestamp = ?, paymentSplit = ?, tip = COALESCE(?, tip), tenant_id = COALESCE(tenant_id, ?)
           WHERE id = ?
         `, [
-          newStatus, 
-          paymentMethod || existingOrder.paymentMethod, 
+          newStatus,
+          paymentMethod || existingOrder.paymentMethod,
           paymentTimestamp || existingOrder.paymentTimestamp || Date.now(),
           paymentSplit ? JSON.stringify(paymentSplit) : existingOrder.paymentSplit,
           tip !== undefined ? parseFloat(tip) : null,
@@ -7039,6 +6982,14 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         return res.status(400).json({ error: 'Order items are required for new orders.' });
       }
 
+      for (const [table, recordId] of [['tables', tableId], ['customers', customerId]]) {
+        if (recordId && !await dbGet(`SELECT id FROM ${table} WHERE id = ? AND tenant_id = ?`, [recordId, tenantId])) {
+          return res.status(404).json({ error: 'Related record not found.' });
+        }
+      }
+      if (status === 'paid' || ['payhere', 'card'].includes(paymentMethod)) {
+        return res.status(400).json({ error: 'Create the order before settling payment.' });
+      }
       // 1. PIN verify check for POS discounts on the server side
       const hasDiscount = (discountValue && parseFloat(discountValue) > 0) || promoCode;
       const userRole = req.user?.role || 'owner';
@@ -7047,7 +6998,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           return res.status(403).json({ error: 'Discount requires a manager PIN override.' });
         }
         // Verify manager PIN
-        const managers = await dbAll('SELECT pin FROM users WHERE role IN ("owner", "manager")');
+        const managers = await dbAll('SELECT pin FROM users WHERE role IN ("owner", "manager") AND tenant_id = ?', [tenantId]);
         let pinVerified = false;
         for (const mgr of managers) {
           if (mgr.pin === managerPin) {
@@ -7093,12 +7044,13 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         for (const item of bill.resolvedItems) {
           const orderItemId = `ord_itm_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
           await dbRun(`
-            INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `, [orderItemId, id, item.id, item.name, item.unitPrice, item.quantity, item.notes || '']);
+            INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes, tenant_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `, [orderItemId, id, item.id, item.name, item.unitPrice, item.quantity, item.notes || '', tenantId]);
 
           // Atomic conditional stock check and update
-          await dbRun('UPDATE menu_items SET stock = MAX(0, stock - ?) WHERE id = ?', [item.quantity, item.id]);
+          const stockUpdate = await dbRun('UPDATE menu_items SET stock = stock - ? WHERE id = ? AND tenant_id = ? AND (stock IS NULL OR stock >= ?)', [item.quantity, item.id, tenantId, item.quantity]);
+          if (stockUpdate.changes !== 1) throw new Error('Insufficient stock. Refresh the menu and retry.');
         }
 
         // Update table status if dine-in
@@ -7134,7 +7086,7 @@ app.get('/api/shifts/summary/:id', async (req, res) => {
     }
 
     const stats = await dbGet(`
-      SELECT 
+      SELECT
         COUNT(id) as totalOrders,
         SUM(total) as totalSales,
         SUM(CASE WHEN paymentMethod = 'cash' THEN total ELSE 0 END) as cashSales,
@@ -7143,15 +7095,15 @@ app.get('/api/shifts/summary/:id', async (req, res) => {
         SUM(discount) as totalDiscounts,
         SUM(serviceCharge) as totalServiceCharge,
         SUM(tax) as totalTax
-      FROM orders 
-      WHERE timestamp >= ? AND (endTime IS NULL OR timestamp <= ?) AND status = 'paid'
-    `, [shift.startTime, shift.endTime || Date.now()]);
+      FROM orders
+      WHERE timestamp >= ? AND timestamp <= ? AND tenant_id = ? AND cashierId = ? AND (status = 'paid' OR paymentStatus = 'paid')
+    `, [shift.startTime, shift.endTime || Date.now(), req.tenantId, shift.userId]);
 
     const voids = await dbGet(`
       SELECT COUNT(id) as voidCount, SUM(total) as voidTotal
-      FROM orders 
-      WHERE timestamp >= ? AND (endTime IS NULL OR timestamp <= ?) AND status = 'cancelled'
-    `, [shift.startTime, shift.endTime || Date.now()]);
+      FROM orders
+      WHERE timestamp >= ? AND timestamp <= ? AND tenant_id = ? AND cashierId = ? AND status = 'cancelled'
+    `, [shift.startTime, shift.endTime || Date.now(), req.tenantId, shift.userId]);
 
     res.json({
       shift,
@@ -7176,6 +7128,7 @@ app.get('/api/shifts/summary/:id', async (req, res) => {
 app.post('/api/orders/:id/refund', async (req, res) => {
   const { refundAmount, reason, managerPin } = req.body;
   const orderId = req.params.id;
+  if (!Number.isFinite(Number(refundAmount)) || Number(refundAmount) <= 0 || !String(reason || '').trim()) return res.status(400).json({ error: 'A positive refund amount and reason are required.' });
 
   try {
     const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
@@ -7187,6 +7140,7 @@ app.post('/api/orders/:id/refund', async (req, res) => {
       return res.status(400).json({ error: 'Only settled orders can be refunded.' });
     }
 
+    if (order.paymentMethod !== 'cash') return res.status(409).json({ error: 'Electronic refunds require confirmation through the payment provider before reconciliation.' });
     const currentRefunded = parseFloat(order.refundedAmount || 0);
     const newRefunded = currentRefunded + (parseFloat(refundAmount) || 0);
 
@@ -7199,9 +7153,9 @@ app.post('/api/orders/:id/refund', async (req, res) => {
     if (req.user.role === 'owner' || req.user.role === 'manager') {
       authorized = true;
     } else if (managerPin) {
-      const manager = await dbGet('SELECT id, username, role FROM users WHERE pin = ? AND role IN ("owner", "manager")', [managerPin]);
-      if (manager) {
-        authorized = true;
+      const managers = await dbAll('SELECT pin FROM users WHERE tenant_id = ? AND role IN ("owner", "manager")', [req.tenantId]);
+      for (const manager of managers) {
+        if (manager.pin && await bcrypt.compare(String(managerPin), manager.pin)) authorized = true;
       }
     }
 
@@ -7215,7 +7169,7 @@ app.post('/api/orders/:id/refund', async (req, res) => {
 
     try {
       await dbRun(`
-        UPDATE orders 
+        UPDATE orders
         SET status = ?, refundedAmount = ?, voidReason = ?
         WHERE id = ?
       `, [newStatus, newRefunded, reason || 'Customer request', orderId]);
@@ -7511,7 +7465,7 @@ app.get('/api/saas/tenants', async (req, res) => {
 
 
 
-app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
   const { name, subdomain, ownerEmail, plan } = req.body;
   if (!name || !subdomain || !ownerEmail) {
     return res.status(400).json({ error: 'name, subdomain, and ownerEmail are required.' });
@@ -7608,7 +7562,7 @@ app.get('/api/reports/x-report', authenticateToken, requireRole(['owner', 'manag
     }
 
     const sales = await dbGet(`
-      SELECT 
+      SELECT
         COUNT(id) as totalOrders,
         SUM(total) as grossSales,
         SUM(subtotal) as subtotalSales,
@@ -7619,7 +7573,7 @@ app.get('/api/reports/x-report', authenticateToken, requireRole(['owner', 'manag
         SUM(serviceCharge) as totalServiceCharge,
         SUM(tax) as totalTax
       FROM orders
-      WHERE tenant_id = ? AND timestamp >= ? AND status = 'paid'
+      WHERE tenant_id = ? AND timestamp >= ? AND (status = 'paid' OR paymentStatus = 'paid')
     `, [req.tenantId, activeShift.startTime]);
 
     const voids = await dbGet(`
@@ -7659,12 +7613,12 @@ app.get('/api/reports/vat', authenticateToken, requireRole(['owner', 'manager'])
 
   try {
     const summary = await dbGet(`
-      SELECT 
+      SELECT
         SUM(subtotal) as taxableSales,
         SUM(tax) as vatCollected,
         COUNT(id) as invoiceCount
       FROM orders
-      WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ? AND status = 'paid'
+      WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ? AND (status = 'paid' OR paymentStatus = 'paid')
     `, [req.tenantId, startTime, endTime]);
 
     res.json({
@@ -7740,7 +7694,7 @@ app.post('/api/inventory/waste', requireRole(['owner', 'manager']), async (req, 
 app.get('/api/staff/performance', requireRole(['owner', 'manager']), async (req, res) => {
   try {
     const staffSales = await dbAll(`
-      SELECT 
+      SELECT
         o.cashierId,
         u.username,
         COUNT(o.id) as totalOrders,
@@ -7748,7 +7702,7 @@ app.get('/api/staff/performance', requireRole(['owner', 'manager']), async (req,
         AVG(o.total) as avgTicketSize
       FROM orders o
       LEFT JOIN users u ON o.cashierId = u.id
-      WHERE o.status = 'paid' AND o.tenant_id = ?
+      WHERE (o.status = 'paid' OR o.paymentStatus = 'paid') AND o.tenant_id = ?
       GROUP BY o.cashierId
     `, [req.tenantId]);
 
@@ -7935,22 +7889,34 @@ app.use((err, req, res, next) => {
 });
 
 // Start Server — skip when imported by the test runner (supertest drives `app` directly).
-const server = process.env.VITEST
-  ? null
-  : app.listen(PORT, () => {
+let server = null;
+if (!process.env.VITEST) {
+  try {
+    await dbReady;
+    server = app.listen(PORT, () => {
       console.log(`===============================================`);
       console.log(`GastroFlow POS Backend running on port ${PORT}`);
       console.log(`Access endpoint directly at http://localhost:${PORT}/api`);
       console.log(`===============================================`);
     });
+  } catch (err) {
+    console.error('[Startup] Refusing to serve an uninitialized database.');
+    process.exitCode = 1;
+    db.close();
+  }
+}
 
 // Graceful Shutdown Handler
 const handleGracefulShutdown = (signal) => {
   if (!server) return;
   console.log(`\n[Server] ${signal} signal received. Initiating graceful shutdown...`);
-  
+
+  for (const client of sseClients) client.end();
+  for (const client of posSSESubscribers) client.end();
+  for (const client of publicSSESubscribers) client.end();
   server.close(() => {
     console.log('[Server] Closed remaining active HTTP connections.');
+    libsqlStore?.close();
     db.close((err) => {
       if (err) {
         console.error('[Database] Error closing SQLite connection:', err.message);

@@ -25,6 +25,15 @@ export default function MenuView({ onNavigate, toast }) {
   const [sortBy, setSortBy] = useState('popular'); // 'popular' | 'price-asc' | 'price-desc' | 'prep'
   const [maxPriceFilter, setMaxPriceFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const favoritesKey = `gastroflow_favorites:${getActiveTenant() || 'default_tenant'}`;
+  const [favorites, setFavorites] = useState(() => { try { return JSON.parse(localStorage.getItem(favoritesKey) || '[]'); } catch { return []; } });
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const toggleFavorite = id => setFavorites(previous => {
+    const next = previous.includes(id) ? previous.filter(value => value !== id) : [...previous, id];
+    localStorage.setItem(favoritesKey, JSON.stringify(next));
+    return next;
+  });
+
 
   // Personalized reorder recommendation list
   const [personalRecs, setPersonalRecs] = useState([]);
@@ -93,7 +102,7 @@ export default function MenuView({ onNavigate, toast }) {
     }
   };
 
-  const { items: cartItems, addItem, totalItems, setCartOpen } = useCart();
+  const { items: cartItems, addItem, totalItems, setCartOpen, setRates } = useCart();
   const { customer, getToken } = useCustomerAuth();
 
 
@@ -105,7 +114,9 @@ export default function MenuView({ onNavigate, toast }) {
     // 1. Fetch Menu for active tenant
     apiFetch('/public/menu')
       .then(data => {
+        setRates({taxRate: Number(data.taxRate || 0), serviceChargeRate: Number(data.serviceChargeRate || 0)});
         setMenu({
+          ...data,
           categories: data.categories || [],
           items: data.items || [],
           restaurantName: data.restaurantName || '',
@@ -276,7 +287,7 @@ export default function MenuView({ onNavigate, toast }) {
         const tags = (item.dietaryTags || '').split(',').map(tag => tag.trim().toLowerCase());
         matchDiet = tags.includes(selectedDiet.toLowerCase());
       }
-      return matchCat && matchSearch && matchDiet && matchPrice;
+      return matchCat && matchSearch && matchDiet && matchPrice && (!favoritesOnly || favorites.includes(item.id));
     })
     .sort((a, b) => {
       if (sortBy === 'price-asc') return a.price - b.price;
@@ -487,12 +498,13 @@ export default function MenuView({ onNavigate, toast }) {
 
       {/* Hero Banner */}
       <div className="hero-banner" style={{ textAlign: 'center', padding: '24px 16px 30px', background: 'linear-gradient(135deg, rgba(255, 126, 41, 0.1) 0%, rgba(255, 61, 0, 0.05) 100%)' }}>
+        <div className="customer-eyebrow">FRESHLY MADE. JUST FOR YOU.</div>
         <h1 style={{ fontSize: '2.2rem', fontWeight: 800, margin: 0, color: 'var(--brand)' }}>{menu.restaurantName || 'GastroFlow Bistro'}</h1>
         <p style={{ color: 'var(--text-2)', fontSize: '0.95rem', marginTop: 6, marginBottom: 10 }}>
           {customer ? `👋 Welcome back, ${customer.name}! 🎉` : t.welcome}
         </p>
         <button 
-          onClick={() => setView('restaurants')}
+          onClick={() => onNavigate('restaurants')}
           style={{
             background: 'rgba(255, 107, 53, 0.15)',
             border: '1px solid rgba(255, 107, 53, 0.4)',
@@ -510,6 +522,7 @@ export default function MenuView({ onNavigate, toast }) {
           <span>🏬 Switch Restaurant Store</span>
           <span style={{ fontSize: '0.7rem' }}>▼</span>
         </button>
+        <div className="customer-menu-meta"><span>{menu.storeOpen ? '● Taking orders' : '○ Currently closed'}</span><span>{menu.items.length} dishes to discover</span>{menu.defaultPrepTime > 0 && <span>About {menu.defaultPrepTime} min preparation</span>}</div>
       </div>
 
 
@@ -551,7 +564,7 @@ export default function MenuView({ onNavigate, toast }) {
         </div>
 
         {/* Dietary & Max Price Controls */}
-        <div className="menu-diet-filters">
+        <div className="menu-diet-filters"><button className={`cat-pill ${favoritesOnly ? 'active' : ''}`} aria-pressed={favoritesOnly} onClick={() => setFavoritesOnly(value => !value)}>♡ Saved ({favorites.length})</button>
           <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Filters:</span>
           
           <button 
@@ -741,7 +754,7 @@ export default function MenuView({ onNavigate, toast }) {
                     </div>
                   )}
 
-                  <div className="menu-card-body" style={{ padding: 16 }}>
+                  <div className="menu-card-body" style={{ padding: 16 }}><button className="favorite-toggle" aria-label={`${favorites.includes(item.id) ? 'Unsave' : 'Save'} ${item.name}`} aria-pressed={favorites.includes(item.id)} onClick={() => toggleFavorite(item.id)}>{favorites.includes(item.id) ? '♥' : '♡'}</button>
                     {tags.length > 0 && (
                       <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
                         {tags.map(tag => (

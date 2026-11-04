@@ -1,3 +1,4 @@
+import { apiFetch } from '../utils/api.js';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const CartContext = createContext(null);
@@ -13,6 +14,8 @@ export function CartProvider({ children }) {
     }
   });
   const [cartOpen, setCartOpen] = useState(false);
+  const [rates, setRates] = useState({ taxRate: 0, serviceChargeRate: 0 });
+  useEffect(() => { apiFetch('/public/menu').then(menu => setRates({ taxRate: Number(menu.taxRate || 0), serviceChargeRate: Number(menu.serviceChargeRate || 0) })).catch(() => {}); }, []);
 
   // Sync cart items to localStorage on change
   useEffect(() => {
@@ -69,7 +72,7 @@ export function CartProvider({ children }) {
 
   return (
     <CartContext.Provider value={{
-      items, cartOpen, setCartOpen,
+      items, cartOpen, setCartOpen, rates, setRates,
       addItem, removeItem, deleteItem, clearCart,
       totalItems, subtotal
     }}>

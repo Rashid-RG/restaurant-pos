@@ -18,7 +18,7 @@ export default function Dashboard() {
   const [showXReportModal, setShowXReportModal] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('pos_token');
+    const token = localStorage.getItem('gastroflow_token');
     if (!token) return;
 
     fetch('/api/timeclock/entries', { headers: { Authorization: `Bearer ${token}` } })
@@ -42,7 +42,7 @@ export default function Dashboard() {
   const getTodayOrders = () => {
     const today = new Date().toDateString();
     return orders.filter(
-      (order) => order.status === 'paid' && safeDate(order.paymentTimestamp || order.timestamp).toDateString() === today
+      (order) => (order.paymentStatus === 'paid' || order.status === 'paid') && safeDate(order.paymentTimestamp || order.timestamp).toDateString() === today
     );
   };
 
@@ -91,7 +91,7 @@ export default function Dashboard() {
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       
       const daySales = orders
-        .filter((o) => o.status === 'paid' && safeDate(o.paymentTimestamp || o.timestamp).toDateString() === dateStr)
+        .filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid') && safeDate(o.paymentTimestamp || o.timestamp).toDateString() === dateStr)
         .reduce((sum, o) => sum + o.total, 0);
 
       daysData.push({ day: dayName, total: daySales });
@@ -197,7 +197,7 @@ export default function Dashboard() {
   const getTopItems = () => {
     const itemCounts = {};
     orders
-      .filter((o) => o.status === 'paid')
+      .filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid'))
       .forEach((order) => {
         order.items.forEach((item) => {
           itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
@@ -213,7 +213,7 @@ export default function Dashboard() {
   const topItems = getTopItems();
 
   // Get recent transactions
-  const recentSales = orders.filter((o) => o.status === 'paid').slice(0, 5);
+  const recentSales = orders.filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid')).slice(0, 5);
 
   // Export CSV handler
   const exportToCSV = () => {

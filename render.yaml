@@ -1,0 +1,41 @@
+# Free demonstration deployment. Durable database credentials are entered in Render.
+# Free web services sleep when idle; upgrade before relying on this during service.
+services:
+  - type: web
+    name: gastroflow
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build:all
+    startCommand: npm run start:production
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CUSTOMER_JWT_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_PIN
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: PAYHERE_MERCHANT_ID
+        sync: false
+      - key: PAYHERE_MERCHANT_SECRET
+        sync: false
+      - key: PAYHERE_NOTIFY_URL
+        sync: false
+      - key: PAYHERE_SANDBOX
+        value: "true"

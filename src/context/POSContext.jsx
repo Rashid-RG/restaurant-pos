@@ -29,7 +29,7 @@ export const POSProvider = ({ children }) => {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gastroflow_theme') === 'dark');
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('gastroflow_user');
     const user = saved ? JSON.parse(saved) : null;
@@ -586,6 +586,7 @@ export const POSProvider = ({ children }) => {
   // Theme Toggler
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    localStorage.setItem('gastroflow_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
 
   // Settings Actions

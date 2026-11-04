@@ -1,3 +1,5 @@
+> Historical report: its readiness claims are superseded by the [current system review](COMPREHENSIVE_REVIEW_2026-11-05.md). Source-observed features and local tests do not establish a completed production rollout.
+
 # GastroFlow POS — Complete System Report
 
 **Prepared:** 2026-07-22 · **Method:** code-verified (read `server.js`, `lib/`, `src/`, `apps/customer-web/`, `tests/`, `restaurant.db`, infra files) · **Scope:** full-system deep report of every feature, the architecture, and the real state of the codebase.
