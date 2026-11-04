@@ -56,7 +56,7 @@ describe('Uber Eats-Grade Features Integration Tests', () => {
     expect(etaData.estimatedMinutes).toBeGreaterThanOrEqual(15);
     expect(etaData.estimatedDeliveryTime).toBeGreaterThan(Date.now());
 
-    const res = await request(app).get(`/api/public/orders/${testOrderId}/eta`);
+    const res = await request(app).get(`/api/public/orders/${testOrderId}/eta`).set('Authorization', `Bearer ${staffToken()}`);
     expect(res.status).toBe(200);
     expect(res.body.estimatedMinutes).toBeGreaterThanOrEqual(15);
   });

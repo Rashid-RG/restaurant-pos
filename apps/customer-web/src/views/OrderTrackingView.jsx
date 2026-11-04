@@ -1,3 +1,4 @@
+import { getActiveTenant } from '../utils/tenant.js';
 import { AnimatedFeatureIcon } from '../../../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
@@ -192,7 +193,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     // SSE Stream setup
     let es;
     try {
-      const streamUrl = new URL(`/api/stream/orders/${order.id}`, window.location.origin).href;
+      const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
+      const streamUrl = stream.href;
       es = new EventSource(streamUrl);
       es.onmessage = (e) => {
         try {

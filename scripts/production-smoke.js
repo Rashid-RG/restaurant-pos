@@ -55,6 +55,8 @@ try {
     let service = await boot(env);
     try {
       const token = await login(service.base);
+      const tenant = await fetch(`${service.base}/api/saas/tenants`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({name:'TwinBBQ Restart Regression',subdomain:`twinbbq-${driver}`,ownerEmail:'restart@example.test',plan:'basic'})});
+      assert.equal(tenant.status,201,'Restaurant provisioning before restart');
       for (const route of ['/', '/customer/', '/driver-app/']) {
         const page = await fetch(`${service.base}${route}`);
         assert.equal(page.status, 200);
@@ -70,6 +72,8 @@ try {
     service = await boot(env);
     try {
       const token = await login(service.base);
+      const tenants = await (await fetch(`${service.base}/api/saas/tenants`,{headers:{Authorization:`Bearer ${token}`}})).json();
+      assert(tenants.some(row=>row.name==='TwinBBQ Restart Regression'),'Restart must never purge a restaurant based on its name.');
       const rows = await (await fetch(`${service.base}/api/categories`, { headers: { Authorization: `Bearer ${token}` } })).json();
       assert(rows.some(row => row.id === 'persistence_probe'), 'Data must survive restart.');
     } finally { await stop(service.child); }

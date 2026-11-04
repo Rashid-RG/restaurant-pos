@@ -1,3 +1,4 @@
+import SubscriptionBilling from './SubscriptionBilling';
 import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
@@ -623,6 +624,7 @@ export default function Settings() {
             >
               🌐 Online Store
             </button>
+            {currentUser?.role === 'owner' && <button className={`settings-nav-btn ${subTab === 'billing' ? 'active' : ''}`} onClick={() => setSubTab('billing')}>Plan and billing</button>}
             {isMasterSuperAdmin && (
               <button
                 className={`settings-nav-btn ${subTab === 'saas' ? 'active' : ''}`}
@@ -1389,6 +1391,7 @@ export default function Settings() {
             )}
 
             {/* 5. SaaS Multi-Tenancy Management */}
+            {subTab === 'billing' && currentUser?.role === 'owner' && <SubscriptionBilling />}
             {subTab === 'saas' && isMasterSuperAdmin && <PlatformAdmin embedded />}
 
           </div>

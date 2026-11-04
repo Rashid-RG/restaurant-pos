@@ -1,3 +1,7 @@
+import { createTrackingGuard, makeTrackingAccess } from './lib/order-tracking.js';
+import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
+import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
+import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
 import express from 'express';
 import { amountInCents, validateManualTender, staffReceipt } from './lib/tenders.js';
@@ -999,11 +1003,6 @@ async function initTables() {
       "INSERT OR IGNORE INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt) VALUES ('default_tenant', 'GastroFlow Main Store', 'main', 'owner@gastroflow.lk', 'enterprise', 'active', 1700000000000)"
     ).catch(() => {});
 
-    // Purge removed legacy store twinbbq from tenants and users tables
-    await dbRun("DELETE FROM tenants WHERE LOWER(id) LIKE '%twinbbq%' OR LOWER(subdomain) LIKE '%twinbbq%' OR LOWER(name) LIKE '%twinbbq%'").catch(() => {});
-    await dbRun("DELETE FROM users WHERE LOWER(tenant_id) LIKE '%twinbbq%' OR LOWER(username) LIKE '%twinbbq%'").catch(() => {});
-
-
     // Failsafe helper to add a missing column on both SQLite & Postgres
 
     const safeAddColumn = async (table, column, typeDef) => {
@@ -1212,6 +1211,8 @@ async function initTables() {
     await safeAddColumn('orders', 'paymentStatus', "TEXT DEFAULT 'unpaid'");
     await dbRun("UPDATE orders SET paymentStatus = 'paid' WHERE status = 'paid' AND paymentStatus = 'unpaid'");
     await safeAddColumn('support_tickets', 'tenant_id', "TEXT DEFAULT 'default_tenant'");
+    await safeAddColumn('support_tickets', 'customerAccountId', 'TEXT');
+    await safeAddColumn('support_tickets', 'guestAccessHash', 'TEXT');
 
     // Indexes
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_timestamp ON orders(timestamp)`);
@@ -1222,6 +1223,8 @@ async function initTables() {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)`);
 
     console.log('All SQLite tables verified successfully.');
+    await initPlatformOperations(dbRun);
+    await initSaasBilling(dbRun);
     await seedDatabase();
     // A singleton records platform ownership independently of restaurant roles.
     await dbRun(`CREATE TABLE IF NOT EXISTS platform_ownership (
@@ -1692,6 +1695,11 @@ const authenticateToken = async (req, res, next) => {
     if (!tenant || (tenant.status === 'suspended' && !user.isPlatformAdmin)) {
       return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
     }
+    const subscription = await dbGet('SELECT status,paidThrough FROM saas_contracts WHERE tenant_id=?', [user.tenant_id]);
+    if (!user.isPlatformAdmin && subscription?.paidThrough && (subscription.status === 'review_required' || subscription.paidThrough + 7 * 86400000 < Date.now())) {
+      const billingAccess = user.role === 'owner' && req.originalUrl.startsWith('/api/saas/billing');
+      if (!billingAccess) return res.status(403).json({error:'Subscription needs attention. The restaurant owner can open billing.',code:'SUBSCRIPTION_PAST_DUE'});
+    }
     req.user = user;
     req.tenantId = user.tenant_id;
     if (databaseGate.context.getStore()) databaseGate.context.getStore().tenantId = req.tenantId;
@@ -1749,6 +1757,8 @@ const authenticateDriver = (req, res, next) => {
       if (!driver || ['pending_approval', 'rejected', 'suspended'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
       const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [decoded.tenant_id]);
       if (!tenant || tenant.status === 'suspended') return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
+      const subscription = await dbGet('SELECT paidThrough,status FROM saas_contracts WHERE tenant_id=?',[decoded.tenant_id]);
+      if (subscription?.paidThrough && (subscription.status==='review_required' || subscription.paidThrough+7*86400000<Date.now())) return res.status(403).json({error:'Restaurant subscription needs attention.',code:'SUBSCRIPTION_PAST_DUE'});
     } catch (error) { return next(error); }
     req.driver = decoded;
     req.tenantId = decoded.tenant_id || 'default_tenant';
@@ -1765,6 +1775,11 @@ const requireRole = (allowedRoles) => {
     next();
   };
 };
+
+app.get(['/api/public/orders/:id','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
+app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
+app.use('/api', createPlatformOperations({dbGet,dbAll,dbRun,authenticateToken,requirePlatformAdmin}));
+app.use('/api', createSupportRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolvePublicTenant,notifyPOS,rateLimiter:publicApiLimiter}));
 
 // Reject writes to an ID owned by another restaurant before any upsert can replace it.
 for (const table of ['categories', 'menu_items', 'tables', 'customers']) {
@@ -1867,7 +1882,9 @@ async function setSetting(tenantId, key, value) {
 // Read a tenant's plan + status, and live usage counts, so limits can be enforced.
 async function getTenantMeta(tenantId) {
   const row = await dbGet('SELECT plan, status FROM tenants WHERE id = ?', [tenantId || 'default_tenant']);
-  return { plan: row?.plan || 'basic', status: row?.status || 'active' };
+  const subscription = await dbGet('SELECT paidThrough,status FROM saas_contracts WHERE tenant_id=?',[tenantId || 'default_tenant']);
+  const expired = subscription?.paidThrough && (subscription.status==='review_required' || subscription.paidThrough+7*86400000<Date.now());
+  return { plan: row?.plan || 'basic', status: expired ? 'suspended' : (row?.status || 'active') };
 }
 async function countTenantUsers(tenantId) {
   const row = await dbGet('SELECT COUNT(*) AS c FROM users WHERE tenant_id = ?', [tenantId || 'default_tenant']);
@@ -3283,24 +3300,13 @@ app.get('/api/public/orders/:id/eta', publicApiLimiter, async (req, res) => {
 app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, res) => {
   try {
     const { id } = req.params;
-    // Ownership proof: customer must supply the phone they used when ordering
-    const callerPhone = req.query.phone || req.query.customerPhone;
-    if (!callerPhone) {
-      return res.status(400).json({ error: 'Phone number is required to view order status.' });
-    }
     const tenantId = await resolvePublicTenant(req);
 
     const order = await dbGet(
-      'SELECT id, status, driverId, dispatchMode, deliveryLat, deliveryLng, etaMinutes, acceptedAt, customerPhone FROM orders WHERE id = ?',
-      [id]
+      'SELECT id, status, driverId, dispatchMode, deliveryLat, deliveryLng, etaMinutes, acceptedAt, customerPhone FROM orders WHERE id = ? AND tenant_id = ?',
+      [id,tenantId]
     );
     if (!order) return res.status(404).json({ error: 'Order not found.' });
-
-    // Verify the caller's phone matches the order (normalise both sides)
-    const normalisePhone = (p) => (p || '').replace(/[\s-]/g, '').replace(/^\+94/, '0');
-    if (normalisePhone(callerPhone) !== normalisePhone(order.customerPhone)) {
-      return res.status(403).json({ error: 'Phone number does not match the order record.' });
-    }
 
     let driverInfo = null;
     let distanceToStoreKm = null;
@@ -4853,6 +4859,7 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
       }
 
       res.status(201).json({
+        trackingToken: makeTrackingAccess(orderId, tenantId),
         orderId,
         status: 'pending',
         subtotal: bill.subtotal,
@@ -5365,7 +5372,7 @@ app.post('/api/public/group-cart/:id/checkout', publicApiLimiter, async (req, re
       await dbRun('COMMIT');
 
       notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total }, tenantId);
-      res.json({ success: true, orderId, total: bill.total });
+      res.json({ success: true, orderId, trackingToken: makeTrackingAccess(orderId, tenantId), total: bill.total });
     } catch (e) {
       await dbRun('ROLLBACK');
       throw e;
@@ -5705,69 +5712,6 @@ app.post('/api/customer/auth/reset-password', otpLimiter, async (req, res) => {
     await dbRun('UPDATE password_resets SET consumedAt = ? WHERE id = ?', [Date.now(), reset.id]);
     await writeAuditLog(reset.userId, 'customer', 'password_reset_confirmed', 'Password reset successfully');
     res.json({ ok: true, message: 'Password updated successfully. You can now log in.' });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// ── Customer Support Desk Tickets Endpoints ──────────────────────────────
-app.post('/api/public/support/tickets', async (req, res) => {
-  try {
-    const tenantId = await resolvePublicTenant(req);
-    const { orderId, name, phone, email, issueCategory = 'general', message } = req.body || {};
-    if (!message || !String(message).trim()) {
-      return res.status(400).json({ error: 'Message text is required.' });
-    }
-
-    const ticketId = `tkt_${Date.now()}`;
-    await dbRun(
-      `INSERT INTO support_tickets (id, tenant_id, orderId, customerName, customerPhone, customerEmail, issueCategory, message, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
-      [ticketId, tenantId, orderId || null, name || 'Customer', phone || null, email || null, issueCategory, String(message).trim(), Date.now()]
-    );
-
-    // Notify POS stream in real-time
-    notifyPOS({
-      type: 'support_ticket_escalated',
-      ticketId,
-      orderId,
-      customerName: name,
-      message,
-      timestamp: Date.now()
-    }, tenantId);
-
-    const business = await getSettingAny(tenantId, ['businessName', 'restaurantName'], 'GastroFlow Bistro');
-    const waText = encodeURIComponent(`🚨 URGENT CUSTOMER TICKET #${ticketId} (${business}): ${message} (Order: ${orderId || 'N/A'})`);
-
-    res.json({
-      success: true,
-      ticketId,
-      message: `Support ticket #${ticketId} created successfully. Our manager has been notified.`,
-      whatsappUrl: `https://wa.me/94112345678?text=${waText}`
-    });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.get('/api/public/support/tickets', async (req, res) => {
-  try {
-    const tenantId = await resolvePublicTenant(req);
-    const { phone, email } = req.query;
-    let query = 'SELECT * FROM support_tickets WHERE tenant_id = ?';
-    const params = [tenantId];
-    if (phone) {
-      query += ' AND (customerPhone = ? OR customerPhone = ?)';
-      params.push(phone, normalizeLkPhone(phone));
-    } else if (email) {
-      query += ' AND LOWER(customerEmail) = ?';
-      params.push(String(email).toLowerCase());
-    } else {
-      query += ' AND 1=1';
-    }
-    query += ' ORDER BY createdAt DESC LIMIT 20';
-    const tickets = await dbAll(query, params);
-    res.json(tickets || []);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -6870,26 +6814,6 @@ app.post('/api/orders/:id/refund', async (req, res) => {
   }
 });
 
-// ── Support Tickets & Customer Care Escalation API ──
-app.get('/api/support/tickets', async (req, res) => {
-  try {
-    const tickets = await dbAll('SELECT * FROM support_tickets ORDER BY createdAt DESC');
-    res.json(tickets);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/support/tickets/:id/resolve', async (req, res) => {
-  try {
-    await dbRun('UPDATE support_tickets SET status = "resolved", resolvedAt = ? WHERE id = ?', [Date.now(), req.params.id]);
-    res.json({ success: true, ticketId: req.params.id, status: 'resolved' });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-
 // Database maintenance backup endpoints
 app.post('/api/database/import', databaseLimiter, requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
   const backup = req.body;
@@ -7306,139 +7230,6 @@ app.post(['/api/tickets/:id/resolve', '/api/support/tickets/:id/resolve'], authe
     await dbRun("UPDATE support_tickets SET status = 'resolved', resolvedAt = ? WHERE id = ?", [Date.now(), id]);
     broadcastEvent('support_ticket_updated', { ticketId: id, status: 'resolved' });
     res.json({ success: true, message: `Ticket #${id} marked as resolved.` });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// GET /api/tickets/:id/messages — Fetch message history for a ticket thread
-app.get(['/api/tickets/:id/messages', '/api/support/tickets/:id/messages'], publicApiLimiter, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const messages = await dbAll('SELECT * FROM support_ticket_messages WHERE ticketId = ? ORDER BY createdAt ASC', [id]);
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// POST /api/tickets/:id/messages — Append reply message to ticket thread (Staff or Customer)
-app.post(['/api/tickets/:id/messages', '/api/support/tickets/:id/messages'], publicApiLimiter, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { message, senderType, senderName } = req.body;
-    if (!message || !message.trim()) {
-      return res.status(400).json({ error: 'Message content is required.' });
-    }
-
-    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-    await dbRun(
-      'INSERT INTO support_ticket_messages (id, ticketId, senderType, senderName, message, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-      [msgId, id, senderType || 'staff', senderName || 'Support Agent', message.trim(), Date.now()]
-    );
-
-    await dbRun("UPDATE support_tickets SET status = 'in_progress' WHERE id = ? AND status = 'open'", [id]);
-
-    broadcastEvent('support_ticket_updated', { ticketId: id, message: message.trim(), senderType: senderType || 'staff', senderName: senderName || 'Support Agent' });
-    res.json({ success: true, messageId: msgId });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// GET /api/customer/support/tickets — Customer ticket history
-app.get('/api/customer/support/tickets', publicApiLimiter, async (req, res) => {
-  try {
-    let customerPhone = req.query.phone || '';
-    let customerEmail = req.query.email || '';
-
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const decoded = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET);
-        if (decoded.phone) customerPhone = decoded.phone;
-        if (decoded.email) customerEmail = decoded.email;
-      } catch (_) {}
-    }
-
-    if (!customerPhone && !customerEmail) {
-      return res.json([]);
-    }
-
-    const tickets = await dbAll(
-      `SELECT * FROM support_tickets WHERE (customerPhone = ? OR customerEmail = ?) ORDER BY createdAt DESC`,
-      [customerPhone, customerEmail]
-    );
-
-    res.json(tickets);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// POST /api/customer/support/tickets — Create a new support ticket (Customer PWA / Bot)
-app.post('/api/customer/support/tickets', publicApiLimiter, async (req, res) => {
-  try {
-    const { name, phone, email, issueCategory, message, orderId, otpCode } = req.body;
-    if (!message || !message.trim()) {
-      return res.status(400).json({ error: 'Message description is required.' });
-    }
-
-    let verifiedName = name ? name.trim() : 'Customer';
-    let verifiedPhone = phone ? phone.trim() : null;
-    let verifiedEmail = email ? email.toLowerCase().trim() : null;
-
-    const authHeader = req.headers.authorization;
-    let authedUser = null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        authedUser = jwt.verify(authHeader.slice(7), process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET);
-        verifiedName = authedUser.name || verifiedName;
-        verifiedPhone = authedUser.phone || verifiedPhone;
-        verifiedEmail = authedUser.email || verifiedEmail;
-      } catch (_) {}
-    }
-
-    if (!authedUser) {
-      if (!verifiedPhone && !verifiedEmail) {
-        return res.status(400).json({ error: 'Please provide your name and phone number or email.' });
-      }
-      if (otpCode) {
-        const dest = verifiedEmail || verifiedPhone;
-        if (!verifyOTP(dest, otpCode)) {
-          return res.status(400).json({ error: 'Invalid or expired verification code.' });
-        }
-      }
-    }
-
-    const ticketId = `tkt_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-    const tenantId = await resolvePublicTenant(req);
-
-    await dbRun(
-      `INSERT INTO support_tickets (id, orderId, customerName, customerPhone, issueCategory, message, status, createdAt, tenant_id)
-       VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
-      [ticketId, orderId || null, verifiedName, verifiedPhone || verifiedEmail, issueCategory || 'general', message.trim(), Date.now(), tenantId]
-    );
-
-    const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-    await dbRun(
-      'INSERT INTO support_ticket_messages (id, ticketId, senderType, senderName, message, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-      [msgId, ticketId, 'customer', verifiedName, message.trim(), Date.now()]
-    );
-
-    broadcastEvent('support_ticket_created', {
-      ticketId,
-      customerName: verifiedName,
-      customerPhone: verifiedPhone || verifiedEmail,
-      message: message.trim(),
-      timestamp: Date.now()
-    });
-
-    res.status(201).json({
-      success: true,
-      ticketId,
-      message: 'Support ticket registered! Our team has been notified.'
-    });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

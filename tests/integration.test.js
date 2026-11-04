@@ -111,8 +111,8 @@ describe('PayHere webhook — signature, amount, idempotency', () => {
     expect((await settle(orderA)).status).toBe(200);
     expect((await settle(orderB)).status).toBe(200);
 
-    const a1 = await request(app).get(`/api/public/orders/${orderA.orderId}`);
-    const b1 = await request(app).get(`/api/public/orders/${orderB.orderId}`);
+    const a1 = await request(app).get(`/api/public/orders/${orderA.orderId}`).set('X-Order-Tracking',orderA.trackingToken);
+    const b1 = await request(app).get(`/api/public/orders/${orderB.orderId}`).set('X-Order-Tracking',orderB.trackingToken);
     expect(a1.body.paymentStatus).toBe('paid');
     expect(b1.body.paymentStatus).toBe('paid');
     expect(a1.body.invoiceNumber).toBeTruthy();
@@ -122,7 +122,7 @@ describe('PayHere webhook — signature, amount, idempotency', () => {
 
     // Replay A's webhook — must stay paid with the SAME invoice number (idempotent).
     expect((await settle(orderA)).status).toBe(200);
-    const a2 = await request(app).get(`/api/public/orders/${orderA.orderId}`);
+    const a2 = await request(app).get(`/api/public/orders/${orderA.orderId}`).set('X-Order-Tracking',orderA.trackingToken);
     expect(a2.body.paymentStatus).toBe('paid');
     expect(a2.body.invoiceNumber).toBe(a1.body.invoiceNumber);
   });

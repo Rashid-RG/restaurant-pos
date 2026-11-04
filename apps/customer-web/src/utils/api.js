@@ -12,12 +12,17 @@ export async function apiFetch(endpoint, options = {}) {
   // Attach the active tenant so the backend serves this restaurant's data.
   const activeTenant = getActiveTenant();
 
+  const trackedOrder = cleanPath.match(/^\/api\/public\/orders\/([^/?]+)/)?.[1];
+  const trackingAccess = trackedOrder && localStorage.getItem(`gastroflow_order_access_${trackedOrder}`);
   let res;
   try {
     res = await fetch(absoluteUrl, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(trackingAccess ? { 'X-Order-Tracking': trackingAccess } : {}),
+        ...(trackedOrder && localStorage.getItem('gastroflow_customer_token') ? { Authorization: `Bearer ${localStorage.getItem('gastroflow_customer_token')}` } : {}),
+        ...(/\/(?:customer|public)\/support\//.test(cleanPath) && localStorage.getItem('gastroflow_customer_token') ? { Authorization: `Bearer ${localStorage.getItem('gastroflow_customer_token')}` } : {}),
         ...(activeTenant ? { 'X-Tenant-Id': activeTenant } : {}),
         ...(options.headers || {})
       }
@@ -45,5 +50,6 @@ export async function apiFetch(endpoint, options = {}) {
     throw new Error(msg);
   }
 
+  if (data?.orderId && data?.trackingToken) localStorage.setItem(`gastroflow_order_access_${data.orderId}`, data.trackingToken);
   return data;
 }

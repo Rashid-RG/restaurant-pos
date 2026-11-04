@@ -1,0 +1,64 @@
+# SaaS reliability follow-up
+
+This revision continues the independent-restaurant platform pilot. It is not a blanket production-readiness certificate. The previous handbook describes revision 6a59564; the changes below are newer.
+
+## Changes and evidence
+
+- Canonical support routes now authorize the signed-in customer account or a private guest ticket capability. Phone/email query filters no longer prove ownership. Restaurant staff lists/threads are tenant scoped; sender identity is assigned on the server. New customer support routes are mounted before the staff-only fallback. Existing legacy customer tickets without account/capability metadata remain staff-readable, but are not reassigned by matching contact strings. The customer UI keeps guest ticket access in the current browser and uses authenticated polling rather than the staff event stream.
+- Order detail, ETA, dispatch and order SSE require private order access or the actual customer/authorized staff/assigned driver. New order responses include a seven-day tracking capability; HTTP requests pass it in a header, and an HttpOnly scoped cookie authenticates the SSE connection. It is not put in a tracking URL. Existing guest orders without that capability require an authenticated owning account or verified support recovery. An order ID or phone number alone is no longer accepted as ownership.
+- Platform support sessions require a recorded reason, expire after 15 minutes and provide a read-only diagnostic snapshot without contact/proof data. Each snapshot access is recorded. Ending a session revokes it. The dedicated platform access audit is append-only at the database layer. This is not staff impersonation or a write-capable support session.
+- The platform finance endpoint provides per-restaurant recorded collections, journaled cash refunds and net recorded collections over a bounded time range using a consistent database transaction. It is not restaurant profit, bank settlement, taxes due, subscription revenue, or an instruction to pay merchants. Historical cash/provider reconciliation remains separate.
+- Platform recovery exports capture schema and rows in one database transaction and include a SHA-256 integrity checksum. They contain private account data and must be protected. The restore verifier refuses existing destinations, restores only into a new local database, compares every restored record, and checks SQLite integrity and foreign keys. No HTTP endpoint restores over a live database. `npm run backup` supports remote libSQL logical snapshots as well as the existing local SQLite backup path.
+- Removed a legacy startup purge that deleted restaurants/users with a particular brand in their name. Production-process restart smoke tests now provision a similarly named restaurant and verify it survives restart.
+
+## Subscription billing implementation
+
+Restaurant owners have Plan and billing in Settings. Subscription collection is independently gated by SAAS_BILLING_ENABLED and uses separate SAAS_PAYHERE_* credentials. It remains disabled unless explicitly configured. No real charge was initiated by this work.
+
+The recurring checkout uses server-selected plan prices, an approved HTTPS origin and a server hash. Webhook checksum validation is followed by independent OAuth-protected Subscription Manager and Retrieval requests. Unsigned callback metadata, browser redirects and callback payment IDs alone cannot extend entitlement. Only independently retrieved matching RECEIVED payments create unique paid invoice records and add a calendar month. Replays cannot create another invoice. Independently retrieved refunds/chargebacks retain history and mark the contract for review. Verified cancellation stops future provider renewal and preserves the recorded paid period. Expiry after the configured seven-day grace blocks restaurant operations while leaving its owner access to billing.
+
+Configure in Render, not source control:
+
+- SAAS_BILLING_ENABLED=true only after configuration and acceptance.
+- SAAS_BILLING_ORIGIN = the exact approved HTTPS origin.
+- SAAS_PAYHERE_SANDBOX=true for acceptance testing.
+- SAAS_PAYHERE_MERCHANT_ID / SAAS_PAYHERE_MERCHANT_SECRET.
+- SAAS_PAYHERE_APP_ID / SAAS_PAYHERE_APP_SECRET for independent retrieval and cancellation.
+
+The prices in lib/plans.js are existing catalogue values, not approved commercial offers. Review prices, taxes, terms, invoice requirements and cancellation/grace policy before enabling collection. Provider domain/IP approval may be required. The agent does not submit real payments or email third parties. Live provider transactions, cancellation, retry and failed-payment handling still require provider-backed acceptance. Automated reminder/dunning delivery, proration, self-service plan switching and re-subscription after cancellation are not complete; these require explicit business rules. Owner UI supports resuming an unchanged pending checkout. Cancelled/review-required contracts need platform support. Do not call this a fully validated billing business.
+
+Primary technical references consulted:
+
+- https://support.payhere.lk/api-&-mobile-sdk/recurring-api
+- https://support.payhere.lk/api-&-mobile-sdk/retrieval-api
+- https://support.payhere.lk/api-&-mobile-sdk/subscription-manager-api
+
+## Validation and boundaries
+
+The expanded regression suite covers support contact spoofing, private guest access, customer ownership, restaurant isolation, forged reply identities, platform permissions, expiring/revoked access, immutable access audit, finance arithmetic, full isolated restore and overwrite refusal, tracking access, past-due access and protected collections. Subscription tests use a controlled provider stub and test OAuth/retrieval request construction, invoice deduplication, month-end dates, wrong amounts, refund review, cancellation and secret exclusion. These mocks do not prove PayHere connectivity or an approved merchant.
+
+The staging-only cloud checker creates two labelled QA restaurants, places 12 orders with six concurrent workflows, retries each cash settlement twice, checks unique invoices and stock, attempts cross-restaurant mutation, then suspends QA restaurants. It sends no email/SMS and charges no gateway. It is a limited cloud correctness check, not a capacity/availability benchmark. Only report a pass after the actual run succeeds.
+
+A separate browser run checks platform support-session start/end, provisioning, role navigation, mobile layout, reduced motion and app identity. Production smoke checks SQLite, libSQL local file and cash-only startup/restart. Provider, hardware and recovery evidence must stay distinct.
+
+## Safe migration / recovery procedure
+
+1. Export the original PostgreSQL database using its supported read-only backup tooling. Preserve the existing Render service and DATABASE_URL. The branch still does not validate PostgreSQL production operation.
+2. Map the source schema into the supported target and document tenant IDs, user ownership, prices, stock, order/payment states, invoice sequences and foreign keys. Do not load PostgreSQL data through the legacy generic import/reset screens.
+3. Restore into a separate empty target. Reconcile row counts and record values, settled/refunded balances, invoice identifiers, inventory quantities and open deliveries. A checksum alone does not prove business correctness.
+4. Exercise tenant isolation, parallel orders/settlements, tracking, provider callbacks and device workflows against that target.
+5. Agree on a cutover window and rollback/forward procedure. Prevent split-brain writes, capture a final delta/backup and verify the destination before switching traffic.
+6. Keep the old database recoverable until acceptance. Application rollback alone does not reverse a database migration or a provider payment.
+
+No original production database export/migration or cutover was performed in this revision. A logical staging backup and local restore are not proof of a PostgreSQL production migration.
+
+## Remaining release gates
+
+- Complete every API/role/restaurant permutation, indirect relation, group-cart, chat, report/export and stale/deleted identity case. The added checks close specific gaps and do not certify all legacy routes.
+- Verify real PayHere merchant setup and independent sandbox renewal/cancel/refund callbacks. Decide proration, dunning, subscription changes and invoice requirements.
+- Prove remote backup retention and recovery after a real replacement; automate off-host backups and alert on missed backups. The free Render local filesystem is not backup storage.
+- Rehearse and reconcile original PostgreSQL data migration before replacing production.
+- Validate email/SMS delivery with intended test recipients, real printers/local bridges and GPS on real phones. A provider helper or a green UI does not prove delivery.
+- Reconcile restaurant sales, taxes, electronic refunds, driver cash custody, platform fees and bank/provider payouts using an auditable financial ledger.
+- Add durable outbox/replay and cross-process event delivery before scaling backend instances. Define monitoring, alert destinations, retention, incident response and recovery objectives.
+- Choose hosting appropriate to business availability; free sleeping compute cannot provide a live restaurant-service guarantee.
