@@ -7,7 +7,6 @@ import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.j
 import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
 import cors from 'cors';
-import sqlite3 from 'sqlite3';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
@@ -267,8 +266,8 @@ app.get('/api/system/version', (req, res) => {
 
 // Open SQLite Database (DATABASE_FILE overrides the default, e.g. for isolated tests)
 const dbPath = process.env.DATABASE_FILE || path.join(__dirname, 'restaurant.db');
-const libsqlStore = process.env.TURSO_DATABASE_URL ? createLibsqlStore({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }) : null;
-const sqlite = sqlite3.verbose();
+const libsqlStore = process.env.TURSO_DATABASE_URL ? await createLibsqlStore({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }) : null;
+const sqlite = libsqlStore ? null : (await import('sqlite3')).default.verbose();
 // Resolves once tables are created AND seeding completes — tests await this so they
 // never race the async seed (note: /api/health returns 200 before seeding finishes).
 let _resolveDbReady, _rejectDbReady;
@@ -280,7 +279,7 @@ app.use('/api', (req, res, next) => {
   next();
 });
 dbReady.catch(err => { console.error('[Database startup failed]', err.message); });
-const db = new sqlite.Database(libsqlStore ? ':memory:' : dbPath, (err) => {
+const db = sqlite ? new sqlite.Database(dbPath, (err) => {
   if (err) {
     console.error('Error opening SQLite database:', err.message);
     _rejectDbReady(err);
@@ -300,7 +299,10 @@ const db = new sqlite.Database(libsqlStore ? ':memory:' : dbPath, (err) => {
     });
     databaseGate.withContext(() => initTables()).then(() => { databaseIsReady = true; _resolveDbReady(); }).catch(_rejectDbReady);
   }
-});
+}) : null;
+if (libsqlStore) {
+  setImmediate(() => databaseGate.withContext(() => initTables()).then(() => { databaseIsReady = true; _resolveDbReady(); }).catch(_rejectDbReady));
+}
 
 // Helper functions for promise-based database calls (SQLite & Postgres / Neon DB)
 const rawDbRun = async (sql, params = []) => {
@@ -7807,7 +7809,8 @@ if (!process.env.VITEST) {
   } catch (err) {
     console.error('[Startup] Refusing to serve an uninitialized database.');
     process.exitCode = 1;
-    db.close();
+    libsqlStore?.close();
+    db?.close();
   }
 }
 
@@ -7822,14 +7825,16 @@ const handleGracefulShutdown = (signal) => {
   server.close(() => {
     console.log('[Server] Closed remaining active HTTP connections.');
     libsqlStore?.close();
-    db.close((err) => {
+    const finishDatabaseClose = (err) => {
       if (err) {
         console.error('[Database] Error closing SQLite connection:', err.message);
       } else {
         console.log('[Database] Closed database connection cleanly.');
       }
       process.exit(0);
-    });
+    };
+    if (db) db.close(finishDatabaseClose);
+    else finishDatabaseClose();
   });
 
   // Force shutdown after 10s if connections fail to close
