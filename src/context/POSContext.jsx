@@ -72,6 +72,18 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('gastroflow_auth_error', handleGlobalAuthError);
   }, [currentUser]);
 
+  // Refresh server-owned capabilities for saved sessions after an upgrade.
+  useEffect(() => {
+    const token = localStorage.getItem('gastroflow_token');
+    if (!token) return;
+    let cancelled = false;
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then(async response => { if (!response.ok) return; const data = await response.json();
+        if (!cancelled && data.user) { setCurrentUser(data.user); localStorage.setItem('gastroflow_user', JSON.stringify(data.user)); }
+      }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
+
   // Database lists
   const [menuItems, setMenuItems] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -371,7 +383,7 @@ export const POSProvider = ({ children }) => {
           } else if (data.type === 'tenant_status_changed') {
             const currentTid = currentUser?.tenant_id || new URLSearchParams(window.location.search).get('tenant') || 'default_tenant';
             if (data.tenantId === currentTid || (currentTid === 'kb2c' && data.tenantId === 'tenant_kb2c')) {
-              if (data.status === 'suspended' && currentUser?.role !== 'owner') {
+              if (data.status === 'suspended' && currentUser?.isPlatformAdmin !== true) {
                 setTenantLock({
                   status: 'suspended',
                   storeId: data.tenantId,

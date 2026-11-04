@@ -6,11 +6,17 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#091e15",
-  "theme_color": "#10b981",
+  "background_color": "#f7f7f2",
+  "theme_color": "#326b91",
   "icons": [
     {
-      "src": "/driver-logo.png",
+      "src": "driver-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "driver-logo.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

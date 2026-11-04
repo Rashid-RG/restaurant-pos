@@ -139,7 +139,7 @@ export default function Login() {
       zIndex: 9999
     }}>
       <section className="login-intro" aria-label="Welcome to GastroFlow">
-        <div className="sidebar-brand"><span className="brand-symbol">G</span><strong>gastroflow.</strong></div>
+        <div className="sidebar-brand"><img src="/pos-logo.svg" alt="" width="38" height="38"/><strong>gastroflow.</strong></div>
         <div className="login-eyebrow">A LITTLE LESS BUSYWORK. A LOT MORE FLOW.</div>
         <h1>Good food.<br/>Great service.<br/><em>One workspace.</em></h1>
         <p>Bring your counter, kitchen and deliveries together. Everything your team needs for a smoother service.</p>
@@ -168,7 +168,7 @@ export default function Login() {
             marginBottom: '16px',
             boxShadow: 'var(--shadow-glow)'
           }}>
-            <UtensilsCrossed size={28} color="white"/>
+            <img src="/pos-logo.svg" alt="GastroFlow logo" width="64" height="64"/>
           </div>
           <h2 style={{ fontFamily: 'var(--font-title)', fontWeight: 800, fontSize: '24px', margin: 0 }}>
             {view === 'login' && 'GastroFlow Terminal'}

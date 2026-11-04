@@ -21,6 +21,7 @@ const complete = (o, extra = {}, token = driverToken()) => request(app).post('/a
 
 beforeAll(async () => {
   await dbReady;
+  await dbRun("INSERT INTO tenants (id,name,subdomain,ownerEmail,status) VALUES ('tenant_B','Other Kitchen','proof-other','owner@example.test','active')");
   for (const [id, tenant] of [['proof_driver', 'default_tenant'], ['other_driver', 'default_tenant'], ['foreign_driver', 'tenant_B']]) {
     await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)', [id,id,id,'active',tenant]);
   }

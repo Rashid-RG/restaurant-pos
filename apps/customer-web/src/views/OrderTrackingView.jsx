@@ -1,3 +1,4 @@
+import { AnimatedFeatureIcon } from '../../../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -328,6 +329,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           {/* UBER EATS HERO LIVE BANNER */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
+              {!isCancelled && <AnimatedFeatureIcon kind={curStep === 1 ? 'cooking' : curStep === 2 ? (isDelivery ? 'delivery' : 'ready') : curStep === 3 ? 'ready' : 'order'} size={72} active={curStep < 3}/>}
               {isCancelled ? (
                 <div>
                   <div className="uber-status-badge cancelled">Cancelled</div>
@@ -650,7 +652,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                   return (
                     <div key={step.id} className={`status-step ${done ? 'done' : active ? 'active' : ''}`}>
                       <div className="step-dot">
-                        {done ? '✓' : step.icon}
+                        {done ? '✓' : <AnimatedFeatureIcon kind={i === 1 ? 'cooking' : i === 2 ? (isDelivery ? 'delivery' : 'ready') : i === 3 ? 'ready' : 'order'} size={32} active={active}/>}
                       </div>
                       <div className="step-info">
                         <h4>{step.label}</h4>

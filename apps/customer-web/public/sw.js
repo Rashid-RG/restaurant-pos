@@ -1,6 +1,6 @@
 // Offline shell only. Never cache authenticated API responses or other apps.
 const PREFIX = 'gastroflow-customer-';
-const CACHE = `${PREFIX}v4`;
+const CACHE = `${PREFIX}v5`;
 const BASE = new URL('./', self.location.href).pathname;
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll([BASE, `${BASE}offline.html`])));

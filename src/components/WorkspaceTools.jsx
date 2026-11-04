@@ -1,3 +1,4 @@
+import { CookingIcon } from '../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
@@ -7,7 +8,7 @@ export const workspaceDestinations = [
   { id: 'dashboard', name: 'Overview', description: 'Sales, activity and performance', icon: LayoutDashboard },
   { id: 'pos', name: 'New sale', description: 'Open the point of sale', icon: ShoppingBag },
   { id: 'floor', name: 'Tables', description: 'Manage your dining room', icon: LayoutGrid },
-  { id: 'kds', name: 'Kitchen', description: 'Prepare and complete orders', icon: ChefHat },
+  { id: 'kds', name: 'Kitchen', description: 'Prepare and complete orders', icon: CookingIcon },
   { id: 'delivery', name: 'Dispatch', description: 'Assign and track deliveries', icon: Truck },
   { id: 'inventory', name: 'Inventory', description: 'Menu, stock and ingredients', icon: Package, management: true },
   { id: 'customers', name: 'Customers', description: 'Customer relationships and loyalty', icon: Users },
@@ -16,7 +17,8 @@ export const workspaceDestinations = [
 ];
 export function useDestinations() {
   const { currentUser } = usePOS();
-  return workspaceDestinations.filter(item => !item.management || ['owner', 'manager'].includes(currentUser?.role));
+  const destinations = currentUser?.isPlatformAdmin === true ? [{ id: 'platform', name: 'Platform admin', description: 'Manage restaurants and their owners', icon: Store }, ...workspaceDestinations] : workspaceDestinations;
+  return destinations.filter(item => !item.management || ['owner', 'manager'].includes(currentUser?.role));
 }
 export default function WorkspaceTools() {
   const { activeTab, setActiveTab, settings, currentUser } = usePOS();

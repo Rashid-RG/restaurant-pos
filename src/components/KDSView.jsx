@@ -1,3 +1,4 @@
+import { AnimatedFeatureIcon } from '../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useEffect, useState } from 'react';
 import { usePOS } from '../context/POSContext';
 
@@ -191,7 +192,7 @@ export default function KDSView() {
                           style={{ width: '100%', padding: '8px' }}
                           onClick={() => updateOrderStatus(order.id, 'preparing')}
                         >
-                          🔥 Start Cooking
+                          <AnimatedFeatureIcon size={25}/> Start Cooking
                         </button>
                       )}
                     </div>
@@ -204,7 +205,7 @@ export default function KDSView() {
           {/* 2. Preparing Column */}
           <div className="kds-column">
             <div className="kds-column-header" style={{ borderTop: '4px solid var(--color-warning)' }}>
-              <h2>Cooking</h2>
+              <h2 style={{display: 'flex', alignItems: 'center', gap: 10}}><AnimatedFeatureIcon size={38} active={preparingOrders.length > 0}/>Cooking</h2>
               <span className="badge badge-warning">{preparingOrders.length} Tickets</span>
             </div>
             <div className="kds-orders-scroll">

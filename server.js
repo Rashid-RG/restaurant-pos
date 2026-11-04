@@ -1,3 +1,4 @@
+import { createPlatformRouter } from './routes/platform.js';
 import express from 'express';
 import { amountInCents, validateManualTender, staffReceipt } from './lib/tenders.js';
 import { validateDeliveryProof } from './lib/delivery-proof.js';
@@ -1087,7 +1088,7 @@ async function initTables() {
     const tenantTables = [
       'users', 'orders', 'menu_items', 'tables', 'ingredients', 'customers',
       'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
-      'feedbacks', 'promotions', 'customer_accounts', 'drivers'
+      'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'suppliers'
     ];
     for (const tTable of tenantTables) {
       await safeAddColumn(tTable, 'tenant_id', "TEXT DEFAULT 'default_tenant'");
@@ -1222,6 +1223,13 @@ async function initTables() {
 
     console.log('All SQLite tables verified successfully.');
     await seedDatabase();
+    // A singleton records platform ownership independently of restaurant roles.
+    await dbRun(`CREATE TABLE IF NOT EXISTS platform_ownership (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      userId TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE RESTRICT
+    )`);
+    const platformOwner = await dbGet("SELECT id FROM users WHERE username = ? AND role = 'owner' AND tenant_id = 'default_tenant'", [process.env.ADMIN_USERNAME || 'admin']);
+    if (platformOwner) await dbRun('INSERT INTO platform_ownership (singleton,userId) VALUES (1,?) ON CONFLICT(singleton) DO NOTHING', [platformOwner.id]);
   } catch (error) {
     console.error('Error initializing tables:', error);
     throw error;
@@ -1676,12 +1684,12 @@ const authenticateToken = async (req, res, next) => {
     if (!claims.id || !STAFF_ROLES.includes(claims.role) || claims.type === 'customer') {
       return res.status(403).json({ error: 'A staff token is required.' });
     }
-    const user = await dbGet('SELECT id, username, role, tenant_id FROM users WHERE id = ?', [claims.id]);
+    const user = await dbGet('SELECT u.id, u.username, u.role, u.tenant_id, CASE WHEN p.userId IS NOT NULL THEN 1 ELSE 0 END AS isPlatformAdmin FROM users u LEFT JOIN platform_ownership p ON p.userId = u.id WHERE u.id = ?', [claims.id]);
     if (!user || user.tenant_id !== claims.tenant_id || !STAFF_ROLES.includes(user.role)) {
       return res.status(403).json({ error: 'Staff account is no longer authorized.' });
     }
     const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [user.tenant_id]);
-    if (!tenant || (tenant.status === 'suspended' && user.tenant_id !== 'default_tenant')) {
+    if (!tenant || (tenant.status === 'suspended' && !user.isPlatformAdmin)) {
       return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
     }
     req.user = user;
@@ -1698,7 +1706,7 @@ const authenticateToken = async (req, res, next) => {
 
 // Platform authority is separate from ownership of an individual restaurant.
 const requirePlatformAdmin = (req, res, next) => {
-  if (req.tenantId !== 'default_tenant' || req.user?.role !== 'owner') {
+  if (req.user?.isPlatformAdmin !== 1 || req.user?.role !== 'owner') {
     return res.status(403).json({ error: 'Platform administrator access only.' });
   }
   next();
@@ -1739,6 +1747,8 @@ const authenticateDriver = (req, res, next) => {
     try {
       const driver = await dbGet('SELECT status FROM drivers WHERE id = ? AND tenant_id = ?', [decoded.driverId, decoded.tenant_id]);
       if (!driver || ['pending_approval', 'rejected', 'suspended'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
+      const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [decoded.tenant_id]);
+      if (!tenant || tenant.status === 'suspended') return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
     } catch (error) { return next(error); }
     req.driver = decoded;
     req.tenantId = decoded.tenant_id || 'default_tenant';
@@ -1772,9 +1782,9 @@ for (const table of ['categories', 'menu_items', 'tables', 'customers']) {
 // Protect legacy handlers that address globally unique records by ID. All
 // resource lookups are authorized before the handler can mutate related rows.
 app.use('/api', async (req, res, next) => {
-  const match = req.path.match(/^\/(orders|tables|menu_items|categories|customers|delivery\/drivers|tickets|support\/tickets)(?:\/([^/]+))?/);
+  const match = req.path.match(/^\/(orders|tables|menu_items|categories|customers|ingredients|delivery\/drivers|tickets|support\/tickets)(?:\/([^/]+))?/);
   if (!match || req.path.includes('/driver-chat') || /^\/tables\/[^/]+\/qr$/.test(req.path)) return next();
-  const table = { orders: 'orders', tables: 'tables', menu_items: 'menu_items', categories: 'categories', customers: 'customers', 'delivery/drivers': 'drivers', tickets: 'support_tickets', 'support/tickets': 'support_tickets' }[match[1]];
+  const table = { orders: 'orders', tables: 'tables', menu_items: 'menu_items', categories: 'categories', customers: 'customers', ingredients: 'ingredients', 'delivery/drivers': 'drivers', tickets: 'support_tickets', 'support/tickets': 'support_tickets' }[match[1]];
   authenticateToken(req, res, async err => {
     if (err) return next(err);
     try {
@@ -1938,7 +1948,9 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
     }
 
     const userTenantId = user.tenant_id || 'default_tenant';
-    if (user.role !== 'owner') {
+    const ownership = await dbGet('SELECT userId FROM platform_ownership WHERE singleton = 1 AND userId = ?', [user.id]);
+    const isPlatformAdmin = Boolean(ownership) && user.role === 'owner';
+    if (!isPlatformAdmin) {
       const tenantRow = await dbGet('SELECT status FROM tenants WHERE id = ?', [userTenantId]);
       if (!tenantRow) {
         return res.status(403).json({
@@ -1966,13 +1978,16 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
         id: user.id,
         username: user.username,
         role: user.role,
-        tenant_id: user.tenant_id || 'default_tenant'
+        tenant_id: user.tenant_id || 'default_tenant',
+        isPlatformAdmin
       }
     });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
 });
+
+app.get('/api/auth/me', authenticateToken, (req, res) => res.json({ user: { ...req.user, isPlatformAdmin: req.user.isPlatformAdmin === 1 } }));
 
 // Register (Owner / Manager only)
 app.post('/api/auth/register', authenticateToken, requireRole(['owner', 'manager']), validateRequest(userCreateSchema), async (req, res) => {
@@ -2059,7 +2074,7 @@ app.get('/api/timeclock/status', authenticateToken, async (req, res) => {
 // Get All Shift Entries (Owner / Manager)
 app.get('/api/timeclock/entries', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const entries = await dbAll('SELECT * FROM timeclock_entries ORDER BY clockIn DESC LIMIT 100');
+    const entries = await dbAll('SELECT t.* FROM timeclock_entries t JOIN users u ON u.id = t.userId WHERE u.tenant_id = ? ORDER BY t.clockIn DESC LIMIT 100', [req.tenantId]);
     res.json(entries);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -3933,7 +3948,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 });
 
 // GET /api/db/inspect — Full database inspection endpoint for Owner only
-app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), async (req, res) => {
+app.get('/api/db/inspect', authenticateToken, requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
   // Cross-tenant DB dump — restricted to the platform tenant so a customer tenant owner
   // can never inspect other tenants' data.
   if (req.tenantId !== 'default_tenant') {
@@ -4106,6 +4121,7 @@ app.delete('/api/users/:id', authenticateToken, requireRole(['owner', 'manager']
   try {
     const target = await dbGet('SELECT id, role FROM users WHERE id = ? AND tenant_id = ?', [id, req.tenantId]);
     if (!target) return res.status(404).json({ error: 'User not found.' });
+    if (await dbGet('SELECT userId FROM platform_ownership WHERE userId = ?', [target.id])) return res.status(403).json({ error: 'The platform owner cannot be deleted through restaurant staff management.' });
     if (target.id === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account.' });
     if (req.user.role !== 'owner' && target.role === 'owner') {
       return res.status(403).json({ error: 'Only an owner can delete another owner account.' });
@@ -4500,172 +4516,7 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
   }
 });
 
-// POST /api/saas/tenants — Provision New SaaS Tenant Subdomain
-app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
-  const { name, subdomain, ownerEmail, plan = 'pro' } = req.body || {};
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Restaurant Tenant Name is required.' });
-  if (!subdomain || !subdomain.trim()) return res.status(400).json({ error: 'Subdomain Slug is required.' });
-  if (!ownerEmail || !ownerEmail.includes('@')) return res.status(400).json({ error: 'Valid Owner Contact Email is required.' });
-
-  const cleanName = name.trim();
-  const slug = subdomain.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-  const tenantId = `tenant_${slug}_${Date.now().toString(36)}`;
-
-  try {
-    // Check if subdomain already exists
-    const existing = await dbGet('SELECT id FROM tenants WHERE subdomain = ?', [slug]);
-    if (existing) return res.status(400).json({ error: `Subdomain "${slug}" is already taken.` });
-
-    // 1. Insert into tenants table
-    await dbRun(
-      `INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-      [tenantId, cleanName, slug, ownerEmail.trim().toLowerCase(), plan, Date.now()]
-    );
-
-    // 2. Seed default business settings for this tenant
-    const defaultSettings = [
-      { key: 'businessName', value: cleanName },
-      { key: 'currencySymbol', value: 'Rs.' },
-      { key: 'taxRate', value: '10' },
-      { key: 'serviceChargeRate', value: '10' },
-      { key: 'address', value: 'Colombo, Sri Lanka' }
-    ];
-    for (const set of defaultSettings) {
-      await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId, set.key, set.value]);
-    }
-
-    // 3. Seed default Categories & Menu Items
-    const defaultCats = [
-      { id: `cat_main_${Date.now()}`, name: '🍽️ Signature Specials', emoji: '🍕' },
-      { id: `cat_drink_${Date.now()}`, name: '🍹 Refreshing Drinks', emoji: '🍹' }
-    ];
-    for (const cat of defaultCats) {
-      await dbRun('INSERT INTO categories (id, name, emoji, tenant_id) VALUES (?, ?, ?, ?)', [cat.id, cat.name, cat.emoji, tenantId]);
-    }
-
-    const defaultItems = [
-      { id: `itm_special_${Date.now()}`, name: `${cleanName} Special Grill`, price: 2450, category: defaultCats[0].id, emoji: '🥩', stock: 50, description: 'Chef special house grill platter.' },
-      { id: `itm_beverage_${Date.now()}`, name: 'Fresh Tropical Punch', price: 450, category: defaultCats[1].id, emoji: '🍹', stock: 100, description: 'Chilled fresh fruit blend.' }
-    ];
-    for (const item of defaultItems) {
-      await dbRun(
-        `INSERT INTO menu_items (id, name, price, cost, category, emoji, stock, minStock, description, tenant_id, isAvailable)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 5, ?, ?, 1)`,
-        [item.id, item.name, item.price, item.price * 0.4, item.category, item.emoji, item.stock, item.description, tenantId]
-      );
-    }
-
-    // 4. Create owner staff user account for POS login
-    const username = ownerEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    const userPass = generateStrongPassword(10);
-    const passwordHash = await bcrypt.hash(userPass, 10);
-    const userId = `usr_${Date.now()}`;
-    await dbRun(
-      `INSERT INTO users (id, username, passwordHash, role, pin, tenant_id, email)
-       VALUES (?, ?, ?, 'owner', '1234', ?, ?)`,
-      [userId, username, passwordHash, tenantId, ownerEmail.trim().toLowerCase()]
-    );
-
-    res.status(201).json({
-      success: true,
-      message: `🎉 Tenant "${cleanName}" provisioned successfully at ${slug}.gastroflow.lk!`,
-      tenant: {
-        id: tenantId,
-        name: cleanName,
-        subdomain: slug,
-        ownerEmail,
-        plan,
-        staffUsername: username,
-        temporaryPassword: userPass,
-        posUrl: `/?tenant=${tenantId}`,
-        customerUrl: `/customer/?tenant=${tenantId}`,
-        driverUrl: `/driver-app/?tenant=${tenantId}`
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/saas/tenants — List all provisioned SaaS tenant shops
-app.get('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
-  try {
-    const tenants = await dbAll('SELECT id, name, subdomain, ownerEmail, plan, status, createdAt FROM tenants ORDER BY createdAt DESC');
-    const result = (tenants || []).map(t => ({
-      ...t,
-      posUrl: `/?tenant=${t.id}`,
-      customerUrl: `/customer/?tenant=${t.id}`,
-      driverUrl: `/driver-app/?tenant=${t.id}`
-    }));
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/saas/tenants/:id — Delete store and wipe all its data
-app.delete('/api/saas/tenants/:id', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
-  const { id } = req.params;
-  if (!id || id === 'default_tenant') {
-    return res.status(400).json({ error: 'Cannot delete the main default tenant store.' });
-  }
-
-  try {
-    const tenant = await dbGet('SELECT * FROM tenants WHERE id = ? OR subdomain = ?', [id, id]);
-    if (!tenant) return res.status(404).json({ error: 'Tenant store not found.' });
-
-    const targetId = tenant.id;
-
-    // Real-time SSE alert: instantly notify all open POS/Customer sessions of this tenant
-    notifyPOS({ type: 'tenant_deleted', tenantId: targetId, storeName: tenant.name }, targetId);
-    notifyPublicStore({ type: 'tenant_deleted', tenantId: targetId, storeName: tenant.name }, targetId);
-
-    // Delete tenant record
-    await dbRun('DELETE FROM tenants WHERE id = ?', [targetId]);
-
-    // Wipe all tenant-scoped data
-    const tenantTables = [
-      'users', 'orders', 'order_items', 'menu_items', 'tables', 'ingredients', 'customers',
-      'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
-      'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'settings'
-    ];
-    for (const tbl of tenantTables) {
-      try {
-        await dbRun(`DELETE FROM ${tbl} WHERE tenant_id = ?`, [targetId]);
-      } catch (_) {}
-    }
-
-    res.json({ success: true, message: `🗑️ Tenant store "${tenant.name}" (${tenant.subdomain}) deleted successfully.` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// PATCH /api/saas/tenants/:id/status — Toggle active / suspended status
-app.patch('/api/saas/tenants/:id/status', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body || {};
-  if (!status || !['active', 'suspended'].includes(status)) {
-    return res.status(400).json({ error: 'Valid status ("active" or "suspended") is required.' });
-  }
-
-  try {
-    const tenant = await dbGet('SELECT * FROM tenants WHERE id = ? OR subdomain = ?', [id, id]);
-    if (!tenant) return res.status(404).json({ error: 'Tenant store not found.' });
-
-    const targetId = tenant.id;
-    await dbRun('UPDATE tenants SET status = ? WHERE id = ?', [status, targetId]);
-
-    // Real-time SSE alert: instantly notify all open POS/Customer sessions of this tenant
-    notifyPOS({ type: 'tenant_status_changed', status, tenantId: targetId, storeName: tenant.name }, targetId);
-    notifyPublicStore({ type: 'tenant_status_changed', status, tenantId: targetId, storeName: tenant.name }, targetId);
-
-    res.json({ success: true, message: `Store "${tenant.name}" status updated to ${status}.` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.use('/api', createPlatformRouter({ authenticateToken, requirePlatformAdmin, dbGet, dbAll, dbRun, writeAuditLog, notifyPOS, notifyPublicStore }));
 
 // GET /api/public/tenant/status - Check if a tenant store exists and is active
 app.get('/api/public/tenant/status', publicApiLimiter, async (req, res) => {
@@ -6560,77 +6411,6 @@ app.get('/api/ingredients', async (req, res) => {
   }
 });
 
-// SaaS Super-Admin Tenants Management Endpoints
-// Platform super-admin guard: only the platform tenant's owner may manage tenants.
-
-
-app.get('/api/saas/tenants', requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
-  try {
-    const rows = await dbAll('SELECT * FROM tenants ORDER BY createdAt DESC');
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/saas/tenants', requireRole(['owner']), requirePlatformAdmin, validateRequest(tenantCreateSchema), async (req, res) => {
-  const { name, subdomain, ownerEmail, plan, ownerUsername, ownerPassword, ownerPin } = req.body;
-  if (!name || !subdomain || !ownerEmail) {
-    return res.status(400).json({ error: 'Name, subdomain, and ownerEmail are required.' });
-  }
-  const cleanSub = String(subdomain).toLowerCase().replace(/[^a-z0-9-]/g, '');
-  if (!cleanSub) {
-    return res.status(400).json({ error: 'Subdomain must contain letters or numbers.' });
-  }
-  const id = `tenant_${Date.now()}`;
-  try {
-    const existing = await dbGet('SELECT id FROM tenants WHERE subdomain = ?', [cleanSub]);
-    if (existing) {
-      return res.status(409).json({ error: 'That subdomain is already taken.' });
-    }
-
-    await dbRun('BEGIN TRANSACTION');
-    try {
-      await dbRun('INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-        id, name, cleanSub, ownerEmail, plan || 'pro', 'active', Date.now()
-      ]);
-
-      // Seed an owner user for the new tenant so they can immediately sign in.
-      const uname = (ownerUsername || `${cleanSub}-owner`).toLowerCase();
-      const dupUser = await dbGet('SELECT id FROM users WHERE username = ?', [uname]);
-      if (dupUser) {
-        throw new Error(`A user named "${uname}" already exists; pass a different ownerUsername.`);
-      }
-      const tempPassword = ownerPassword || crypto.randomBytes(6).toString('hex');
-      const passwordHash = await bcrypt.hash(tempPassword, 10);
-      const generatedPin = ownerPin || generateSecurePin();
-      const pinHash = await bcrypt.hash(String(generatedPin), 10);
-      const uid = `user_${Date.now()}`;
-      await dbRun(
-        'INSERT INTO users (id, username, passwordHash, role, pin, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [uid, uname, passwordHash, 'owner', pinHash, ownerEmail, id]
-      );
-
-      await dbRun('COMMIT');
-      await writeAuditLog(req.user.id, req.user.username, 'provision_tenant', `Provisioned tenant ${name} (${id}) with owner user ${uname}`);
-      res.status(201).json({
-        id, name, subdomain: cleanSub, ownerEmail, plan: plan || 'pro', status: 'active',
-        ownerCredentials: {
-          username: uname,
-          password: ownerPassword ? '(as provided)' : tempPassword,
-          pin: ownerPin ? '(as provided)' : generatedPin,
-          note: 'Share securely. The owner should change the password and PIN on first login.'
-        }
-      });
-    } catch (e) {
-      await dbRun('ROLLBACK');
-      throw e;
-    }
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
 // GET /api/saas/usage — the caller's own tenant plan + live usage vs limits.
 app.get('/api/saas/usage', requireRole(['owner', 'manager']), async (req, res) => {
   try {
@@ -6642,28 +6422,6 @@ app.get('/api/saas/usage', requireRole(['owner', 'manager']), async (req, res) =
         maxOrdersPerMonth: u.limits.maxOrdersPerMonth === Infinity ? null : u.limits.maxOrdersPerMonth
       }
     });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// PATCH /api/saas/tenants/:id — platform admin changes a tenant's plan/status.
-// (Billing provider integration lives here — see docs; this endpoint records the
-// plan the platform admin sets after payment is confirmed out-of-band.)
-app.patch('/api/saas/tenants/:id', requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
-  const { plan, status } = req.body || {};
-  const validPlans = planList().map(p => p.id);
-  const validStatus = ['active', 'suspended', 'trial'];
-  if (plan && !validPlans.includes(plan)) return res.status(400).json({ error: 'Invalid plan.' });
-  if (status && !validStatus.includes(status)) return res.status(400).json({ error: 'Invalid status.' });
-  try {
-    const tenant = await dbGet('SELECT id FROM tenants WHERE id = ?', [req.params.id]);
-    if (!tenant) return res.status(404).json({ error: 'Tenant not found.' });
-    if (plan) await dbRun('UPDATE tenants SET plan = ? WHERE id = ?', [plan, req.params.id]);
-    if (status) await dbRun('UPDATE tenants SET status = ? WHERE id = ?', [status, req.params.id]);
-    await writeAuditLog(req.user.id, req.user.username, 'update_tenant_plan', `Tenant ${req.params.id} → plan=${plan || '(unchanged)'} status=${status || '(unchanged)'}`);
-    const updated = await dbGet('SELECT id, name, subdomain, plan, status FROM tenants WHERE id = ?', [req.params.id]);
-    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -6702,6 +6460,12 @@ app.post('/api/recipes', requireRole(['owner', 'manager']), async (req, res) => 
   const { menuItemId, ingredients } = req.body; // ingredients: [{ ingredientId, quantityRequired }]
   if (!menuItemId || !Array.isArray(ingredients)) {
     return res.status(400).json({ error: 'menuItemId and ingredients array required.' });
+  }
+  const menu = await dbGet('SELECT id FROM menu_items WHERE id = ? AND tenant_id = ?', [menuItemId,req.tenantId]);
+  if (!menu) return res.status(404).json({ error: 'Menu item not found.' });
+  for (const item of ingredients) {
+    if (!Number.isFinite(item.quantityRequired) || item.quantityRequired <= 0) return res.status(400).json({error:'Recipe quantities must be positive.'});
+    if (!await dbGet('SELECT id FROM ingredients WHERE id = ? AND tenant_id = ?', [item.ingredientId,req.tenantId])) return res.status(404).json({error:'Ingredient not found.'});
   }
   await dbRun('BEGIN TRANSACTION');
   try {
@@ -7329,103 +7093,8 @@ app.post('/api/inventory/transfers/:id/approve', authenticateToken, requireRole(
   }
 });
 
-// ── SaaS Multi-Tenancy Provisioning & Tenant List Endpoints ──
-app.get('/api/saas/tenants', async (req, res) => {
-  try {
-    const defaultStore = {
-      id: 'default_tenant',
-      name: 'GastroFlow Main Bistro (Primary)',
-      subdomain: 'main',
-      ownerEmail: 'admin@gastroflow.lk',
-      plan: 'enterprise',
-      status: 'active',
-      staffUsername: 'admin',
-      temporaryPassword: '***',
-      createdAt: 1700000000000
-    };
-
-    let tenantsFromDb = [];
-    try {
-      tenantsFromDb = await dbAll('SELECT * FROM tenants ORDER BY createdAt DESC');
-    } catch (_) {}
-
-    const knownIds = new Set();
-    const resultList = [];
-
-    // Always put default_tenant at the top
-    resultList.push(defaultStore);
-    knownIds.add('default_tenant');
-
-    for (const t of tenantsFromDb) {
-      if (t.id && !knownIds.has(t.id)) {
-        resultList.push(t);
-        knownIds.add(t.id);
-      }
-    }
-
-    res.json(resultList);
-  } catch (err) {
-
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-
-
-app.post('/api/saas/tenants', authenticateToken, requireRole(['owner', 'manager']), requirePlatformAdmin, async (req, res) => {
-  const { name, subdomain, ownerEmail, plan } = req.body;
-  if (!name || !subdomain || !ownerEmail) {
-    return res.status(400).json({ error: 'name, subdomain, and ownerEmail are required.' });
-  }
-
-  const cleanSubdomain = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '');
-  try {
-    const existing = await dbGet('SELECT * FROM tenants WHERE subdomain = ?', [cleanSubdomain]);
-    if (existing) return res.status(400).json({ error: `Subdomain "${cleanSubdomain}" is already taken.` });
-
-    const tenantId = `tenant_${cleanSubdomain}_${Date.now().toString(36)}`;
-    const staffUsername = `${cleanSubdomain}_admin`;
-    const temporaryPassword = generateStrongPassword(10);
-    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
-    const createdAt = Date.now();
-
-    await dbRun('BEGIN TRANSACTION');
-
-    await dbRun(
-      'INSERT INTO tenants (id, name, subdomain, ownerEmail, plan, status, staffUsername, temporaryPassword, createdAt) VALUES (?, ?, ?, ?, ?, "active", ?, ?, ?)',
-      [tenantId, name, cleanSubdomain, ownerEmail, plan || 'pro', staffUsername, temporaryPassword, createdAt]
-    );
-
-    const userId = `usr_${Date.now()}`;
-    await dbRun(
-      'INSERT INTO users (id, username, passwordHash, role, pin, tenant_id) VALUES (?, ?, ?, "owner", "1234", ?)',
-      [userId, staffUsername, passwordHash, tenantId]
-    );
-
-    await seedDatabase(tenantId);
-    await dbRun('COMMIT');
-
-    const createdTenant = {
-      id: tenantId,
-      name,
-      subdomain: cleanSubdomain,
-      ownerEmail,
-      plan: plan || 'pro',
-      status: 'active',
-      staffUsername,
-      temporaryPassword,
-      createdAt
-    };
-
-    res.status(201).json({ tenant: createdTenant, message: `Tenant store "${name}" provisioned successfully!` });
-  } catch (err) {
-    await dbRun('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
 // ── Multi-Tenant Partner Payouts & Commission Analytics ──
-app.get('/api/marketplace/partner-earnings', requireRole(['owner']), async (req, res) => {
+app.get('/api/marketplace/partner-earnings', requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
   try {
     const commissionRate = parseFloat((await getSetting('default_tenant', 'platformCommissionRate')) || 15);
 
@@ -7563,7 +7232,7 @@ app.get('/api/reports/cogs', authenticateToken, requireRole(['owner', 'manager']
 // ── 3.2 Inventory Depth (Purchase Orders, Suppliers & Waste Logging) ──
 app.get('/api/inventory/suppliers', requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const suppliers = await dbAll('SELECT * FROM suppliers ORDER BY name ASC').catch(() => []);
+    const suppliers = await dbAll('SELECT * FROM suppliers WHERE tenant_id = ? ORDER BY name ASC', [req.tenantId]);
     res.json(suppliers);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -7574,7 +7243,7 @@ app.post('/api/inventory/suppliers', requireRole(['owner', 'manager']), async (r
   const { name, phone, email, address } = req.body;
   const id = `sup_${Date.now()}`;
   try {
-    await dbRun('INSERT INTO suppliers (id, name, phone, email, address) VALUES (?, ?, ?, ?, ?)', [id, name, phone || '', email || '', address || '']);
+    await dbRun('INSERT INTO suppliers (id, name, phone, email, address, tenant_id) VALUES (?, ?, ?, ?, ?, ?)', [id, name, phone || '', email || '', address || '', req.tenantId]);
     res.json({ id, name, phone, email, address });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -7583,18 +7252,16 @@ app.post('/api/inventory/suppliers', requireRole(['owner', 'manager']), async (r
 
 app.post('/api/inventory/waste', requireRole(['owner', 'manager']), async (req, res) => {
   const { menuItemId, ingredientId, quantity, reason } = req.body;
+  if ((!menuItemId === !ingredientId) || !Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ error: 'Choose one stock item and a positive quantity.' });
+  const table = menuItemId ? 'menu_items' : 'ingredients';
+  const id = menuItemId || ingredientId;
   try {
-    if (menuItemId) {
-      await dbRun('UPDATE menu_items SET stock = MAX(0, stock - ?) WHERE id = ?', [quantity, menuItemId]);
-    } else if (ingredientId) {
-      await dbRun('UPDATE ingredients SET currentStock = MAX(0, currentStock - ?) WHERE id = ?', [quantity, ingredientId]);
-    }
-
-    await writeAuditLog(req.user.id, req.user.username, 'waste_logged', `Logged waste qty ${quantity}: ${reason}`);
-    res.json({ success: true, message: 'Waste logged and inventory deducted.' });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
+    const row = await dbGet(`SELECT id FROM ${table} WHERE id = ? AND tenant_id = ?`, [id,req.tenantId]);
+    if (!row) return res.status(404).json({ error: 'Stock item not found.' });
+    await dbRun(`UPDATE ${table} SET stock = MAX(0,stock - ?) WHERE id = ? AND tenant_id = ?`, [quantity,id,req.tenantId]);
+    await writeAuditLog(req.user.id,req.user.username,'waste_logged',`Logged waste qty ${quantity}: ${reason || ''}`);
+    res.json({success:true,message:'Waste logged and inventory deducted.'});
+  } catch (err) { res.status(500).json({error:errMsg(err)}); }
 });
 
 // ── 3.4 Staff & Permissions API ──

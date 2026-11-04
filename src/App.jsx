@@ -3,6 +3,7 @@ import WorkspaceTools from './components/WorkspaceTools';
 import { ConnectionStatus } from '../shared/ui/Resilience.jsx';
 import { POSProvider, usePOS } from './context/POSContext';
 import Sidebar from './components/Sidebar';
+import PlatformAdmin from './components/PlatformAdmin';
 import Dashboard from './components/Dashboard';
 import POSView from './components/POSView';
 import FloorPlan from './components/FloorPlan';
@@ -22,7 +23,7 @@ function AppContent() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // If the store is suspended or deleted, display full-screen status view immediately
-  const isMasterOwner = currentUser?.role === 'owner' && (!currentUser?.tenant_id || currentUser?.tenant_id === 'default_tenant');
+  const isMasterOwner = currentUser?.isPlatformAdmin === true;
   if (tenantLock && !isMasterOwner) {
     return (
       <StoreStatusScreen
@@ -62,6 +63,8 @@ function AppContent() {
 
   const renderActiveView = () => {
     switch (activeTab) {
+      case 'platform':
+        return currentUser.isPlatformAdmin === true ? <PlatformAdmin /> : <Dashboard />;
       case 'dashboard':
         return <Dashboard />;
       case 'pos':

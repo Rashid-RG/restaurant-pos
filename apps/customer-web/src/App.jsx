@@ -323,7 +323,7 @@ function InnerApp() {
               <span className="back-btn-text">Back</span>
             </button>
           )}
-          <img src={`${import.meta.env.BASE_URL}food-logo.png`} alt="GastroFood Logo" style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }} onClick={() => navigate('restaurants')} />
+          <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="GastroFood Logo" style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }} onClick={() => navigate('restaurants')} />
           <span className="restaurant-name" style={{ fontSize: '1.2rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => navigate('restaurants')}>
             GastroFlow
           </span>
@@ -392,7 +392,7 @@ function InnerApp() {
           color: 'var(--text-muted)'
         }}>
           <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-1)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <img src={`${import.meta.env.BASE_URL}food-logo.png`} alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
+            <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
             <span>GastroFlow Bistro & Marketplace Platform</span>
           </div>
 

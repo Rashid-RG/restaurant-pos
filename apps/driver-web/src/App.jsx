@@ -1,3 +1,4 @@
+import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
 import { Bike } from 'lucide-react';
 import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
@@ -310,7 +311,7 @@ export default function App() {
       )}
 
       <header className="driver-header">
-        <img src={`${import.meta.env.BASE_URL}driver-logo.png`} alt="GastroDriver" className="driver-logo-img" />
+        <img src={`${import.meta.env.BASE_URL}driver-logo.svg`} alt="GastroDriver" className="driver-logo-img" />
         <span className="driver-title">GastroDriver</span>
         <ConnectionStatus compact/><span className="driver-badge">DELIVERY PARTNER</span>
       </header>
@@ -485,7 +486,7 @@ export default function App() {
                         {['ready', 'picked_up'].includes(ord.status) && (
                           <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem', background: '#3b82f6' }}
                             onClick={() => handleUpdateStatus(ord.id, 'out_for_delivery')}>
-                            🛵 Start Delivery (Out for Delivery)
+                            <AnimatedFeatureIcon kind="delivery" size={28} active={false}/> Start Delivery (Out for Delivery)
                           </button>
                         )}
                         {['out_for_delivery', 'arrived'].includes(ord.status) && (
