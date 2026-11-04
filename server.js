@@ -1,4 +1,6 @@
 import express from 'express';
+import { amountInCents, validateManualTender, staffReceipt } from './lib/tenders.js';
+import { validateDeliveryProof } from './lib/delivery-proof.js';
 import { reconcileOfflineSales } from './lib/offline-sales.js';
 import { createLibsqlStore } from './lib/libsql-store.js';
 import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.js';
@@ -859,6 +861,30 @@ async function initTables() {
         updatedAt INTEGER
       )
     `);
+
+    await dbRun(`CREATE TABLE IF NOT EXISTS refund_transactions (
+      id TEXT PRIMARY KEY,
+      orderId TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      amountCents INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      actorId TEXT NOT NULL,
+      createdAt BIGINT NOT NULL
+    )`);
+
+    // Delivery evidence is private, immutable and committed with delivery completion.
+    // Small bounded rasters live in the durable database, not Render's local disk.
+    await dbRun(`CREATE TABLE IF NOT EXISTS delivery_proofs (
+      orderId TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      driverId TEXT NOT NULL,
+      savedAt BIGINT NOT NULL,
+      signature TEXT,
+      deliveryPhoto TEXT,
+      signatureHash TEXT,
+      photoHash TEXT,
+      cashReceived INTEGER NOT NULL DEFAULT 0
+    )`);
 
     // 22. Web Push Subscriptions Table
     await dbRun(`
@@ -2100,11 +2126,11 @@ async function allocateInvoiceNumber() {
 // restores its table, awards loyalty, writes an audit log, and notifies SSE subscribers.
 // Callers must have already authorized the payment (verified webhook signature/amount, or
 // a gated non-production simulation).
-async function settleOrderPaid(order, method = 'payhere') {
-  await dbRun('BEGIN TRANSACTION');
+async function settleOrderPaid(order, method = 'payhere', withinTransaction = false) {
+  if (!withinTransaction) await dbRun('BEGIN TRANSACTION');
   try {
     order = await dbGet('SELECT * FROM orders WHERE id = ?', [order.id]);
-    if (order.paymentStatus === 'paid' || order.invoiceNumber) { await dbRun('COMMIT'); return; }
+    if (order.paymentStatus === 'paid' || order.invoiceNumber) { if (!withinTransaction) await dbRun('COMMIT'); return; }
     if (['cancelled', 'refunded', 'partially_refunded', 'rejected'].includes(order.status)) throw new Error('Order requires payment reconciliation.');
     const fulfillment = order.source === 'online' || order.status === 'delivered' ? order.status : 'paid';
     await dbRun("UPDATE orders SET status = ?, paymentStatus = 'paid', paymentMethod = ?, paymentTimestamp = ? WHERE id = ?", [fulfillment, method, Date.now(), order.id]);
@@ -2132,7 +2158,8 @@ async function settleOrderPaid(order, method = 'payhere') {
         WHERE id = ?
       `, [earnedPoints, order.total, order.customerAccountId]);
     }
-    await writeAuditLog('payhere_gateway', 'PayHere Gateway', 'pay_order', `Payment settled via PayHere for order ${order.id} (Amount: LKR ${order.total})`);
+    await writeAuditLog(withinTransaction ? order.driverId : 'payment_gateway', withinTransaction ? 'Assigned driver' : 'Payment Gateway', 'pay_order', `Payment settled via ${method} for order ${order.id} (Amount: LKR ${order.total})`);
+    if (withinTransaction) return;
     await dbRun('COMMIT');
 
     // Notify SSE subscribers
@@ -2143,7 +2170,7 @@ async function settleOrderPaid(order, method = 'payhere') {
     // Fire-and-forget order confirmation (email + SMS). Never blocks settlement.
     sendOrderConfirmation(updated);
   } catch (e) {
-    await dbRun('ROLLBACK');
+    if (!withinTransaction) await dbRun('ROLLBACK');
     throw e;
   }
 }
@@ -2296,32 +2323,45 @@ app.post('/api/shifts/open', authenticateToken, validateRequest(shiftOpenSchema)
 
 // POST /api/shifts/close
 app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchema), async (req, res) => {
-  const { actualCash, notes } = req.body || {};
-  const actualVal = parseFloat(actualCash) || 0;
+  const { actualCash, notes } = req.body;
+  let transaction = false;
   try {
-    const active = await dbGet(
-      "SELECT * FROM shifts WHERE userId = ? AND status = 'open' ORDER BY startTime DESC LIMIT 1",
-      [req.user.id]
-    );
-    if (!active) {
-      return res.status(400).json({ error: 'No active open shift found.' });
-    }
-    const endTime = Date.now();
-    const ordersCount = await dbGet(
-      "SELECT SUM(total) as cashTotal FROM orders WHERE timestamp >= ? AND tenant_id = ? AND cashierId = ? AND paymentMethod = 'cash' AND (status = 'paid' OR paymentStatus = 'paid')",
-      [active.startTime, req.tenantId, req.user.id]
-    );
-    const cashSales = ordersCount?.cashTotal || 0;
-    const expectedCash = (active.startFloat || 0) + cashSales;
+    await dbRun('BEGIN TRANSACTION'); transaction = true;
+    const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
+    if (!shift) { await dbRun('ROLLBACK'); transaction = false; return res.status(400).json({ error: 'No active open shift found.' }); }
 
-    await dbRun(
-      `UPDATE shifts SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = 'closed', notes = ? WHERE id = ?`,
-      [endTime, actualVal, actualVal, expectedCash, notes || '', active.id]
-    );
-    await writeAuditLog(req.user.id, req.user.username, 'close_shift', `Closed cashier shift. Actual: LKR ${actualVal}, Expected: LKR ${expectedCash}`);
-    const closedShift = await dbGet('SELECT * FROM shifts WHERE id = ?', [active.id]);
-    res.json(closedShift);
+    // Reconcile only this cashier's settled tenders, by settlement time.
+    // A delivery driver's collected COD remains outside the cashier drawer until handover.
+    const sales = await dbAll(`SELECT total,paymentMethod,paymentSplit FROM orders
+      WHERE (paymentStatus='paid' OR status='paid') AND cashierId=? AND tenant_id=?
+      AND COALESCE(paymentTimestamp,timestamp)>=?`, [req.user.id,req.tenantId,shift.startTime]);
+    let cashCents = 0;
+    for (const sale of sales) {
+      if (sale.paymentMethod === 'cash') cashCents += amountInCents(sale.total);
+      else if (sale.paymentMethod === 'split') {
+        const tender = validateManualTender(sale.total, 'split', JSON.parse(sale.paymentSplit || 'null'));
+        for (const entry of tender) if (entry.method === 'cash') cashCents += amountInCents(entry.amount);
+      }
+    }
+    const refunds = await dbGet('SELECT COALESCE(SUM(amountCents),0) AS cents FROM refund_transactions WHERE actorId=? AND tenant_id=? AND createdAt>=?', [req.user.id,req.tenantId,shift.startTime]);
+    const movements = await dbAll('SELECT type,amount FROM cash_movements WHERE shiftId=? AND tenant_id=?', [shift.id,req.tenantId]);
+    let movementCents = 0;
+    for (const movement of movements) movementCents += (movement.type === 'cash_in' ? 1 : -1) * amountInCents(movement.amount);
+    const expectedCash = (amountInCents(shift.startFloat || 0) + cashCents + movementCents - Number(refunds.cents)) / 100;
+    const endCash = amountInCents(actualCash, 'Actual cash') / 100;
+
+    await dbRun(`
+      UPDATE shifts
+      SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = "closed", notes = ?
+      WHERE id = ?
+    `, [Date.now(), endCash, endCash, expectedCash, notes || '', shift.id]);
+
+    await writeAuditLog(req.user.id, req.user.username, 'close_shift', `Closed shift. Expected: ${expectedCash}, Actual: ${endCash}`);
+    await dbRun('COMMIT'); transaction = false;
+    const closed = await dbGet('SELECT * FROM shifts WHERE id=? AND tenant_id=?', [shift.id,req.tenantId]);
+    res.json({ ...closed, discrepancy: endCash - expectedCash });
   } catch (err) {
+    if (transaction) await dbRun('ROLLBACK');
     res.status(500).json({ error: errMsg(err) });
   }
 });
@@ -5083,7 +5123,7 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
       "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') ORDER BY timestamp DESC",
       [t]
     );
-    const completed = await dbAll("SELECT * FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
+    const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
     const colomboNow = new Date(Date.now() + 330 * 60000);
     const dayStart = Date.UTC(colomboNow.getUTCFullYear(), colomboNow.getUTCMonth(), colomboNow.getUTCDate()) - 330 * 60000;
     const cash = await dbGet("SELECT COALESCE(SUM(total),0) AS amount FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' AND paymentMethod IN ('cash','cod') AND COALESCE(cashCollected,0) = 0", [t, driverId]);
@@ -5111,42 +5151,83 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
   }
 });
 
-// POST /api/public/driver/status — Driver updates delivery status (own tenant only)
+// Evidence is visible only to the assigned driver or a manager of this restaurant.
+async function readDeliveryProof(req, res, driverOnly) {
+  const t = driverOnly ? req.driver.tenant_id : req.tenantId;
+  const params = [req.params.id, t];
+  let sql = 'SELECT * FROM delivery_proofs WHERE orderId = ? AND tenant_id = ?';
+  if (driverOnly) { sql += ' AND driverId = ?'; params.push(req.driver.driverId); }
+  const proof = await dbGet(sql, params);
+  if (!proof) return res.status(404).json({ error: 'Delivery proof not found.' });
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json(proof);
+}
+app.get('/api/public/driver/orders/:id/proof', authenticateDriver, (req, res) => readDeliveryProof(req, res, true));
+app.get('/api/orders/:id/delivery-proof', authenticateToken, requireRole(['owner', 'manager']), (req, res) => readDeliveryProof(req, res, false));
+
+// The driver controls delivery progress, never kitchen or payment states.
 app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
-  const { orderId, status, lat, lng } = req.body;
+  const { orderId, status } = req.body;
   const driverId = req.driver.driverId;
   const t = req.driver.tenant_id;
-  if (!orderId || !status) {
-    return res.status(400).json({ error: 'orderId and status are required.' });
+  if (typeof orderId !== 'string' || !['picked_up', 'out_for_delivery', 'arrived', 'delivered'].includes(status)) {
+    return res.status(400).json({ error: 'A valid orderId and delivery status are required.' });
   }
-  // Restrict to delivery-lifecycle transitions only, so it can never be abused to
-  // mark an order paid/cancelled/refunded.
-  const ALLOWED_DRIVER_STATUSES = ['accepted', 'preparing', 'ready', 'picked_up', 'out_for_delivery', 'arrived', 'delivered'];
-  if (!ALLOWED_DRIVER_STATUSES.includes(status)) {
-    return res.status(400).json({ error: 'Invalid delivery status.' });
-  }
+  let proof, existingProof, order, transaction = false;
   try {
-    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ? AND driverId = ?', [orderId, driverId]);
-    if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
-    await dbRun('UPDATE orders SET status = ?, driverId = ? WHERE id = ? AND tenant_id = ?', [status, driverId, orderId, t]);
-    if (typeof lat === 'number' && typeof lng === 'number') {
-      await dbRun(
-        'INSERT OR REPLACE INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)',
-        [orderId, driverId, lat, lng, Date.now()]
-      );
-      notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName: driverId });
+    await dbRun('BEGIN TRANSACTION'); transaction = true;
+    order = await dbGet('SELECT * FROM orders WHERE id = ? AND driverId = ? AND tenant_id = ?', [orderId, driverId, t]);
+    if (!order) { await dbRun('ROLLBACK'); transaction = false; return res.status(404).json({ error: 'Order not found.' }); }
+    if (order.diningType !== 'delivery' && order.orderType !== 'delivery') {
+      await dbRun('ROLLBACK'); transaction = false; return res.status(409).json({ error: 'This is not a delivery order.' });
     }
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
-    if (order && status === 'delivered' && ['cash', 'cod'].includes(order.paymentMethod) && order.paymentStatus !== 'paid') {
-      await settleOrderPaid(order, 'cash');
+    existingProof = await dbGet('SELECT orderId,savedAt FROM delivery_proofs WHERE orderId = ? AND tenant_id = ? AND driverId = ?', [orderId, t, driverId]);
+    // Network retry after a committed save returns the original receipt without overwriting evidence.
+    if (status === 'delivered' && order.status === 'delivered' && existingProof) {
+      await dbRun('COMMIT'); transaction = false;
+      return res.json({ success: true, status, proof: existingProof, alreadySaved: true });
     }
-    if (order) {
-      notifyOrderUpdate(orderId, order);
+    const transitions = {
+      picked_up: ['ready'],
+      out_for_delivery: ['ready', 'picked_up'],
+      arrived: ['out_for_delivery'],
+      delivered: ['out_for_delivery', 'arrived']
+    };
+    if ((order.status !== status && !transitions[status].includes(order.status)) || order.status === 'delivered') {
+      await dbRun('ROLLBACK'); transaction = false; return res.status(409).json({ error: 'The order changed. Refresh before updating its delivery status.' });
     }
-    res.json({ success: true, status });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    if (status === 'delivered') {
+      try { proof = validateDeliveryProof(req.body); }
+      catch (error) { await dbRun('ROLLBACK'); transaction = false; return res.status(400).json({ error: error.message }); }
+      const isCash = ['cash', 'cod'].includes(order.paymentMethod);
+      if (isCash && req.body.cashReceived !== true) {
+        await dbRun('ROLLBACK'); transaction = false; return res.status(400).json({ error: 'Confirm that the delivery cash was collected.' });
+      }
+      if (!isCash && order.paymentStatus !== 'paid') {
+        await dbRun('ROLLBACK'); transaction = false; return res.status(409).json({ error: 'Payment must be verified before completing this delivery.' });
+      }
+      const savedAt = Date.now();
+      await dbRun('INSERT INTO delivery_proofs (orderId,tenant_id,driverId,savedAt,signature,deliveryPhoto,signatureHash,photoHash,cashReceived) VALUES (?,?,?,?,?,?,?,?,?)',
+        [orderId, t, driverId, savedAt, proof.signature?.data || null, proof.photo?.data || null, proof.signature?.sha256 || null, proof.photo?.sha256 || null, isCash ? 1 : 0]);
+      existingProof = { orderId, savedAt };
+    }
+    await dbRun('UPDATE orders SET status = ? WHERE id = ? AND tenant_id = ? AND driverId = ?', [status, orderId, t, driverId]);
+    if (status === 'delivered' && ['cash', 'cod'].includes(order.paymentMethod)) {
+      await settleOrderPaid({ ...order, status }, 'cash', true);
+    }
+    await dbRun('COMMIT'); transaction = false;
+  } catch (error) {
+    if (transaction) await dbRun('ROLLBACK');
+    console.error('[Delivery completion]', error.message);
+    return res.status(500).json({ error: 'Delivery was not saved. Please retry.' });
   }
+  // Publish only committed state. A notification failure must not undo the save receipt.
+  try {
+    const updated = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
+    notifyOrderUpdate(orderId, updated);
+    notifyPOS({ type: 'delivery_status', orderId, status }, t);
+  } catch (error) { console.error('[Delivery notification]', error.message); }
+  res.json({ success: true, status, ...(status === 'delivered' ? { proof: existingProof } : {}) });
 });
 
 // POST /api/public/driver/location — Driver GPS ping (own tenant only)
@@ -6267,7 +6348,7 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
   await dbRun('BEGIN TRANSACTION');
   try {
     const existing = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [orderId, req.tenantId]);
-    if (!existing || !['pending', 'hold', 'preparing'].includes(existing.status)) {
+    if (!existing || existing.paymentStatus === 'paid' || !['pending', 'hold', 'preparing'].includes(existing.status)) {
       await dbRun('ROLLBACK');
       return res.status(409).json({ error: 'Only an open order can be modified.' });
     }
@@ -6294,33 +6375,26 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
 // POST /api/orders/:id/reject — Staff Reject online order (moved behind auth and role checks)
 app.post('/api/orders/:id/reject', requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
   const orderId = req.params.id;
-  const { reason } = req.body;
-
+  let transaction = false;
   try {
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
-    if (!order) return res.status(404).json({ error: 'Order not found.' });
-
-    await dbRun(
-      'UPDATE orders SET status = "cancelled", rejectedReason = ? WHERE id = ?',
-      [reason || 'Kitchen unavailable at this time', orderId]
-    );
-
-    // Restore stock
-    const items = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [orderId]);
-    for (const item of items) {
-      if (item.menuItemId) {
-        await dbRun('UPDATE menu_items SET stock = stock + ? WHERE id = ?', [item.quantity, item.menuItemId]);
-      }
+    await dbRun('BEGIN TRANSACTION'); transaction = true;
+    const order = await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?', [orderId,req.tenantId]);
+    if (!order) { await dbRun('ROLLBACK'); transaction = false; return res.status(404).json({ error: 'Order not found.' }); }
+    if (order.paymentStatus === 'paid' || ['paid','refunded','partially_refunded','delivered'].includes(order.status)) {
+      await dbRun('ROLLBACK'); transaction = false; return res.status(409).json({ error: 'Paid or completed orders require reconciliation before rejection.' });
     }
-
-    const updated = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
-    const updatedItems = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [orderId]);
-    const orderData = { ...updated, items: updatedItems };
-
-    notifyOrderUpdate(orderId, orderData);
-    res.json({ success: true, order: orderData });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    if (!['cancelled','rejected'].includes(order.status)) {
+      await dbRun('UPDATE orders SET status="cancelled",rejectedReason=? WHERE id=? AND tenant_id=?', [req.body.reason || 'Kitchen unavailable at this time',orderId,req.tenantId]);
+      const items = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [orderId]);
+      for (const item of items) if (item.menuItemId) await dbRun('UPDATE menu_items SET stock=stock+? WHERE id=? AND tenant_id=?', [item.quantity,item.menuItemId,req.tenantId]);
+    }
+    const updated = await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?', [orderId,req.tenantId]);
+    await dbRun('COMMIT'); transaction = false;
+    notifyOrderUpdate(orderId, updated);
+    res.json({ success: true, order: staffReceipt(updated) });
+  } catch (error) {
+    if (transaction) await dbRun('ROLLBACK');
+    res.status(500).json({ error: errMsg(error) });
   }
 });
 
@@ -6713,136 +6787,11 @@ app.post('/api/tables/transfer', requireRole(['owner', 'manager', 'cashier']), a
 });
 
 // POST /api/tables/merge — Merge order from sourceTableId into targetTableId order
-app.post('/api/tables/merge', requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
-  const { sourceTableId, targetTableId } = req.body;
-  if (!sourceTableId || !targetTableId) {
-    return res.status(400).json({ error: 'sourceTableId and targetTableId are required.' });
-  }
-
-  await dbRun('BEGIN TRANSACTION');
-  try {
-    const sourceTable = await dbGet('SELECT * FROM tables WHERE id = ?', [sourceTableId]);
-    const targetTable = await dbGet('SELECT * FROM tables WHERE id = ?', [targetTableId]);
-
-    if (!sourceTable || !sourceTable.currentOrderId) {
-      await dbRun('ROLLBACK');
-      return res.status(400).json({ error: 'Source table has no active order.' });
-    }
-    if (!targetTable || !targetTable.currentOrderId) {
-      await dbRun('ROLLBACK');
-      return res.status(400).json({ error: 'Target table has no active order to merge into.' });
-    }
-
-    const sourceOrderId = sourceTable.currentOrderId;
-    const targetOrderId = targetTable.currentOrderId;
-
-    // Move all items from source order to target order
-    await dbRun('UPDATE order_items SET orderId = ? WHERE orderId = ?', [targetOrderId, sourceOrderId]);
-
-    // Recalculate subtotal & total for target order
-    const remainingItems = await dbAll('SELECT * FROM order_items WHERE orderId = ?', [targetOrderId]);
-    const newSubtotal = remainingItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const targetOrder = await dbGet('SELECT * FROM orders WHERE id = ?', [targetOrderId]);
-
-    // Apply tax & service charge proportionally
-    const taxRate = parseFloat(targetOrder.tax || 0) / (parseFloat(targetOrder.subtotal || 1));
-    const newTax = newSubtotal * (isNaN(taxRate) ? 0.10 : taxRate);
-    const newTotal = Math.round(newSubtotal + newTax);
-
-    await dbRun('UPDATE orders SET subtotal = ?, tax = ?, total = ? WHERE id = ?', [
-      newSubtotal, newTax, newTotal, targetOrderId
-    ]);
-
-    // Delete empty source order
-    await dbRun('DELETE FROM orders WHERE id = ?', [sourceOrderId]);
-
-    // Free source table
-    await dbRun('UPDATE tables SET status = "free", currentOrderId = NULL WHERE id = ?', [sourceTableId]);
-
-    await writeAuditLog(req.user.id, req.user.username, 'merge_table', `Merged Order ${sourceOrderId} (Table ${sourceTable.number}) into Order ${targetOrderId} (Table ${targetTable.number})`);
-    await dbRun('COMMIT');
-
-    notifyPOS({ type: 'table_merged', sourceTableId, targetTableId, targetOrderId }, req.tenantId);
-    res.json({ success: true, targetOrderId, targetTotal: newTotal });
-  } catch (err) {
-    await dbRun('ROLLBACK');
-    res.status(500).json({ error: errMsg(err) });
-  }
+app.post('/api/tables/merge', requireRole(['owner', 'manager', 'cashier']), (req, res) => {
+  res.status(503).json({ error: 'Table merging is temporarily unavailable. Keep the tickets separate and settle each bill.' });
 });
 
-// ── Shifts & Cash Movements Routes ──────────────────────────────────────────
-app.get('/api/shifts/active', async (req, res) => {
-  try {
-    const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
-    res.json(shift || null);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/shifts/open', validateRequest(shiftOpenSchema), async (req, res) => {
-  const { startFloat, notes } = req.body;
-  try {
-    const existing = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
-    if (existing) return res.status(400).json({ error: 'You already have an active open shift.' });
-
-    const shiftId = `shift_${Date.now()}`;
-    const floatVal = parseFloat(startFloat) || 0;
-    await dbRun(`
-      INSERT INTO shifts (id, userId, username, startTime, startFloat, status, notes, tenant_id)
-      VALUES (?, ?, ?, ?, ?, "open", ?, ?)
-    `, [shiftId, req.user.id, req.user.username, Date.now(), floatVal, notes || '', req.tenantId]);
-
-    await writeAuditLog(req.user.id, req.user.username, 'open_shift', `Opened shift with float LKR ${floatVal}`);
-    res.json({ id: shiftId, startFloat: floatVal, status: 'open' });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/shifts/close', validateRequest(shiftCloseSchema), async (req, res) => {
-  const { actualCash, notes } = req.body;
-  try {
-    const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
-    if (!shift) return res.status(400).json({ error: 'No active open shift found.' });
-
-    // Calculate expected cash: startFloat + cash sales + cash_in movements - cash_out movements
-    const cashSales = await dbGet(`
-      SELECT SUM(total) as cashTotal FROM orders
-      WHERE (status = 'paid' OR paymentStatus = 'paid') AND paymentMethod = 'cash' AND timestamp >= ? AND tenant_id = ?
-    `, [shift.startTime, req.tenantId]);
-
-    const cashIn = await dbGet(`
-      SELECT SUM(amount) as inTotal FROM cash_movements
-      WHERE shiftId = ? AND type = 'cash_in'
-    `, [shift.id]);
-
-    const cashOut = await dbGet(`
-      SELECT SUM(amount) as outTotal FROM cash_movements
-      WHERE shiftId = ? AND type = 'cash_out'
-    `, [shift.id]);
-
-    const startFloat = parseFloat(shift.startFloat || 0);
-    const totalCashSales = parseFloat(cashSales?.cashTotal || 0);
-    const totalCashIn = parseFloat(cashIn?.inTotal || 0);
-    const totalCashOut = parseFloat(cashOut?.outTotal || 0);
-
-    const expectedCash = startFloat + totalCashSales + totalCashIn - totalCashOut;
-    const endCash = parseFloat(actualCash) || expectedCash;
-
-    await dbRun(`
-      UPDATE shifts
-      SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = "closed", notes = ?
-      WHERE id = ?
-    `, [Date.now(), endCash, endCash, expectedCash, notes || '', shift.id]);
-
-    await writeAuditLog(req.user.id, req.user.username, 'close_shift', `Closed shift. Expected: ${expectedCash}, Actual: ${endCash}`);
-    res.json({ id: shift.id, expectedCash, actualCash: endCash, discrepancy: endCash - expectedCash });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
+// Cash movements
 // POST /api/cash-movements — Cash In / Cash Out (Paid-Outs)
 app.post('/api/cash-movements', validateRequest(cashMovementSchema), async (req, res) => {
   const { type, amount, reason } = req.body;
@@ -6893,88 +6842,50 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     const existingOrder = await dbGet('SELECT * FROM orders WHERE id = ?', [id]);
 
     if (existingOrder) {
-      // ORDER UPDATE (Status change / Payment settlement)
-      const newStatus = status || existingOrder.status;
-      const oldStatus = existingOrder.status;
-      if (!['pending', 'hold', 'preparing', 'ready', 'served', 'paid', 'cancelled'].includes(newStatus)) return res.status(400).json({ error: 'Invalid order status.' });
-      if (['paid', 'cancelled', 'rejected', 'refunded', 'partially_refunded'].includes(oldStatus) && newStatus !== oldStatus) return res.status(409).json({ error: 'A settled or closed order cannot be reopened.' });
-      if (newStatus === 'paid' && ['payhere', 'online_pending'].includes(paymentMethod || existingOrder.paymentMethod)) return res.status(409).json({ error: 'Online payment must be confirmed by the gateway.' });
-
-
       await dbRun('BEGIN TRANSACTION');
-
       try {
-        if (newStatus === 'cancelled' && oldStatus !== 'cancelled') {
-          // Return items to stock
-          const orderItemsList = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [id]);
-          for (const item of orderItemsList) {
-            await dbRun('UPDATE menu_items SET stock = stock + ? WHERE id = ?', [item.quantity, item.menuItemId]);
+        // Refresh only after acquiring the transaction lock: concurrent settlement
+        // must not award loyalty twice or issue a second invoice.
+        const current = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+        const fail = async (code, message) => { await dbRun('ROLLBACK'); return res.status(code).json({ error: message }); };
+        if (!current) return await fail(404, 'Order not found.');
+        const newStatus = status || current.status;
+        if (!['pending','hold','preparing','ready','served','paid','cancelled'].includes(newStatus)) return await fail(400, 'Invalid order status.');
+        if (['paid','cancelled','rejected','refunded','partially_refunded'].includes(current.status) && newStatus !== current.status) return await fail(409, 'A settled or closed order cannot be reopened.');
+        if (newStatus === 'cancelled' && current.paymentStatus === 'paid') return await fail(409, 'Paid orders require refund reconciliation and cannot be cancelled.');
+        let tender = current.paymentSplit, method = current.paymentMethod;
+        if (newStatus === 'paid') {
+          if (!['owner','manager','cashier'].includes(req.user.role)) return await fail(403, 'Only authorized cashiers or managers can settle orders.');
+          if (current.status === 'paid' && current.paymentStatus === 'paid') {
+            await dbRun('COMMIT'); return res.json(staffReceipt(current));
           }
-          // Free table
-          if (existingOrder.tableId) {
-            await dbRun('UPDATE tables SET status = "free", currentOrderId = NULL WHERE id = ?', [existingOrder.tableId]);
-          }
+          if (current.paymentStatus === 'paid' || ['payhere','online_pending'].includes(current.paymentMethod)) return await fail(409, 'Online payment must be reconciled through the gateway; an existing payment cannot be overwritten.');
+          try {
+            if (tip !== undefined && amountInCents(tip, 'Tip') !== amountInCents(current.tip || 0, 'Tip')) throw new Error('Tip changed. Reprice the open order before settling.');
+            method = paymentMethod || 'cash';
+            tender = JSON.stringify(validateManualTender(current.total, method, paymentSplit));
+          } catch (error) { return await fail(400, error.message); }
+          await dbRun("UPDATE orders SET paymentStatus='paid', paymentTimestamp=?, cashierId=? WHERE id=? AND tenant_id=?", [Date.now(),userId,id,tenantId]);
+          if (!current.invoiceNumber) await dbRun('UPDATE orders SET invoiceNumber=? WHERE id=? AND tenant_id=?', [await allocateInvoiceNumber(),id,tenantId]);
+          if (current.tableId) await dbRun('UPDATE tables SET status="free",currentOrderId=NULL WHERE id=? AND tenant_id=?', [current.tableId,tenantId]);
+          const points = Math.floor((current.total || 0) / 10);
+          if (current.customerId) await dbRun('UPDATE customers SET points=COALESCE(points,0)+?,orderCount=COALESCE(orderCount,0)+1,totalSpent=COALESCE(totalSpent,0)+? WHERE id=? AND tenant_id=?', [points,current.total,current.customerId,tenantId]);
+          if (current.customerAccountId) await dbRun('UPDATE customer_accounts SET loyaltyPoints=COALESCE(loyaltyPoints,0)+?,totalSpent=COALESCE(totalSpent,0)+? WHERE id=? AND tenant_id=?', [points,current.total,current.customerAccountId,tenantId]);
+          await writeAuditLog(userId, username, 'pay_order', `Settled order ${id} via ${method}`);
+        }
+        if (newStatus === 'cancelled' && current.status !== 'cancelled') {
+          const savedItems = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [id]);
+          for (const item of savedItems) await dbRun('UPDATE menu_items SET stock=stock+? WHERE id=? AND tenant_id=?', [item.quantity,item.menuItemId,tenantId]);
+          if (current.tableId) await dbRun('UPDATE tables SET status="free",currentOrderId=NULL WHERE id=? AND tenant_id=?', [current.tableId,tenantId]);
           await writeAuditLog(userId, username, 'cancel_order', `Cancelled order ${id}`);
         }
-
-        if (newStatus === 'paid' && oldStatus !== 'paid') {
-          await dbRun("UPDATE orders SET paymentStatus = 'paid' WHERE id = ?", [id]);
-          // Free table
-          if (existingOrder.tableId) {
-            await dbRun('UPDATE tables SET status = "free", currentOrderId = NULL WHERE id = ?', [existingOrder.tableId]);
-          }
-          const earnedPoints = Math.floor((existingOrder.total || 0) / 10);
-          // Loyalty points accrual (Walk-in customer)
-          if (existingOrder.customerId) {
-            await dbRun(`
-              UPDATE customers
-              SET points = COALESCE(points, 0) + ?, orderCount = COALESCE(orderCount, 0) + 1, totalSpent = COALESCE(totalSpent, 0) + ?
-              WHERE id = ?
-            `, [earnedPoints, existingOrder.total || 0, existingOrder.customerId]);
-          }
-          // Loyalty points accrual (Registered online customer account)
-          if (existingOrder.customerAccountId) {
-            await dbRun(`
-              UPDATE customer_accounts
-              SET loyaltyPoints = COALESCE(loyaltyPoints, 0) + ?, totalSpent = COALESCE(totalSpent, 0) + ?
-              WHERE id = ?
-            `, [earnedPoints, existingOrder.total || 0, existingOrder.customerAccountId]);
-          }
-          // Assign a gapless fiscal invoice number exactly once, at settlement.
-          if (!existingOrder.invoiceNumber) {
-            const invoiceNumber = await allocateInvoiceNumber();
-            await dbRun('UPDATE orders SET invoiceNumber = ? WHERE id = ?', [invoiceNumber, id]);
-          }
-          await writeAuditLog(userId, username, 'pay_order', `Completed settlement for order ${id} via ${paymentMethod || 'cash'}`);
-        }
-
-        // Update orders table
-        await dbRun(`
-          UPDATE orders
-          SET status = ?, paymentMethod = ?, paymentTimestamp = ?, paymentSplit = ?, tip = COALESCE(?, tip), tenant_id = COALESCE(tenant_id, ?)
-          WHERE id = ?
-        `, [
-          newStatus,
-          paymentMethod || existingOrder.paymentMethod,
-          paymentTimestamp || existingOrder.paymentTimestamp || Date.now(),
-          paymentSplit ? JSON.stringify(paymentSplit) : existingOrder.paymentSplit,
-          tip !== undefined ? parseFloat(tip) : null,
-          tenantId,
-          id
-        ]);
-
+        // Status-only requests cannot rewrite tips, timestamps, or tender records.
+        await dbRun('UPDATE orders SET status=?,paymentMethod=?,paymentSplit=? WHERE id=? AND tenant_id=?', [newStatus,method,tender,id,tenantId]);
+        const updated = await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?', [id,tenantId]);
         await dbRun('COMMIT');
-
-        // Broadcast real-time update to customer stream & POS
-        const updated = await dbGet('SELECT * FROM orders WHERE id = ?', [id]);
-        const itemsList = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [id]);
-        notifyOrderUpdate(id, { ...updated, items: itemsList });
-
-        res.json({ id, status: newStatus, invoiceNumber: updated.invoiceNumber });
-      } catch (err) {
-        await dbRun('ROLLBACK');
-        throw err;
-      }
+        notifyOrderUpdate(id, updated);
+        res.json(staffReceipt(updated));
+      } catch (error) { await dbRun('ROLLBACK'); throw error; }
 
     } else {
       // NEW ORDER CREATION
@@ -7018,13 +6929,19 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         }
       }
 
-      // 2. Calculate billing totals on the server using unified billing helper
-      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode, 0, tenantId);
+      if (!['owner','manager','cashier'].includes(req.user.role)) return res.status(403).json({ error: 'Only authorized cashiers or managers can create sale tickets.' });
+      if (status && !['pending','hold'].includes(status)) return res.status(400).json({ error: 'New sale tickets must start pending or on hold.' });
+      let staffDeliveryFee;
+      try { staffDeliveryFee = diningType === 'delivery' ? amountInCents(req.body.deliveryFee || 0, 'Delivery fee') / 100 : 0; }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode, staffDeliveryFee, tenantId);
 
       // Begin SQLite transaction
       await dbRun('BEGIN TRANSACTION');
 
       try {
+        const replay = await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?', [id,tenantId]);
+        if (replay) { await dbRun('COMMIT'); return res.json(staffReceipt(replay)); }
         // Insert order
         await dbRun(`
           INSERT INTO orders (
@@ -7039,6 +6956,9 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           timestamp || Date.now(), paymentMethod || null, paymentTimestamp || null,
           bill.serviceCharge, bill.tip, bill.roundedAmount, userId, bill.promoDiscount, tenantId
         ]);
+
+        await dbRun('UPDATE orders SET deliveryFee=?,customerName=?,customerPhone=?,deliveryAddress=? WHERE id=? AND tenant_id=?',
+          [staffDeliveryFee,req.body.customerName || null,req.body.customerPhone || null,req.body.deliveryAddress || null,id,tenantId]);
 
         // Insert items into order_items & update menu item stock
         for (const item of bill.resolvedItems) {
@@ -7065,7 +6985,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         }
 
         await dbRun('COMMIT');
-        res.json({ id, status: status || 'pending', total: bill.total });
+        res.json(staffReceipt(await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?', [id,tenantId])));
       } catch (err) {
         await dbRun('ROLLBACK');
         throw err;
@@ -7126,76 +7046,51 @@ app.get('/api/shifts/summary/:id', async (req, res) => {
 });
 
 app.post('/api/orders/:id/refund', async (req, res) => {
-  const { refundAmount, reason, managerPin } = req.body;
+  const { refundAmount, reason, managerPin, refundId } = req.body;
   const orderId = req.params.id;
-  if (!Number.isFinite(Number(refundAmount)) || Number(refundAmount) <= 0 || !String(reason || '').trim()) return res.status(400).json({ error: 'A positive refund amount and reason are required.' });
-
+  let cents;
+  try { cents = amountInCents(refundAmount, 'Refund amount'); }
+  catch (error) { return res.status(400).json({ error: error.message }); }
+  if (cents <= 0 || !String(reason || '').trim() || !/^[a-zA-Z0-9_-]{16,100}$/.test(refundId || '')) return res.status(400).json({ error: 'A positive refund, reason and stable refundId are required.' });
+  let transaction = false;
   try {
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
-    if (!order) {
-      return res.status(404).json({ error: 'Order not found.' });
+    let authorized = ['owner','manager'].includes(req.user.role);
+    if (!authorized && managerPin) {
+      const managers = await dbAll('SELECT pin FROM users WHERE tenant_id=? AND role IN ("owner","manager")', [req.tenantId]);
+      for (const manager of managers) if (manager.pin && await bcrypt.compare(String(managerPin), manager.pin)) authorized = true;
     }
-
-    if (order.status !== 'paid' && order.status !== 'partially_refunded') {
-      return res.status(400).json({ error: 'Only settled orders can be refunded.' });
+    if (!authorized) return res.status(403).json({ error: 'Manager authorization is required.' });
+    await dbRun('BEGIN TRANSACTION'); transaction = true;
+    const fail = async (code, message) => { await dbRun('ROLLBACK'); transaction = false; return res.status(code).json({ error: message }); };
+    const order = await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?', [orderId,req.tenantId]);
+    if (!order) return await fail(404, 'Order not found.');
+    const replay = await dbGet('SELECT * FROM refund_transactions WHERE id=?', [refundId]);
+    if (replay) {
+      if (replay.orderId !== orderId || replay.tenant_id !== req.tenantId || replay.amountCents !== cents || replay.reason !== String(reason).trim()) return await fail(409, 'Refund identifier has already been used for a different request.');
+      await dbRun('COMMIT'); transaction = false;
+      return res.json({ success: true, refundId, refundedAmount: order.refundedAmount, status: order.status, alreadySaved: true });
     }
-
-    if (order.paymentMethod !== 'cash') return res.status(409).json({ error: 'Electronic refunds require confirmation through the payment provider before reconciliation.' });
-    const currentRefunded = parseFloat(order.refundedAmount || 0);
-    const newRefunded = currentRefunded + (parseFloat(refundAmount) || 0);
-
-    if (newRefunded > order.total) {
-      return res.status(400).json({ error: 'Refund amount exceeds order total.' });
+    if (order.paymentStatus !== 'paid' && !['paid','partially_refunded'].includes(order.status)) return await fail(400, 'Only settled orders can be refunded.');
+    if (order.paymentMethod !== 'cash') return await fail(409, 'Electronic or mixed-tender refunds require provider reconciliation.');
+    const newCents = amountInCents(order.refundedAmount || 0, 'Existing refund') + cents;
+    if (newCents > amountInCents(order.total, 'Order total')) return await fail(400, 'Refund amount exceeds the remaining paid balance.');
+    const newStatus = newCents === amountInCents(order.total) ? 'refunded' : 'partially_refunded';
+    await dbRun('INSERT INTO refund_transactions (id,orderId,tenant_id,amountCents,reason,actorId,createdAt) VALUES (?,?,?,?,?,?,?)', [refundId,orderId,req.tenantId,cents,String(reason).trim(),req.user.id,Date.now()]);
+    await dbRun('UPDATE orders SET status=?,refundedAmount=?,voidReason=? WHERE id=? AND tenant_id=?', [newStatus,newCents / 100,String(reason).trim(),orderId,req.tenantId]);
+    // A financial refund does not imply that prepared food can return to stock.
+    // Physical returns and ingredient reversals require a separate audited stock adjustment.
+    if (newStatus === 'refunded') {
+      const points = Math.floor(order.total / 10);
+      if (order.customerId) await dbRun('UPDATE customers SET points=MAX(0,points-?) WHERE id=? AND tenant_id=?', [points,order.customerId,req.tenantId]);
+      if (order.customerAccountId) await dbRun('UPDATE customer_accounts SET loyaltyPoints=MAX(0,loyaltyPoints-?) WHERE id=? AND tenant_id=?', [points,order.customerAccountId,req.tenantId]);
     }
-
-    // Role or manager PIN override check
-    let authorized = false;
-    if (req.user.role === 'owner' || req.user.role === 'manager') {
-      authorized = true;
-    } else if (managerPin) {
-      const managers = await dbAll('SELECT pin FROM users WHERE tenant_id = ? AND role IN ("owner", "manager")', [req.tenantId]);
-      for (const manager of managers) {
-        if (manager.pin && await bcrypt.compare(String(managerPin), manager.pin)) authorized = true;
-      }
-    }
-
-    if (!authorized) {
-      return res.status(403).json({ error: 'Unauthorized. Manager PIN override required.' });
-    }
-
-    const newStatus = newRefunded >= order.total ? 'refunded' : 'partially_refunded';
-
-    await dbRun('BEGIN TRANSACTION');
-
-    try {
-      await dbRun(`
-        UPDATE orders
-        SET status = ?, refundedAmount = ?, voidReason = ?
-        WHERE id = ?
-      `, [newStatus, newRefunded, reason || 'Customer request', orderId]);
-
-      if (newStatus === 'refunded') {
-        const items = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [orderId]);
-        for (const item of items) {
-          await dbRun('UPDATE menu_items SET stock = stock + ? WHERE id = ?', [item.quantity, item.menuItemId]);
-        }
-
-        if (order.customerId) {
-          const deductedPoints = Math.floor(order.total / 10);
-          await dbRun('UPDATE customers SET points = MAX(0, points - ?) WHERE id = ?', [deductedPoints, order.customerId]);
-        }
-      }
-
-      await writeAuditLog(req.user.id, req.user.username, 'refund_order', `Refunded LKR ${refundAmount} for order ${orderId}. Reason: ${reason}`);
-
-      await dbRun('COMMIT');
-      res.json({ success: true, status: newStatus, refundedAmount: newRefunded });
-    } catch (err) {
-      await dbRun('ROLLBACK');
-      throw err;
-    }
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    await writeAuditLog(req.user.id, req.user.username, 'refund_order', `Refund ${refundId}: LKR ${cents / 100} for order ${orderId}. Reason: ${String(reason).trim()}`);
+    await dbRun('COMMIT'); transaction = false;
+    notifyPOS({ type: 'order_refunded', orderId }, req.tenantId);
+    res.json({ success: true, refundId, status: newStatus, refundedAmount: newCents / 100 });
+  } catch (error) {
+    if (transaction) await dbRun('ROLLBACK');
+    res.status(500).json({ error: errMsg(error) });
   }
 });
 

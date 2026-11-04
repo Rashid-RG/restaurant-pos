@@ -127,6 +127,8 @@ export default function POSView() {
   const [splitBillProgress, setSplitBillProgress] = useState(null);
   // Ref flag: true only when a new payment just completed — prevents double-print on manual reprint
   const autoPrintRef = useRef(false);
+  const settlementBusyRef = useRef(false);
+  const [settlementBusy, setSettlementBusy] = useState(false);
   const [showShiftCloseModal, setShowShiftCloseModal] = useState(false);
   const [shiftReport, setShiftReport] = useState(null);
 
@@ -298,6 +300,22 @@ export default function POSView() {
   };
 
   const handlePaymentComplete = async () => {
+    if (settlementBusyRef.current) return;
+    const due = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+    if (paymentMethod === 'cash' && (!Number.isFinite(Number(cashReceived)) || Number(cashReceived) < due)) { showToast('Enter enough cash to cover the amount due.', 'error'); return; }
+    if (splitBillProgress && !['cash','card'].includes(paymentMethod)) { showToast('Collect each portion using cash or an external card terminal.', 'error'); return; }
+    settlementBusyRef.current = true; setSettlementBusy(true);
+    try { await performPaymentComplete(); }
+    finally { settlementBusyRef.current = false; setSettlementBusy(false); }
+  };
+
+  const applyServerReceipt = (order, receiptItems, receiptTotals) => {
+    if (Math.round(Number(order.total) * 100) !== Math.round(Number(receiptTotals.total) * 100)) throw new Error('The server total changed. Review the saved ticket before taking payment.');
+    Object.assign(receiptTotals, order);
+    receiptItems.splice(0, receiptItems.length, ...order.items);
+  };
+
+  const performPaymentComplete = async () => {
     // ─── Split Bill Portion Collection Mode ───────────────────────────────────
     // When splitBillProgress is active, we collect one portion payment at a time
     // and only finalize the order once all portions have been collected.
@@ -308,8 +326,9 @@ export default function POSView() {
 
       if (newPaid < count) {
         // More portions still to collect — update progress and stay in payment modal
-        setSplitBillProgress({ ...splitBillProgress, paid: newPaid, collectedPayments: newCollected });
-        setCashReceived(portionAmount.toFixed(2));
+        const nextAmount = splitBillProgress.portionAmounts[newPaid];
+        setSplitBillProgress({ ...splitBillProgress, paid: newPaid, portionAmount: nextAmount, collectedPayments: newCollected });
+        setCashReceived(nextAmount.toFixed(2));
         setPaymentMethod('cash');
         showToast(`✅ Portion ${newPaid}/${count} collected (${currencySymbol}${portionAmount.toFixed(2)}). Collect next portion.`, 'success');
         return;
@@ -322,6 +341,7 @@ export default function POSView() {
         const splitDetails = newCollected;
         const order = await placeOrder(false, tipInput, splitDetails);
         if (order) {
+          applyServerReceipt(order, receiptItems, receiptTotals);
           const settlement = await completePayment(order.id, 'split', tipInput, splitDetails);
           const receiptData = {
             ...order,
@@ -364,6 +384,7 @@ export default function POSView() {
         // 1. Create the real order first so the server prices it and can settle it authoritatively.
         const order = await placeOrder(false, tipInput, splitDetails);
         if (!order) return;
+        applyServerReceipt(order, receiptItems, receiptTotals);
 
         // 2. Ask the server for signed checkout params for the REAL order total.
         const checkRes = await fetch('/api/payments/payhere/checkout', {
@@ -448,6 +469,7 @@ export default function POSView() {
       };
       const order = await placeOrder(false, tipInput, splitDetails, extraOrderData);
       if (order) {
+        applyServerReceipt(order, receiptItems, receiptTotals);
         const settlement = await completePayment(order.id, paymentMethod, tipInput, splitDetails);
         const receiptData = {
           ...order,
@@ -489,7 +511,7 @@ export default function POSView() {
   const getChangeAmount = () => {
     const received = parseFloat(cashReceived) || 0;
     // In split-bill mode, change is calculated against the per-portion amount, not the full total
-    const amountDue = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+    const amountDue = printReceiptOrder ? Number(printReceiptOrder.total) : splitBillProgress ? splitBillProgress.portionAmount : totals.total;
     const change = received - amountDue;
     return change > 0 ? change : 0;
   };
@@ -1132,7 +1154,7 @@ export default function POSView() {
           <div className="modal-content" style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h2>Select Payment Mode</h2>
-              <button className="modal-close" onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>×</button>
+              <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>×</button>
             </div>
 
             {/* Split Bill Progress Indicator */}
@@ -1143,7 +1165,7 @@ export default function POSView() {
                   Portion {splitBillProgress.paid + 1} of {splitBillProgress.count}
                 </div>
                 <div style={{ fontSize: '13px', marginTop: '4px' }}>
-                  {currencySymbol}{splitBillProgress.portionAmount.toFixed(2)} per portion · {splitBillProgress.paid} collected
+                  {currencySymbol}{splitBillProgress.portionAmount.toFixed(2)} this portion · {splitBillProgress.paid} collected
                 </div>
               </div>
             )}
@@ -1288,8 +1310,8 @@ export default function POSView() {
               <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>
                 Cancel
               </button>
-              <button className="btn btn-primary" style={{ flexGrow: 2 }} onClick={handlePaymentComplete}>
-                {splitBillProgress
+              <button className="btn btn-primary" style={{ flexGrow: 2 }} disabled={settlementBusy} onClick={handlePaymentComplete}>
+                {settlementBusy ? 'Saving settlement…' : splitBillProgress
                   ? (splitBillProgress.paid + 1 < splitBillProgress.count
                       ? `Collect Portion ${splitBillProgress.paid + 1} of ${splitBillProgress.count}`
                       : `Settle Final Portion & Close Bill`)
@@ -1381,7 +1403,7 @@ export default function POSView() {
               <div className="form-group" style={{ textAlign: 'center' }}>
                 <input
                   type="password"
-                  maxLength="4"
+                  maxLength="6"
                   className="form-input"
                   style={{
                     fontSize: '28px',
@@ -1392,7 +1414,7 @@ export default function POSView() {
                     margin: '0 auto',
                     padding: '8px'
                   }}
-                  placeholder="••••"
+                  placeholder="••••••"
                   value={pinValue}
                   onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ''))}
                   autoFocus
@@ -1847,7 +1869,7 @@ export default function POSView() {
                   </div>
 
                   <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '14px', borderRadius: '8px', color: 'var(--color-primary)', fontWeight: 700, fontSize: '15px', textAlign: 'center', marginTop: '16px' }}>
-                    Each Portion: {currencySymbol}{(totals.total / splitCount).toFixed(2)}
+                    Approximate portion: {currencySymbol}{(totals.total / splitCount).toFixed(2)}
                   </div>
                 </div>
               )}
@@ -1858,11 +1880,12 @@ export default function POSView() {
               <button
                 className="btn btn-primary"
                 onClick={() => {
-                  const portionAmount = totals.total / splitCount;
                   // Initialise split-bill progress state to track each portion collection
-                  setSplitBillProgress({ count: splitCount, portionAmount, paid: 0, collectedPayments: [] });
+                  const totalCents = Math.round(totals.total * 100);
+                  const portionAmounts = Array.from({ length: splitCount }, (_, i) => (Math.floor(totalCents / splitCount) + (i < totalCents % splitCount ? 1 : 0)) / 100);
+                  setSplitBillProgress({ count: splitCount, portionAmount: portionAmounts[0], portionAmounts, paid: 0, collectedPayments: [] });
                   setShowSplitModal(false);
-                  setCashReceived(portionAmount.toFixed(2));
+                  setCashReceived(portionAmounts[0].toFixed(2));
                   setPaymentMethod('cash');
                   setShowPaymentModal(true);
                 }}

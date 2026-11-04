@@ -1,3 +1,5 @@
+> Snapshot review: delivery-proof findings were subsequently addressed in the [delivery-proof follow-up](DELIVERY_PROOF_FOLLOWUP.md). Billing was also extended in the [billing follow-up](BILLING_FOLLOWUP.md). Feature and route counts below describe the original review snapshot.
+
 # GastroFlow Complete System Review
 
 Prepared for Mohammed Rashid • 5 November 2026

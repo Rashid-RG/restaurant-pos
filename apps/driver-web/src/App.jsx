@@ -1,4 +1,5 @@
 import { Bike } from 'lucide-react';
+import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
@@ -57,6 +58,7 @@ export default function App() {
   const [lastCoords, setLastCoords] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
   const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState(null);
+  const [proofPreview, setProofPreview] = useState(null);
 
   // Bug 1 fix: ref always holds current activeOrders so GPS watchPosition
   // callback (registered once) never reads a stale closure value.
@@ -246,7 +248,7 @@ export default function App() {
 
   const handleUpdateStatus = async (orderId, newStatus, proof = null) => {
     try {
-      await apiFetch('/public/driver/status', {
+      const result = await apiFetch('/public/driver/status', {
         method: 'POST',
         body: JSON.stringify({
           orderId,
@@ -254,12 +256,15 @@ export default function App() {
           lat: lastCoords?.lat,
           lng: lastCoords?.lng,
           signature: proof?.signature,
-          deliveryPhoto: proof?.photo
+          deliveryPhoto: proof?.photo,
+          cashReceived: proof?.cashReceived
         })
       });
-      showToast(newStatus === 'delivered' ? 'Delivered with Proof of Delivery 🎉' : 'Out for delivery 🛵', 'success');
+      if (newStatus === 'delivered' && !result.proof?.savedAt) throw new Error('No saved proof receipt was returned. Refresh to check this delivery.');
+      showToast(newStatus === 'delivered' ? 'Delivery completed. Proof saved.' : 'Delivery status updated.', 'success');
       fetchDriverOrders();
     } catch (err) {
+      if (newStatus === 'delivered') throw err;
       showToast(err.message || 'Failed to update status', 'error');
     }
   };
@@ -465,7 +470,7 @@ export default function App() {
                         <div>📞 <strong>{customerPhone}</strong></div>
                         <div>📍 <strong>{ord.deliveryAddress || 'Store Location'}</strong></div>
                         <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>📦 {itemsStr}</div>
-                        <div>💰 Collect: <strong style={{ color: 'var(--brand-emerald)', fontSize: '1rem' }}>Rs. {ord.total?.toFixed(2)}</strong> ({ord.paymentMethod || 'COD'})</div>
+                        <div>{ord.paymentStatus === 'paid' ? 'Payment verified' : ['cash', 'cod'].includes(ord.paymentMethod) ? 'Cash to collect' : 'Awaiting payment confirmation'}: <strong style={{ color: 'var(--brand-emerald)', fontSize: '1rem' }}>Rs. {Number(ord.total).toFixed(2)}</strong> ({ord.paymentMethod || 'Unknown method'})</div>
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -477,18 +482,22 @@ export default function App() {
                           style={{ flex: '1 1 45%', background: '#25D366', color: '#fff', padding: 10, borderRadius: 10, textDecoration: 'none', textAlign: 'center', fontWeight: 700, fontSize: '0.82rem' }}>
                           💬 WhatsApp
                         </a>
-                        {ord.status !== 'out_for_delivery' && ord.status !== 'delivered' && (
+                        {['ready', 'picked_up'].includes(ord.status) && (
                           <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem', background: '#3b82f6' }}
                             onClick={() => handleUpdateStatus(ord.id, 'out_for_delivery')}>
                             🛵 Start Delivery (Out for Delivery)
                           </button>
                         )}
-                        {ord.status !== 'delivered' && (
+                        {['out_for_delivery', 'arrived'].includes(ord.status) && (
                           <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem' }}
                             onClick={() => setSelectedDeliveryOrder(ord)}>
                             ✓ Mark Delivered (Signature & Proof)
                           </button>
                         )}
+                        {ord.status === 'delivered' && (ord.proofSavedAt ? <button className="btn-outline" onClick={async () => {
+                          try { setProofPreview(await apiFetch(`/public/driver/orders/${encodeURIComponent(ord.id)}/proof`)); }
+                          catch (error) { showToast(error.message, 'error'); }
+                        }}>View saved proof</button> : <span>Legacy delivery: no proof recorded</span>)}
                       </div>
                     </div>
                   );
@@ -504,12 +513,11 @@ export default function App() {
           <ProofOfDeliveryModal
             order={selectedDeliveryOrder}
             onClose={() => setSelectedDeliveryOrder(null)}
-            onConfirm={(ordId, proofData) => {
-              handleUpdateStatus(ordId, 'delivered', proofData);
-              setSelectedDeliveryOrder(null);
-            }}
+            onConfirm={(ordId, proofData) => handleUpdateStatus(ordId, 'delivered', proofData)}
           />
         )}
+
+        {proofPreview && <DeliveryProofViewer proof={proofPreview} onClose={() => setProofPreview(null)} />}
 
         {/* Self-registration modal */}
         {showRegModal && (
@@ -542,149 +550,6 @@ export default function App() {
           </div>
         )}
       </main>
-    </div>
-  );
-}
-
-// ── Proof of Delivery Modal (HTML5 Canvas Signature Pad & Photo Upload) ──
-function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
-  const canvasRef = React.useRef(null);
-  // Bug 5 fix: use a ref instead of useState for the drawing flag.
-  // setIsDrawing(true) is async — when draw(e) was called immediately after
-  // in startDrawing(), isDrawing was still false so the first touch was dropped.
-  const isDrawingRef = React.useRef(false);
-  const [hasSignature, setHasSignature] = React.useState(false);
-  const [photoDataUri, setPhotoDataUri] = React.useState(null);
-
-  React.useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.strokeStyle = '#0f172a';
-  }, []);
-
-  const startDrawing = (e) => {
-    isDrawingRef.current = true;
-    draw(e);
-  };
-
-  const stopDrawing = () => {
-    isDrawingRef.current = false;
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      ctx.beginPath();
-    }
-  };
-
-  const draw = (e) => {
-    if (!isDrawingRef.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    setHasSignature(true);
-  };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setHasSignature(false);
-  };
-
-  const handlePhotoCapture = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      setPhotoDataUri(evt.target.result);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = () => {
-    let signatureDataUri = null;
-    if (hasSignature && canvasRef.current) {
-      signatureDataUri = canvasRef.current.toDataURL('image/png');
-    }
-    onConfirm(order.id, { signature: signatureDataUri, photo: photoDataUri });
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="card" style={{ maxWidth: 460, width: '100%', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.3)', background: '#ffffff', color: '#0f172a' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>✍️ Proof of Delivery</h3>
-            <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Order #{order.id.slice(-4).toUpperCase()} · {order.customerName || 'Customer'}</span>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
-        </div>
-
-        {/* Customer Signature Canvas */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>Customer Signature:</label>
-            {hasSignature && (
-              <button onClick={clearCanvas} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
-                Clear
-              </button>
-            )}
-          </div>
-          <canvas
-            ref={canvasRef}
-            width={400}
-            height={150}
-            onMouseDown={startDrawing}
-            onMouseUp={stopDrawing}
-            onMouseMove={draw}
-            onTouchStart={startDrawing}
-            onTouchEnd={stopDrawing}
-            onTouchMove={draw}
-            style={{ width: '100%', height: 150, border: '2px dashed #cbd5e1', borderRadius: 12, background: '#f8fafc', cursor: 'crosshair', touchAction: 'none' }}
-          />
-        </div>
-
-        {/* Photo Proof Upload */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ fontSize: '0.8rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: 6 }}>Attach Delivery Photo Proof (Optional):</label>
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handlePhotoCapture}
-            style={{ fontSize: '0.82rem', width: '100%' }}
-          />
-          {photoDataUri && (
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <img src={photoDataUri} alt="Delivery proof preview" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover', border: '1px solid #cbd5e1' }} />
-              <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 700 }}>✓ Photo attached</span>
-            </div>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button type="button" className="btn-outline" onClick={onClose} style={{ flex: 1, padding: 12 }}>
-            Cancel
-          </button>
-          <button type="button" className="btn-emerald" onClick={handleSubmit} style={{ flex: 2, padding: 12, fontWeight: 800 }}>
-            ✓ Confirm Delivered
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

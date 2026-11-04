@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db, seedDatabase } from '../database/db';
 
 const DB_VERSION = 1;
@@ -87,6 +87,8 @@ export const POSProvider = ({ children }) => {
   const [diningType, setDiningType] = useState('dine-in');
   const [discountType, setDiscountType] = useState('percent'); // 'percent' or 'flat'
   const [discountValue, setDiscountValue] = useState(0);
+  const orderAttempt = useRef(null);
+  const refundAttempt = useRef(null);
 
   // Toast system
   const [toasts, setToasts] = useState([]);
@@ -567,19 +569,23 @@ export const POSProvider = ({ children }) => {
   };
 
   const refundOrder = async (orderId, refundAmount, reason, managerPin) => {
+    const key = JSON.stringify({ orderId, refundAmount, reason });
+    if (refundAttempt.current?.key !== key) refundAttempt.current = { key, id: crypto.randomUUID() };
+    const refundId = refundAttempt.current.id;
     const response = await fetch(`/api/orders/${orderId}/refund`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}`
       },
-      body: JSON.stringify({ refundAmount, reason, managerPin })
+      body: JSON.stringify({ refundAmount, reason, managerPin, refundId })
     });
     await handleAuthResponse(response);
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Failed to refund order');
     }
+    if (refundAttempt.current?.id === refundId) refundAttempt.current = null;
     await loadAllData();
   };
 
@@ -745,6 +751,7 @@ export const POSProvider = ({ children }) => {
   };
 
   const clearCart = () => {
+    orderAttempt.current = null;
     setCart([]);
     setDiscountValue(0);
     // selectedCustomer is intentionally preserved so consecutive orders for the same
@@ -766,7 +773,8 @@ export const POSProvider = ({ children }) => {
 
   // Calculate Subtotal, Tax, Discount, and Total
   const getCartTotals = (tipVal = 0, deliveryFeeVal = 0) => {
-    const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+    const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
+    const subtotal = cart.reduce((acc, item) => acc + (item.unitPrice ?? (Number(item.price) + (item.modifiers || item.selectedModifiers || []).reduce((sum, mod) => sum + Number(mod.priceDelta || 0), 0))) * item.quantity, 0);
     
     let discount = 0;
     if (discountType === 'percent') {
@@ -774,17 +782,17 @@ export const POSProvider = ({ children }) => {
     } else {
       discount = discountValue;
     }
-    discount = Math.min(discount, subtotal);
+    discount = money(Math.max(0, Math.min(discount, subtotal)));
 
     const serviceChargeRate = parseFloat(settings.serviceChargeRate || 0);
-    const serviceCharge = ((subtotal - discount) * serviceChargeRate) / 100;
+    const serviceCharge = money(((subtotal - discount) * serviceChargeRate) / 100);
 
     const taxRate = parseFloat(settings.taxRate || 0);
-    const tax = ((subtotal - discount + serviceCharge) * taxRate) / 100;
+    const tax = money(((subtotal - discount + serviceCharge) * taxRate) / 100);
 
     const deliveryFee = diningType === 'delivery' ? parseFloat(deliveryFeeVal || 0) : 0;
 
-    const rawTotal = subtotal - discount + serviceCharge + tax + parseFloat(tipVal || 0) + deliveryFee;
+    const rawTotal = money(subtotal - discount + serviceCharge + tax + money(Number(tipVal || 0)) + money(deliveryFee));
     const total = Math.round(rawTotal);
     const roundedAmount = total - rawTotal;
 
@@ -794,7 +802,7 @@ export const POSProvider = ({ children }) => {
       serviceCharge: parseFloat(serviceCharge.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
       deliveryFee: parseFloat(deliveryFee.toFixed(2)),
-      tip: parseFloat((tipVal || 0).toFixed(2)),
+      tip: money(Number(tipVal || 0)),
       roundedAmount: parseFloat(roundedAmount.toFixed(2)),
       total: total,
     };
@@ -815,7 +823,7 @@ export const POSProvider = ({ children }) => {
       customerPhone: selectedCustomer ? selectedCustomer.phone : (extraOrderData.customerPhone || null),
       deliveryAddress: extraOrderData.deliveryAddress || (selectedCustomer ? selectedCustomer.address : null),
       deliveryFee: extraOrderData.deliveryFee || 0,
-      items: cart.map(item => ({ id: item.id, quantity: item.quantity, notes: item.notes || '' })),
+      items: cart.map(item => ({ id: item.id, quantity: item.quantity, notes: item.notes || '', selectedModifiers: item.modifiers || item.selectedModifiers || [] })),
       discountType,
       discountValue,
       status: isHold ? 'hold' : 'pending',
@@ -826,8 +834,11 @@ export const POSProvider = ({ children }) => {
       ...extraOrderData
     };
 
-    // Save order
-    await db.put('orders', newOrder);
+    // Reuse an intent identifier after an interrupted create/settle request.
+    const intentKey = JSON.stringify({ ...newOrder, id: null, timestamp: null });
+    if (orderAttempt.current?.key === intentKey) newOrder.id = orderAttempt.current.id;
+    else { newOrder.id = `ord_${crypto.randomUUID()}`; orderAttempt.current = { key: intentKey, id: newOrder.id }; }
+    const savedOrder = await db.put('orders', newOrder);
     
     // Reload database state to reflect stock and table status updates in the UI
     await loadAllData();
@@ -836,7 +847,7 @@ export const POSProvider = ({ children }) => {
       clearCart();
       setSelectedTable(null);
     }
-    return newOrder;
+    return { ...newOrder, ...savedOrder };
   };
 
   // Update order status (KDS view or checkout)

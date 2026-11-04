@@ -161,10 +161,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     }
   }
 
-  const taxRate = rates.taxRate / 100; // 10% tax rate
-  const discountTotal = loyaltyDiscount + promoDiscount;
-  const serviceCharge = (subtotal - discountTotal) * rates.serviceChargeRate / 100; // 10% service charge
-  const tax = (subtotal - discountTotal + serviceCharge) * taxRate;
+  const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
+  const taxRate = rates.taxRate / 100;
+  const discountTotal = money(Math.min(subtotal, loyaltyDiscount + money(promoDiscount)));
+  const serviceCharge = money((subtotal - discountTotal) * rates.serviceChargeRate / 100);
+  const tax = money((subtotal - discountTotal + serviceCharge) * taxRate);
   
   // Dynamic delivery fee addition
   const activeDeliveryFee = orderType === 'delivery' ? deliveryFee : 0;
@@ -172,7 +173,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   const tipAmount = tipPercent === 'custom'
     ? Math.max(0, Number(customTip) || 0)
     : Math.round((subtotal * tipPercent) / 100 * 100) / 100;
-  const rawTotal = subtotal - discountTotal + serviceCharge + tax + activeDeliveryFee + tipAmount;
+  const rawTotal = money(subtotal - discountTotal + serviceCharge + tax + activeDeliveryFee + money(tipAmount));
   const total = Math.round(rawTotal);
   const roundedAmount = total - rawTotal;
 
