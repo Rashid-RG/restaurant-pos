@@ -4,7 +4,7 @@ This branch has local validation, not a completed live rollout. Keep the existin
 
 ## Environment and commands
 
-Use Node 24. Build with `npm ci && npm run build:all`, start with `npm run start:production`, and use `/api/health` as the readiness endpoint. The server listens only after database initialization succeeds.
+Use Node 24. Build with `npm ci --include=dev && npm run build:all`, start with `npm run start:production`, and use `/api/health` as the readiness endpoint. The server listens only after database initialization succeeds.
 
 Set `NODE_ENV=production`, explicit HTTPS `CORS_ORIGIN` values, distinct random `JWT_SECRET` and `CUSTOMER_JWT_SECRET` values of at least 32 characters, `ADMIN_USERNAME`, a unique 12–72-byte `ADMIN_PASSWORD`, and a non-trivial six-digit `ADMIN_PIN`. Enter secrets directly in the hosting provider dashboard; never commit them. Initial owner credentials bootstrap the account; changing these variables is not a password reset workflow.
 
