@@ -8,9 +8,16 @@ def call(path,body=None,token=None):
  headers={'Content-Type':'application/json'}
  if token:headers['Authorization']='Bearer '+token
  req=urllib.request.Request(base+path,data=json.dumps(body).encode() if body is not None else None,headers=headers)
- try:
-  with urllib.request.urlopen(req,timeout=90) as response:return response.status,json.loads(response.read())
- except urllib.error.HTTPError as error:return error.code,json.loads(error.read())
+ attempts=3 if path=='/api/auth/login' else 1
+ for attempt in range(attempts):
+  try:
+   with urllib.request.urlopen(req,timeout=90) as response:
+    status=response.status;raw=response.read()
+  except urllib.error.HTTPError as error:status=error.code;raw=error.read()
+  try:result=json.loads(raw)
+  except (ValueError,UnicodeError):result={'error':'Non-JSON HTTP response','status':status}
+  if status not in (502,503,504) or attempt==attempts-1:return status,result
+  time.sleep(1)
 status,login=call('/api/auth/login',{'username':os.environ['STAGING_USERNAME'],'password':os.environ['STAGING_PASSWORD']})
 assert status==200,'Staging administrator login failed.'
 admin=login['token'];tenants=[];timings=[];created=[]
@@ -19,7 +26,7 @@ try:
   slug='qa-concurrency-'+uuid.uuid4().hex[:10]
   status,result=call('/api/saas/tenants',{'name':'QA concurrency restaurant '+str(index+1),'subdomain':slug,'ownerEmail':slug+'@example.test','plan':'pro'},admin)
   assert status==201,(status,result.get('error'));restaurant=result['tenant'];tenants.append(restaurant)
-  status,owner=call('/api/auth/login',{'username':restaurant['staffUsername'],'password':restaurant['temporaryPassword']});assert status==200
+  status,owner=call('/api/auth/login',{'username':restaurant['staffUsername'],'password':restaurant['temporaryPassword']});assert status==200,(status,owner.get('error'))
   restaurant['token']=owner['token'];restaurant['item']='qa-item-'+uuid.uuid4().hex
   status,_=call('/api/menu_items',{'id':restaurant['item'],'name':'QA concurrency test item','price':100,'cost':20,'stock':30,'isAvailable':1},restaurant['token']);assert status==200
  def work(index):

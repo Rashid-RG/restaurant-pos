@@ -62,3 +62,10 @@ No original production database export/migration or cutover was performed in thi
 - Reconcile restaurant sales, taxes, electronic refunds, driver cash custody, platform fees and bank/provider payouts using an auditable financial ledger.
 - Add durable outbox/replay and cross-process event delivery before scaling backend instances. Define monitoring, alert destinations, retention, incident response and recovery objectives.
 - Choose hosting appropriate to business availability; free sleeping compute cannot provide a live restaurant-service guarantee.
+
+## Hosted evidence for a6e4d9d
+
+- Render deploy dep-dblr4v6i0phs7385v1lg reached live on the free staging service. Both GitHub workflows passed. The original main/production service was not replaced.
+- 228 local regression tests passed across 15 files. All three frontend builds and production-process smoke modes passed. Browser tests also exercised the guest support create/private-thread/reply flow and audited platform support start/end.
+- A real staging logical backup was exported and restored to a new local database. All 41 tables and 15 records matched exactly; integrity and foreign-key checks passed. SHA-256: 288098dc86dff1151789586eabb0df1da35006cb06e769a68a8e5bf33a89bd3b. This is a small staging recovery drill, not original-production recovery certification.
+- The first cloud concurrency attempt stopped during test-owner login on a non-JSON HTTP error; the labelled QA restaurant created during setup was suspended by cleanup. The retry was rejected during administrator login with a tunnel/proxy 403. The concurrent-order stage did not complete, so no hosted concurrency pass or capacity claim is made. The committed checker reports non-JSON responses without exposing response bodies or credentials, and retries only transient authentication 502/503/504 responses.
