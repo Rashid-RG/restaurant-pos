@@ -1,3 +1,7 @@
+import {createLiveAccessCheck} from './lib/live-access.js';
+import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
+import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
+import { createOrderChatRouter } from './routes/order-chat.js';
 import { createTrackingGuard, makeTrackingAccess } from './lib/order-tracking.js';
 import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
 import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
@@ -394,11 +398,21 @@ function authenticateStaffStream(req, res, next) {
   if (!req.headers.authorization && typeof req.query.token === 'string') req.headers.authorization = `Bearer ${req.query.token}`;
   return authenticateToken(req, res, next);
 }
-function keepStreamAlive(req, res) {
-  res.setHeader('X-Accel-Buffering', 'no');
-  const heartbeat = setInterval(() => { if (!res.writableEnded) res.write(': heartbeat\n\n'); }, 15000);
-  heartbeat.unref();
-  res.on('close', () => clearInterval(heartbeat));
+function writeLiveFrame(res,frame){
+ res._sendQueue=(res._sendQueue||Promise.resolve()).then(()=>databaseGate.withContext(async()=>{
+  if(res.writableEnded||res.destroyed)return;
+  if(res._checkLiveAccess&&!await res._checkLiveAccess()){res.end();return;}
+  res.write(frame);
+ })).catch(()=>res.end());
+}
+function keepStreamAlive(req,res){
+ res.setHeader('X-Accel-Buffering','no');
+ const claims=req.headers.authorization&&jwt.decode(req.headers.authorization.split(' ')[1]);
+ const actor=req.trackingActor|| (req.user?{type:'staff',id:req.user.id}:req.driver?{type:'driver',id:req.driver.driverId}:null);
+ const tenantId=req.tenantId||req.trackingTenant||req.query.tenant||req.headers['x-tenant-id']||'default_tenant';
+ res._checkLiveAccess=createLiveAccessCheck({dbGet,actor,tenantId,orderId:req.path.startsWith('/api/stream/orders/')?req.params.id:null,expiresAt:req.trackingExpiresAt||claims?.exp*1000});
+ const heartbeat=setInterval(()=>writeLiveFrame(res,': heartbeat\n\n'),15000);heartbeat.unref();
+ res.on('close',()=>clearInterval(heartbeat));
 }
 
 // ── Real-Time SSE (Server-Sent Events) Broadcast Infrastructure ──
@@ -409,7 +423,7 @@ export function broadcastEvent(eventType, payload, tenantId = databaseGate.conte
   for (const client of sseClients) {
     if (!tenantId || client._tenantId !== tenantId) continue;
     try {
-      client.write(`data: ${data}\n\n`);
+      writeLiveFrame(client,`data: ${data}\n\n`);
     } catch (err) {
       sseClients.delete(client);
     }
@@ -1206,6 +1220,8 @@ async function initTables() {
     }
 
     await safeAddColumn('users', 'createdAt', 'BIGINT');
+    await safeAddColumn('orders','loyaltyPointsReserved','INTEGER DEFAULT 0');
+    await safeAddColumn('orders','loyaltyReversed','INTEGER DEFAULT 0');
     await safeAddColumn('orders', 'cashCollected', 'INTEGER DEFAULT 0');
     await safeAddColumn('orders', 'cashCollectedAt', 'BIGINT');
     await safeAddColumn('orders', 'paymentStatus', "TEXT DEFAULT 'unpaid'");
@@ -1223,6 +1239,8 @@ async function initTables() {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)`);
 
     console.log('All SQLite tables verified successfully.');
+    await initGroupCarts(safeAddColumn);
+    await initOrderInventory(dbRun);
     await initPlatformOperations(dbRun);
     await initSaasBilling(dbRun);
     await seedDatabase();
@@ -1731,12 +1749,17 @@ const authenticateCustomer = (req, res, next) => {
   }
 
   const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
-  jwt.verify(token, secret, (err, decoded) => {
+  jwt.verify(token, secret, async (err, decoded) => {
     if (err || !decoded || !decoded.id || decoded.type !== 'customer') {
       return res.status(403).json({ error: 'Invalid or expired customer token.' });
     }
-    req.customer = decoded;
-    next();
+    try{
+      const account=await dbGet('SELECT id,name,tenant_id FROM customer_accounts WHERE id=?',[decoded.id]);
+      if(!account)return res.status(403).json({error:'Customer account is unavailable.'});
+      const requested=req.headers['x-tenant-id']||req.query.tenant;
+      if(requested&&requested!==account.tenant_id)return res.status(403).json({error:'Customer account belongs to another restaurant.'});
+      req.customer={...decoded,...account};next();
+    }catch(error){next(error)}
   });
 };
 
@@ -1776,7 +1799,9 @@ const requireRole = (allowedRoles) => {
   };
 };
 
-app.get(['/api/public/orders/:id','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
+app.use('/api',createOrderChatRouter({dbGet,dbAll,dbRun,authenticateToken,authenticateCustomer,authenticateDriver,broadcastEvent,rateLimiter:publicApiLimiter}));
+app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
+app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],(req,res,next)=>{req.params.id=req.body?.orderId;return createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver})(req,res,next);});
 app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
 app.use('/api', createPlatformOperations({dbGet,dbAll,dbRun,authenticateToken,requirePlatformAdmin}));
 app.use('/api', createSupportRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolvePublicTenant,notifyPOS,rateLimiter:publicApiLimiter}));
@@ -2006,35 +2031,25 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
 
 app.get('/api/auth/me', authenticateToken, (req, res) => res.json({ user: { ...req.user, isPlatformAdmin: req.user.isPlatformAdmin === 1 } }));
 
-// Register (Owner / Manager only)
-app.post('/api/auth/register', authenticateToken, requireRole(['owner', 'manager']), validateRequest(userCreateSchema), async (req, res) => {
-  const { username, password, role, pin } = req.body;
-  if (role === 'owner' && req.user.role !== 'owner') return res.status(403).json({ error: 'Only an owner can create another owner.' });
-  if (!username || !password || !role || !pin) {
-    return res.status(400).json({ error: 'All fields (username, password, role, pin) are required.' });
-  }
-
-  try {
-    const existingUser = await dbGet('SELECT id FROM users WHERE username = ?', [username]);
-    if (existingUser) {
-      return res.status(400).json({ error: 'Username already exists.' });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 10);
-    const pinHash = await bcrypt.hash(pin, 10);
-    const userId = `user_${Date.now()}`;
-    await dbRun(`
-      INSERT INTO users (id, username, passwordHash, role, pin, tenant_id)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [userId, username, passwordHash, role, pinHash, req.tenantId]);
-
-    await writeAuditLog(req.user.id, req.user.username, 'register_user', `Created user ${username} with role ${role}`);
-
-    res.json({ success: true, user: { username, role } });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
+// Both staff creation endpoints share an atomic seat and username check.
+const createStaffUser=async(req,res)=>{
+ const {username,role,pin,password}=req.body;
+ if(role==='owner'&&req.user.role!=='owner')return res.status(403).json({error:'Only an owner can create another owner.'});
+ if(isProd&&(!password||password.length<12||!pin))return res.status(400).json({error:'Set a password of at least 12 characters and a private PIN for this staff member.'});
+ let open=false;
+ try{
+  const passwordHash=await bcrypt.hash(password||'123456',12),pinHash=await bcrypt.hash(pin||generateSecurePin(),12);
+  await dbRun('BEGIN TRANSACTION');open=true;
+  const seats=checkLimit((await getTenantMeta(req.tenantId)).plan,'users',await countTenantUsers(req.tenantId));
+  if(!seats.allowed){await dbRun('ROLLBACK');open=false;return res.status(402).json({error:seats.reason,code:'plan_limit'});}
+  if(await dbGet('SELECT id FROM users WHERE LOWER(username)=LOWER(?)',[username])){await dbRun('ROLLBACK');open=false;return res.status(400).json({error:'Username already exists.'});}
+  const id=crypto.randomUUID();
+  await dbRun('INSERT INTO users (id,username,passwordHash,role,pin,tenant_id) VALUES (?,?,?,?,?,?)',[id,username,passwordHash,role,pinHash,req.tenantId]);
+  await writeAuditLog(req.user.id,req.user.username,'create_user',`Created user ${username} with role ${role}`);
+  await dbRun('COMMIT');open=false;res.json({success:true,id,user:{username,role},message:`User ${username} created successfully.`});
+ }catch(error){if(open)await dbRun('ROLLBACK');res.status(500).json({error:errMsg(error)});}
+};
+app.post('/api/auth/register',authenticateToken,requireRole(['owner','manager']),validateRequest(userCreateSchema),createStaffUser);
 
 // TIMECLOCK & SHIFT ENDPOINTS
 
@@ -3498,110 +3513,6 @@ app.post('/api/public/driver/assign-batch', authenticateToken, requireRole(['own
   }
 });
 
-// GET /api/orders/:id/driver-chat — Fetch live chat messages between customer & assigned rider
-// BUG-005 fix: require caller to be the assigned driver (by driver JWT) or the order's customer (by customer JWT)
-app.get('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
-  try {
-    const { id } = req.params;
-    // Identify caller: customer JWT, driver JWT, or staff JWT
-    const rawToken = req.headers.authorization && req.headers.authorization.split(' ')[1];
-    if (!rawToken) return res.status(401).json({ error: 'Authentication required to access order chat.' });
-    let decoded;
-    try {
-      try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); }
-      catch { decoded = jwt.verify(rawToken, process.env.CUSTOMER_JWT_SECRET || JWT_SECRET); }
-    } catch {
-      return res.status(403).json({ error: 'Invalid or expired token.' });
-    }
-    const targetOrder = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [id]);
-    if (!targetOrder || (decoded.type !== 'customer' && targetOrder.tenant_id !== decoded.tenant_id)) return res.status(404).json({ error: 'Order not found.' });
-    // Staff (owner/manager/cashier/kitchen) can see all chats
-    const isStaff = decoded.role && ['owner', 'manager', 'cashier', 'kitchen'].includes(decoded.role);
-    const isDriver = decoded.role === 'driver';
-    const isCustomer = decoded.type === 'customer';
-    if (!isStaff && !isDriver && !isCustomer) {
-      return res.status(403).json({ error: 'Access denied.' });
-    }
-    if (isDriver || isCustomer) {
-      // Verify caller is tied to this order
-      const order = await dbGet('SELECT id, customerAccountId, driverId, tenant_id FROM orders WHERE id = ?', [id]);
-      if (!order) return res.status(404).json({ error: 'Order not found.' });
-      if (isDriver && order.driverId !== decoded.driverId) {
-        return res.status(403).json({ error: 'You are not the assigned driver for this order.' });
-      }
-      if (isCustomer && order.customerAccountId !== decoded.id) {
-        return res.status(403).json({ error: 'You are not the customer for this order.' });
-      }
-    }
-    const messages = await dbAll('SELECT * FROM driver_customer_chats WHERE orderId = ? ORDER BY createdAt ASC', [id]);
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// POST /api/orders/:id/driver-chat — Send in-app live chat message between customer & rider
-// BUG-005 fix: authenticate caller and derive senderType from token — never trust client-supplied senderType
-app.post('/api/orders/:id/driver-chat', publicApiLimiter, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { message } = req.body;
-    if (!message || !String(message).trim()) {
-      return res.status(400).json({ error: 'Message content is required.' });
-    }
-    if (String(message).length > 1000) {
-      return res.status(400).json({ error: 'Message too long (max 1000 characters).' });
-    }
-    const rawToken = req.headers.authorization && req.headers.authorization.split(' ')[1];
-    if (!rawToken) return res.status(401).json({ error: 'Authentication required to send chat messages.' });
-    let decoded;
-    try {
-      try { decoded = jwt.verify(rawToken, process.env.JWT_SECRET || JWT_SECRET); }
-      catch { decoded = jwt.verify(rawToken, process.env.CUSTOMER_JWT_SECRET || JWT_SECRET); }
-    } catch {
-      return res.status(403).json({ error: 'Invalid or expired token.' });
-    }
-    // Verify caller is the order's driver or customer
-    const order = await dbGet('SELECT id, customerAccountId, driverId, tenant_id FROM orders WHERE id = ?', [id]);
-    if (!order) return res.status(404).json({ error: 'Order not found.' });
-    const isDriver = decoded.role === 'driver';
-    const isCustomer = decoded.type === 'customer';
-    const isStaff = decoded.role && ['owner', 'manager'].includes(decoded.role);
-    if (!isStaff && !isDriver && !isCustomer) return res.status(403).json({ error: 'Access denied.' });
-    if (!isCustomer && order.tenant_id !== decoded.tenant_id) return res.status(404).json({ error: 'Order not found.' });
-    if (!isStaff) {
-      if (isDriver && order.driverId !== decoded.driverId) {
-        return res.status(403).json({ error: 'You are not the assigned driver for this order.' });
-      }
-      if (isCustomer && order.customerAccountId !== decoded.id) {
-        return res.status(403).json({ error: 'You are not the customer for this order.' });
-      }
-    }
-    // Derive senderType and senderName from verified token — never from client body
-    const senderType = isDriver ? 'driver' : isStaff ? 'staff' : 'customer';
-    const senderName = decoded.name || decoded.username || senderType;
-
-    const msgId = `dchat_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-    await dbRun(
-      'INSERT INTO driver_customer_chats (id, orderId, senderType, senderName, message, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
-      [msgId, id, senderType, senderName, message.trim(), Date.now()]
-    );
-
-    broadcastEvent('driver_chat_message', {
-      orderId: id,
-      messageId: msgId,
-      senderType,
-      senderName,
-      message: message.trim(),
-      timestamp: Date.now()
-    });
-
-    res.status(201).json({ success: true, messageId: msgId });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
 // GET /api/public/delivery-fee — Calculate dynamic delivery fee from customer location
 app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {
   const { lat, lng, subtotal } = req.query;
@@ -3758,85 +3669,9 @@ Return valid JSON:
       return res.json({ reply, recommendedItems: [], suggestions, action: { type: 'connect_support' } });
     }
 
-    // Detect Order Cancellation intent via GastroAI Bot
-    if (msg.includes('cancel') || msg.includes('stop order') || msg.includes('අවලංගු') || msg.includes('රத்து')) {
-      const targetId = orderIdMatch ? orderIdMatch[0] : null;
-      if (!targetId) {
-        reply = `To cancel an active pending order, please specify your Order ID (e.g. *"Cancel order ord_online_12345"*).`;
-        suggestions = ['🔍 Check Order Status', '📞 Call Restaurant'];
-        return res.json({ reply, recommendedItems: [], suggestions, action: null });
-      }
-
-      const order = await dbGet('SELECT * FROM orders WHERE id = ?', [targetId]);
-      if (!order) {
-        reply = `I couldn't find order #${targetId}. Please double-check your Order ID.`;
-        suggestions = ['🔍 Check Order Status', '📞 Call Restaurant'];
-        return res.json({ reply, recommendedItems: [], suggestions, action: null });
-      }
-
-      // 🔒 Security Guard: Check order ownership (authenticated customer OR matching phone/email)
-      const isOwner = authedCustomer && (
-        order.customer_id === authedCustomer.id ||
-        order.customerId === authedCustomer.id ||
-        (order.customerPhone && authedCustomer.phone && normalizeLkPhone(order.customerPhone) === normalizeLkPhone(authedCustomer.phone)) ||
-        (order.customerEmail && authedCustomer.email && order.customerEmail.toLowerCase() === authedCustomer.email.toLowerCase())
-      );
-
-      if (!authedCustomer) {
-        reply = `🔒 **Security Verification Required**:\n\n` +
-          `Please **Sign In to your account** before requesting order cancellation so we can verify your identity.`;
-        suggestions = ['🔑 Sign In Now', '📞 Call Restaurant Manager'];
-        return res.json({ reply, recommendedItems: [], suggestions, action: null });
-      }
-
-      if (!isOwner) {
-        reply = `🔒 **Security Alert**: You are not authorized to cancel order #${targetId}.\n\n` +
-          `For security and privacy, customers can only cancel orders placed from their own verified account.`;
-        suggestions = ['📞 Call Store Manager', '💬 WhatsApp Support'];
-        return res.json({ reply, recommendedItems: [], suggestions, action: null });
-      }
-
-      if (order.status === 'pending' || order.status === 'hold') {
-        await dbRun("UPDATE orders SET status = 'cancelled' WHERE id = ?", [targetId]);
-        const items = await dbAll('SELECT itemId, quantity FROM order_items WHERE orderId = ?', [targetId]);
-        for (const it of items) {
-          await dbRun('UPDATE menu_items SET stock = stock + ? WHERE id = ?', [it.quantity, it.itemId]);
-        }
-        await writeAuditLog(authedCustomer.id, 'customer', 'cancel_order_bot', `Cancelled order ${targetId} via AI Concierge`);
-
-        // REAL-TIME INSTANT SSE BROADCAST TO POS & KITCHEN
-        broadcastEvent('order_updated', { orderId: targetId, status: 'cancelled', message: `Order #${targetId} CANCELLED by customer` });
-
-        reply = `✅ Order #${targetId} (Rs. ${order.total?.toFixed(2)}) has been **CANCELLED** successfully!\n\n` +
-          `• Item stocks have been restored to inventory.\n` +
-          `• Restaurant Manager & Kitchen have been notified in real time on the POS terminal.`;
-        suggestions = ['🍽️ Browse Menu Again', '📞 Contact Support'];
-        return res.json({ reply, recommendedItems: [], suggestions, action: null });
-      } else {
-        reply = `⚠️ Order #${targetId} is currently **${order.status.toUpperCase()}**.\n\n` +
-          `The kitchen has already started cooking your meal, so it cannot be cancelled automatically. Please call the manager at **+94 11 234 5678** for urgent requests.`;
-        suggestions = ['📞 Call Store Manager', '💬 WhatsApp Manager'];
-        return res.json({ reply, recommendedItems: [], suggestions, action: null });
-      }
-    }
-    if (orderIdMatch || msg.includes('track') || msg.includes('order status') || msg.includes('කෝ මගේ') || msg.includes('ஆர்டர்')) {
-      if (orderIdMatch) {
-        const orderId = orderIdMatch[0];
-        const order = await dbGet('SELECT id, status, total, diningType, deliveryAddress, etaMinutes FROM orders WHERE id = ?', [orderId]);
-        if (order) {
-          reply = `📦 *Order #${order.id} Status*: ${order.status.toUpperCase()}\n` +
-            `Type: ${order.diningType || 'Delivery'}\n` +
-            `Total: Rs. ${order.total?.toFixed(2)}\n` +
-            `ETA: ~${order.etaMinutes || 25} mins\n` +
-            `Status: ${order.status === 'delivered' ? 'Delivered 🎉' : order.status === 'ready' ? 'Out for Delivery 🛵' : order.status === 'preparing' ? 'Chef is cooking in kitchen 👨‍🍳' : 'Confirmed by restaurant 📋'}`;
-          suggestions = ['🔍 Track Another Order', '🍽️ Browse Menu', '📞 Call Restaurant'];
-          return res.json({ reply, recommendedItems: [], suggestions, action });
-        } else {
-          reply = `Sorry, I couldn't find order #${orderId}. Please double check your order ID or check your email receipt!`;
-          suggestions = ['🍽️ Browse Menu', '📞 Call Support'];
-          return res.json({ reply, recommendedItems: [], suggestions, action });
-        }
-      }
+    // Private order data and mutations use the authorized tracking workflow.
+    if (orderIdMatch || msg.includes('cancel') || msg.includes('track') || msg.includes('order status')) {
+      return res.json({reply:'Open private order tracking from your order confirmation or sign in to your account to review or cancel an eligible order.',recommendedItems:[],suggestions:['Track Order','Sign In'],action:null});
     }
 
     // Detect "add [item name]" action command for 1-tap cart additions
@@ -4097,30 +3932,7 @@ app.get('/api/users', authenticateToken, requireRole(['owner', 'manager']), asyn
   }
 });
 
-app.post('/api/users', authenticateToken, requireRole(['owner', 'manager']), validateRequest(userCreateSchema), async (req, res) => {
-  if (req.body.role === 'owner' && req.user.role !== 'owner') return res.status(403).json({ error: 'Only an owner can create another owner.' });
-  const { username, role, pin, password } = req.body;
-  if (!username || !role) return res.status(400).json({ error: 'Username and role are required.' });
-  try {
-    const existing = await dbGet('SELECT id FROM users WHERE username = ?', [username]);
-    if (existing) return res.status(400).json({ error: 'Username already exists.' });
-
-    // Enforce per-plan seat limit.
-    const { plan } = await getTenantMeta(req.tenantId);
-    const seatCheck = checkLimit(plan, 'users', await countTenantUsers(req.tenantId));
-    if (!seatCheck.allowed) return res.status(402).json({ error: seatCheck.reason, code: 'plan_limit', limit: seatCheck.limit });
-
-    const id = 'usr_' + Date.now();
-    const hash = await bcrypt.hash(password || '123456', 10);
-    await dbRun('INSERT INTO users (id, username, passwordHash, role, pin, tenant_id) VALUES (?, ?, ?, ?, ?, ?)', [
-      id, username, hash, role, await bcrypt.hash(pin || generateSecurePin(), 12), req.tenantId
-    ]);
-    await writeAuditLog(req.user.id, req.user.username, 'create_user', `Created user ${username} with role ${role}`);
-    res.json({ success: true, id, message: `User ${username} created successfully!` });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
+app.post('/api/users',authenticateToken,requireRole(['owner','manager']),validateRequest(userCreateSchema),createStaffUser);
 
 app.delete('/api/users/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id } = req.params;
@@ -4150,7 +3962,7 @@ app.get('/api/delivery/drivers', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/delivery/drivers', authenticateToken, async (req, res) => {
+app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manager']), async (req, res) => {
   const { name, phone, vehicleType, plateNumber } = req.body;
   if (!name || !phone) return res.status(400).json({ error: 'Driver name and phone are required.' });
   try {
@@ -4198,6 +4010,8 @@ app.post('/api/driver/auth/login', publicApiLimiter, validateRequest(driverLogin
     if (!driver || !driver.passwordHash) return res.status(401).json({ error: 'Invalid phone or password.' });
     const match = await bcrypt.compare(String(password), driver.passwordHash);
     if (!match) return res.status(401).json({ error: 'Invalid phone or password.' });
+    const driverTenant = await getTenantMeta(tenantId);
+    if(driverTenant.status==='suspended'||driver.status==='suspended') return res.status(403).json({error:'Driver or restaurant unavailable.'});
     if (driver.status === 'pending_approval') return res.status(403).json({ error: 'Your account is awaiting admin approval.' });
     if (driver.status === 'rejected') return res.status(403).json({ error: 'Your driver account has been rejected.' });
     const token = jwt.sign(
@@ -4230,7 +4044,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
   }
 });
 
-app.delete('/api/delivery/drivers/:id', authenticateToken, async (req, res) => {
+app.delete('/api/delivery/drivers/:id', authenticateToken, requireRole(['owner','manager']), async (req, res) => {
   const { id } = req.params;
   try {
     await dbRun('DELETE FROM drivers WHERE id = ? AND tenant_id = ?', [id, req.tenantId]);
@@ -4241,21 +4055,23 @@ app.delete('/api/delivery/drivers/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/delivery/assign', authenticateToken, async (req, res) => {
-  const { orderId, driverId, driverName, driverPhone } = req.body;
-  if (!orderId || !driverId) return res.status(400).json({ error: 'orderId and driverId are required.' });
-  try {
-    await dbRun('UPDATE orders SET driverId = ?, status = "ready" WHERE id = ?', [driverId, orderId]);
-    await dbRun('UPDATE drivers SET status = "busy" WHERE id = ?', [driverId]);
-
-    // Broadcast SSE real-time update
-    broadcastEvent('order_updated', { orderId, status: 'ready', driverId, driverName, message: `Order #${orderId} assigned to driver ${driverName || driverId}` });
-
-    await writeAuditLog(req.user.id, req.user.username, 'assign_driver', `Assigned driver ${driverName || driverId} to order ${orderId}`);
-    res.json({ success: true, message: `Assigned driver to Order #${orderId}` });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
+app.post('/api/delivery/assign',authenticateToken,requireRole(['owner','manager','cashier']),async(req,res)=>{
+ const {orderId,driverId}=req.body||{};if(!orderId||!driverId)return res.status(400).json({error:'Order and driver are required.'});
+ let open=false;
+ try{
+  await dbRun('BEGIN TRANSACTION');open=true;
+  const order=await dbGet('SELECT id,status,driverId FROM orders WHERE id=? AND tenant_id=?',[orderId,req.tenantId]);
+  const driver=await dbGet('SELECT id,name,status FROM drivers WHERE id=? AND tenant_id=?',[driverId,req.tenantId]);
+  if(!order||!driver){await dbRun('ROLLBACK');open=false;return res.status(404).json({error:'Order or driver not found.'});}
+  if(!['pending','preparing','ready'].includes(order.status)||!['available','active','busy'].includes(driver.status)){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Order or driver is not available for assignment.'});}
+  if(order.driverId&&order.driverId!==driverId){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Order already has another driver.'});}
+  await dbRun('UPDATE orders SET driverId=? WHERE id=? AND tenant_id=?',[driverId,orderId,req.tenantId]);
+  await dbRun("UPDATE drivers SET status='busy' WHERE id=? AND tenant_id=?",[driverId,req.tenantId]);
+  await writeAuditLog(req.user.id,req.user.username,'assign_driver',`Assigned ${driverId} to ${orderId}`);
+  await dbRun('COMMIT');open=false;
+  broadcastEvent('order_updated',{orderId,status:order.status,driverId,driverName:driver.name},req.tenantId);
+  res.json({success:true,message:'Driver assigned.'});
+ }catch(error){if(open)await dbRun('ROLLBACK');res.status(500).json({error:errMsg(error)});}
 });
 
 // POST /api/orders/:id/eta — Staff update delivery/prep ETA
@@ -4269,12 +4085,7 @@ app.post('/api/orders/:id/eta', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Order not found.' });
     }
     await dbRun('UPDATE orders SET etaMinutes = ? WHERE id = ?', [minutes, id]);
-    broadcastEvent('order_updated', {
-      orderId: id,
-      status: order.status,
-      etaMinutes: minutes,
-      message: `Order #${id} ETA updated to ${minutes} mins`
-    });
+    broadcastEvent('order_updated', {orderId:id,status:order.status,etaMinutes:minutes},req.tenantId);
     await writeAuditLog(req.user.id, req.user.username, 'update_eta', `Updated ETA for order #${id} to ${minutes} mins`);
     res.json({ success: true, orderId: id, etaMinutes: minutes });
   } catch (err) {
@@ -4339,99 +4150,23 @@ app.post('/api/tickets/:id/resolve', authenticateToken, async (req, res) => {
 // (correct menuItemId column, table free, audit log + SSE) is defined later and is
 // the single source of truth for customer order cancellation.
 
-app.get('/api/public/restaurants', publicApiLimiter, async (req, res) => {
-  try {
-    const dbTenants = await dbAll("SELECT id, name, status FROM tenants WHERE status = 'active'");
-    const mainStoreName = await getSettingAny('default_tenant', ['restaurantName', 'businessName'], 'GastroFlow Bistro Main');
-
-    // Real system outlets list initialized from actual database tenant settings & records
-    const realStoresMap = new Map();
-
-    // 1. Primary DB tenant
-    realStoresMap.set('default_tenant', {
-      id: 'default_tenant',
-      name: mainStoreName,
-      cuisine: 'Sri Lankan & Western Fusion Grill',
-      emoji: '🍕',
-      rating: 4.9,
-      ratingCount: 340,
-      deliveryTime: '20-30 min',
-      deliveryFee: 150,
-      minOrder: 1000,
-      cuisineTag: 'pizza',
-      location: 'Colombo 03',
-      lat: 6.9147,
-      lng: 79.8517,
-      deliveryRadiusKm: 15,
-      isOpen: true,
-      bannerGradient: 'linear-gradient(135deg, #ff6b35 0%, #d97706 100%)',
-      promoBadge: '20% OFF'
-    });
-
-    // 2. Additional real active DB tenants from tenants table
-    if (dbTenants && dbTenants.length > 0) {
-      for (const t of dbTenants) {
-        if (t.id && !realStoresMap.has(t.id)) {
-          realStoresMap.set(t.id, {
-            id: t.id,
-            name: t.name || 'GastroFlow Outlet',
-            cuisine: 'Authentic Sri Lankan & Multi-Cuisine',
-            emoji: '🏬',
-            rating: 4.8,
-            ratingCount: 180,
-            deliveryTime: '25-35 min',
-            deliveryFee: 150,
-            minOrder: 1000,
-            cuisineTag: 'srilankan',
-            location: 'Colombo',
-            lat: 6.9080,
-            lng: 79.8655,
-            deliveryRadiusKm: 15,
-            isOpen: true,
-            bannerGradient: 'linear-gradient(135deg, #059669 0%, #047857 100%)'
-          });
-        }
-      }
-    }
-
-    let finalStores = Array.from(realStoresMap.values());
-
-    // Calculate dynamic distance, fee & recommendation scores if user coordinates provided
-    const uLat = parseFloat(req.query.lat);
-    const uLng = parseFloat(req.query.lng);
-
-    if (!isNaN(uLat) && !isNaN(uLng)) {
-      const R = 6371;
-      finalStores = finalStores.map(s => {
-        const dLat = (s.lat - uLat) * Math.PI / 180;
-        const dLon = (s.lng - uLng) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(uLat * Math.PI / 180) * Math.cos(s.lat * Math.PI / 180) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const dist = Number((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1));
-        const inRange = dist <= (s.deliveryRadiusKm || 15);
-        const fee = inRange ? Math.max(80, Math.round(100 + dist * 25)) : 250;
-        const minEta = Math.round(15 + dist * 3);
-        const maxEta = Math.round(25 + dist * 4);
-        const recScore = Number(((100 - dist * 2) + (s.rating * 10) + (s.promoBadge ? 15 : 0)).toFixed(1));
-
-        return {
-          ...s,
-          distanceKm: dist,
-          isDeliverable: inRange,
-          deliveryFee: fee,
-          deliveryTime: `${minEta}-${maxEta} min`,
-          recommendationScore: recScore
-        };
-      });
-
-      finalStores.sort((a, b) => b.recommendationScore - a.recommendationScore);
-    }
-
-    res.json(finalStores);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+// Publish actual tenant configuration. Do not fabricate ratings, offers or locations.
+app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
+ try{
+  const tenants=await dbAll("SELECT id,name FROM tenants WHERE status='active'");const stores=[];
+  const lat=req.query.lat==null?null:Number(req.query.lat),lng=req.query.lng==null?null:Number(req.query.lng);
+  if((lat!=null||lng!=null)&&(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lng)||Math.abs(lng)>180))return res.status(400).json({error:'Invalid location.'});
+  for(const tenant of tenants){
+   if((await getTenantMeta(tenant.id)).status!=='active')continue;
+   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
+   const ratings=await dbGet('SELECT AVG(rating) AS rating,COUNT(*) AS count FROM feedbacks WHERE tenant_id=? AND rating BETWEEN 1 AND 5',[tenant.id]);
+   const storeLat=settings.storeLat==null||settings.storeLat===''?null:Number(settings.storeLat),storeLng=settings.storeLng==null||settings.storeLng===''?null:Number(settings.storeLng);
+   const configuredLocation=Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
+   let quote=null;if(lat!=null&&configuredLocation)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
+   stores.push({id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true',isDeliverable:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
   }
+  res.json(stores);
+ }catch(error){res.status(500).json({error:errMsg(error)});}
 });
 
 // POST /api/public/restaurants/register — Onboard a new Restaurant / BBQ Shop tenant
@@ -4625,7 +4360,7 @@ function notifyPublicStore(eventData, tenantId) {
   const payload = `data: ${JSON.stringify(eventData)}\n\n`;
   publicSSESubscribers.forEach(res => {
     if (!tenantId || !res._tenantId || res._tenantId !== tenantId) return; // fail closed
-    try { res.write(payload); } catch (e) {}
+    try { writeLiveFrame(res,payload); } catch (e) {}
   });
 }
 
@@ -4641,7 +4376,7 @@ function notifyOrderStream(orderId, payload) {
   if (subs) {
     const frame = `data: ${JSON.stringify(payload)}\n\n`;
     subs.forEach(res => {
-      try { res.write(frame); } catch (e) {}
+      try { writeLiveFrame(res,frame); } catch (e) {}
     });
   }
 }
@@ -4650,8 +4385,18 @@ function notifyPOS(eventData, tenantId) {
   const payload = `data: ${JSON.stringify(eventData)}\n\n`;
   posSSESubscribers.forEach(res => {
     if (!tenantId || !res._tenantId || res._tenantId !== tenantId) return; // fail closed
-    try { res.write(payload); } catch (e) {}
+    try { writeLiveFrame(res,payload); } catch (e) {}
   });
+}
+
+// Must run inside the cancellation transaction. Only new, recorded reservations
+// can be returned; historical loyalty balances require separate reconciliation.
+async function releaseOrderLoyalty(orderId,tenantId){
+ const order=await dbGet('SELECT customerAccountId,loyaltyPointsReserved,loyaltyReversed FROM orders WHERE id=? AND tenant_id=?',[orderId,tenantId]);
+ if(!order?.loyaltyPointsReserved||order.loyaltyReversed)return;
+ const result=await dbRun('UPDATE customer_accounts SET loyaltyPoints=loyaltyPoints+? WHERE id=? AND tenant_id=?',[order.loyaltyPointsReserved,order.customerAccountId,tenantId]);
+ if(result.changes!==1)throw Error('Loyalty account needs reconciliation before cancellation.');
+ await dbRun('UPDATE orders SET loyaltyReversed=1 WHERE id=? AND tenant_id=?',[orderId,tenantId]);
 }
 
 // Unified Billing Calculation Helper
@@ -4664,7 +4409,7 @@ async function resolveAndCalculateBill(items, discountType, discountValue, loyal
 }
 
 // POST /api/public/orders
-app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSchema), async (req, res) => {
+const createPublicOrder = async (req, res) => {
   const {
     items, diningType, orderType,
     customerName, customerPhone, customerEmail, deliveryAddress,
@@ -4692,6 +4437,8 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
   if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
 
   const type = diningType || orderType || 'takeaway';
+  if(!['takeaway','dine-in','delivery'].includes(type)||paymentMethod&&!['cash','cod','payhere','online_pending'].includes(paymentMethod))return res.status(400).json({error:'Choose a valid order and payment method.'});
+  if(deliveryLat!=null&&(!Number.isFinite(deliveryLat)||deliveryLat < -90||deliveryLat > 90)||deliveryLng!=null&&(!Number.isFinite(deliveryLng)||deliveryLng < -180||deliveryLng > 180))return res.status(400).json({error:'Invalid delivery coordinates.'});
   if (type === 'delivery') {
     if (!deliveryAddress || !isValidAddress(deliveryAddress)) {
       return res.status(400).json({ error: 'Please enter a complete, real delivery address containing street number, street name, and city.' });
@@ -4720,7 +4467,7 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
         const rawToken = customerToken || (req.headers.authorization ? req.headers.authorization.split(' ')[1] : '');
         const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
         const decoded = jwt.verify(rawToken, secret);
-        if (decoded && decoded.id && decoded.type === 'customer') {
+        if (decoded && decoded.id && decoded.type === 'customer' && await dbGet('SELECT id FROM customer_accounts WHERE id=? AND tenant_id=?',[decoded.id,tenantId])) {
           customerAccountId = decoded.id;
           isAlreadyVerified = true;
         }
@@ -4776,11 +4523,16 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
     }
 
     const orderId = `ord_online_${crypto.randomUUID()}`;
-    const resolvedPaymentMethod = paymentMethod || 'online_pending';
+    const resolvedPaymentMethod = paymentMethod || (process.env.PAYHERE_ENABLED==='false'?'cash':'online_pending');
 
     await dbRun('BEGIN TRANSACTION');
 
     try {
+      const limit=checkLimit((await getTenantMeta(tenantId)).plan,'orders',await countTenantOrdersThisMonth(tenantId));if(!limit.allowed)throw Error('Restaurant order capacity reached.');
+      if(req.groupCart){
+        const claimed=await dbRun("UPDATE group_carts SET status='checked_out',orderId=?,updatedAt=? WHERE id=? AND tenant_id=? AND status='active' AND items=? AND hostHash=? AND expiresAt>?",[orderId,Date.now(),req.groupCart.id,tenantId,req.groupCart.items,req.groupCart.hostHash,Date.now()]);
+        if(claimed.changes!==1)throw Error('The group cart changed or already checked out. Refresh before retrying.');
+      }
       await dbRun(
         `INSERT INTO orders (
           id, tableId, diningType, customerId, items, subtotal,
@@ -4830,22 +4582,14 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
           `INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [itemId, orderId, item.id, item.name, item.unitPrice, item.quantity, item.notes, tenantId]
         );
-        // Atomic stock reduction for menu item (safe non-blocking update)
-        const stockUpdate = await dbRun('UPDATE menu_items SET stock = stock - ? WHERE id = ? AND tenant_id = ? AND (stock IS NULL OR stock >= ?)', [item.quantity, item.id, tenantId, item.quantity]);
-        if (stockUpdate.changes !== 1) throw new Error('Insufficient stock. Refresh the menu and retry.');
-
-        // Automatic raw ingredient stock deduction via recipes
-        const recipeRows = await dbAll('SELECT ingredientId, quantityRequired FROM recipes WHERE menuItemId = ? AND tenant_id = ?', [item.id, tenantId]);
-        for (const rec of recipeRows) {
-          const totalDeduct = rec.quantityRequired * item.quantity;
-          await dbRun('UPDATE ingredients SET stock = MAX(0, stock - ?) WHERE id = ?', [totalDeduct, rec.ingredientId]);
-        }
       }
+      await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId,items:bill.resolvedItems,reason:'online_order',actorId:customerAccountId});
 
       if (customerAccountId && loyaltyPointsToRedeem > 0 && bill.loyaltyDiscount > 0) {
         const redeemed = await dbRun('UPDATE customer_accounts SET loyaltyPoints = loyaltyPoints - ? WHERE id = ? AND tenant_id = ? AND loyaltyPoints >= ?',
           [loyaltyPointsToRedeem, customerAccountId, tenantId, loyaltyPointsToRedeem]);
         if (redeemed.changes !== 1) throw new Error('Insufficient loyalty points.');
+        await dbRun('UPDATE orders SET loyaltyPointsReserved=? WHERE id=? AND tenant_id=?',[loyaltyPointsToRedeem,orderId,tenantId]);
       }
 
       await dbRun('COMMIT');
@@ -4879,7 +4623,7 @@ app.post('/api/public/orders', publicApiLimiter, validateRequest(publicOrderSche
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
-});
+};
 
 // GET /api/stream/orders/:id — Live SSE order tracking stream for customers
 app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
@@ -4931,9 +4675,9 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  keepStreamAlive(req, res);
-
   res._tenantId = await resolvePublicTenant(req);
+  req.trackingTenant=res._tenantId;
+  keepStreamAlive(req,res);
   publicSSESubscribers.add(res);
   // Send current store state as the first event so a (re)connecting client
   // immediately knows the live open/closed state without an extra HTTP round-trip.
@@ -5106,11 +4850,11 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
   const driverId = req.driver.driverId;
   const driverName = req.driver.name || driverId;
   const t = req.driver.tenant_id;
-  if (!orderId || typeof lat !== 'number' || typeof lng !== 'number') {
+  if (!orderId || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
     return res.status(400).json({ error: 'Valid orderId, lat, and lng are required.' });
   }
   try {
-    const existing = await dbGet('SELECT tenant_id FROM orders WHERE id = ? AND driverId = ?', [orderId, driverId]);
+    const existing = await dbGet("SELECT tenant_id FROM orders WHERE id = ? AND driverId = ? AND status IN ('ready','out_for_delivery')", [orderId, driverId]);
     if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
     await dbRun(
       'INSERT OR REPLACE INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)',
@@ -5124,55 +4868,25 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
 });
 
 // POST /api/public/orders/:id/cancel — Customer cancels their own order.
-// Public: the unguessable order id acts as the bearer token (same model as the status route).
+// The tracking middleware requires private confirmation access or an owning account.
 // Only allowed while the order is still 'pending' (kitchen has not accepted it yet).
-app.post('/api/public/orders/:id/cancel', publicApiLimiter, async (req, res) => {
-  const orderId = req.params.id;
-  try {
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
-    if (!order) return res.status(404).json({ error: 'Order not found.' });
-
-    if (order.status === 'cancelled') {
-      return res.json({ success: true, status: 'cancelled' });
-    }
-    if (order.status !== 'pending') {
-      return res.status(409).json({ error: 'This order can no longer be cancelled. Please contact the restaurant.' });
-    }
-    if (order.paymentStatus === 'paid' || order.status === 'paid' || order.paymentMethod === 'payhere') {
-      return res.status(409).json({ error: 'Paid orders cannot be cancelled online. Please contact the restaurant.' });
-    }
-
-    await dbRun('BEGIN TRANSACTION');
-    try {
-      await dbRun('UPDATE orders SET status = "cancelled", rejectedReason = ? WHERE id = ?', ['Cancelled by customer', orderId]);
-
-      // Restore stock reserved by this order
-      const orderItems = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [orderId]);
-      for (const item of orderItems) {
-        if (item.menuItemId) {
-          await dbRun('UPDATE menu_items SET stock = stock + ? WHERE id = ?', [item.quantity, item.menuItemId]);
-        }
-      }
-      // Free the table if one was assigned
-      if (order.tableId) {
-        await dbRun('UPDATE tables SET status = "free", currentOrderId = NULL WHERE id = ?', [order.tableId]);
-      }
-      await writeAuditLog('customer', 'Customer', 'cancel_order', `Order ${orderId} cancelled by customer`);
-      await dbRun('COMMIT');
-
-      const updated = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
-      const updatedItems = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [orderId]);
-      notifyOrderUpdate(orderId, { ...updated, items: updatedItems });
-      notifyPOS({ type: 'order_cancelled', orderId }, updated?.tenant_id);
-
-      res.json({ success: true, status: 'cancelled' });
-    } catch (e) {
-      await dbRun('ROLLBACK');
-      throw e;
-    }
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
+app.post('/api/public/orders/:id/cancel',publicApiLimiter,async(req,res)=>{
+ const orderId=req.params.id,tenantId=await resolvePublicTenant(req);let open=false;
+ try{
+  await dbRun('BEGIN TRANSACTION');open=true;
+  const order=await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?',[orderId,tenantId]);
+  if(!order){await dbRun('ROLLBACK');open=false;return res.status(404).json({error:'Order not found.'});}
+  if(order.status==='cancelled'){await dbRun('COMMIT');open=false;return res.json({success:true,status:'cancelled'});}
+  if(order.status!=='pending'||order.paymentStatus==='paid'||order.paymentMethod==='payhere'){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'This order requires restaurant review before cancellation.'});}
+  await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId,items:[],reason:'customer_cancelled',requireExisting:true});
+  await releaseOrderLoyalty(orderId,tenantId);
+  await dbRun("UPDATE orders SET status='cancelled',rejectedReason='Cancelled by customer' WHERE id=? AND tenant_id=?",[orderId,tenantId]);
+  if(order.tableId)await dbRun("UPDATE tables SET status='free',currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?",[order.tableId,tenantId,orderId]);
+  await dbRun('COMMIT');open=false;
+  notifyPOS({type:'order_updated',orderId,status:'cancelled'},tenantId);
+  notifyOrderUpdate(orderId,{...order,status:'cancelled'});
+  res.json({success:true,status:'cancelled'});
+ }catch(error){if(open)await dbRun('ROLLBACK');res.status(409).json({error:errMsg(error)});}
 });
 
 // POST /api/payments/payhere/checkout
@@ -5220,176 +4934,21 @@ app.post('/api/payments/payhere/checkout', publicApiLimiter, async (req, res) =>
 
 
 
-// GET /api/public/group-cart/:id
-app.get('/api/public/group-cart/:id', publicApiLimiter, async (req, res) => {
-  const { id } = req.params;
-  try {
-    let cart = await dbGet('SELECT * FROM group_carts WHERE id = ?', [id]);
-    if (!cart) {
-      await dbRun('INSERT INTO group_carts (id, status, items, createdAt) VALUES (?, "active", "[]", ?)', [id, Date.now()]);
-      cart = { id, status: 'active', items: '[]', createdAt: Date.now() };
-    }
-    res.json({ id: cart.id, status: cart.status, items: JSON.parse(cart.items) });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// POST /api/public/group-cart/:id/items
-app.post('/api/public/group-cart/:id/items', publicApiLimiter, async (req, res) => {
-  const { id } = req.params;
-  const { participantName, itemId, quantity, notes, selectedModifiers } = req.body;
-  if (!participantName || !itemId) {
-    return res.status(400).json({ error: 'participantName and itemId are required.' });
-  }
-
-  try {
-    await dbRun('BEGIN TRANSACTION');
-    try {
-      let cart = await dbGet('SELECT * FROM group_carts WHERE id = ?', [id]);
-      if (!cart) {
-        await dbRun('INSERT INTO group_carts (id, status, items, createdAt) VALUES (?, "active", "[]", ?)', [id, Date.now()]);
-        cart = { id, status: 'active', items: '[]', createdAt: Date.now() };
-      }
-
-      const items = JSON.parse(cart.items);
-      const existingIndex = items.findIndex(i => i.participantName === participantName && i.itemId === itemId);
-      if (quantity <= 0) {
-        if (existingIndex > -1) items.splice(existingIndex, 1);
-      } else {
-        const menuItem = await dbGet('SELECT name, price FROM menu_items WHERE id = ?', [itemId]);
-        const itemPayload = {
-          participantName,
-          itemId,
-          name: menuItem ? menuItem.name : 'Unknown Item',
-          price: menuItem ? menuItem.price : 0,
-          quantity,
-          notes: notes || '',
-          selectedModifiers: selectedModifiers || []
-        };
-        if (existingIndex > -1) {
-          items[existingIndex] = itemPayload;
-        } else {
-          items.push(itemPayload);
-        }
-      }
-
-      await dbRun('UPDATE group_carts SET items = ? WHERE id = ?', [JSON.stringify(items), id]);
-      await dbRun('COMMIT');
-
-      notifyPOS({ type: 'group_cart_updated', cartId: id }, await resolvePublicTenant(req));
-      res.json({ success: true, items });
-    } catch (e) {
-      await dbRun('ROLLBACK');
-      throw e;
-    }
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-// POST /api/public/group-cart/:id/checkout
-app.post('/api/public/group-cart/:id/checkout', publicApiLimiter, async (req, res) => {
-  const { id } = req.params;
-  const { customerName, customerPhone, deliveryAddress, paymentMethod } = req.body;
-  if (!customerName || !customerPhone) {
-    return res.status(400).json({ error: 'customerName and customerPhone are required.' });
-  }
-
-  try {
-    const cart = await dbGet('SELECT * FROM group_carts WHERE id = ?', [id]);
-    if (!cart || cart.status === 'checked_out') {
-      return res.status(400).json({ error: 'Group cart not found or already checked out.' });
-    }
-
-    const groupItems = JSON.parse(cart.items);
-    if (groupItems.length === 0) {
-      return res.status(400).json({ error: 'Group cart is empty.' });
-    }
-
-    // Map groupItems to standard order items format
-    const items = groupItems.map(gi => ({
-      menuItemId: gi.itemId,
-      quantity: gi.quantity,
-      notes: `${gi.participantName}: ${gi.notes || ''}`.trim(),
-      selectedModifiers: gi.selectedModifiers
-    }));
-
-    // Calculate billing totals (tenant-scoped)
-    const tenantId = await resolvePublicTenant(req);
-    const bill = await resolveAndCalculateBill(items, null, 0, 0, 0, null, 0, tenantId);
-
-    const orderId = `ord_group_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-
-    await dbRun('BEGIN TRANSACTION');
-    try {
-      await dbRun(
-        `INSERT INTO orders (
-          id, tableId, diningType, customerId, items, subtotal,
-          discountType, discountValue, discount, serviceCharge, tax, total,
-          status, timestamp, paymentMethod, source, customerAccountId,
-          deliveryAddress, orderType, customerName, customerPhone, roundedAmount, tenant_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          orderId, null, 'delivery',
-          `${customerName}|${customerPhone}`,
-          JSON.stringify(bill.resolvedItems),
-          bill.subtotal,
-          null, 0, 0,
-          bill.serviceCharge,
-          bill.tax,
-          bill.total,
-          'pending',
-          Date.now(),
-          paymentMethod || 'online_pending',
-          'online',
-          null,
-          deliveryAddress || null,
-          'delivery',
-          customerName,
-          customerPhone,
-          bill.roundedAmount,
-          tenantId
-        ]
-      );
-
-      for (const item of bill.resolvedItems) {
-        const itemId = `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-        await dbRun(
-          `INSERT INTO order_items (id, orderId, menuItemId, name, price, quantity, notes, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [itemId, orderId, item.id, item.name, item.unitPrice, item.quantity, item.notes, tenantId]
-        );
-        // Atomic stock check and deduction
-        const stockResult = await dbRun('UPDATE menu_items SET stock = stock - ? WHERE id = ? AND stock >= ?', [item.quantity, item.id, item.quantity]);
-        if (stockResult.changes === 0) {
-          throw new Error(`Insufficient stock for item: ${item.name}`);
-        }
-      }
-
-      // Mark group cart checked out
-      await dbRun('UPDATE group_carts SET status = "checked_out" WHERE id = ?', [id]);
-
-      await dbRun('COMMIT');
-
-      notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total }, tenantId);
-      res.json({ success: true, orderId, trackingToken: makeTrackingAccess(orderId, tenantId), total: bill.total });
-    } catch (e) {
-      await dbRun('ROLLBACK');
-      throw e;
-    }
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
+const groupCartHandlers=createGroupCartHandlers({dbGet,dbRun,resolvePublicTenant,getTenantMeta,notifyPOS});
+app.post('/api/public/group-cart',publicApiLimiter,groupCartHandlers.create);
+app.get('/api/public/group-cart/:id',publicApiLimiter,groupCartHandlers.get);
+app.post('/api/public/group-cart/:id/items',publicApiLimiter,groupCartHandlers.update);
+app.post('/api/public/group-cart/:id/checkout',publicApiLimiter,groupCartHandlers.checkout,validateRequest(publicOrderSchema),createPublicOrder);
+app.post('/api/public/orders',publicApiLimiter,validateRequest(publicOrderSchema),createPublicOrder);
 
 // POST /api/public/feedback
-app.post('/api/public/feedback', publicApiLimiter, async (req, res) => {
+app.post('/api/public/feedback', publicApiLimiter, (req,res,next)=>{req.params.id=req.body?.orderId;return createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver})(req,res,next);}, async (req, res) => {
   const { orderId, rating, comment } = req.body;
-  if (!orderId || !rating) {
+  if (!orderId || !Number.isInteger(rating) || rating<1 || rating>5 || (comment!=null&&(typeof comment!=='string'||comment.length>2000))) {
     return res.status(400).json({ error: 'orderId and rating are required.' });
   }
   try {
-    const id = `fb_${Date.now()}`;
+    const id = crypto.randomUUID();
     // Derive tenant from the referenced order so feedback lands in the right inbox.
     const fbOrder = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
     const fbTenant = fbOrder?.tenant_id || await resolvePublicTenant(req);
@@ -5828,7 +5387,7 @@ app.get('/api/public/reverse-geocode', geocodeLimiter, async (req, res) => {
 // is stored and pushed to the customer's live tracking stream.
 app.post('/api/public/orders/:id/driver-location', publicApiLimiter, authenticateDriver, async (req, res) => {
   const { lat, lng, driverName } = req.body || {};
-  if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'lat and lng (numbers) are required.' });
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) return res.status(400).json({ error: 'lat and lng (numbers) are required.' });
   try {
     const order = await dbGet('SELECT id, status FROM orders WHERE id = ? AND tenant_id = ? AND driverId = ?', [req.params.id, req.tenantId, req.driver.driverId]);
     if (!order) return res.status(404).json({ error: 'Order not found.' });
@@ -6052,7 +5611,7 @@ app.post('/api/print/receipt', async (req, res) => {
 // ── Offline Sales Bulk Sync Engine ──────────────────────────────────────────
 app.post('/api/orders/offline-sync', requireRole(['owner', 'manager', 'cashier']), async (req, res) => {
   try {
-    const result = await reconcileOfflineSales({ dbGet, dbRun, tenantId: req.tenantId, userId: req.user.id }, req.body?.orders);
+    const result = await reconcileOfflineSales({ dbGet, dbAll, dbRun, tenantId: req.tenantId, userId: req.user.id }, req.body?.orders);
     notifyPOS({ type: 'offline_sales_synced', count: result.syncedCount }, req.tenantId);
     res.json(result);
   } catch (error) { res.status(409).json({ error: error.message, code: 'RECONCILIATION_REQUIRED' }); }
@@ -6160,16 +5719,15 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
       return res.status(409).json({ error: 'Only an open order can be modified.' });
     }
     const oldItems = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [orderId]);
-    for (const item of oldItems) await dbRun('UPDATE menu_items SET stock=stock+? WHERE id=? AND tenant_id=?', [item.quantity, item.menuItemId, req.tenantId]);
+    await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:[],reason:'modify_release',actorId:req.user.id,requireExisting:true});
     const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, null, existing.deliveryFee || 0, req.tenantId);
     await dbRun(`UPDATE orders SET items=?, subtotal=?, discountType=?, discountValue=?, discount=?, tax=?, serviceCharge=?, total=?, tip=?, roundedAmount=? WHERE id=? AND tenant_id=?`,
       [JSON.stringify(bill.resolvedItems),bill.subtotal,discountType || null,Number(discountValue || 0),bill.totalDiscount,bill.tax,bill.serviceCharge,bill.total,bill.tip,bill.roundedAmount,orderId,req.tenantId]);
     await dbRun('DELETE FROM order_items WHERE orderId = ?', [orderId]);
     for (const item of bill.resolvedItems) {
-      const result = await dbRun('UPDATE menu_items SET stock=stock-? WHERE id=? AND tenant_id=? AND (stock IS NULL OR stock>=?)', [item.quantity,item.id,req.tenantId,item.quantity]);
-      if (result.changes !== 1) throw new Error('Insufficient stock.');
       await dbRun('INSERT INTO order_items (id,orderId,menuItemId,name,price,quantity,notes,tenant_id) VALUES (?,?,?,?,?,?,?,?)', [crypto.randomUUID(),orderId,item.id,item.name,item.unitPrice,item.quantity,item.notes,req.tenantId]);
     }
+    await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:bill.resolvedItems,reason:'modify_reserve',actorId:req.user.id,requireExisting:true});
     await dbRun('COMMIT');
     notifyPOS({ type: 'order_updated', orderId }, req.tenantId);
     res.json({ success: true, orderId, total: bill.total });
@@ -6193,7 +5751,8 @@ app.post('/api/orders/:id/reject', requireRole(['owner', 'manager', 'cashier']),
     if (!['cancelled','rejected'].includes(order.status)) {
       await dbRun('UPDATE orders SET status="cancelled",rejectedReason=? WHERE id=? AND tenant_id=?', [req.body.reason || 'Kitchen unavailable at this time',orderId,req.tenantId]);
       const items = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [orderId]);
-      for (const item of items) if (item.menuItemId) await dbRun('UPDATE menu_items SET stock=stock+? WHERE id=? AND tenant_id=?', [item.quantity,item.menuItemId,req.tenantId]);
+      await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:[],reason:'rejected_order',actorId:req.user.id,requireExisting:true});
+      await releaseOrderLoyalty(orderId,req.tenantId);
     }
     const updated = await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?', [orderId,req.tenantId]);
     await dbRun('COMMIT'); transaction = false;
@@ -6564,6 +6123,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     if (existingOrder) {
       await dbRun('BEGIN TRANSACTION');
       try {
+
+
         // Refresh only after acquiring the transaction lock: concurrent settlement
         // must not award loyalty twice or issue a second invoice.
         const current = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [id, tenantId]);
@@ -6595,7 +6156,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         }
         if (newStatus === 'cancelled' && current.status !== 'cancelled') {
           const savedItems = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [id]);
-          for (const item of savedItems) await dbRun('UPDATE menu_items SET stock=stock+? WHERE id=? AND tenant_id=?', [item.quantity,item.menuItemId,tenantId]);
+          await setOrderInventory({dbGet,dbAll,dbRun,orderId:id,tenantId,items:[],reason:'cancelled_order',actorId:req.user.id,requireExisting:true});
+          await releaseOrderLoyalty(id,tenantId);
           if (current.tableId) await dbRun('UPDATE tables SET status="free",currentOrderId=NULL WHERE id=? AND tenant_id=?', [current.tableId,tenantId]);
           await writeAuditLog(userId, username, 'cancel_order', `Cancelled order ${id}`);
         }
@@ -6688,10 +6250,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `, [orderItemId, id, item.id, item.name, item.unitPrice, item.quantity, item.notes || '', tenantId]);
 
-          // Atomic conditional stock check and update
-          const stockUpdate = await dbRun('UPDATE menu_items SET stock = stock - ? WHERE id = ? AND tenant_id = ? AND (stock IS NULL OR stock >= ?)', [item.quantity, item.id, tenantId, item.quantity]);
-          if (stockUpdate.changes !== 1) throw new Error('Insufficient stock. Refresh the menu and retry.');
         }
+        await setOrderInventory({dbGet,dbAll,dbRun,orderId:id,tenantId,items:bill.resolvedItems,reason:'counter_order',actorId:userId});
 
         // Update table status if dine-in
         if (diningType === 'dine-in' && tableId) {
@@ -6977,44 +6537,30 @@ app.get('/api/inventory/transfers', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/inventory/transfers', authenticateToken, async (req, res) => {
-  const { sourceOutlet, destinationOutlet, ingredientId, ingredientName, quantity, unit } = req.body;
-  if (!destinationOutlet || !ingredientId || !quantity) {
-    return res.status(400).json({ error: 'destinationOutlet, ingredientId, and quantity are required.' });
-  }
-  try {
-    const tenantId = req.user?.tenant_id || 'default_tenant';
-    const id = `tr_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-    await dbRun(
-      `INSERT INTO stock_transfers (id, sourceOutlet, destinationOutlet, ingredientId, ingredientName, quantity, unit, status, requestedBy, timestamp, tenant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
-      [id, sourceOutlet || 'Central Kitchen', destinationOutlet, ingredientId, ingredientName || 'Raw Ingredient', quantity, unit || 'kg', req.user?.username || 'Staff', Date.now(), tenantId]
-    );
-    res.status(201).json({ id, message: 'Stock transfer request dispathed successfully!' });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
+app.post('/api/inventory/transfers',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+ const {sourceOutlet,destinationOutlet,ingredientId,quantity}=req.body||{};
+ if(typeof destinationOutlet!=='string'||!destinationOutlet.trim()||destinationOutlet.length>160||typeof ingredientId!=='string'||!Number.isFinite(quantity)||quantity<=0||quantity>1000000)return res.status(400).json({error:'Choose a destination, an ingredient and a positive quantity.'});
+ try{
+  const ingredient=await dbGet('SELECT name,unit FROM ingredients WHERE id=? AND tenant_id=?',[ingredientId,req.tenantId]);
+  if(!ingredient)return res.status(404).json({error:'Ingredient not found.'});
+  const id=crypto.randomUUID();await dbRun("INSERT INTO stock_transfers (id,sourceOutlet,destinationOutlet,ingredientId,ingredientName,quantity,unit,status,requestedBy,timestamp,tenant_id) VALUES (?,?,?,?,?,?,?,'pending',?,?,?)",[id,typeof sourceOutlet==='string'?sourceOutlet.slice(0,160):'Central Kitchen',destinationOutlet.trim(),ingredientId,ingredient.name,quantity,ingredient.unit,req.user.username,Date.now(),req.tenantId]);
+  res.status(201).json({id,message:'Outgoing stock request recorded. Approval deducts stock from this restaurant only.'});
+ }catch(error){res.status(500).json({error:errMsg(error)});}
 });
-
-app.post('/api/inventory/transfers/:id/approve', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
-  const { id } = req.params;
-  try {
-    const tenantId = req.user?.tenant_id || 'default_tenant';
-    const transfer = await dbGet('SELECT * FROM stock_transfers WHERE id = ? AND tenant_id = ?', [id, tenantId]);
-    if (!transfer) return res.status(404).json({ error: 'Transfer request not found' });
-    if (transfer.status === 'approved') return res.status(400).json({ error: 'Transfer already approved' });
-
-    await dbRun('BEGIN TRANSACTION');
-    // Reduce from ingredient stock if matching ingredient exists
-    await dbRun('UPDATE ingredients SET stock = MAX(0, stock - ?) WHERE id = ? AND tenant_id = ?', [transfer.quantity, transfer.ingredientId, tenantId]);
-    await dbRun('UPDATE stock_transfers SET status = "approved", approvedBy = ? WHERE id = ?', [req.user?.username || 'Manager', id]);
-    await dbRun('COMMIT');
-
-    res.json({ message: `Stock transfer #${id} approved and quantity deducted from Central Kitchen!` });
-  } catch (err) {
-    await dbRun('ROLLBACK').catch(() => {});
-    res.status(500).json({ error: errMsg(err) });
-  }
+app.post('/api/inventory/transfers/:id/approve',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+ let open=false;try{
+  await dbRun('BEGIN TRANSACTION');open=true;
+  const transfer=await dbGet('SELECT * FROM stock_transfers WHERE id=? AND tenant_id=?',[req.params.id,req.tenantId]);
+  if(!transfer){await dbRun('ROLLBACK');open=false;return res.status(404).json({error:'Transfer not found.'});}
+  if(transfer.status==='approved'){await dbRun('COMMIT');open=false;return res.json({success:true,message:'Already approved.'});}
+  if(transfer.status!=='pending'||!Number.isFinite(transfer.quantity)||transfer.quantity<=0)throw Error('Transfer is not eligible for approval.');
+  const changed=await dbRun('UPDATE ingredients SET stock=stock-? WHERE id=? AND tenant_id=? AND stock>=?',[transfer.quantity,transfer.ingredientId,req.tenantId,transfer.quantity]);
+  if(changed.changes!==1)throw Error('Insufficient stock. The request remains pending.');
+  await dbRun("UPDATE stock_transfers SET status='approved',approvedBy=? WHERE id=? AND tenant_id=?",[req.user.username,transfer.id,req.tenantId]);
+  await dbRun('INSERT INTO inventory_movements (id,tenant_id,orderId,revision,resourceType,resourceId,delta,reason,actorId,createdAt) VALUES (?,?,?,1,?,?,?,?,?,?)',[crypto.randomUUID(),req.tenantId,transfer.id,'ingredient',transfer.ingredientId,-transfer.quantity,'outgoing_stock',req.user.id,Date.now()]);
+  await writeAuditLog(req.user.id,req.user.username,'approve_stock_transfer',`Approved outgoing stock ${transfer.id}`);
+  await dbRun('COMMIT');open=false;res.json({success:true,message:'Stock transfer approved. Stock deducted once from this restaurant.'});
+ }catch(error){if(open)await dbRun('ROLLBACK');res.status(409).json({error:errMsg(error)});}
 });
 
 // ── Multi-Tenant Partner Payouts & Commission Analytics ──

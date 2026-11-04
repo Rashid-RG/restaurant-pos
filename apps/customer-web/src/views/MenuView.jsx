@@ -15,7 +15,7 @@ function renderChatText(text) {
   });
 }
 
-export default function MenuView({ onNavigate, toast }) {
+export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
   const { t, dict } = useLang();
 
   const [menu, setMenu] = useState({ categories: [], items: [], restaurantName: '', logo: null });
@@ -50,6 +50,21 @@ export default function MenuView({ onNavigate, toast }) {
   const [participantName, setParticipantName] = useState(localStorage.getItem('gastroflow_participant') || '');
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupCartItems, setGroupCartItems] = useState([]);
+  const [groupStatus,setGroupStatus]=useState('active');
+  const [groupBusy,setGroupBusy]=useState(false);
+  const [groupName,setGroupName]=useState('');
+  const [groupPhone,setGroupPhone]=useState('');
+  const groupSecret=(kind,id)=>{
+    const key=`gastroflow_group_${kind}_${id}`;let token=localStorage.getItem(key);
+    if(!token&&kind==='participant'){token=Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');localStorage.setItem(key,token);}
+    return token;
+  };
+  const hostAccess=groupId&&groupSecret('host',groupId);
+  const checkoutGroup=async event=>{
+    event.preventDefault();if(groupBusy)return;setGroupBusy(true);
+    try{const order=await apiFetch(`/public/group-cart/${groupId}/checkout`,{method:'POST',headers:{'X-Group-Host':hostAccess},body:JSON.stringify({customerName:groupName,customerPhone:groupPhone,orderType:'takeaway',paymentMethod:'cash'})});setGroupStatus('checked_out');onOrderPlaced(order.orderId);}
+    catch(error){toast(error.message,'error');}finally{setGroupBusy(false);}
+  };
 
   // AI Chat State (Pro Advanced Sommelier & Concierge)
   const [chatOpen, setChatOpen] = useState(false);
@@ -155,7 +170,7 @@ export default function MenuView({ onNavigate, toast }) {
     const interval = setInterval(() => {
       apiFetch(`/public/group-cart/${groupId}`)
         .then(data => {
-          setGroupCartItems(data.items || []);
+          setGroupCartItems(data.items || []);setGroupStatus(data.status);
         })
         .catch(err => console.error('Error fetching group cart:', err));
     }, 3000);
@@ -325,12 +340,13 @@ export default function MenuView({ onNavigate, toast }) {
 
   // Add customized item to cart (local or group)
   const handleAddToCart = async (item, qty, modifiers, notes) => {
-    addItem(item, qty, modifiers, notes);
+    if(!groupId)addItem(item, qty, modifiers, notes);
     
     if (groupId && participantName) {
       try {
         await apiFetch(`/public/group-cart/${groupId}/items`, {
           method: 'POST',
+          headers:{'X-Group-Participant':groupSecret('participant',groupId)},
           body: JSON.stringify({
             participantName,
             itemId: item.id,
@@ -350,18 +366,14 @@ export default function MenuView({ onNavigate, toast }) {
   };
 
   // Start Group Order
-  const handleStartGroupOrder = () => {
-    const randomId = `group_${Date.now()}`;
-    setGroupId(randomId);
-    window.history.pushState({}, '', `?group=${randomId}`);
-    setShowGroupModal(true);
+  const handleStartGroupOrder = async () => {
+    if(groupBusy)return;setGroupBusy(true);
+    try{const cart=await apiFetch('/public/group-cart',{method:'POST',body:'{}'});localStorage.setItem(`gastroflow_group_host_${cart.id}`,cart.hostToken);setGroupId(cart.id);setGroupStatus('active');const url=new URL(window.location.href);url.searchParams.set('group',cart.id);if(getActiveTenant())url.searchParams.set('tenant',getActiveTenant());window.history.pushState({},'',url);setShowGroupModal(true);}
+    catch(error){toast(error.message,'error');}finally{setGroupBusy(false);}
   };
-
-  // Copy Group Link
-  const handleCopyGroupLink = () => {
-    const link = `${window.location.origin}${window.location.pathname}?group=${groupId}`;
-    navigator.clipboard.writeText(link);
-    toast('Group link copied to clipboard! 📋', 'success');
+  const handleCopyGroupLink = async () => {
+    const url=new URL(window.location.href);url.searchParams.set('group',groupId);if(getActiveTenant())url.searchParams.set('tenant',getActiveTenant());
+    try{await navigator.clipboard.writeText(url.href);toast('Group invitation copied. Only the host can check out.','success');}catch{toast('Copy the invitation from your address bar.','error');}
   };
 
   // Text-To-Speech (TTS) Voice Output Helper
@@ -482,6 +494,7 @@ export default function MenuView({ onNavigate, toast }) {
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}>
 
         <div>
+          {groupId&&<button className="btn btn-ghost" onClick={()=>{setGroupId('');setGroupCartItems([]);const url=new URL(window.location.href);url.searchParams.delete('group');window.history.replaceState({},'',url);}}>Leave group</button>}
           {groupId ? (
             <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '0.8rem', borderColor: 'var(--brand)' }} onClick={() => setShowGroupModal(true)}>
               👥 {t.activeGroup}
@@ -713,6 +726,13 @@ export default function MenuView({ onNavigate, toast }) {
               </div>
             ))}
           </div>
+          {groupStatus==='checked_out'?<p>This group has checked out.</p>:hostAccess?<form onSubmit={checkoutGroup} style={{display:'grid',gap:8,marginTop:16}}>
+            <strong>Group pickup order · pay at restaurant</strong>
+            <label>Your name<input required maxLength={80} value={groupName} onChange={e=>setGroupName(e.target.value)} /></label>
+            <label>Phone number<input required type="tel" maxLength={20} value={groupPhone} onChange={e=>setGroupPhone(e.target.value)} /></label>
+            <button className="btn btn-primary" disabled={groupBusy}>{groupBusy?'Placing order…':'Place group pickup order'}</button>
+            <small>Final prices, taxes and availability are checked before placing the order.</small>
+          </form>:<p>The host will place the shared order. Your items stay in this group.</p>}
         </div>
       )}
 
@@ -929,7 +949,7 @@ export default function MenuView({ onNavigate, toast }) {
                 className="btn btn-ghost"
                 onClick={() => {
                   setGroupId('');
-                  window.history.pushState({}, '', window.location.pathname);
+                  const url=new URL(window.location.href);url.searchParams.delete('group');window.history.replaceState({},'',url);
                   setShowGroupModal(false);
                 }}
               >

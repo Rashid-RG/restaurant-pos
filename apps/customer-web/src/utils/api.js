@@ -12,7 +12,7 @@ export async function apiFetch(endpoint, options = {}) {
   // Attach the active tenant so the backend serves this restaurant's data.
   const activeTenant = getActiveTenant();
 
-  const trackedOrder = cleanPath.match(/^\/api\/public\/orders\/([^/?]+)/)?.[1];
+  const trackedOrder = cleanPath.match(/^\/api\/public\/orders\/([^/?]+)/)?.[1] || (['/api/public/feedback','/api/payments/payhere/checkout','/api/public/payment/payhere/hash'].includes(cleanPath) && JSON.parse(options.body || '{}').orderId);
   const trackingAccess = trackedOrder && localStorage.getItem(`gastroflow_order_access_${trackedOrder}`);
   let res;
   try {

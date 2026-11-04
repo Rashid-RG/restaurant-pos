@@ -370,14 +370,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
     const uniqueRaw = deduplicateStores(rawStores);
     // Pre-compute max distance for normalization
-    const distances = uniqueRaw.map(r => calculateHaversineKm(uLat, uLng, r.lat || 6.9147, r.lng || 79.8517) || 999);
+    const distances = uniqueRaw.map(r => Number.isFinite(r.lat)&&Number.isFinite(r.lng)?calculateHaversineKm(uLat,uLng,r.lat,r.lng):999);
     const maxDist = Math.max(...distances, 1);
 
     const updated = uniqueRaw.map((r, idx) => {
       const dist = distances[idx];
       const radius = r.deliveryRadiusKm || 15;
-      const inRange = dist <= radius;
-      const fee = calculateDynamicFee(dist, inRange);
+      const inRange = Number.isFinite(r.lat)&&Number.isFinite(r.lng)&&dist <= radius;
+      const fee = r.deliveryFee;
       const minEta = Math.round(15 + dist * 3);
       const maxEta = Math.round(25 + dist * 4);
       const isOpenNow = r.isOpen !== false; // default open unless explicitly closed
@@ -397,11 +397,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
       return {
         ...r,
-        distanceKm: dist,
+        distanceKm: Number.isFinite(r.lat)&&Number.isFinite(r.lng)?dist:null,
         isDeliverable: inRange,
         deliveryFee: fee,
-        feeBreakdown,
-        deliveryTime: `${minEta}-${maxEta} min`,
+        feeBreakdown: null,
+        deliveryTime: r.deliveryTime,
         recommendationScore: recScore,
         isOpenNow
       };
@@ -913,7 +913,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                   <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-1)' }}>{r.name}</h4>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f59e0b15', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 800 }}>
-                    ⭐ {r.rating || '4.8'} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 500 }}>({r.ratingCount || '120+'})</span>
+                    ⭐ {r.rating ?? 'New'} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 500 }}>({r.ratingCount ?? 0})</span>
                   </div>
                 </div>
 

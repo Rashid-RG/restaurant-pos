@@ -280,7 +280,7 @@ function InnerApp() {
 
   const handleOrderPlaced = (orderId) => {
     setTrackingOrderId(orderId);
-    setView('track');
+    navigate('track',{track:orderId,group:null});
   };
 
   return (
@@ -374,7 +374,7 @@ function InnerApp() {
             toast={toast}
           />
         )}
-        {view === 'menu' && <MenuView onNavigate={navigate} toast={toast} />}
+        {view === 'menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
