@@ -726,7 +726,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
               </div>
             ))}
           </div>
-          {groupStatus==='checked_out'?<p>This group has checked out.</p>:hostAccess?<form onSubmit={checkoutGroup} style={{display:'grid',gap:8,marginTop:16}}>
+          {groupStatus==='checked_out'?<div><p>This group has checked out.</p>{hostAccess&&<button className="btn btn-primary" disabled={groupBusy} onClick={checkoutGroup}>View placed group order</button>}</div>:hostAccess?<form onSubmit={checkoutGroup} style={{display:'grid',gap:8,marginTop:16}}>
             <strong>Group pickup order · pay at restaurant</strong>
             <label>Your name<input required maxLength={80} value={groupName} onChange={e=>setGroupName(e.target.value)} /></label>
             <label>Phone number<input required type="tel" maxLength={20} value={groupPhone} onChange={e=>setGroupPhone(e.target.value)} /></label>

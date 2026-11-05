@@ -149,3 +149,50 @@ it('keeps each invited participant in control of their own items and rolls back 
  expect((await dbGet('SELECT status,orderId FROM group_carts WHERE id=?',[id]))).toEqual({status:'active',orderId:null});expect(await stock()).toEqual(before);
  await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");
 });
+const recoveryBody=()=>({customerName:'Retry Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
+const retryCheckout=(key,body=recoveryBody(),tenant='safe_A')=>request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send(body);
+it('saves one order and one inventory reservation across concurrent checkout retries',async()=>{
+ const key=crypto.randomUUID(),before=await stock(),raw=await ingredient();const results=await Promise.all([retryCheckout(key),retryCheckout(key)]);
+ expect(results.map(r=>r.status).sort()).toEqual([200,201]);expect(new Set(results.map(r=>r.body.orderId)).size).toBe(1);expect(results.find(r=>r.status===200).headers['idempotency-replayed']).toBe('true');
+ expect((await stock()).stock).toBe(before.stock-2);expect((await ingredient()).stock).toBe(raw.stock-1);
+ const saved=await dbGet('SELECT requestHash FROM checkout_requests WHERE orderId=?',[results[0].body.orderId]);expect(saved.requestHash).not.toBe(key);expect(saved.requestHash).toHaveLength(64);
+});
+it('rejects reuse of a private checkout key with a changed order',async()=>{
+ const key=crypto.randomUUID(),created=await retryCheckout(key);expect(created.status).toBe(201);const before=await stock();
+ expect((await retryCheckout(key,{...recoveryBody(),items:[{id:'safe_item',quantity:3}]})).status).toBe(409);expect(await stock()).toEqual(before);
+});
+it('recovers the original paid receipt after pricing, stock, loyalty and account tokens change',async()=>{
+ const key=crypto.randomUUID(),body={...recoveryBody(),loyaltyPointsToRedeem:500},firstToken=jwt.sign({id:'safe_customer',type:'customer',version:1},process.env.CUSTOMER_JWT_SECRET);
+ await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");const first=await retryCheckout(key,{...body,customerToken:firstToken});expect(first.status,first.text).toBe(201);
+ await dbRun("UPDATE menu_items SET price=9999,isAvailable=0 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=0 WHERE id='safe_customer'");await dbRun("UPDATE orders SET paymentStatus='paid' WHERE id=?",[first.body.orderId]);
+ const rotated=jwt.sign({id:'safe_customer',type:'customer',version:2},process.env.CUSTOMER_JWT_SECRET),replay=await retryCheckout(key,{...body,customerToken:rotated});expect(replay.status,replay.text).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.total).toBe(first.body.total);expect(replay.body.paymentStatus).toBe('paid');expect(replay.body.trackingToken).toBeTruthy();
+ await dbRun("UPDATE menu_items SET price=100,isAvailable=1 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
+});
+it('scopes the same checkout key separately to each restaurant',async()=>{
+ const key=crypto.randomUUID(),first=await retryCheckout(key),other=await retryCheckout(key,{...recoveryBody(),items:[{id:'foreign_item',quantity:2}]},'safe_B');expect(first.status).toBe(201);expect(other.status,other.text).toBe(201);expect(first.body.orderId).not.toBe(other.body.orderId);
+});
+it('does not transfer checkout recovery access to a different customer identity',async()=>{
+ const key=crypto.randomUUID();expect((await retryCheckout(key)).status).toBe(201);
+ const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);expect((await retryCheckout(key,{...recoveryBody(),customerToken:token})).status).toBe(409);
+});
+it('rolls back the recovery record with failed inventory and allows a corrected retry',async()=>{
+ const key=crypto.randomUUID(),before=await stock();await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(500);expect(await stock()).toEqual(before);
+ await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(201);expect((await stock()).stock).toBe(before.stock-2);
+});
+it('blocks new orders while closed but still recovers an already saved checkout',async()=>{
+ const key=crypto.randomUUID(),created=await retryCheckout(key);expect(created.status).toBe(201);
+ await dbRun("UPDATE settings SET value='false' WHERE key='storeOpen' AND tenant_id='safe_A'");expect((await retryCheckout(crypto.randomUUID())).status).toBe(409);
+ const replay=await retryCheckout(key);expect(replay.status).toBe(200);expect(replay.body.orderId).toBe(created.body.orderId);await dbRun("UPDATE settings SET value='true' WHERE key='storeOpen' AND tenant_id='safe_A'");
+});
+it('recovers a checked-out group order only for its private host',async()=>{
+ const created=await request(app).post('/api/public/group-cart?tenant=safe_A').send({}),{id,hostToken}=created.body,endpoint=`/api/public/group-cart/${id}`;
+ expect((await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',crypto.randomBytes(32).toString('hex')).send({participantName:'Host',itemId:'safe_item',quantity:1})).status).toBe(200);
+ const first=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send(recoveryBody());expect(first.status).toBe(201);const before=await stock();
+ const replay=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({});expect(replay.status).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.trackingToken).toBeTruthy();expect(await stock()).toEqual(before);
+ expect((await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',crypto.randomBytes(32).toString('hex')).send({})).status).toBe(404);
+});
+it('rejects weak or malformed checkout recovery keys',async()=>expect((await retryCheckout('short')).status).toBe(400));
+it('returns the stored phone-verification flag without exposing customer credentials',async()=>{
+ await dbRun("UPDATE customer_accounts SET phoneVerified=1 WHERE id='safe_customer'");
+ const response=await request(app).get('/api/customer/auth/me?tenant=safe_A').set(customer('safe_customer'));expect(response.status).toBe(200);expect(response.body.phoneVerified).toBe(1);expect(response.body.passwordHash).toBeUndefined();
+});

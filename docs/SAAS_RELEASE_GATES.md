@@ -89,3 +89,16 @@ This revision adds 15 regressions, bringing the local suite to 243 tests across 
 Additional local evidence: real HTTP tests cover stock/loyalty rollback and retries, cross-restaurant dispatch/chat, deleted identities, shared-cart host/participant isolation, simultaneous checkout, seat contention, transfer shortage, offline replay and real storefront metadata. A phone-width browser run exercises private group creation, adding an item, host pickup checkout and a refreshable private tracking workflow without exposing the capability in the URL. The platform/support browser checks continue to pass.
 
 This work does not remove the remaining release gates above. In particular, original production migration, successful hosted concurrency, real payment/subscription lifecycle, operational notifications/printers/GPS, off-host backup automation, full financial reconciliation and availability validation are still required before live business dependence.
+
+
+## Checkout recovery follow-up
+
+Ten additional HTTP regressions bring the local suite to 253 tests. Public checkout now accepts a private `Idempotency-Key`, stores only its digest and binds it to the restaurant, request and customer identity. The record commits with the order, inventory and loyalty changes. Concurrent retries return the same saved order and original amounts; changed requests conflict. Recovery runs before mutable stock/pricing/loyalty and capacity checks, and returns current payment/order state. Failed transactions retain no successful recovery record. The customer UI preserves a pending checkout in session storage across a lost response/reload and offers recovery before a separate order. Legacy API clients without a key are not automatically protected.
+
+Private group hosts can retrieve an already checked-out group's order, including when simultaneous checkout requests race. Only the same private host can recover it. The expiry still applies. New orders are blocked when the restaurant is closed, while an existing order remains recoverable. Profile responses include the stored phone-verification flag so the checkout uses the actual verified account state.
+
+The PayHere window callback now polls server payment state before announcing confirmation. Missing checkout SDK support opens the server-authorized redirect flow instead of reporting success from a generated hash. Real merchant acceptance remains unverified; no gateway charge was performed.
+
+The ordered next steps and required private account/device access are documented in [PRODUCTION_LAUNCH_PLAN.md](PRODUCTION_LAUNCH_PLAN.md). This follow-up does not clear the production launch gates by itself.
+
+Checkout recovery browser evidence: a phone-width browser placed an order, deliberately lost the response after the server committed, reloaded, and recovered the same order. The database contained one order for that customer and one stock deduction, with no browser runtime errors. This local fault-injection check does not replace hosted concurrency acceptance.

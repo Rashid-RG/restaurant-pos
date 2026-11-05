@@ -59,7 +59,7 @@ node scripts/production-smoke.js
 npm audit
 ```
 
-The reviewed local draft passed 243 automated tests, all three frontend builds, production restart smoke checks and selected desktop/phone browser workflows. Passing these checks does not establish complete route coverage or provider/hardware certification. GitHub CI and a Docker image build must also pass in their respective environments.
+The reviewed local draft passed 253 automated tests, all three frontend builds, production restart smoke checks and selected desktop/phone browser workflows. Passing these checks does not establish complete route coverage or provider/hardware certification. GitHub CI and a Docker image build must also pass in their respective environments.
 
 The [microfeature CSV](docs/GastroFlow_Microfeature_Inventory.csv) and [API route CSV](docs/GastroFlow_API_Route_Inventory.csv) are implementation backlogs with source evidence. There are 154 distinct literal method/path patterns, including 13 repeated patterns that require consolidation.
 
@@ -68,3 +68,5 @@ The [microfeature CSV](docs/GastroFlow_Microfeature_Inventory.csv) and [API rout
 [MIT License](LICENSE). Copyright (c) 2026 Mohammed Rashid (Rashid-RG).
 
 Current SaaS reliability work, validation boundaries and migration procedure: [SaaS release gates](docs/SAAS_RELEASE_GATES.md).
+
+The ordered [production launch plan](docs/PRODUCTION_LAUNCH_PLAN.md) tracks the remaining access, acceptance evidence and cutover gates. This revision adds private checkout recovery for lost responses and retries.

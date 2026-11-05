@@ -1,3 +1,4 @@
+import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation} from './lib/checkout-recovery.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
@@ -1241,6 +1242,7 @@ async function initTables() {
     console.log('All SQLite tables verified successfully.');
     await initGroupCarts(safeAddColumn);
     await initOrderInventory(dbRun);
+    await initCheckoutRecovery(dbRun);
     await initPlatformOperations(dbRun);
     await initSaasBilling(dbRun);
     await seedDatabase();
@@ -2949,7 +2951,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
 app.get('/api/customer/auth/me', authenticateCustomer, async (req, res) => {
   try {
     const customer = await dbGet(
-      'SELECT id, name, email, phone, loyaltyPoints, totalSpent, createdAt FROM customer_accounts WHERE id = ?',
+      'SELECT id, name, email, phone, phoneVerified, loyaltyPoints, totalSpent, createdAt FROM customer_accounts WHERE id = ?',
       [req.customer.id]
     );
     if (!customer) return res.status(404).json({ error: 'Account not found.' });
@@ -2963,7 +2965,7 @@ app.get('/api/customer/auth/me', authenticateCustomer, async (req, res) => {
 app.get('/api/customer/profile', authenticateCustomer, async (req, res) => {
   try {
     const customer = await dbGet(
-      'SELECT id, name, email, phone, loyaltyPoints, totalSpent, createdAt FROM customer_accounts WHERE id = ?',
+      'SELECT id, name, email, phone, phoneVerified, loyaltyPoints, totalSpent, createdAt FROM customer_accounts WHERE id = ?',
       [req.customer.id]
     );
     if (!customer) return res.status(404).json({ error: 'Account not found.' });
@@ -4434,7 +4436,6 @@ const createPublicOrder = async (req, res) => {
     return res.status(400).json({ error: 'Please enter a valid Sri Lankan phone number (e.g. 0771234567 or +94771234567).' });
   }
 
-  if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
 
   const type = diningType || orderType || 'takeaway';
   if(!['takeaway','dine-in','delivery'].includes(type)||paymentMethod&&!['cash','cod','payhere','online_pending'].includes(paymentMethod))return res.status(400).json({error:'Choose a valid order and payment method.'});
@@ -4449,16 +4450,6 @@ const createPublicOrder = async (req, res) => {
     const cleanPhone = customerPhone.replace(/[\s-]/g, '');
     const tenantId = await resolvePublicTenant(req);
 
-    // SaaS enforcement: block suspended tenants + monthly order-volume cap.
-    const meta = await getTenantMeta(tenantId);
-    if (meta.status === 'suspended') {
-      return res.status(403).json({ error: 'This store is temporarily unavailable. Please try again later.' });
-    }
-    const orderCap = checkLimit(meta.plan, 'orders', await countTenantOrdersThisMonth(tenantId));
-    if (!orderCap.allowed) {
-      return res.status(402).json({ error: 'This store has reached its order capacity for the month. Please try again later.', code: 'plan_limit' });
-    }
-
     let customerAccountId = null;
     let isAlreadyVerified = false;
 
@@ -4472,6 +4463,21 @@ const createPublicOrder = async (req, res) => {
           isAlreadyVerified = true;
         }
       } catch (e) { /* ignore invalid tokens */ }
+    }
+
+    const identity=checkoutIdentity(req.headers['idempotency-key'],req.body,customerAccountId);
+    const replay=await findRecoveredOrder({dbGet,tenantId,identity});
+    if(replay)return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(replay),trackingToken:makeTrackingAccess(replay.id,tenantId)});
+
+  if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
+    // SaaS enforcement: block suspended tenants + monthly order-volume cap.
+    const meta = await getTenantMeta(tenantId);
+    if (meta.status === 'suspended') {
+      return res.status(403).json({ error: 'This store is temporarily unavailable. Please try again later.' });
+    }
+    const orderCap = checkLimit(meta.plan, 'orders', await countTenantOrdersThisMonth(tenantId));
+    if (!orderCap.allowed) {
+      return res.status(402).json({ error: 'This store has reached its order capacity for the month. Please try again later.', code: 'plan_limit' });
     }
 
     const pointsRequested = Number(loyaltyPointsToRedeem || 0);
@@ -4528,10 +4534,19 @@ const createPublicOrder = async (req, res) => {
     await dbRun('BEGIN TRANSACTION');
 
     try {
+      const concurrentReplay=await findRecoveredOrder({dbGet,tenantId,identity});
+      if(concurrentReplay){await dbRun('COMMIT');return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(concurrentReplay),trackingToken:makeTrackingAccess(concurrentReplay.id,tenantId)});}
+
+      if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')==='false')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
       const limit=checkLimit((await getTenantMeta(tenantId)).plan,'orders',await countTenantOrdersThisMonth(tenantId));if(!limit.allowed)throw Error('Restaurant order capacity reached.');
       if(req.groupCart){
         const claimed=await dbRun("UPDATE group_carts SET status='checked_out',orderId=?,updatedAt=? WHERE id=? AND tenant_id=? AND status='active' AND items=? AND hostHash=? AND expiresAt>?",[orderId,Date.now(),req.groupCart.id,tenantId,req.groupCart.items,req.groupCart.hostHash,Date.now()]);
-        if(claimed.changes!==1)throw Error('The group cart changed or already checked out. Refresh before retrying.');
+        if(claimed.changes!==1){
+          const saved=await dbGet("SELECT orderId FROM group_carts WHERE id=? AND tenant_id=? AND hostHash=? AND status='checked_out'",[req.groupCart.id,tenantId,req.groupCart.hostHash]);
+          const previous=saved?.orderId&&await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?',[saved.orderId,tenantId]);
+          if(previous){await dbRun('COMMIT');return res.set('Cache-Control','no-store').json({...publicOrderConfirmation(previous),trackingToken:makeTrackingAccess(previous.id,tenantId)});}
+          throw Object.assign(Error('The group cart changed. Refresh before retrying.'),{status:409});
+        }
       }
       await dbRun(
         `INSERT INTO orders (
@@ -4592,6 +4607,7 @@ const createPublicOrder = async (req, res) => {
         await dbRun('UPDATE orders SET loyaltyPointsReserved=? WHERE id=? AND tenant_id=?',[loyaltyPointsToRedeem,orderId,tenantId]);
       }
 
+      await saveCheckout({dbRun,tenantId,identity,orderId});
       await dbRun('COMMIT');
 
       // Real-time notification to POS staff
@@ -4602,7 +4618,8 @@ const createPublicOrder = async (req, res) => {
         setTimeout(() => autoDispatchDriver(orderId, tenantId), 2000); // 2s delay to let order settle
       }
 
-      res.status(201).json({
+      res.status(201).set('Cache-Control','no-store').json({
+        paymentStatus: 'unpaid',
         trackingToken: makeTrackingAccess(orderId, tenantId),
         orderId,
         status: 'pending',
@@ -4621,7 +4638,7 @@ const createPublicOrder = async (req, res) => {
       throw e;
     }
   } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    res.status(err.status||500).json({ error: err.status&&err.status<500?err.message:errMsg(err) });
   }
 };
 

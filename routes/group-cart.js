@@ -1,3 +1,5 @@
+import {publicOrderConfirmation} from '../lib/checkout-recovery.js';
+import {makeTrackingAccess} from '../lib/order-tracking.js';
 import crypto from 'node:crypto';
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
 export async function initGroupCarts(add){
@@ -24,7 +26,11 @@ export function createGroupCartHandlers({dbGet,dbRun,resolvePublicTenant,getTena
   }catch(error){if(open)await dbRun('ROLLBACK');res.status(400).json({error:error.message});}},
   checkout:async(req,res,next)=>{try{
    const cart=await read(req),token=req.headers['x-group-host'];if(!cart||typeof token!=='string'||!/^[a-f0-9]{64}$/.test(token)||hash(token)!==cart.hostHash)return res.status(404).json({error:'Use the private host access to check out this group.'});
-   if(cart.status==='checked_out')return res.status(409).json({error:'This group has already checked out. Use the original order confirmation.'});
+   if(cart.status==='checked_out'){
+    const order=await dbGet('SELECT * FROM orders WHERE id=? AND tenant_id=?',[cart.orderId,cart.tenant_id]);
+    if(!order)return res.status(409).json({error:'The saved group order needs restaurant support.'});
+    return res.set('Cache-Control','no-store').json({...publicOrderConfirmation(order),trackingToken:makeTrackingAccess(order.id,cart.tenant_id)});
+   }
    if(cart.status!=='active'||!JSON.parse(cart.items).length)return res.status(409).json({error:'Group cart is empty or unavailable.'});
    req.groupCart={id:cart.id,items:cart.items,hostHash:cart.hostHash};
    req.body={...req.body,items:JSON.parse(cart.items).map(i=>({menuItemId:i.itemId,quantity:i.quantity,notes:`${i.participantName}: ${i.notes}`,selectedModifiers:i.selectedModifiers}))};next();
