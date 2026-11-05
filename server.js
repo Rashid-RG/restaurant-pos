@@ -1,3 +1,4 @@
+import {initInventoryOperations,createInventoryOperations} from './routes/inventory-operations.js';
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation} from './lib/checkout-recovery.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
@@ -1242,6 +1243,7 @@ async function initTables() {
     console.log('All SQLite tables verified successfully.');
     await initGroupCarts(safeAddColumn);
     await initOrderInventory(dbRun);
+    await initInventoryOperations(dbRun);
     await initCheckoutRecovery(dbRun);
     await initPlatformOperations(dbRun);
     await initSaasBilling(dbRun);
@@ -1801,6 +1803,7 @@ const requireRole = (allowedRoles) => {
   };
 };
 
+app.use('/api',createInventoryOperations({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyPOS}));
 app.use('/api',createOrderChatRouter({dbGet,dbAll,dbRun,authenticateToken,authenticateCustomer,authenticateDriver,broadcastEvent,rateLimiter:publicApiLimiter}));
 app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],(req,res,next)=>{req.params.id=req.body?.orderId;return createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver})(req,res,next);});
@@ -5874,11 +5877,12 @@ app.post('/api/menu_items', authenticateToken, requireRole(['owner', 'manager'])
     const resolvedImageUrl = getFoodPhotoFallback({ imageUrl, name, category, description });
 
     await dbRun(`
-      INSERT OR REPLACE INTO menu_items
+      INSERT INTO menu_items
         (id, name, price, cost, category, emoji, stock, minStock, description,
          imageUrl, dietaryTags, allergens, isAvailable,
          spiceLevel, isHalal, preparationTime, portionSize, tenant_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name=excluded.name,price=excluded.price,cost=excluded.cost,category=excluded.category,emoji=excluded.emoji,stock=excluded.stock,minStock=excluded.minStock,description=excluded.description,imageUrl=excluded.imageUrl,dietaryTags=excluded.dietaryTags,allergens=excluded.allergens,isAvailable=excluded.isAvailable,spiceLevel=excluded.spiceLevel,isHalal=excluded.isHalal,preparationTime=excluded.preparationTime,portionSize=excluded.portionSize WHERE menu_items.tenant_id=excluded.tenant_id
     `, [
       id, name, price, cost, category, emoji,
       parseInt(stock) || 0, parseInt(minStock) || 0, description,
@@ -5942,21 +5946,6 @@ app.get('/api/saas/usage', requireRole(['owner', 'manager']), async (req, res) =
         maxOrdersPerMonth: u.limits.maxOrdersPerMonth === Infinity ? null : u.limits.maxOrdersPerMonth
       }
     });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/ingredients', requireRole(['owner', 'manager']), async (req, res) => {
-  const { id, name, unit, costPerUnit, stock, minStock, supplier } = req.body;
-  const ingId = id || `ing_${Date.now()}`;
-  try {
-    await dbRun(`
-      INSERT OR REPLACE INTO ingredients (id, name, unit, costPerUnit, stock, minStock, supplier, tenant_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [ingId, name, unit, parseFloat(costPerUnit) || 0, parseFloat(stock) || 0, parseFloat(minStock) || 0, supplier || null, req.tenantId]);
-    await writeAuditLog(req.user.id, req.user.username, 'save_ingredient', `Saved ingredient ${name} (${ingId})`);
-    res.json({ id: ingId, name, unit, costPerUnit, stock, minStock, supplier });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -6717,40 +6706,6 @@ app.get('/api/reports/cogs', authenticateToken, requireRole(['owner', 'manager']
 });
 
 // ── 3.2 Inventory Depth (Purchase Orders, Suppliers & Waste Logging) ──
-app.get('/api/inventory/suppliers', requireRole(['owner', 'manager']), async (req, res) => {
-  try {
-    const suppliers = await dbAll('SELECT * FROM suppliers WHERE tenant_id = ? ORDER BY name ASC', [req.tenantId]);
-    res.json(suppliers);
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/inventory/suppliers', requireRole(['owner', 'manager']), async (req, res) => {
-  const { name, phone, email, address } = req.body;
-  const id = `sup_${Date.now()}`;
-  try {
-    await dbRun('INSERT INTO suppliers (id, name, phone, email, address, tenant_id) VALUES (?, ?, ?, ?, ?, ?)', [id, name, phone || '', email || '', address || '', req.tenantId]);
-    res.json({ id, name, phone, email, address });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
-
-app.post('/api/inventory/waste', requireRole(['owner', 'manager']), async (req, res) => {
-  const { menuItemId, ingredientId, quantity, reason } = req.body;
-  if ((!menuItemId === !ingredientId) || !Number.isFinite(quantity) || quantity <= 0) return res.status(400).json({ error: 'Choose one stock item and a positive quantity.' });
-  const table = menuItemId ? 'menu_items' : 'ingredients';
-  const id = menuItemId || ingredientId;
-  try {
-    const row = await dbGet(`SELECT id FROM ${table} WHERE id = ? AND tenant_id = ?`, [id,req.tenantId]);
-    if (!row) return res.status(404).json({ error: 'Stock item not found.' });
-    await dbRun(`UPDATE ${table} SET stock = MAX(0,stock - ?) WHERE id = ? AND tenant_id = ?`, [quantity,id,req.tenantId]);
-    await writeAuditLog(req.user.id,req.user.username,'waste_logged',`Logged waste qty ${quantity}: ${reason || ''}`);
-    res.json({success:true,message:'Waste logged and inventory deducted.'});
-  } catch (err) { res.status(500).json({error:errMsg(err)}); }
-});
-
 // ── 3.4 Staff & Permissions API ──
 app.get('/api/staff/performance', requireRole(['owner', 'manager']), async (req, res) => {
   try {

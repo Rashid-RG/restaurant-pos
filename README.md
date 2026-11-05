@@ -12,6 +12,8 @@ Open-source restaurant software maintained by **Mohammed Rashid ([Rashid-RG](htt
 
 The code includes server-side billing, tenant-scoped staff events, menu and stock management, tables, kitchen tickets, customer accounts, PayHere integration, delivery assignment and browser GPS. The [billing follow-up](docs/BILLING_FOLLOWUP.md) documents settlement, refund, rounding and cash-drawer fixes and remaining release gates. Table merging is temporarily disabled until its billing flow is corrected. The [delivery-proof follow-up](docs/DELIVERY_PROOF_FOLLOWUP.md) adds private, transactional proof saving and safe retry. Several other capabilities remain partial: push delivery, durable event replay, scheduling and cloud printer connectivity. The [SaaS release gates](docs/SAAS_RELEASE_GATES.md) describe newer privacy, inventory and shared-order fixes and the remaining launch requirements. See the review before relying on any advertised feature.
 
+The [commercial feature and UI scope](docs/COMMERCIAL_FEATURE_SCOPE.md) maps working features, remaining screens and acceptance criteria across all three apps and SaaS administration. The new [inventory operations](docs/INVENTORY_OPERATIONS.md) workbench provides supplier/purchase management, partial receiving, physical counts, waste, recipes and audit history.
+
 ## Local development
 
 Use **Node.js 24** and npm. From the repository root:
@@ -59,7 +61,7 @@ node scripts/production-smoke.js
 npm audit
 ```
 
-The reviewed local draft passed 253 automated tests, all three frontend builds, production restart smoke checks and selected desktop/phone browser workflows. Passing these checks does not establish complete route coverage or provider/hardware certification. GitHub CI and a Docker image build must also pass in their respective environments.
+The reviewed local draft passed 287 automated tests, all three frontend builds, production restart smoke checks and selected desktop/phone browser workflows. Passing these checks does not establish complete route coverage or provider/hardware certification. GitHub CI and a Docker image build must also pass in their respective environments.
 
 The [microfeature CSV](docs/GastroFlow_Microfeature_Inventory.csv) and [API route CSV](docs/GastroFlow_API_Route_Inventory.csv) are implementation backlogs with source evidence. There are 154 distinct literal method/path patterns, including 13 repeated patterns that require consolidation.
 

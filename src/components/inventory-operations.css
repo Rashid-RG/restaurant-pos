@@ -1,0 +1,304 @@
+.stock-workbench {
+  min-width: 0;
+  color: var(--text-main);
+}
+.stock-top,
+.stock-section-title,
+.stock-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.stock-top h2 {
+  font-size: 26px;
+  max-width: 620px;
+  margin: 10px 0;
+  letter-spacing: -0.7px;
+}
+.stock-top p,
+.stock-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.stock-eyebrow {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--color-primary);
+}
+.stock-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 24px 0;
+}
+.stock-metrics article,
+.stock-cards article,
+.stock-detail {
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-card);
+  padding: 20px;
+  min-width: 0;
+}
+.stock-metrics span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.stock-metrics strong {
+  display: block;
+  margin-top: 10px;
+  font-size: 28px;
+}
+.stock-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0 0 24px;
+  padding-bottom: 8px;
+}
+.stock-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  padding: 11px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-card);
+  font-size: 13px;
+  min-height: 44px;
+}
+.stock-tabs .active {
+  background: var(--color-primary);
+  color: white;
+}
+.stock-section-title {
+  margin-bottom: 16px;
+}
+.stock-purchase-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  gap: 16px;
+}
+.stock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 650px;
+  overflow: auto;
+}
+.stock-list > button {
+  text-align: left;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  min-width: 0;
+}
+.stock-list > button.selected {
+  border: 2px solid var(--color-primary);
+  background: var(--color-primary-light);
+}
+.stock-list span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.stock-status {
+  display: inline-block;
+  border-radius: 20px;
+  padding: 5px 9px;
+  background: var(--color-primary-light);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.stock-empty {
+  padding: 28px;
+  color: var(--text-muted);
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  line-height: 1.6;
+}
+.stock-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 14px;
+}
+.stock-cards p {
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.stock-cards small {
+  display: block;
+  margin-top: 12px;
+  color: var(--text-muted);
+}
+.stock-error {
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #fff1eb;
+  color: #8c3419;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.stock-dialog {
+  width: min(720px, calc(100vw - 24px));
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+.stock-dialog::backdrop {
+  background: #152a2466;
+  backdrop-filter: blur(4px);
+}
+.stock-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.stock-dialog h2 {
+  font-size: 22px;
+}
+.stock-dialog form,
+.stock-dialog label {
+  display: grid;
+  gap: 8px;
+}
+.stock-dialog form {
+  gap: 16px;
+}
+.stock-dialog input,
+.stock-dialog select,
+.stock-dialog textarea,
+.stock-detail input {
+  min-height: 44px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-app);
+  color: var(--text-main);
+  box-sizing: border-box;
+}
+.stock-dialog label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.stock-dialog fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.stock-dialog .stock-purchase-line {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+.stock-purchase-line legend {
+  font-size: 12px;
+  padding: 0 5px;
+}
+.stock-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 10px;
+}
+.stock-count-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  max-height: 260px;
+  margin-bottom: 20px;
+}
+.stock-detail .data-table {
+  min-width: 520px;
+}
+.stock-detail input {
+  min-width: 110px;
+}
+.stock-dialog small {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.stock-actions {
+  justify-content: flex-start;
+  margin-top: 16px;
+}
+@media (max-width: 1000px) {
+  .stock-purchase-layout {
+    grid-template-columns: 1fr;
+  }
+  .stock-list {
+    max-height: 300px;
+  }
+  .stock-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .stock-top h2 {
+    font-size: 23px;
+  }
+  .stock-dialog {
+    padding: 18px;
+  }
+  .stock-form-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .stock-form-row > label:last-child {
+    grid-column: 1/-1;
+  }
+  .stock-metrics article,
+  .stock-detail {
+    padding: 16px;
+  }
+}
+
+.stock-recipe-select {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+}
+.stock-recipe-select select,
+.stock-recipe-line input,
+.stock-recipe-line select {
+  min-height: 44px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-app);
+  color: var(--text-main);
+}
+.stock-recipe-line {
+  display: grid;
+  grid-template-columns: 2fr 1fr auto;
+  align-items: end;
+  gap: 12px;
+  margin: 16px 0;
+}
+.stock-recipe-line label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  .stock-recipe-line {
+    grid-template-columns: 1fr 1fr;
+  }
+  .stock-recipe-line > label:first-child {
+    grid-column: 1/-1;
+  }
+}

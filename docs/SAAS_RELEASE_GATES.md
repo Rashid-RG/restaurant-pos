@@ -102,3 +102,10 @@ The PayHere window callback now polls server payment state before announcing con
 The ordered next steps and required private account/device access are documented in [PRODUCTION_LAUNCH_PLAN.md](PRODUCTION_LAUNCH_PLAN.md). This follow-up does not clear the production launch gates by itself.
 
 Checkout recovery browser evidence: a phone-width browser placed an order, deliberately lost the response after the server committed, reloaded, and recovered the same order. The database contained one order for that customer and one stock deduction, with no browser runtime errors. This local fault-injection check does not replace hosted concurrency acceptance.
+
+
+## Inventory operations follow-up
+
+34 additional regressions bring the suite to 287 tests across 17 files. Owner/manager purchasing, partial receipts, ingredient/menu counts, waste, recipe costing and history now have real responsive screens and tenant-scoped transactional endpoints. Request-bound replay and reload recovery protect unknown mutation outcomes. Ingredient and menu metadata updates preserve recipe relationships; journal triggers reject history updates/deletes. See [INVENTORY_OPERATIONS.md](INVENTORY_OPERATIONS.md) for API contracts, evidence and limits and [COMMERCIAL_FEATURE_SCOPE.md](COMMERCIAL_FEATURE_SCOPE.md) for all feature/UI work still required.
+
+This adds five tables to the logical backup surface. The earlier 41-table staging restore drill is historical evidence only; rerun the backup/restore and hosted concurrency gates against this schema. Legacy direct stock adjustment coverage, supplier accounting and real devices remain separate acceptance work. No original production migration or provider payment is performed by this increment.
