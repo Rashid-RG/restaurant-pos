@@ -1,8 +1,9 @@
+import {startStoreUpdates} from '../utils/live-store.js';
 import React, { useState, useEffect } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
-import { apiFetch } from '../utils/api.js';
+import { apiFetch, apiUrl } from '../utils/api.js';
 import { withTenant, getActiveTenant } from '../utils/tenant.js';
 
 // Render **bold** markdown in AI replies without injecting HTML (safe against XSS).
@@ -25,6 +26,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
   const [sortBy, setSortBy] = useState('popular'); // 'popular' | 'price-asc' | 'price-desc' | 'prep'
   const [maxPriceFilter, setMaxPriceFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [liveState,setLiveState]=useState('connecting');
   const favoritesKey = `gastroflow_favorites:${getActiveTenant() || 'default_tenant'}`;
   const [favorites, setFavorites] = useState(() => { try { return JSON.parse(localStorage.getItem(favoritesKey) || '[]'); } catch { return []; } });
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -181,10 +183,13 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
   // instantly to: store open/closed toggle, 86-item, prep-time changes.
   // No page reload needed — the POS staff action propagates in < 1 second.
   useEffect(() => {
-    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const es = new EventSource(withTenant(`${API_BASE}/api/stream/store`));
-
-    es.onmessage = (e) => {
+    let disposed=false;
+    const refreshMenu=async()=>{
+      const data=await apiFetch('/public/menu');if(disposed)return;
+      setRates({taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0)});
+      setMenu(prev=>({...prev,...data,categories:data.categories||[],items:data.items||[],storeOpen:data.storeOpen!==false}));
+    };
+    const handleMessage = (e) => {
       try {
         const data = JSON.parse(e.data);
 
@@ -210,6 +215,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
           toast(`Item ${data.itemId} is now ${label}.`, 'info');
         }
 
+        if(data.type==='menu_updated')refreshMenu().catch(()=>setLiveState('offline'));
         if (data.type === 'group_cart_updated' && groupId) {
           apiFetch(`/public/group-cart/${groupId}`)
             .then(cartData => setGroupCartItems(cartData.items || []))
@@ -222,7 +228,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
             toast('⚠️ This restaurant store has been suspended by the platform administrator.', 'error');
           } else if (data.status === 'active') {
             toast('🎉 This restaurant store is active again!', 'success');
-            fetchMenu();
+            refreshMenu().catch(()=>setLiveState('offline'));
           }
         }
 
@@ -233,11 +239,8 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
       } catch (_) {}
     };
 
-    es.onerror = () => {
-      // EventSource auto-reconnects; no manual action needed.
-    };
-
-    return () => es.close();
+    const stream=startStoreUpdates({url:withTenant(apiUrl('/api/stream/store')),onMessage:handleMessage,onRefresh:refreshMenu,onConnection:setLiveState});
+    return () => {disposed=true;stream.close();};
   }, []);
 
 
@@ -479,6 +482,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
 
   return (
     <div className="fade-in" style={{ paddingBottom: '100px' }}>
+      {liveState!=='live'&&<p role="status" style={{padding:'10px 16px',fontSize:'0.85rem',color:'var(--text-muted)'}}>{liveState==='offline'?'Updates are temporarily unavailable. Check your connection; we will retry.':liveState==='polling'?'Live connection unavailable — refreshing the menu every 15 seconds.':'Connecting to live menu updates…'}</p>}
       
       {/* Store Closed Banner */}
       {menu.storeOpen === false && (

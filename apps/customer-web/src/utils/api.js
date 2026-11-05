@@ -1,13 +1,17 @@
 import { getActiveTenant } from './tenant.js';
 
+export function apiUrl(endpoint, location = window.location) {
+  const dev = location.port === '3001' || location.port === '3002';
+  const origin = dev ? `${location.protocol}//${location.hostname}:5000` : location.origin;
+  return new URL(endpoint, origin).href;
+}
+
 export async function apiFetch(endpoint, options = {}) {
   const cleanPath = endpoint.startsWith('/api')
     ? endpoint
     : `/api${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
 
-  const isDevPort = window.location.port === '3001' || window.location.port === '3002';
-  const apiOrigin = isDevPort ? `${window.location.protocol}//${window.location.hostname}:5000` : window.location.origin;
-  const absoluteUrl = new URL(cleanPath, apiOrigin).href;
+  const absoluteUrl = apiUrl(cleanPath);
 
   // Attach the active tenant so the backend serves this restaurant's data.
   const activeTenant = getActiveTenant();
