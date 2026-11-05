@@ -75,6 +75,14 @@ describe('Delivery evidence and completion', () => {
     expect(await dbGet('SELECT * FROM invoice_counter')).toEqual(before);
     expect((await dbGet('SELECT signature FROM delivery_proofs WHERE orderId=?', [o.id])).signature).toBe(png);
   });
+  it('does not recollect prepaid cash at delivery', async () => {
+    const o = await delivery();
+    await dbRun("UPDATE orders SET paymentStatus='paid',invoiceNumber=999999 WHERE id=?", [o.id]);
+    const result=await complete(o,{cashReceived:false});
+    expect(result.status,result.text).toBe(200);
+    expect((await dbGet('SELECT cashReceived FROM delivery_proofs WHERE orderId=?',[o.id])).cashReceived).toBe(0);
+    expect((await dbGet('SELECT invoiceNumber FROM orders WHERE id=?',[o.id])).invoiceNumber).toBe(999999);
+  });
   it('keeps evidence private and permits assigned driver and restaurant manager review', async () => {
     const o = await delivery(); await complete(o);
     const url = `/api/public/driver/orders/${o.id}/proof`;

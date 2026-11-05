@@ -6,9 +6,9 @@ Updated 5 November 2026. This is the delivery scope for GastroFlow's staff, cust
 
 | Area | Implemented foundation / current UI | Remaining feature and UI work | Acceptance evidence required |
 | --- | --- | --- | --- |
-| Counter POS | Menu, cart, orders, cash shift/tenders, server totals, settlement, refunds and receipt workflows; responsive cart | Durable partial diner payments, safe table merge/transfer, manager approvals with reasons, consistent discount/tax/rounding presentation, cash close variance review | Mixed tenders, simultaneous settlement, reconnect, refund, shift close and real receipt printer |
+| Counter POS | Menu/cart, cash shifts, saved partial cash/bank receipts, balances, server totals and final receipts; responsive payment dialog | Partial-receipt reversal, mixed/bank refund reconciliation, safe table merge/transfer, manager approvals with reasons, consistent discount/tax/rounding presentation, cash close variance review | Mixed tenders, simultaneous settlement, reconnect, refund, shift close and real receipt printer |
 | Tables and service | Tables and dine-in ordering foundation | Visual floor plan, reservations/waitlist, seating/course controls, table occupancy and safe bill ownership transitions | Two waiters changing a table concurrently; no lost orders or duplicate bills |
-| Kitchen | Kitchen tickets and status actions | Explicit prep stations, per-item progress, cook timers, allergy/modifier prominence, course firing, expediter view, audible alert preferences and paid-but-unfulfilled orders | Order placed/edited/paid/cancelled while preparing; every required item stays visible until fulfilled |
+| Kitchen | Persisted station routing, per-item preparation, elapsed timers, notes/modifiers and paid-but-unfulfilled tickets | Started-ticket amendment/reconciliation, structured allergy metadata, course firing, expediter controls and alert preferences | Order placed/edited/paid/cancelled while preparing; every required item stays visible until fulfilled |
 | Inventory | Raw ingredients/menu stock; new supplier, purchase, receipt, count, waste, recipe and history screens | Supplier credits/returns, invoice matching, reorder suggestions, yield and batch/expiry tracking, broader legacy adjustment journal coverage | Transaction rollback, tenant isolation, replay, shortages and stale counts; physical count reconciliation |
 | Menu management | Items, availability, categories and ingredient recipes | Modifier groups and limits, variants, allergen/dietary labels, timed menus, multi-channel pricing and sold-out explanation | One pricing/availability rule across POS/customer/group/offline workflows |
 | Customers and ordering | Restaurant discovery, menu/cart, account, loyalty foundation, private group cart, checkout recovery, tracking and support | Scheduled slots/capacity, reservation integration, complete group delivery form, promotion controls, verified notifications and self-service account lifecycle | Real device checkout, private retry after disconnect, capacity contention and no duplicate charges |
@@ -38,9 +38,9 @@ Details, endpoint contracts and limitations are in [INVENTORY_OPERATIONS.md](INV
 
 ## Delivery order and release gates
 
-1. Ship and validate this inventory increment on staging.
-2. Finish money correctness and its UI: durable partial payments, safe bill/table operations, close/reconcile and printer recovery.
-3. Complete kitchen fulfillment independently of payment state, with station/item workflow screens.
+1. Validate inventory and the new [cash/bank/kitchen increment](CASH_BANK_SERVICE_READINESS.md) on staging.
+2. Finish remaining money exceptions: partial-receipt reversals, mixed/bank refunds, safe bill/table merge and printer recovery.
+3. Validate the new independent station/item fulfillment workflow on actual kitchen devices and finish started-ticket amendment handling.
 4. Finish customer scheduling and driver reconnect/cash-handover workflows.
 5. Complete SaaS billing, onboarding, metering and platform reconciliation.
 6. Run external acceptance: hosted concurrent transactions, original-data migration/restore, merchant lifecycle, actual printers/phones, notifications and monitoring.

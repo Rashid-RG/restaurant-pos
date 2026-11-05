@@ -25,7 +25,7 @@ export default function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
   const [hasSignature, setHasSignature] = useState(false), [photo, setPhoto] = useState(null);
   const [busy, setBusy] = useState(false), [preparingPhoto, setPreparingPhoto] = useState(false), [error, setError] = useState('');
   const [cashReceived, setCashReceived] = useState(false);
-  const isCash = ['cash', 'cod'].includes(order.paymentMethod);
+  const isCash = ['cash', 'cod'].includes(order.paymentMethod) && order.paymentStatus!=='paid';
   useEffect(() => { const el = dialog.current; el.showModal(); return () => el.close(); }, []);
   const point = e => {
     const canvas = canvasRef.current, rect = canvas.getBoundingClientRect();
@@ -42,6 +42,7 @@ export default function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
   };
   const submit = async () => {
     if (busyRef.current || preparingPhoto) return;
+    if(order.paymentStatus==='partial'){setError('Ask the restaurant to reconcile this partial payment before completing delivery.');return;}
     if (!hasSignature && !photo) { setError('Add a customer signature or delivery photo.'); return; }
     if (isCash && !cashReceived) { setError('Confirm that you collected the delivery cash.'); return; }
     busyRef.current = true; setBusy(true); setError('');

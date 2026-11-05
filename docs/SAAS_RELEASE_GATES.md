@@ -109,3 +109,10 @@ Checkout recovery browser evidence: a phone-width browser placed an order, delib
 34 additional regressions bring the suite to 287 tests across 17 files. Owner/manager purchasing, partial receipts, ingredient/menu counts, waste, recipe costing and history now have real responsive screens and tenant-scoped transactional endpoints. Request-bound replay and reload recovery protect unknown mutation outcomes. Ingredient and menu metadata updates preserve recipe relationships; journal triggers reject history updates/deletes. See [INVENTORY_OPERATIONS.md](INVENTORY_OPERATIONS.md) for API contracts, evidence and limits and [COMMERCIAL_FEATURE_SCOPE.md](COMMERCIAL_FEATURE_SCOPE.md) for all feature/UI work still required.
 
 This adds five tables to the logical backup surface. The earlier 41-table staging restore drill is historical evidence only; rerun the backup/restore and hosted concurrency gates against this schema. Legacy direct stock adjustment coverage, supplier accounting and real devices remain separate acceptance work. No original production migration or provider payment is performed by this increment.
+
+
+## Cash/bank and kitchen follow-up
+
+316 local tests now pass. The new receipt ledger persists partial cash and manager-confirmed bank payments, rejects duplicate/changed requests and overcollection, attributes drawer cash to the collecting shift and issues a final invoice once. Independent kitchen ticket/line state keeps prepaid food visible, routes stations explicitly and rejects stale actions. Recalled bills preserve identity/modifiers and no longer create duplicate orders. Table claims are serialized and prepaid tables remain occupied until service. Customer live-menu updates now use the app origin and survive Safari EventSource SecurityError with polling fallback.
+
+The populated local restore drill matched 54 tables and 121 records, including the new schema. This does not replace original-production migration/restore or hosted testing. Full evidence, user-confirmed data preservation requirements, unchosen printer and missing private access are recorded in [CASH_BANK_SERVICE_READINESS.md](CASH_BANK_SERVICE_READINESS.md).

@@ -100,6 +100,7 @@ export const POSProvider = ({ children }) => {
   const [discountType, setDiscountType] = useState('percent'); // 'percent' or 'flat'
   const [discountValue, setDiscountValue] = useState(0);
   const orderAttempt = useRef(null);
+  const recalledOrder = useRef(null);
   const refundAttempt = useRef(null);
 
   // Toast system
@@ -764,6 +765,7 @@ export const POSProvider = ({ children }) => {
 
   const clearCart = () => {
     orderAttempt.current = null;
+    recalledOrder.current = null;
     setCart([]);
     setDiscountValue(0);
     // selectedCustomer is intentionally preserved so consecutive orders for the same
@@ -773,6 +775,7 @@ export const POSProvider = ({ children }) => {
 
   // Reset POS view states when shifting tables
   const loadOrderToPOS = (order) => {
+    recalledOrder.current = order.id;
     setCart(order.items || []);
     setDiningType(order.diningType || 'dine-in');
     setDiscountType(order.discountType || 'percent');
@@ -850,7 +853,14 @@ export const POSProvider = ({ children }) => {
     const intentKey = JSON.stringify({ ...newOrder, id: null, timestamp: null });
     if (orderAttempt.current?.key === intentKey) newOrder.id = orderAttempt.current.id;
     else { newOrder.id = `ord_${crypto.randomUUID()}`; orderAttempt.current = { key: intentKey, id: newOrder.id }; }
-    const savedOrder = await db.put('orders', newOrder);
+    let savedOrder;
+    if (recalledOrder.current) {
+      const id=recalledOrder.current;
+      const response=await fetch(`/api/orders/${id}/modify`,{method:'PUT',headers:{Authorization:'Bearer '+localStorage.getItem('gastroflow_token'),'Content-Type':'application/json'},body:JSON.stringify(newOrder)});
+      const result=await response.json(); if(!response.ok) throw new Error(result.error||'Cannot modify saved bill.');
+      const saved=await db.getAll('orders'); savedOrder=saved.find(order=>order.id===id);
+      if(!savedOrder) throw new Error('Saved bill needs refresh before payment.');
+    } else savedOrder = await db.put('orders', newOrder);
     
     // Reload database state to reflect stock and table status updates in the UI
     await loadAllData();

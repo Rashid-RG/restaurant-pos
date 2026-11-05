@@ -4,7 +4,7 @@ The current release is a staging candidate. Passing automated tests does not aut
 
 ## Next target
 
-Run a supervised cash-only pilot with two independently owned test restaurants, then clear the gates below. Keep gateway collection and automatic SaaS charging disabled until their separate acceptance tests pass. The existing production service and database remain recoverable during this work.
+Prepare a supervised cash/manual-bank pilot with two independently owned test restaurants, then clear the gates below. Keep gateway collection and automatic SaaS charging disabled until their separate acceptance tests pass. The existing production service and database remain recoverable during this work.
 
 | Order | Gate | Evidence required | Remaining access or input |
 |---|---|---|---|
@@ -12,7 +12,7 @@ Run a supervised cash-only pilot with two independently owned test restaurants, 
 | 2 | Hosted tenant concurrency | Two restaurants order and settle concurrently with unique invoices, correct stock and no cross-tenant data | Valid staging test credentials supplied through private environment variables; run the existing staging-only checker from an authorized environment that can reach the service |
 | 3 | Production-data migration | Read-only source export; isolated target restore; reconcile tenant ownership, every record, invoices, balances, stock, open orders and delivery assignments | Access to a supported export of the existing production PostgreSQL database; do not replace DATABASE_URL or import over the live service |
 | 4 | Automated recovery | Private off-host backup, failure alert, retained copies and a timed restore to a replacement target | Private storage destination and its credentials; confirm retention and recovery goals. Existing staging restore evidence covers a small manual snapshot only |
-| 5 | Payment and subscription acceptance | Independent provider notifications; duplicate and delayed callbacks; renewal, failed collection, cancellation and refund reconciliation | Merchant sandbox configuration. Real payments and automatic restaurant charging remain off until accepted |
+| Deferred | Online payment and subscription acceptance | Independent provider notifications; duplicate and delayed callbacks; renewal, failed collection, cancellation and refund reconciliation | Merchant sandbox configuration. Real payments and automatic restaurant charging remain off until accepted |
 | 6 | Notifications | Intended test customer receives the correct message once; provider failure and retries are visible | Configured sender/provider and explicit test recipient details; no real messages should be sent to arbitrary contacts |
 | 7 | Restaurant and driver devices | Counter checkout, kitchen workflow, printer/bridge, delivery assignment, real-phone GPS, offline/reconnect and proof upload | Printer model/connection, a test printer/local bridge and test phones |
 | 8 | Operations | Actionable error/backup alerts, measured latency, incident procedure and agreed recovery objectives | Alert destination and responsible operator; hosting must meet the agreed availability requirements |
@@ -43,3 +43,8 @@ Historical orders without inventory snapshots need explicit reconciliation befor
 ## Responsive interface acceptance
 
 The latest interface follow-up covers the POS/admin, customer and driver apps at eight phone/tablet/landscape/desktop sizes. See [DEVICE_RESPONSIVENESS.md](DEVICE_RESPONSIVENESS.md) for the measured checks. Browser viewport checks are distinct from the physical-device gate above.
+
+
+## Current service increment
+
+See [CASH_BANK_SERVICE_READINESS.md](CASH_BANK_SERVICE_READINESS.md) for the cash/bank ledger, kitchen fulfillment, Safari fix and current validation. The user confirmed existing production data is real and must be preserved, and has not chosen a printer. The current environment has no staging/source database credentials. Hosted contention, original-data recovery, provider and actual-device gates remain incomplete.

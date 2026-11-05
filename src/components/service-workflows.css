@@ -1,0 +1,181 @@
+.service-workspace {
+  padding-bottom: 100px;
+  min-width: 0;
+}
+.service-workspace .view-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+.service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+.service-actions .btn {
+  min-height: 44px;
+}
+.service-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px;
+}
+.service-column {
+  min-width: 0;
+  background: var(--bg-surface);
+  padding: 12px;
+  border-radius: 16px;
+}
+.service-column h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.1rem;
+}
+.service-ticket,
+.service-panel {
+  padding: 18px;
+  margin: 14px 0;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  border-radius: 16px;
+  overflow-wrap: anywhere;
+}
+.service-ticket header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.service-ticket small,
+.service-line small {
+  display: block;
+  color: var(--text-muted);
+  margin: 8px 0;
+}
+.service-line {
+  padding: 12px 0;
+  border-top: 1px solid var(--border-color);
+}
+.service-line .btn {
+  width: 100%;
+  min-height: 44px;
+}
+.service-note {
+  border-left: 4px solid var(--color-warning);
+  padding: 10px;
+  background: var(--bg-surface);
+}
+.service-alert {
+  padding: 16px;
+  border: 1px solid var(--color-danger);
+  border-radius: 12px;
+  margin: 16px;
+  overflow-wrap: anywhere;
+}
+.service-route {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color);
+}
+.service-route select {
+  min-height: 44px;
+  max-width: 50%;
+}
+.service-dialog {
+  width: min(760px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 18px;
+  padding: 22px;
+  margin: auto;
+}
+.service-dialog::backdrop {
+  background: #0008;
+}
+.service-dialog header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.service-dialog label {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.service-dialog input,
+.service-dialog select {
+  min-height: 44px;
+  padding: 10px;
+  font-size: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.service-dialog .service-check {
+  display: flex;
+  align-items: center;
+}
+.service-check input {
+  width: 24px;
+}
+.service-balance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 18px;
+  background: var(--bg-surface);
+  border-radius: 12px;
+}
+.service-balance strong {
+  display: block;
+  font-size: 1.3rem;
+}
+.service-list {
+  display: grid;
+  gap: 10px;
+}
+.service-list button {
+  text-align: left;
+  white-space: normal;
+  min-height: 60px;
+  overflow-wrap: anywhere;
+}
+.service-history {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+@media (max-width: 900px) {
+  .service-board {
+    grid-template-columns: 1fr;
+    padding: 8px;
+  }
+  .service-dialog {
+    padding: 14px;
+  }
+  .service-workspace .view-header {
+    padding: 16px;
+  }
+}
+@media print {
+  .service-dialog {
+    position: static;
+    max-height: none;
+    width: 100%;
+    border: 0;
+  }
+  .service-dialog button,
+  .service-dialog form,
+  .service-dialog select {
+    display: none !important;
+  }
+}

@@ -1,3 +1,4 @@
+import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { usePOS } from '../context/POSContext';
 
@@ -59,6 +60,7 @@ export default function POSView() {
     updateCartNotes,
     removeFromCart,
     clearCart,
+    loadOrderToPOS,
     getCartTotals,
     // Selection states
     selectedTable,
@@ -122,13 +124,9 @@ export default function POSView() {
 
   // Advanced Billing states
   const [tipInput, setTipInput] = useState(0);
-  const [showSplitModal, setShowSplitModal] = useState(false);
-  const [splitMode, setSplitMode] = useState('even'); // 'even' | 'itemized'
-  const [splitCount, setSplitCount] = useState(2);
+  const [manualOrder,setManualOrder]=useState(null);
   const [showRecallModal, setShowRecallModal] = useState(false);
   const [splitPayments, setSplitPayments] = useState([]);
-  // Split Bill multi-portion state: { count, portionAmount, paid, collectedPayments }
-  const [splitBillProgress, setSplitBillProgress] = useState(null);
   // Ref flag: true only when a new payment just completed — prevents double-print on manual reprint
   const autoPrintRef = useRef(false);
   const settlementBusyRef = useRef(false);
@@ -252,9 +250,21 @@ export default function POSView() {
     }
   };
 
+  const openSavedBill = async () => {
+    if (settlementBusyRef.current || !cart.length) return;
+    settlementBusyRef.current=true; setSettlementBusy(true);
+    try {
+      const order=await placeOrder(false,tipInput);
+      if (!order) return;
+      clearCart(); setSelectedTable(null); setShowPaymentModal(false);
+      setManualOrder(order.id);
+    } catch(e) { showToast(e.message || 'Could not save this bill. Retry before collecting money.','error'); }
+    finally { settlementBusyRef.current=false; setSettlementBusy(false); }
+  };
+
   const handlePayClick = () => {
     if (cart.length === 0) return;
-    setSplitBillProgress(null); // Clear any stale split-bill state from a previous order
+     // Clear any stale split-bill state from a previous order
     setCashReceived(totals.total.toString());
     setShowPaymentModal(true);
   };
@@ -305,9 +315,8 @@ export default function POSView() {
 
   const handlePaymentComplete = async () => {
     if (settlementBusyRef.current) return;
-    const due = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+    const due = totals.total;
     if (paymentMethod === 'cash' && (!Number.isFinite(Number(cashReceived)) || Number(cashReceived) < due)) { showToast('Enter enough cash to cover the amount due.', 'error'); return; }
-    if (splitBillProgress && !['cash','card'].includes(paymentMethod)) { showToast('Collect each portion using cash or an external card terminal.', 'error'); return; }
     settlementBusyRef.current = true; setSettlementBusy(true);
     try { await performPaymentComplete(); }
     finally { settlementBusyRef.current = false; setSettlementBusy(false); }
@@ -320,63 +329,6 @@ export default function POSView() {
   };
 
   const performPaymentComplete = async () => {
-    // ─── Split Bill Portion Collection Mode ───────────────────────────────────
-    // When splitBillProgress is active, we collect one portion payment at a time
-    // and only finalize the order once all portions have been collected.
-    if (splitBillProgress) {
-      const { count, portionAmount, paid, collectedPayments } = splitBillProgress;
-      const newCollected = [...collectedPayments, { method: paymentMethod, amount: portionAmount }];
-      const newPaid = paid + 1;
-
-      if (newPaid < count) {
-        // More portions still to collect — update progress and stay in payment modal
-        const nextAmount = splitBillProgress.portionAmounts[newPaid];
-        setSplitBillProgress({ ...splitBillProgress, paid: newPaid, portionAmount: nextAmount, collectedPayments: newCollected });
-        setCashReceived(nextAmount.toFixed(2));
-        setPaymentMethod('cash');
-        showToast(`✅ Portion ${newPaid}/${count} collected (${currencySymbol}${portionAmount.toFixed(2)}). Collect next portion.`, 'success');
-        return;
-      }
-
-      // All portions collected — place & settle the full order
-      try {
-        const receiptItems = [...cart];
-        const receiptTotals = { ...totals };
-        const splitDetails = newCollected;
-        const order = await placeOrder(false, tipInput, splitDetails);
-        if (order) {
-          applyServerReceipt(order, receiptItems, receiptTotals);
-          const settlement = await completePayment(order.id, 'split', tipInput, splitDetails);
-          const receiptData = {
-            ...order,
-            paymentMethod: 'split',
-            paymentTimestamp: Date.now(),
-            invoiceNumber: settlement?.invoiceNumber || null,
-            items: receiptItems,
-            subtotal: receiptTotals.subtotal,
-            discount: receiptTotals.discount,
-            serviceCharge: receiptTotals.serviceCharge,
-            tax: receiptTotals.tax,
-            tip: receiptTotals.tip,
-            roundedAmount: receiptTotals.roundedAmount,
-            total: receiptTotals.total,
-            paymentSplit: splitDetails,
-          };
-          setLastPaidOrder(receiptData);
-          autoPrintRef.current = true;
-          setPrintReceiptOrder(receiptData);
-          setShowPaymentModal(false);
-          setSplitBillProgress(null);
-          clearCart();
-          setSelectedTable(null);
-          setTipInput(0);
-        }
-      } catch (err) {
-        showToast('Split checkout failed: ' + (err.message || err), 'error');
-      }
-      return;
-    }
-
     const receiptItems = [...cart];
     const receiptTotals = { ...totals };
 
@@ -514,8 +466,8 @@ export default function POSView() {
 
   const getChangeAmount = () => {
     const received = parseFloat(cashReceived) || 0;
-    // In split-bill mode, change is calculated against the per-portion amount, not the full total
-    const amountDue = printReceiptOrder ? Number(printReceiptOrder.total) : splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+    // Change is calculated against the saved receipt when available.
+    const amountDue = printReceiptOrder ? Number(printReceiptOrder.total) : totals.total;
     const change = received - amountDue;
     return change > 0 ? change : 0;
   };
@@ -601,6 +553,7 @@ export default function POSView() {
     <div className="pos-layout">
       {/* 1. Left panel: Menu items browser */}
       <div className="menu-panel">
+        <ManualPayments openOrder={manualOrder} onOpened={()=>setManualOrder(null)} onReceipt={order=>{autoPrintRef.current=false;setPrintReceiptOrder(order);}}/>
         <div className="menu-filters">
           <div className="search-bar">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -869,8 +822,8 @@ export default function POSView() {
             <button className="btn btn-secondary" onClick={() => setShowRecallModal(true)} style={{ padding: '8px', fontSize: '13px' }}>
               📋 Recall Tab ({orders.filter(o => o.status === 'hold').length})
             </button>
-            <button className="btn btn-secondary" onClick={() => setShowSplitModal(true)} disabled={cart.length === 0} style={{ padding: '8px', fontSize: '13px' }}>
-              ✂️ Split Bill
+            <button className="btn btn-secondary" onClick={openSavedBill} disabled={cart.length === 0 || settlementBusy} style={{ padding: '8px', fontSize: '13px' }}>
+              Cash / Bank / Portions
             </button>
             <button className="btn btn-primary" onClick={handlePayClick} disabled={cart.length === 0} style={{ padding: '8px', fontSize: '13px' }}>
               💳 Proceed to Pay
@@ -1162,31 +1115,19 @@ export default function POSView() {
           <div className="modal-content" style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h2>Select Payment Mode</h2>
-              <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>×</button>
+              <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false);  }}>×</button>
             </div>
-
-            {/* Split Bill Progress Indicator */}
-            {splitBillProgress && (
-              <div style={{ background: 'var(--color-primary-light)', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', textAlign: 'center' }}>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Split Bill Progress</div>
-                <div style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '16px' }}>
-                  Portion {splitBillProgress.paid + 1} of {splitBillProgress.count}
-                </div>
-                <div style={{ fontSize: '13px', marginTop: '4px' }}>
-                  {currencySymbol}{splitBillProgress.portionAmount.toFixed(2)} this portion · {splitBillProgress.paid} collected
-                </div>
-              </div>
-            )}
 
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
               <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-                {splitBillProgress ? `Portion ${splitBillProgress.paid + 1} Amount` : 'Final Amount Payable'}
+                Final Amount Payable
               </p>
               <h3 style={{ fontSize: '36px', fontWeight: '800', color: 'var(--color-primary)' }}>
-                {currencySymbol}{(splitBillProgress ? splitBillProgress.portionAmount : totals.total).toFixed(2)}
+                {currencySymbol}{(totals.total).toFixed(2)}
               </h3>
             </div>
 
+            <button className="btn btn-secondary" disabled={settlementBusy} onClick={openSavedBill}>Save bill for cash / bank / partial payments</button>
             <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '20px' }}>
               <div 
                 className={`payment-mode-card ${paymentMethod === 'cash' ? 'active' : ''}`}
@@ -1242,7 +1183,7 @@ export default function POSView() {
                 {/* Cash helpers */}
                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                   {(() => {
-                    const amountDue = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+                    const amountDue = totals.total;
                     const roundedUp = Math.ceil(amountDue / 100) * 100;
                     const noteOptions = [100, 500, 1000, 2000, 5000, 10000];
                     const helpers = [amountDue, roundedUp, ...noteOptions.filter(n => n > roundedUp)];
@@ -1315,15 +1256,11 @@ export default function POSView() {
             )}
 
             <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-              <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>
+              <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => { setShowPaymentModal(false);  }}>
                 Cancel
               </button>
               <button className="btn btn-primary" style={{ flexGrow: 2 }} disabled={settlementBusy} onClick={handlePaymentComplete}>
-                {settlementBusy ? 'Saving settlement…' : splitBillProgress
-                  ? (splitBillProgress.paid + 1 < splitBillProgress.count
-                      ? `Collect Portion ${splitBillProgress.paid + 1} of ${splitBillProgress.count}`
-                      : `Settle Final Portion & Close Bill`)
-                  : 'Complete Settlement'}
+                {settlementBusy ? 'Saving settlement…' : 'Complete Settlement'}
               </button>
             </div>
           </div>
@@ -1521,6 +1458,7 @@ export default function POSView() {
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>Expected Cash Sales:</span>
                     <span>{currencySymbol}{shiftReport.stats.cashSales.toFixed(2)}</span>
+                  </div><div style={{display:'flex',justifyContent:'space-between'}}><span>Bank receipts (verified manually):</span><span>{currencySymbol}{(shiftReport.stats.bankSales||0).toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                     <span>Expected Cash in Drawer:</span>
@@ -1831,79 +1769,7 @@ export default function POSView() {
         </div>
       )}
 
-      {/* 3h. Split Bill Modal */}
-      {showSplitModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '450px' }}>
-            <div className="modal-header">
-              <h2>✂️ Split Bill / Divide Check</h2>
-              <button className="modal-close" onClick={() => setShowSplitModal(false)}>×</button>
-            </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                <button
-                  className={`btn ${splitMode === 'even' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ flex: 1 }}
-                  onClick={() => setSplitMode('even')}
-                >
-                  🔢 Even Split (by N)
-                </button>
-              </div>
-
-              <div style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '12px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total Check Amount</div>
-                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-primary)' }}>
-                  {currencySymbol}{totals.total.toFixed(2)}
-                </div>
-              </div>
-
-              {splitMode === 'even' && (
-                <div>
-                  <div className="form-group">
-                    <label>Number of Diners / Portions</label>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {[2, 3, 4, 5].map(n => (
-                        <button
-                          key={n}
-                          className={`btn ${splitCount === n ? 'btn-primary' : 'btn-secondary'}`}
-                          style={{ flex: 1, padding: '8px' }}
-                          onClick={() => setSplitCount(n)}
-                        >
-                          {n} Diners
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '14px', borderRadius: '8px', color: 'var(--color-primary)', fontWeight: 700, fontSize: '15px', textAlign: 'center', marginTop: '16px' }}>
-                    Approximate portion: {currencySymbol}{(totals.total / splitCount).toFixed(2)}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button className="btn btn-secondary" onClick={() => setShowSplitModal(false)}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  // Initialise split-bill progress state to track each portion collection
-                  const totalCents = Math.round(totals.total * 100);
-                  const portionAmounts = Array.from({ length: splitCount }, (_, i) => (Math.floor(totalCents / splitCount) + (i < totalCents % splitCount ? 1 : 0)) / 100);
-                  setSplitBillProgress({ count: splitCount, portionAmount: portionAmounts[0], portionAmounts, paid: 0, collectedPayments: [] });
-                  setShowSplitModal(false);
-                  setCashReceived(portionAmounts[0].toFixed(2));
-                  setPaymentMethod('cash');
-                  setShowPaymentModal(true);
-                }}
-              >
-                Collect Portion 1 of {splitCount} ({currencySymbol}{(totals.total / splitCount).toFixed(2)})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

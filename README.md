@@ -14,6 +14,8 @@ The code includes server-side billing, tenant-scoped staff events, menu and stoc
 
 The [commercial feature and UI scope](docs/COMMERCIAL_FEATURE_SCOPE.md) maps working features, remaining screens and acceptance criteria across all three apps and SaaS administration. The new [inventory operations](docs/INVENTORY_OPERATIONS.md) workbench provides supplier/purchase management, partial receiving, physical counts, waste, recipes and audit history.
 
+See the [cash/bank and kitchen readiness evidence](docs/CASH_BANK_SERVICE_READINESS.md) for durable partial receipts, manual bank confirmation, independent kitchen fulfillment, the Safari live-update fix and the remaining launch blockers.
+
 ## Local development
 
 Use **Node.js 24** and npm. From the repository root:
@@ -61,7 +63,7 @@ node scripts/production-smoke.js
 npm audit
 ```
 
-The reviewed local draft passed 287 automated tests, all three frontend builds, production restart smoke checks and selected desktop/phone browser workflows. Passing these checks does not establish complete route coverage or provider/hardware certification. GitHub CI and a Docker image build must also pass in their respective environments.
+The reviewed local draft passed 316 automated tests, all three frontend builds, production restart smoke checks and selected desktop/phone browser workflows. Passing these checks does not establish complete route coverage or provider/hardware certification. GitHub CI and a Docker image build must also pass in their respective environments.
 
 The [microfeature CSV](docs/GastroFlow_Microfeature_Inventory.csv) and [API route CSV](docs/GastroFlow_API_Route_Inventory.csv) are implementation backlogs with source evidence. There are 154 distinct literal method/path patterns, including 13 repeated patterns that require consolidation.
 
