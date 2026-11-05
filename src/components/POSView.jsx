@@ -1458,7 +1458,7 @@ export default function POSView() {
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>Expected Cash Sales:</span>
                     <span>{currencySymbol}{shiftReport.stats.cashSales.toFixed(2)}</span>
-                  </div><div style={{display:'flex',justifyContent:'space-between'}}><span>Bank receipts (verified manually):</span><span>{currencySymbol}{(shiftReport.stats.bankSales||0).toFixed(2)}</span>
+                  </div><div style={{display:'flex',justifyContent:'space-between'}}><span>Bank receipts (verified manually):</span><span>{currencySymbol}{(shiftReport.stats.bankSales||0).toFixed(2)}</span></div><div style={{display:'flex',justifyContent:'space-between'}}><span>Cash returned:</span><span>{currencySymbol}{(shiftReport.stats.cashRefunds||0).toFixed(2)}</span></div><div style={{display:'flex',justifyContent:'space-between'}}><span>Bank returned:</span><span>{currencySymbol}{(shiftReport.stats.bankRefunds||0).toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                     <span>Expected Cash in Drawer:</span>
@@ -1603,6 +1603,7 @@ export default function POSView() {
             <span>TOTAL AMOUNT:</span>
             <span>{currencySymbol}{(printReceiptOrder.total || 0).toFixed(2)}</span>
           </div>
+          {Number(printReceiptOrder.refundedAmount||0)>0&&<><div className="receipt-row"><span>REFUNDED:</span><span>{currencySymbol}{Number(printReceiptOrder.refundedAmount).toFixed(2)}</span></div><div className="receipt-row"><span>NET RETAINED:</span><span>{currencySymbol}{(Number(printReceiptOrder.total)-Number(printReceiptOrder.refundedAmount)).toFixed(2)}</span></div><p>Status: {printReceiptOrder.status}</p></>}
           <div className="receipt-divider"></div>
           <div className="receipt-center">
             <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>

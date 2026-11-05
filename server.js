@@ -1,3 +1,4 @@
+import {initServiceExceptions,createServiceExceptions} from './routes/service-exceptions.js';
 import {initManualPayments,createManualPayments} from './routes/manual-payments.js';
 import {syncKitchen} from './lib/kitchen.js';
 import {createKitchenRouter} from './routes/kitchen.js';
@@ -1247,6 +1248,7 @@ async function initTables() {
     await initGroupCarts(safeAddColumn);
     await initOrderInventory(dbRun);
     await initManualPayments(dbRun);
+    await initServiceExceptions(dbRun);
     await initInventoryOperations(dbRun);
     await initCheckoutRecovery(dbRun);
     await initPlatformOperations(dbRun);
@@ -1807,6 +1809,7 @@ const requireRole = (allowedRoles) => {
   };
 };
 
+app.use('/api',createServiceExceptions({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolveAndCalculateBill,releaseOrderLoyalty,notifyOrderUpdate}));
 app.use('/api',createManualPayments({dbGet,dbAll,dbRun,authenticateToken,requireRole,settleOrderPaid,notifyOrderUpdate,writeAuditLog:(...args)=>writeAuditLog(...args)}));
 app.use('/api',createKitchenRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyOrderUpdate}));
 app.use('/api',createInventoryOperations({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyPOS}));
@@ -2416,7 +2419,9 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
     }
     const receipts=await dbGet("SELECT COALESCE(SUM(amountCents),0) AS cents FROM manual_payments WHERE tenant_id=? AND actorId=? AND shiftId=? AND method='cash'",[req.tenantId,req.user.id,shift.id]);
     cashCents+=Number(receipts.cents);
-    const refunds = await dbGet('SELECT COALESCE(SUM(amountCents),0) AS cents FROM refund_transactions WHERE actorId=? AND tenant_id=? AND createdAt>=?', [req.user.id,req.tenantId,shift.startTime]);
+    const refunds = await dbGet('SELECT COALESCE(SUM(amountCents),0) AS cents FROM refund_transactions r WHERE actorId=? AND tenant_id=? AND createdAt>=? AND NOT EXISTS(SELECT 1 FROM manual_refunds mr WHERE mr.id=r.id)', [req.user.id,req.tenantId,shift.startTime]);
+    const receiptReturns=await dbGet("SELECT COALESCE(SUM(amountCents),0) AS cents FROM manual_refunds WHERE actorId=? AND tenant_id=? AND shiftId=? AND method='cash'",[req.user.id,req.tenantId,shift.id]);
+    refunds.cents+=Number(receiptReturns.cents);
     const movements = await dbAll('SELECT type,amount FROM cash_movements WHERE shiftId=? AND tenant_id=?', [shift.id,req.tenantId]);
     let movementCents = 0;
     for (const movement of movements) movementCents += (movement.type === 'cash_in' ? 1 : -1) * amountInCents(movement.amount);
@@ -4913,6 +4918,8 @@ app.post('/api/public/orders/:id/cancel',publicApiLimiter,async(req,res)=>{
   if(!order){await dbRun('ROLLBACK');open=false;return res.status(404).json({error:'Order not found.'});}
   if(order.status==='cancelled'){await dbRun('COMMIT');open=false;return res.json({success:true,status:'cancelled'});}
   if(order.status!=='pending'||['paid','partial'].includes(order.paymentStatus)||order.paymentMethod==='payhere'){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'This order requires restaurant review before cancellation.'});}
+  const kitchen=await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[orderId,tenantId]);
+  if(kitchen&&kitchen.state!=='pending'){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Kitchen work has started. Contact the restaurant for cancellation.'});}
   await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId,items:[],reason:'customer_cancelled',requireExisting:true});
   await releaseOrderLoyalty(orderId,tenantId);
   await dbRun("UPDATE orders SET status='cancelled',rejectedReason='Cancelled by customer' WHERE id=? AND tenant_id=?",[orderId,tenantId]);
@@ -5763,6 +5770,8 @@ app.post('/api/orders/:id/reject', requireRole(['owner', 'manager', 'cashier']),
     if (['paid','partial'].includes(order.paymentStatus) || ['paid','refunded','partially_refunded','delivered'].includes(order.status)) {
       await dbRun('ROLLBACK'); transaction = false; return res.status(409).json({ error: 'Paid or completed orders require reconciliation before rejection.' });
     }
+    const kitchen=await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[orderId,req.tenantId]);
+    if(kitchen&&kitchen.state!=='pending'&&!['cancelled','rejected'].includes(order.status)){await dbRun('ROLLBACK');transaction=false;return res.status(409).json({error:'Use the manager kitchen cancellation for prepared food.'});}
     if (!['cancelled','rejected'].includes(order.status)) {
       await dbRun('UPDATE orders SET status="cancelled",rejectedReason=? WHERE id=? AND tenant_id=?', [req.body.reason || 'Kitchen unavailable at this time',orderId,req.tenantId]);
       const items = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [orderId]);
@@ -6131,8 +6140,9 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         const current = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [id, tenantId]);
         const fail = async (code, message) => { await dbRun('ROLLBACK'); return res.status(code).json({ error: message }); };
         if (!current) return await fail(404, 'Order not found.');
-        if (await dbGet('SELECT id FROM manual_payments WHERE orderId=? AND tenant_id=?',[id,tenantId])) return await fail(409,'This bill has recorded payments. Use Open bills to collect its remaining balance.');
+        if (((current.paymentStatus==='paid'||status==='paid') && await dbGet('SELECT id FROM manual_payments WHERE orderId=? AND tenant_id=?',[id,tenantId])) || (await dbGet('SELECT COALESCE(SUM(amountCents),0) AS cents FROM manual_payments WHERE orderId=? AND tenant_id=?',[id,tenantId])).cents > (await dbGet('SELECT COALESCE(SUM(amountCents),0) AS cents FROM manual_refunds WHERE orderId=? AND tenant_id=?',[id,tenantId])).cents) return await fail(409,'This bill has recorded payments. Use Open bills to collect its remaining balance.');
         const newStatus = status || current.status;
+        if (['pending','hold'].includes(newStatus)&&newStatus!==current.status&&(await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[id,tenantId]))?.state!=='pending') return await fail(409,'Use the manager amendment workflow to restart a kitchen ticket.');
         if (['preparing','ready','served'].includes(newStatus) && newStatus!==current.status) return await fail(409,'Use the kitchen board to update fulfillment safely.');
         if (!['pending','hold','preparing','ready','served','paid','cancelled'].includes(newStatus)) return await fail(400, 'Invalid order status.');
         if (['paid','cancelled','rejected','refunded','partially_refunded'].includes(current.status) && newStatus !== current.status) return await fail(409, 'A settled or closed order cannot be reopened.');
@@ -6159,6 +6169,8 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           await writeAuditLog(userId, username, 'pay_order', `Settled order ${id} via ${method}`);
         }
         if (newStatus === 'cancelled' && current.status !== 'cancelled') {
+          const kitchen=await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[id,tenantId]);
+          if(kitchen&&kitchen.state!=='pending')return await fail(409,'Use the manager kitchen cancellation to reconcile prepared food.');
           const savedItems = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [id]);
           await setOrderInventory({dbGet,dbAll,dbRun,orderId:id,tenantId,items:[],reason:'cancelled_order',actorId:req.user.id,requireExisting:true});
           await releaseOrderLoyalty(id,tenantId);
@@ -6313,6 +6325,9 @@ app.get('/api/shifts/summary/:id', async (req, res) => {
     const legacy=await dbAll("SELECT total,paymentMethod,paymentSplit FROM orders WHERE tenant_id=? AND cashierId=? AND COALESCE(paymentTimestamp,timestamp)>=? AND COALESCE(paymentTimestamp,timestamp)<=? AND (paymentStatus='paid' OR status='paid') AND NOT EXISTS(SELECT 1 FROM manual_payments mp WHERE mp.orderId=orders.id AND mp.tenant_id=orders.tenant_id)",[req.tenantId,shift.userId,shift.startTime,shift.endTime||Date.now()]);
     for(const row of legacy){const splits=row.paymentMethod==='split'?JSON.parse(row.paymentSplit||'[]'):[{method:row.paymentMethod,amount:row.total}];for(const entry of splits)received[entry.method]=(received[entry.method]||0)+amountInCents(entry.amount);}
 
+    const returned={cash:0,bank:0};
+    const returns=await dbAll('SELECT method,amountCents FROM manual_refunds WHERE tenant_id=? AND actorId=? AND createdAt>=? AND createdAt<=?',[req.tenantId,shift.userId,shift.startTime,shift.endTime||Date.now()]);for(const r of returns)returned[r.method]+=r.amountCents;
+    const legacyReturns=await dbGet('SELECT COALESCE(SUM(amountCents),0) AS cents FROM refund_transactions r WHERE tenant_id=? AND actorId=? AND createdAt>=? AND createdAt<=? AND NOT EXISTS(SELECT 1 FROM manual_refunds mr WHERE mr.id=r.id)',[req.tenantId,shift.userId,shift.startTime,shift.endTime||Date.now()]);returned.cash+=Number(legacyReturns.cents);
     const voids = await dbGet(`
       SELECT COUNT(id) as voidCount, SUM(total) as voidTotal
       FROM orders
@@ -6326,6 +6341,8 @@ app.get('/api/shifts/summary/:id', async (req, res) => {
         totalSales: stats?.totalSales || 0,
         cashSales: received.cash / 100,
         bankSales: received.bank / 100,
+        cashRefunds: returned.cash / 100,
+        bankRefunds: returned.bank / 100,
         cardSales: received.card / 100,
         upiSales: stats?.upiSales || 0,
         totalDiscounts: stats?.totalDiscounts || 0,
@@ -6365,6 +6382,7 @@ app.post('/api/orders/:id/refund', async (req, res) => {
       await dbRun('COMMIT'); transaction = false;
       return res.json({ success: true, refundId, refundedAmount: order.refundedAmount, status: order.status, alreadySaved: true });
     }
+    if(await dbGet('SELECT id FROM manual_payments WHERE orderId=? AND tenant_id=?',[orderId,req.tenantId]))return await fail(409,'Use the original receipt return in Open bills for this payment.');
     if (order.paymentStatus !== 'paid' && !['paid','partially_refunded'].includes(order.status)) return await fail(400, 'Only settled orders can be refunded.');
     if (order.paymentMethod !== 'cash') return await fail(409, 'Electronic or mixed-tender refunds require provider reconciliation.');
     const newCents = amountInCents(order.refundedAmount || 0, 'Existing refund') + cents;

@@ -14,6 +14,8 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
     [selected, setSelected] = useState(null),
     [amount, setAmount] = useState(""),
     [method, setMethod] = useState("cash"),
+    [refundPayment, setRefundPayment] = useState(null),
+    [reason, setReason] = useState(""),
     [reference, setReference] = useState(""),
     [confirmed, setConfirmed] = useState(false),
     [error, setError] = useState(""),
@@ -46,6 +48,8 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
     try {
       const row = await api("/" + id);
       setSelected(row);
+      setRefundPayment(null);
+      setReason("");
       setAmount((row.balanceCents / 100).toFixed(2));
       setError("");
     } catch (e) {
@@ -75,11 +79,14 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
     setError("");
     const attempt = saved || {
       orderId: selected.order.id,
+      action: refundPayment ? "refund" : "payment",
       body: {
         requestId: crypto.randomUUID(),
+        ...(refundPayment ? { paymentId: refundPayment.id, reason } : {}),
         method,
         amount,
-        reference: method === "bank" ? reference : "",
+        reference:
+          (refundPayment?.method || method) === "bank" ? reference : "",
         confirmed,
       },
     };
@@ -87,11 +94,16 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
       // Persist before sending. If storage fails, do not collect or submit the payment.
       sessionStorage.setItem(key, JSON.stringify(attempt));
       setPending(attempt);
-      const row = await api("/" + attempt.orderId, attempt.body);
+      const row = await api(
+        "/" + attempt.orderId + (attempt.action === "refund" ? "/refunds" : ""),
+        attempt.body,
+      );
       sessionStorage.removeItem(key);
       setPending(null);
       setSelected(row);
       setAmount((row.balanceCents / 100).toFixed(2));
+      setRefundPayment(null);
+      setReason("");
       setReference("");
       setConfirmed(false);
       try {
@@ -177,9 +189,13 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
             {list.map((row) => (
               <option key={row.order.id} value={row.order.id}>
                 #{row.order.id.slice(-6)} ·{" "}
-                {row.balanceCents
-                  ? money(row.balanceCents) + " remaining"
-                  : "Paid"}{" "}
+                {row.order.status === "refunded"
+                  ? "Refunded"
+                  : row.order.status === "partially_refunded"
+                    ? "Part refunded"
+                    : row.balanceCents
+                      ? money(row.balanceCents) + " remaining"
+                      : "Paid"}{" "}
                 · {row.order.customerName || row.order.diningType}
               </option>
             ))}
@@ -188,6 +204,12 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
         {selected && (
           <section>
             <h3>Bill #{selected.order.id.slice(-6)}</h3>
+            <p>
+              Status: {selected.order.status} · Returned after settlement:{" "}
+              {money(
+                Math.round(Number(selected.order.refundedAmount || 0) * 100),
+              )}
+            </p>
             <div className="service-balance">
               <span>
                 Total<strong>{money(selected.totalCents)}</strong>
@@ -208,7 +230,7 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
                 </li>
               ))}
             </ul>
-            {selected.balanceCents > 0 && (
+            {selected.balanceCents > 0 && !refundPayment && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -317,7 +339,27 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
                     {new Date(p.createdAt).toLocaleString()} ·{" "}
                     {p.reference || "Cash drawer"} · {p.actorId}
                   </p>
-                  <small>Receipt {p.id}</small>
+                  <small>
+                    Receipt {p.id} · Returned {money(p.refundedCents || 0)} ·
+                    Available to return{" "}
+                    {money(p.availableCents ?? p.amountCents)}
+                  </small>
+                  {["owner", "manager"].includes(currentUser?.role) &&
+                    p.availableCents > 0 && (
+                      <button
+                        className="btn btn-secondary"
+                        disabled={busy || !!pending}
+                        onClick={() => {
+                          setRefundPayment(p);
+                          setAmount((p.availableCents / 100).toFixed(2));
+                          setReference("");
+                          setReason("");
+                          setConfirmed(false);
+                        }}
+                      >
+                        Return from this receipt
+                      </button>
+                    )}
                 </div>
               ))
             ) : (
@@ -326,6 +368,109 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
                   ? "Settled through the original checkout. See its final receipt."
                   : "No amounts received yet."}
               </p>
+            )}
+            {refundPayment && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submit();
+                }}
+                className="service-panel"
+              >
+                <h3>Return {refundPayment.method} payment</h3>
+                <p>
+                  This records money you actually returned. It does not transfer
+                  bank funds or return food to stock.
+                </p>
+                <fieldset
+                  disabled={busy || !!pending}
+                  style={{ border: 0, padding: 0 }}
+                >
+                  <label>
+                    Return amount
+                    <input
+                      aria-label="Return amount"
+                      required
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max={refundPayment.availableCents / 100}
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Return reason
+                    <input
+                      required
+                      minLength={3}
+                      maxLength={500}
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                    />
+                  </label>
+                  {refundPayment.method === "bank" && (
+                    <label>
+                      Bank refund reference
+                      <input
+                        required
+                        minLength={3}
+                        maxLength={120}
+                        value={reference}
+                        onChange={(e) => setReference(e.target.value)}
+                      />
+                    </label>
+                  )}
+                  <label className="service-check">
+                    <input
+                      type="checkbox"
+                      required
+                      checked={confirmed}
+                      onChange={(e) => setConfirmed(e.target.checked)}
+                    />
+                    I confirm this money was returned to the customer.
+                  </label>
+                  <div className="service-actions">
+                    <button className="btn btn-primary" type="submit">
+                      Record returned payment
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={() => {
+                        setRefundPayment(null);
+                        setAmount((selected.balanceCents / 100).toFixed(2));
+                        setReference("");
+                        setConfirmed(false);
+                      }}
+                    >
+                      Cancel return
+                    </button>
+                  </div>
+                </fieldset>
+              </form>
+            )}
+            {!!selected.refunds?.length && (
+              <section>
+                <h3>Return history</h3>
+                {selected.refunds.map((r) => (
+                  <div className="service-history" key={r.id}>
+                    <strong>
+                      {money(r.amountCents)} returned · {r.method}
+                    </strong>
+                    <p>
+                      {r.reason} · {r.reference || "Cash drawer"} ·{" "}
+                      {new Date(r.createdAt).toLocaleString()}
+                    </p>
+                    <small>
+                      {r.settled
+                        ? "Final bill refund"
+                        : "Unsettled payment returned"}{" "}
+                      · {r.id}
+                    </small>
+                  </div>
+                ))}
+              </section>
             )}
             <button
               className="btn btn-secondary"

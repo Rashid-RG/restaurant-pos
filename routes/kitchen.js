@@ -80,7 +80,7 @@ export function createKitchenRouter({
           }
         }
         const ids = await dbAll(
-          "SELECT k.orderId FROM kitchen_tickets k JOIN orders o ON o.id=k.orderId AND o.tenant_id=k.tenant_id WHERE k.tenant_id=? AND k.state NOT IN ('served','cancelled') AND o.status NOT IN ('cancelled','rejected','refunded','delivered') ORDER BY k.createdAt",
+          "SELECT k.orderId FROM kitchen_tickets k JOIN orders o ON o.id=k.orderId AND o.tenant_id=k.tenant_id WHERE k.tenant_id=? AND k.state NOT IN ('served','cancelled') AND o.status NOT IN ('cancelled','rejected','delivered') ORDER BY k.createdAt",
           [req.tenantId],
         );
         const rows = [];
@@ -150,8 +150,7 @@ export function createKitchenRouter({
           [
             "cancelled",
             "rejected",
-            "refunded",
-            "delivered",
+              "delivered",
             "picked_up",
             "out_for_delivery",
             "arrived",
@@ -159,6 +158,7 @@ export function createKitchenRouter({
           ["cancelled", "served"].includes(current.state)
         )
           throw fail("Ticket is closed. Refresh the board.", 409);
+        if (current.orderStatus==='refunded') throw fail('Fully refunded ticket needs manager cancellation or review.',409);
         if (current.revision !== revision)
           throw fail(
             "Ticket changed on another device. Refresh before acting.",
@@ -212,7 +212,7 @@ export function createKitchenRouter({
           [aggregate, now, current.orderId, req.tenantId],
         );
         // Preserve the legacy paid marker while exposing fulfillment on its own record.
-        if (!["paid", "partially_refunded"].includes(current.orderStatus))
+        if (!["paid", "partially_refunded", "refunded"].includes(current.orderStatus))
           await dbRun("UPDATE orders SET status=? WHERE id=? AND tenant_id=?", [
             aggregate,
             current.orderId,

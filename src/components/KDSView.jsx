@@ -1,9 +1,18 @@
+import ServiceExceptions from "./ServiceExceptions.jsx";
 import React, { useCallback, useEffect, useState } from "react";
 import { usePOS } from "../context/POSContext";
 import { AnimatedFeatureIcon } from "../../shared/ui/AnimatedFeatureIcon.jsx";
 import "./service-workflows.css";
 export default function KDSView() {
-  const { orders, tables, currentUser, playNewOrderChime } = usePOS();
+  const { orders, tables, currentUser, settings, playNewOrderChime } = usePOS();
+  const [printTicket, setPrintTicket] = useState(null);
+  useEffect(() => {
+    if (printTicket) {
+      const timer = setTimeout(() => window.print(), 150);
+      return () => clearTimeout(timer);
+    }
+  }, [printTicket]);
+  const [amendTicket, setAmendTicket] = useState(null);
   const [tickets, setTickets] = useState([]),
     [station, setStation] = useState("all"),
     [error, setError] = useState(""),
@@ -176,6 +185,58 @@ export default function KDSView() {
           </button>
         ))}
       </nav>
+      {printTicket && (
+        <div
+          className={
+            "receipt-print-area " +
+            (settings.printerPaperWidth === "58mm"
+              ? "paper-58mm"
+              : "paper-80mm")
+          }
+        >
+          <h2>KITCHEN TICKET</h2>
+          <p>
+            Order #{printTicket.orderId.slice(-6).toUpperCase()} · Revision{" "}
+            {printTicket.revision}
+          </p>
+          <p>
+            {printTicket.diningType}{" "}
+            {printTicket.tableId
+              ? "Table " +
+                (tables.find((t) => t.id === printTicket.tableId)?.number ||
+                  "—")
+              : ""}
+          </p>
+          <p>
+            Copy requested {new Date(printTicket.printedAt).toLocaleString()}
+          </p>
+          {printTicket.visibleLines.map((l) => (
+            <section key={l.id}>
+              <div className="receipt-divider" />
+              <strong>
+                {l.quantity} × {l.name}
+              </strong>
+              <p>
+                {l.station} · {l.state}
+              </p>
+              {l.modifiers.map((m) => (
+                <p key={m.id}>{m.name}</p>
+              ))}
+              {l.notes && (
+                <p>
+                  <strong>NOTE: {l.notes}</strong>
+                </p>
+              )}
+            </section>
+          ))}
+          <p>Match order and revision before preparing a duplicate copy.</p>
+        </div>
+      )}
+      <ServiceExceptions
+        ticket={amendTicket}
+        onClosed={() => setAmendTicket(null)}
+        onSaved={refresh}
+      />
       <div className="service-board">
         {[
           ["pending", "New tickets"],
@@ -208,11 +269,15 @@ export default function KDSView() {
                       : t.diningType}{" "}
                     ·{" "}
                     <strong>
-                      {t.paymentStatus === "paid"
-                        ? "Paid"
-                        : t.paymentStatus === "partial"
-                          ? "Part paid"
-                          : "Unpaid"}
+                      {t.orderStatus === "refunded"
+                        ? "Refunded — manager review"
+                        : t.orderStatus === "partially_refunded"
+                          ? "Part refunded"
+                          : t.paymentStatus === "paid"
+                            ? "Paid"
+                            : t.paymentStatus === "partial"
+                              ? "Part paid"
+                              : "Unpaid"}
                     </strong>
                   </p>
                   {t.customerName && <p>{t.customerName}</p>}
@@ -268,6 +333,23 @@ export default function KDSView() {
                       t.orderType === "delivery") && (
                       <p>Awaiting assigned driver pickup.</p>
                     )}
+                  {["owner", "manager"].includes(currentUser?.role) && (
+                    <button
+                      className="btn btn-secondary"
+                      disabled={busy}
+                      onClick={() => setAmendTicket(t)}
+                    >
+                      Manager amendment / cancel
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() =>
+                      setPrintTicket({ ...t, printedAt: Date.now() })
+                    }
+                  >
+                    Print kitchen ticket
+                  </button>
                   <small>Ticket revision {t.revision}</small>
                 </article>
               ))}

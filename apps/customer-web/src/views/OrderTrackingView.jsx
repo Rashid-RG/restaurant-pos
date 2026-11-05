@@ -153,20 +153,27 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     } catch (_) {}
   };
 
+  const applyOrderUpdate = (update) => {
+    let items = update.items ?? orderRef.current?.items ?? [];
+    if (typeof items === 'string') {
+      try { items = JSON.parse(items); } catch { items = []; }
+    }
+    const data = { ...update, items: Array.isArray(items) ? items : [] };
+    if (orderRef.current?.status && data.status !== orderRef.current.status) {
+      playCustomerChime();
+      toast(`🔔 Order Status Updated: ${String(data.status).toUpperCase()}`, 'info');
+    }
+    orderRef.current = data;
+    setOrder(data);
+    if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
+  };
+
   const fetchOrder = async (id) => {
     if (!id) return;
     setLoading(true); setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
-      // Bug 7 fix: compare against orderRef.current (always up-to-date) instead
-      // of the `order` state variable which is stale inside this closure.
-      if (orderRef.current && orderRef.current.status && data.status !== orderRef.current.status) {
-        playCustomerChime();
-        toast(`🔔 Order Status Updated: ${data.status.toUpperCase()}`, 'info');
-      }
-      orderRef.current = data;
-      setOrder(data);
-      if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
+      applyOrderUpdate(data);
       setFeedbackSubmitted(false);
     } catch (err) {
       setError(err.message);
@@ -202,7 +209,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           if (msg && msg.type === 'driver_location') {
             setDriverLoc({ lat: msg.lat, lng: msg.lng, driverName: msg.driverName });
           } else if (msg && msg.id) {
-            setOrder(msg);
+            applyOrderUpdate(msg);
           }
         } catch (err) {}
       };

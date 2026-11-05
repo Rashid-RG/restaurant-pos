@@ -179,3 +179,5 @@
     display: none !important;
   }
 }
+
+@media print{.receipt-print-area{overflow-wrap:anywhere}.receipt-row>span:first-child{min-width:0;flex:1}.receipt-row>span:last-child{flex-shrink:0}}
