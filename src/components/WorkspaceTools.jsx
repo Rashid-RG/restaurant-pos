@@ -37,7 +37,7 @@ export default function WorkspaceTools() {
   return <>
     <div className="workspace-toolbar">
       <div className="workspace-location"><Store size={16}/><span>{settings.businessName || settings.restaurantName || 'My restaurant'}</span><span className="workspace-separator">/</span><strong>{destinations.find(item => item.id === activeTab)?.name || 'Workspace'}</strong></div>
-      <div className="workspace-toolbar-actions"><ConnectionStatus compact/><button className="workspace-search" onClick={open}><Search size={15}/><span>Go to anything</span><kbd>⌘ K</kbd></button><span className="workspace-avatar" title={currentUser?.username}>{currentUser?.username?.slice(0, 2).toUpperCase()}</span></div>
+      <div className="workspace-toolbar-actions"><ConnectionStatus compact/><button className="workspace-search" aria-label="Go to anything" onClick={open}><Search size={15}/><span>Go to anything</span><kbd>⌘ K</kbd></button><span className="workspace-avatar" title={currentUser?.username}>{currentUser?.username?.slice(0, 2).toUpperCase()}</span></div>
     </div>
     <dialog ref={dialog} className="command-dialog" onClick={event => { if (event.target === dialog.current) dialog.current.close(); }} aria-label="Navigate your workspace">
       <div className="command-search"><Search size={20}/><input ref={search} value={query} onChange={event => setQuery(event.target.value)} placeholder="Where would you like to go?" aria-label="Search workspace" onKeyDown={event => { if (event.key === 'Enter' && results[0]) { event.preventDefault(); navigate(results[0].id); } }}/><button onClick={() => dialog.current.close()} aria-label="Close search">Esc</button></div>

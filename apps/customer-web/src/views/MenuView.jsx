@@ -827,10 +827,10 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
       {/* Customized Item Modifier Selection Modal */}
       {showCustomizerModal && customizerItem && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div className="glass" style={{ width: '100%', maxWidth: 480, background: 'var(--bg-card)', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90dvh', overflowY: 'auto' }}>
+          <div className="glass device-dialog" role="dialog" aria-modal="true" aria-label="Customize item" style={{ width: '100%', maxWidth: 480, background: 'var(--bg-card)', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90dvh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>{t.customizerTitle}</h3>
-              <button style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-1)' }} onClick={() => setShowCustomizerModal(false)}>✕</button>
+              <button style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-1)' }} aria-label="Close item customizer" onClick={() => setShowCustomizerModal(false)}>✕</button>
             </div>
 
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
@@ -916,7 +916,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
       {/* Group Cart Identity Modal */}
       {showGroupModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.55)', zIndex: 1010, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div className="glass" style={{ width: '100%', maxWidth: 380, background: 'var(--bg-card)', borderRadius: 16, padding: 24 }}>
+          <div className="glass device-dialog" role="dialog" aria-modal="true" aria-label="Group order" style={{ width: '100%', maxWidth: 380, background: 'var(--bg-card)', borderRadius: 16, padding: 24 }}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', fontWeight: 800 }}>👥 {t.groupOrder}</h3>
             <p style={{ margin: '0 0 16px 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t.groupDesc}</p>
             

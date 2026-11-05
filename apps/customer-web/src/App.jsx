@@ -323,10 +323,10 @@ function InnerApp() {
               <span className="back-btn-text">Back</span>
             </button>
           )}
-          <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="GastroFood Logo" style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }} onClick={() => navigate('restaurants')} />
-          <span className="restaurant-name" style={{ fontSize: '1.2rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => navigate('restaurants')}>
-            GastroFlow
-          </span>
+          <button className="header-home" aria-label="Browse restaurants" onClick={()=>navigate('restaurants')}>
+            <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="" width="32" height="32" />
+            <span className="restaurant-name">GastroFlow</span>
+          </button>
 
           {localStorage.getItem('gastroflow_table_number') && (
             <span style={{ background: '#10b98120', color: '#10b981', padding: '2px 6px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800, border: '1px solid #10b98150', flexShrink: 0 }}>
@@ -352,12 +352,12 @@ function InnerApp() {
             {languages.map(l => <option key={l.code} value={l.code}>{l.short}</option>)}
           </select>
           {totalItems > 0 && (
-            <button className="icon-btn" onClick={() => setCartOpen(true)} title={t('navCart')}>
+            <button className="icon-btn header-cart-shortcut" onClick={() => setCartOpen(true)} title={t('navCart')}>
               🛒
               <span className="badge">{totalItems}</span>
             </button>
           )}
-          <button className="icon-btn" onClick={() => navigate('account')} title={t('navAccount')}>
+          <button className="icon-btn header-account-shortcut" onClick={() => navigate('account')} title={t('navAccount')}>
             <UserRound size={19}/>
           </button>
         </div>

@@ -7,3 +7,21 @@ html,body{background:#f7f7f2!important;color:var(--text)!important}body{max-widt
 .top-header{width:100%;flex-shrink:0}.menu-search-controls>div:first-child{flex:1 1 65%!important;min-width:160px!important}.menu-search-controls>.sort-select{flex:0 0 210px;width:210px!important}.cart-sheet{max-width:480px}.nav-icon svg{display:block;stroke-width:1.7}.bottom-nav{bottom:0!important;border-radius:0!important}.top-header .icon-btn{display:inline-flex;align-items:center;justify-content:center}.cart-sheet.open{bottom:0;border-radius:22px 22px 0 0}.favorite-toggle:hover{background:#fff}.menu-card .add-btn{background:var(--brand)}
 @media(max-width:480px){.menu-search-controls>div:first-child{flex:auto!important;width:100%}.menu-search-controls>.sort-select{flex:auto;width:100%!important}.menu-diet-filters{flex-wrap:nowrap!important}.menu-search-controls{align-items:stretch}}
 .app-shell,.app-shell>.main-content{width:100%;min-width:0}.app-shell{overflow-x:clip}.menu-diet-filters,.category-strip,.category-scroll{max-width:100%;min-width:0}.top-header{min-width:0}.top-header>div:first-child{min-width:0}.header-actions{flex-shrink:0}.menu-grid>*{min-width:0}
+
+.header-home{display:flex;align-items:center;gap:6px;min-width:0;border:0;background:none;padding:0;color:var(--brand);cursor:pointer}.header-home img{flex-shrink:0;border-radius:8px}.header-home .restaurant-name{font-size:1.2rem;font-weight:800;color:var(--brand);text-align:left;letter-spacing:-.5px}
+@media(max-width:600px){
+ .top-header{height:auto;min-height:72px;gap:8px;padding:12px max(12px,env(safe-area-inset-right)) 12px max(12px,env(safe-area-inset-left))}
+ .top-header .header-actions{gap:6px}.top-header .header-actions .icon-btn{width:44px;height:44px}
+ .top-header .header-actions .header-cart-shortcut,.top-header .header-actions .header-account-shortcut{display:none}
+ .top-header .lang-select{height:44px;max-width:58px}.header-home{min-height:44px}.header-home .restaurant-name{font-size:1rem!important}
+ .menu-card .favorite-toggle{width:44px;height:44px;top:8px;right:8px}.menu-card .add-btn{min-width:44px;min-height:44px}
+ .cart-sheet{max-height:calc(100dvh - 20px - env(safe-area-inset-top));overflow-y:auto;overscroll-behavior:contain}
+}
+@media(max-width:350px){.top-header .header-actions{gap:4px}.header-home .restaurant-name{max-width:70px}.menu-grid{gap:8px!important}.menu-card-emoji{height:126px!important}}
+@media(max-width:600px){.top-header{padding-top:calc(12px + env(safe-area-inset-top))}}
+
+@media(max-width:700px){.hero-banner:after{display:none}.hero-banner{padding:24px 18px!important}.hero-banner>p{max-width:100%}}
+@media(max-width:350px){.header-home .restaurant-name{display:none}}
+
+@media(max-width:600px){.header-home{min-inline-size:44px}}
+.checkout-view{max-width:760px;margin-inline:auto}

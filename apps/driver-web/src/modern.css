@@ -9,3 +9,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .delivery-proof-dialog p { font-size: .9rem; line-height: 1.5; }
 .delivery-proof-dialog button { min-height: 44px; }
 .delivery-proof-dialog button:disabled { opacity: .6; cursor: wait; }
+
+@media(max-width:600px){.driver-header{padding-inline:max(12px,env(safe-area-inset-left));gap:8px}.driver-content{padding-inline:max(12px,env(safe-area-inset-left))}.driver-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.driver-metrics>div{min-width:0}.driver-content .card{min-width:0;overflow-wrap:anywhere}.driver-content .btn-outline{min-width:44px;min-height:44px}}
+@media(max-width:600px){.driver-header{height:auto;min-height:calc(66px + env(safe-area-inset-top));padding-top:calc(12px + env(safe-area-inset-top));padding-bottom:12px}}
+
+@media(max-width:600px){.driver-controls-card{flex-wrap:wrap;gap:14px}.driver-controls-card>div:first-child{flex:1 1 100%;min-width:0}.driver-controls-actions{display:grid!important;grid-template-columns:44px minmax(0,1fr) 44px;width:100%}.driver-controls-actions button{white-space:nowrap;min-width:44px}.driver-controls-actions>.btn-emerald{width:100%}}
+@media(max-width:360px){.driver-welcome{padding:22px 18px}.driver-welcome h1{font-size:26px;line-height:1.18}}

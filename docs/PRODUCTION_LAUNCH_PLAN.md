@@ -39,3 +39,7 @@ Payment-window completion is a hint, not payment confirmation. The customer UI c
 ## Existing implementation limits
 
 Historical orders without inventory snapshots need explicit reconciliation before stock reversals. Complete subscription changes/proration/dunning, durable event replay, multi-instance event delivery, comprehensive financial settlement and electronic refund operations are still release work. See [SAAS_RELEASE_GATES.md](SAAS_RELEASE_GATES.md) for the full evidence and limits.
+
+## Responsive interface acceptance
+
+The latest interface follow-up covers the POS/admin, customer and driver apps at eight phone/tablet/landscape/desktop sizes. See [DEVICE_RESPONSIVENESS.md](DEVICE_RESPONSIVENESS.md) for the measured checks. Browser viewport checks are distinct from the physical-device gate above.

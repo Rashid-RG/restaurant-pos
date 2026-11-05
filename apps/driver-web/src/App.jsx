@@ -355,14 +355,14 @@ export default function App() {
             <section className="driver-welcome"><span>YOUR DAY, IN MOTION</span><h1>Let’s make every<br/>delivery a good one.</h1><p>Welcome back, {driver.name?.split(' ')[0]}. Your assigned orders and pickup opportunities are all here.</p><ConnectionStatus compact/></section>
             <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
 
-            <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
+            <div className="card driver-controls-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-main)' }}>🛵 {driver.name}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
                   {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {lastCoords ? `GPS (${lastCoords.lat.toFixed(3)}, ${lastCoords.lng.toFixed(3)})` : 'GPS Idle'}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div className="driver-controls-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button
                   onClick={() => { playDriverAlertRingtone(); showToast('🔔 Playing delivery ringer sound test!', 'info'); }}
                   className="btn-outline"
@@ -523,10 +523,10 @@ export default function App() {
         {/* Self-registration modal */}
         {showRegModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <div className="card" style={{ maxWidth: 440, width: '100%', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div className="card device-dialog" role="dialog" aria-modal="true" aria-label="Driver application" style={{ maxWidth: 440, width: '100%', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>🛵 Rider Self-Registration</h3>
-                <button onClick={() => setShowRegModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+                <button aria-label="Close driver application" onClick={() => setShowRegModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
               </div>
 
               <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

@@ -507,7 +507,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       {/* PayHere Sandbox Redirect Pop-up */}
       {payhereRedirectData && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.65)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div className="glass" style={{ width: '100%', maxWidth: 400, background: 'var(--bg-card)', padding: 24, borderRadius: 16, border: '2px solid var(--brand)', textAlign: 'center' }}>
+          <div className="glass device-dialog" role="dialog" aria-modal="true" aria-label="Online payment" style={{ width: '100%', maxWidth: 400, background: 'var(--bg-card)', padding: 24, borderRadius: 16, border: '2px solid var(--brand)', textAlign: 'center' }}>
             <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>💳 PayHere Sandbox Gateway</h3>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '8px 0 20px' }}>
               Checkout total: <strong>Rs. {payhereRedirectData.amount}</strong> for Order: <code>{payhereRedirectData.orderId}</code>.
@@ -538,7 +538,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       {/* OTP Verification Modal */}
       {showOtpModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 16, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
+          <div className="device-dialog" role="dialog" aria-modal="true" aria-label="Verify order" style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 16, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 800 }}>🔐 Verify Order Credentials</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
               Verification code sent to <strong>{otpChannel === 'email' ? (email || customer?.email) : phone}</strong>.

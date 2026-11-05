@@ -70,3 +70,5 @@ The [microfeature CSV](docs/GastroFlow_Microfeature_Inventory.csv) and [API rout
 Current SaaS reliability work, validation boundaries and migration procedure: [SaaS release gates](docs/SAAS_RELEASE_GATES.md).
 
 The ordered [production launch plan](docs/PRODUCTION_LAUNCH_PLAN.md) tracks the remaining access, acceptance evidence and cutover gates. This revision adds private checkout recovery for lost responses and retries.
+
+The [device responsiveness follow-up](docs/DEVICE_RESPONSIVENESS.md) documents phone/tablet/desktop changes across all three applications, the viewport and interaction checks, and remaining physical-device/browser acceptance.

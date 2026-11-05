@@ -86,6 +86,10 @@ export default function POSView() {
   } = usePOS();
 
   // Search/Filter states
+  const [mobileCartOpen,setMobileCartOpen]=useState(false);
+  const mobileCartToggle=useRef(null);
+  const closeMobileCart=()=>{setMobileCartOpen(false);mobileCartToggle.current?.focus();};
+  useEffect(()=>{if(!mobileCartOpen)return;const close=event=>{if(event.key==='Escape'){setMobileCartOpen(false);mobileCartToggle.current?.focus();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[mobileCartOpen]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
 
@@ -690,7 +694,11 @@ export default function POSView() {
       </div>
 
       {/* 2. Right panel: Active Cart & Checkout */}
-      <div className="cart-panel">
+      <button ref={mobileCartToggle} className="mobile-cart-toggle" aria-controls="pos-current-order" aria-expanded={mobileCartOpen} onClick={()=>setMobileCartOpen(true)}>
+        <span>View order · {cart.reduce((sum,item)=>sum+item.quantity,0)} items</span><strong>{currencySymbol}{totals.total.toFixed(2)}</strong>
+      </button>
+      <div id="pos-current-order" aria-label="Current order" className={`cart-panel ${mobileCartOpen?'mobile-cart-open':''}`}>
+        <div className="mobile-cart-toolbar"><strong>Your order</strong><button className="btn btn-secondary" onClick={closeMobileCart}>Back to menu</button></div>
         <div className="cart-header">
           <div className="cart-title">
             <h2>Current Order</h2>

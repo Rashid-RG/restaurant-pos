@@ -20,3 +20,5 @@ if ('serviceWorker' in navigator) {
 }
 
 import './modern.css';
+
+import '../../../shared/ui/devices.css';
