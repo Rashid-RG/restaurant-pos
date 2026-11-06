@@ -19,7 +19,7 @@ export const workspaceDestinations = [
 export function useDestinations() {
   const { currentUser } = usePOS();
   const destinations = currentUser?.isPlatformAdmin === true ? [{ id: 'platform', name: 'Platform admin', description: 'Manage restaurants and their owners', icon: Store }, ...workspaceDestinations] : workspaceDestinations;
-  return destinations.filter(item => !item.management || ['owner', 'manager'].includes(currentUser?.role));
+  return destinations.filter(item => !item.management || ['owner', 'manager'].includes(currentUser?.role) || Boolean(currentUser?.isPlatformAdmin));
 }
 export default function WorkspaceTools() {
   const { activeTab, setActiveTab, settings, currentUser } = usePOS();
