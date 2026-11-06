@@ -655,42 +655,56 @@ export default function POSView() {
         <div className="mobile-cart-toolbar"><strong>Your order</strong><button className="btn btn-secondary" onClick={closeMobileCart}>Back to menu</button></div>
         <div className="cart-header">
           <div className="cart-title">
-            <h2>Current Order</h2>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <h2>
+              Current Order
+              {cart.length > 0 && (
+                <span className="cart-badge">
+                  {cart.reduce((sum, item) => sum + item.quantity, 0)} {cart.reduce((sum, item) => sum + item.quantity, 0) === 1 ? 'item' : 'items'}
+                </span>
+              )}
+            </h2>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               {lastPaidOrder && (
                 <button 
                   className="btn btn-secondary" 
-                  style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                  style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
                   onClick={() => {
-                    autoPrintRef.current = false; // Manual reprint — do NOT trigger the auto-print effect
+                    autoPrintRef.current = false;
                     setPrintReceiptOrder(lastPaidOrder);
                   }}
-                  title="Print Last Order Receipt"
+                  title="Reprint last bill"
                 >
-                  🖨️ Last Bill
+                  🖨️ Last
                 </button>
               )}
               <button 
                 className="btn btn-secondary" 
-                style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
                 onClick={() => setShowShiftCloseModal(true)}
+                title="Shift management"
               >
-                💼 Shift Control
+                💼 Shift
               </button>
               <button 
                 className="btn btn-secondary" 
-                style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
                 onClick={() => {
                   setCashMoveAmount('');
                   setCashMoveReason('');
                   setShowCashMoveModal(true);
                 }}
+                title="Cash drawer movement"
               >
-                💵 Cash In/Out
+                💵 Cash
               </button>
               {cart.length > 0 && (
-                <button className="btn" style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }} onClick={() => handleProtectedAction(() => clearCart())}>
-                  Clear All
+                <button 
+                  className="btn" 
+                  style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }} 
+                  onClick={() => handleProtectedAction(() => clearCart())}
+                  title="Clear all items"
+                >
+                  🗑️ Clear
                 </button>
               )}
             </div>
@@ -704,8 +718,9 @@ export default function POSView() {
                 setDiningType('dine-in');
                 setShowTableModal(true);
               }}
+              title="Select dining table"
             >
-              🍽️ {selectedTable ? `Table ${selectedTable.number}` : 'Select Table'}
+              🍽️ {selectedTable ? `T-${selectedTable.number}` : 'Table'}
             </button>
             
             <button 
@@ -715,6 +730,7 @@ export default function POSView() {
                 setSelectedTable(null);
                 showToast('🥡 Order mode set to Takeaway Pickup', 'info');
               }}
+              title="Takeaway pickup"
             >
               🥡 Takeaway
             </button>
@@ -726,16 +742,18 @@ export default function POSView() {
                 setSelectedTable(null);
                 setShowDeliveryModal(true);
               }}
+              title="Delivery order"
             >
-              🛵 {deliveryInfo.customerName ? `Delivery: ${deliveryInfo.customerName}` : (deliveryInfo.address ? `Delivery: ${deliveryInfo.address.slice(0, 14)}...` : 'Delivery')}
+              🛵 {deliveryInfo.customerName ? `Delivery (${deliveryInfo.customerName.slice(0, 8)})` : 'Delivery'}
             </button>
 
             {/* Customer Toggle */}
             <button 
               className={`meta-chip ${selectedCustomer ? 'active' : ''}`}
               onClick={() => setShowCustomerModal(true)}
+              title={selectedCustomer ? selectedCustomer.name : 'Attach customer for loyalty & history'}
             >
-              👤 {selectedCustomer ? selectedCustomer.name : 'Add Customer'}
+              👤 {selectedCustomer ? selectedCustomer.name.slice(0, 10) : '+ Customer'}
             </button>
           </div>
         </div>
@@ -746,7 +764,8 @@ export default function POSView() {
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
               </svg>
-              <p>Add items from the menu to start order.</p>
+              <p style={{ margin: 0, fontSize: '13px' }}>Your current order is empty.</p>
+              <span style={{ fontSize: '11px', opacity: 0.7 }}>Click dishes on the left to add items to bill.</span>
             </div>
           ) : (
             cart.map((item, index) => (
@@ -763,6 +782,13 @@ export default function POSView() {
                     <button className="qty-btn" onClick={() => updateCartQuantity(index, item.quantity + 1)}>＋</button>
                   </div>
                   <span className="cart-item-total">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                  <button 
+                    className="cart-item-remove" 
+                    onClick={() => updateCartQuantity(index, 0)}
+                    title="Remove item from order"
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
             ))
@@ -772,13 +798,33 @@ export default function POSView() {
         <div className="cart-summary">
           <div className="summary-row">
             <span>Subtotal</span>
-            <span>{currencySymbol}{totals.subtotal.toFixed(2)}</span>
+            <span style={{ fontWeight: 600 }}>{currencySymbol}{totals.subtotal.toFixed(2)}</span>
           </div>
 
-          <div className="summary-row" style={{ cursor: 'pointer', color: discountValue > 0 ? 'var(--color-primary)' : 'var(--text-muted)' }} onClick={() => handleProtectedAction(() => setShowDiscountModal(true))}>
-            <span>Discount {discountValue > 0 && `(${discountType === 'percent' ? `${discountValue}%` : `${currencySymbol}${discountValue}`})`}</span>
-            <span>-{currencySymbol}{totals.discount.toFixed(2)}</span>
-          </div>
+          {totals.discount > 0 ? (
+            <div className="summary-row" style={{ cursor: 'pointer', color: 'var(--color-primary)' }} onClick={() => handleProtectedAction(() => setShowDiscountModal(true))}>
+              <span>Discount {discountValue > 0 && `(${discountType === 'percent' ? `${discountValue}%` : `${currencySymbol}${discountValue}`})`}</span>
+              <span>-{currencySymbol}{totals.discount.toFixed(2)}</span>
+            </div>
+          ) : (
+            <div className="summary-row" style={{ fontSize: '11px' }}>
+              <span style={{ cursor: 'pointer', color: 'var(--color-primary)', opacity: 0.85 }} onClick={() => handleProtectedAction(() => setShowDiscountModal(true))}>
+                + Add Discount / Promo
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Tip:</span>
+                <input 
+                  type="number" 
+                  className="form-input" 
+                  style={{ width: '60px', padding: '2px 6px', fontSize: '12px', textAlign: 'right', margin: 0, height: '24px', borderRadius: '4px' }}
+                  min="0"
+                  value={tipInput || ''}
+                  placeholder="0"
+                  onChange={(e) => setTipInput(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+          )}
 
           {settings.serviceChargeRate > 0 && (
             <div className="summary-row">
@@ -787,25 +833,30 @@ export default function POSView() {
             </div>
           )}
 
-          <div className="summary-row">
-            <span>Tax ({settings.taxRate || 0}%)</span>
-            <span>{currencySymbol}{totals.tax.toFixed(2)}</span>
-          </div>
+          {totals.tax > 0 && (
+            <div className="summary-row">
+              <span>Tax ({settings.taxRate}%)</span>
+              <span>{currencySymbol}{totals.tax.toFixed(2)}</span>
+            </div>
+          )}
 
-          <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Add Tip ({currencySymbol})</span>
-            <input 
-              type="number" 
-              className="form-input" 
-              style={{ width: '80px', padding: '4px 8px', fontSize: '13px', textAlign: 'right', margin: 0, height: '30px' }}
-              min="0"
-              value={tipInput}
-              onChange={(e) => setTipInput(parseFloat(e.target.value) || 0)}
-            />
-          </div>
+          {totals.discount > 0 && (
+            <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Add Tip ({currencySymbol})</span>
+              <input 
+                type="number" 
+                className="form-input" 
+                style={{ width: '60px', padding: '2px 6px', fontSize: '12px', textAlign: 'right', margin: 0, height: '24px', borderRadius: '4px' }}
+                min="0"
+                value={tipInput || ''}
+                placeholder="0"
+                onChange={(e) => setTipInput(parseFloat(e.target.value) || 0)}
+              />
+            </div>
+          )}
 
           {totals.roundedAmount !== 0 && (
-            <div className="summary-row" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            <div className="summary-row" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
               <span>Rounding Adjustment</span>
               <span>{totals.roundedAmount > 0 ? '+' : ''}{currencySymbol}{totals.roundedAmount.toFixed(2)}</span>
             </div>
@@ -813,21 +864,21 @@ export default function POSView() {
 
           <div className="summary-row total">
             <span>Payable Amount</span>
-            <span>{currencySymbol}{totals.total.toFixed(2)}</span>
+            <span style={{ color: 'var(--color-primary)' }}>{currencySymbol}{totals.total.toFixed(2)}</span>
           </div>
 
-          <div className="cart-actions" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <button className="btn btn-secondary" onClick={handlePlaceHoldOrder} disabled={cart.length === 0} style={{ padding: '8px', fontSize: '13px' }}>
+          <div className="cart-actions">
+            <button className="btn btn-secondary" onClick={handlePlaceHoldOrder} disabled={cart.length === 0} title="Send Kitchen Order Ticket">
               🔥 Kitchen KOT
             </button>
-            <button className="btn btn-secondary" onClick={() => setShowRecallModal(true)} style={{ padding: '8px', fontSize: '13px' }}>
-              📋 Recall Tab ({orders.filter(o => o.status === 'hold').length})
+            <button className="btn btn-secondary" onClick={() => setShowRecallModal(true)} title="Recall held tabs">
+              📋 Tab ({orders.filter(o => o.status === 'hold').length})
             </button>
-            <button className="btn btn-secondary" onClick={openSavedBill} disabled={cart.length === 0 || settlementBusy} style={{ padding: '8px', fontSize: '13px' }}>
-              Cash / Bank / Portions
+            <button className="btn btn-secondary" onClick={openSavedBill} disabled={cart.length === 0 || settlementBusy} title="Split bill or partial payments">
+              Split / Portions
             </button>
-            <button className="btn btn-primary" onClick={handlePayClick} disabled={cart.length === 0} style={{ padding: '8px', fontSize: '13px' }}>
-              💳 Proceed to Pay
+            <button className="btn btn-primary" onClick={handlePayClick} disabled={cart.length === 0} style={{ fontWeight: 700, background: 'var(--color-primary)' }}>
+              💳 Pay {currencySymbol}{totals.total.toFixed(2)}
             </button>
           </div>
         </div>
