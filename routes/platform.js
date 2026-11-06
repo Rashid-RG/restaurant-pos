@@ -53,6 +53,44 @@ export function createPlatformRouter({ authenticateToken, requirePlatformAdmin, 
         ORDER BY t.createdAt DESC
       `);
 
+      // Auto-ensure vault credentials for any legacy restaurant that doesn't have them
+      for (const row of rows) {
+        if (!row.savedPassword) {
+          const generatedPass = `gastro_${crypto.randomBytes(4).toString('hex')}`;
+          const generatedPin = Math.floor(1000 + Math.random() * 9000).toString();
+          const passHash = await bcrypt.hash(generatedPass, 10);
+          const pinHash = await bcrypt.hash(generatedPin, 10);
+          const username = row.ownerUsername || `${row.subdomain}_owner`;
+          const ownerId = row.ownerUserId || `usr_${row.id}_owner`;
+
+          try {
+            if (row.ownerUserId) {
+              await dbRun('UPDATE users SET passwordHash = ?, pin = ? WHERE id = ?', [passHash, pinHash, row.ownerUserId]);
+            } else {
+              await dbRun(
+                `INSERT OR REPLACE INTO users (id, username, passwordHash, role, pin, tenant_id, email)
+                 VALUES (?, ?, ?, 'owner', ?, ?, ?)`,
+                [ownerId, username, passHash, pinHash, row.id, row.ownerEmail]
+              );
+            }
+
+            await dbRun(
+              `INSERT OR REPLACE INTO tenant_credentials_vault (tenant_id, restaurant_name, subdomain, owner_username, temporary_password, temporary_pin, last_reset_at, updated_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [row.id, row.name, row.subdomain, username, generatedPass, generatedPin, Date.now(), 'System Auto-Vault']
+            );
+
+            row.savedPassword = generatedPass;
+            row.savedPin = generatedPin;
+            row.ownerUsername = username;
+            row.lastUpdatedBy = 'System Auto-Vault';
+            row.lastResetAt = Date.now();
+          } catch (err) {
+            console.error('[Vault Auto-Population Error]', err);
+          }
+        }
+      }
+
       res.set('Cache-Control', 'no-store').json(rows.map(row => ({
         id: row.id,
         name: row.name,
@@ -62,9 +100,9 @@ export function createPlatformRouter({ authenticateToken, requirePlatformAdmin, 
         status: row.status,
         createdAt: row.createdAt,
         ownerUsername: row.ownerUsername || `${row.subdomain}_owner`,
-        password: row.savedPassword || '••••••••',
+        password: row.savedPassword,
         hasSavedPassword: !!row.savedPassword,
-        pin: row.savedPin || '••••',
+        pin: row.savedPin || '1234',
         lastResetAt: row.lastResetAt || row.createdAt,
         lastUpdatedBy: row.lastUpdatedBy || 'System',
         posUrl: `/?tenant=${encodeURIComponent(row.id)}`,

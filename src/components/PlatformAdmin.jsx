@@ -28,6 +28,7 @@ export default function PlatformAdmin({ embedded = false }) {
   const [resetSuccessData, setResetSuccessData] = useState(null);
   const [copiedKey, setCopiedKey] = useState(null);
   const [visiblePasswords, setVisiblePasswords] = useState({});
+  const [visiblePins, setVisiblePins] = useState({});
 
   const request = async (path, options = {}) => {
     try {
@@ -186,6 +187,10 @@ export default function PlatformAdmin({ embedded = false }) {
 
   const togglePasswordVisibility = (id) => {
     setVisiblePasswords(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const togglePinVisibility = (id) => {
+    setVisiblePins(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   return (
@@ -434,19 +439,34 @@ export default function PlatformAdmin({ embedded = false }) {
                       </p>
                     </div>
 
-                    <button
-                      className="btn btn-primary"
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 14px' }}
-                      onClick={() => {
-                        setResetModalTenant(cred);
-                        setResetSuccessData(null);
-                        setCustomPassword('');
-                        setCustomPin('');
-                        setAutoGen(true);
-                      }}
-                    >
-                      <Lock size={14} /> Reset / Change Password
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        className="btn btn-outline"
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 12px' }}
+                        onClick={() => {
+                          const credText = `Restaurant: ${cred.name}\nUsername: ${cred.ownerUsername}\nPassword: ${cred.password}\nPIN: ${cred.pin}\nDirect Login: ${window.location.origin}${cred.posUrl}`;
+                          copyToClipboard(credText, `all_${cred.id}`);
+                        }}
+                        title="Copy all credentials for this restaurant"
+                      >
+                        {copiedKey === `all_${cred.id}` ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                        {copiedKey === `all_${cred.id}` ? 'All Copied!' : 'Copy All'}
+                      </button>
+
+                      <button
+                        className="btn btn-primary"
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 14px' }}
+                        onClick={() => {
+                          setResetModalTenant(cred);
+                          setResetSuccessData(null);
+                          setCustomPassword('');
+                          setCustomPin('');
+                          setAutoGen(true);
+                        }}
+                      >
+                        <Lock size={14} /> Reset / Change Password
+                      </button>
+                    </div>
                   </div>
 
                   <div style={{
@@ -465,7 +485,7 @@ export default function PlatformAdmin({ embedded = false }) {
                         <strong style={{ fontSize: '14px' }}>{cred.ownerUsername}</strong>
                         <button
                           onClick={() => copyToClipboard(cred.ownerUsername, `user_${cred.id}`)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.7 }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.75, padding: '4px' }}
                           title="Copy username"
                         >
                           {copiedKey === `user_${cred.id}` ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
@@ -478,27 +498,23 @@ export default function PlatformAdmin({ embedded = false }) {
                         Password
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                        <code style={{ fontSize: '13px', background: 'var(--bg-card)', padding: '2px 8px', borderRadius: '6px' }}>
+                        <code style={{ fontSize: '13px', background: 'var(--bg-card)', padding: '3px 8px', borderRadius: '6px', letterSpacing: visiblePasswords[cred.id] ? 'normal' : '1px' }}>
                           {visiblePasswords[cred.id] ? cred.password : '••••••••••••'}
                         </code>
-                        {cred.hasSavedPassword && (
-                          <button
-                            onClick={() => togglePasswordVisibility(cred.id)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.7 }}
-                            title={visiblePasswords[cred.id] ? "Hide password" : "Show password"}
-                          >
-                            {visiblePasswords[cred.id] ? <EyeOff size={15} /> : <Eye size={15} />}
-                          </button>
-                        )}
-                        {cred.hasSavedPassword && (
-                          <button
-                            onClick={() => copyToClipboard(cred.password, `pwd_${cred.id}`)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.7 }}
-                            title="Copy password"
-                          >
-                            {copiedKey === `pwd_${cred.id}` ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => togglePasswordVisibility(cred.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.75, padding: '4px' }}
+                          title={visiblePasswords[cred.id] ? "Hide password" : "Show password"}
+                        >
+                          {visiblePasswords[cred.id] ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <button
+                          onClick={() => copyToClipboard(cred.password, `pwd_${cred.id}`)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.75, padding: '4px' }}
+                          title="Copy password"
+                        >
+                          {copiedKey === `pwd_${cred.id}` ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                        </button>
                       </div>
                     </div>
 
@@ -507,12 +523,19 @@ export default function PlatformAdmin({ embedded = false }) {
                         Quick Staff PIN
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                        <code style={{ fontSize: '13px', background: 'var(--bg-card)', padding: '2px 8px', borderRadius: '6px' }}>
-                          {cred.pin}
+                        <code style={{ fontSize: '13px', background: 'var(--bg-card)', padding: '3px 8px', borderRadius: '6px', letterSpacing: visiblePins[cred.id] ? 'normal' : '1px' }}>
+                          {visiblePins[cred.id] ? cred.pin : '••••'}
                         </code>
                         <button
+                          onClick={() => togglePinVisibility(cred.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.75, padding: '4px' }}
+                          title={visiblePins[cred.id] ? "Hide PIN" : "Show PIN"}
+                        >
+                          {visiblePins[cred.id] ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <button
                           onClick={() => copyToClipboard(cred.pin, `pin_${cred.id}`)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.7 }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.75, padding: '4px' }}
                           title="Copy PIN"
                         >
                           {copiedKey === `pin_${cred.id}` ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
