@@ -123,8 +123,14 @@ export const POSProvider = ({ children }) => {
     // Verify tenant if an explicit store is in the URL or user belongs to a specific tenant
     if (urlTenant || (currentUser && currentUser.tenant_id !== 'default_tenant')) {
       try {
-        const statusRes = await fetch(`/api/public/tenant/status?tenant=${encodeURIComponent(targetTenant)}`);
-        const statusData = await statusRes.json().catch(() => ({}));
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const statusRes = await fetch(`/api/public/tenant/status?tenant=${encodeURIComponent(targetTenant)}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const contentType = statusRes.headers.get('content-type') || '';
+        const statusData = contentType.includes('application/json') ? await statusRes.json().catch(() => ({})) : {};
         if (statusRes.status === 404 || statusData.exists === false) {
           setTenantLock({
             status: 'deleted',

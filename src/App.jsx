@@ -13,10 +13,9 @@ import Customers from './components/Customers';
 import Settings from './components/Settings';
 import DeliveryView from './components/DeliveryView';
 import SupportTicketsView from './components/SupportTicketsView';
+import DailyExpenses from './components/DailyExpenses';
 import Login from './components/Login';
 import StoreStatusScreen from './components/StoreStatusScreen';
-
-import SystemUpdatePrompt from '../apps/customer-web/src/components/SystemUpdatePrompt.jsx';
 
 function AppContent() {
   const { activeTab, loading, currentUser, tenantLock, setTenantLock, logout } = usePOS();
@@ -75,6 +74,8 @@ function AppContent() {
         return <KDSView />;
       case 'inventory':
         return <Inventory />;
+      case 'expenses':
+        return <DailyExpenses />;
       case 'customers':
         return <Customers />;
       case 'delivery':
@@ -90,7 +91,6 @@ function AppContent() {
 
   return (
     <div className="app-container">
-      <SystemUpdatePrompt />
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       <div className="workspace"><WorkspaceTools/><ConnectionStatus/>{renderActiveView()}</div>
     </div>

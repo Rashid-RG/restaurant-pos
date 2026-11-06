@@ -1419,6 +1419,20 @@ button {
     font-size: 11px !important;
     padding: 3px 4px !important;
   }
+  .receipt-print-area.paper-a4 {
+    width: 190mm !important;
+    max-width: 100% !important;
+    font-size: 13px !important;
+    padding: 12mm !important;
+    line-height: 1.5 !important;
+  }
+  .receipt-print-area.paper-a4 .receipt-logo {
+    max-width: 110px !important;
+    max-height: 110px !important;
+  }
+  .receipt-print-area.paper-a4 .receipt-totals {
+    font-size: 17px !important;
+  }
   .receipt-center { text-align: center; }
   .receipt-divider { border-top: 1px dashed #000; margin: 6px 0; }
   .receipt-row { display: flex; justify-content: space-between; gap: 4px; padding: 2px 0; }
@@ -1690,22 +1704,25 @@ button {
     width: 100% !important;
   }
 
-  .settings-sidebar {
+  .settings-sidebar,
+  .settings-nav {
     width: 100% !important;
     display: flex !important;
     flex-direction: row !important;
     overflow-x: auto !important;
     gap: 6px !important;
-    padding-bottom: 6px !important;
+    padding-bottom: 8px !important;
     -webkit-overflow-scrolling: touch;
     border-bottom: 1px solid var(--border-color) !important;
   }
 
-  .settings-nav-item {
+  .settings-nav-item,
+  .settings-nav-btn {
     white-space: nowrap !important;
     padding: 8px 14px !important;
     font-size: 0.82rem !important;
     border-radius: 10px !important;
+    flex-shrink: 0 !important;
   }
 
   .settings-panel {

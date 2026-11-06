@@ -1,7 +1,26 @@
 import React,{useEffect,useState} from 'react';
 export default function PlatformOperations({restaurants}){
  const[finance,setFinance]=useState(null),[readiness,setReadiness]=useState(null),[audit,setAudit]=useState([]),[snapshot,setSnapshot]=useState(null),[session,setSession]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
- const request=async(path,options={})=>{const response=await fetch('/api/platform'+path,{...options,headers:{'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`}});const body=await response.json();if(!response.ok)throw new Error(body.error||'Platform request failed.');return body};
+ const request=async(path,options={})=>{
+   try {
+     const response=await fetch('/api/platform'+path,{...options,headers:{'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`}});
+     const contentType = response.headers.get('content-type') || '';
+     if (!contentType.includes('application/json')) {
+       if (response.status === 502 || response.status === 503 || response.status === 504) {
+         throw new Error('Server is waking up (Render free tier). Please try again in a few seconds.');
+       }
+       throw new Error(`Server returned ${response.status}. Please refresh.`);
+     }
+     const body=await response.json();
+     if(!response.ok)throw new Error(body.error||'Platform request failed.');
+     return body;
+   } catch (err) {
+     if (err.message && (err.message.includes('<!DOCTYPE') || err.message.includes('Unexpected token'))) {
+       throw new Error('Server is currently waking up or unavailable. Please click Try again.');
+     }
+     throw err;
+   }
+ };
  const load=async()=>{try{const[f,r,a]=await Promise.all([request('/finance'),request('/readiness'),request('/access-audit')]);setFinance(f);setReadiness(r);setAudit(a)}catch(e){setError(e.message)}};
  useEffect(()=>{load()},[]);
  const support=async event=>{event.preventDefault();setBusy(true);setError('');try{const values=Object.fromEntries(new FormData(event.currentTarget));const s=await request('/support-sessions',{method:'POST',body:JSON.stringify(values)});setSession(s);setSnapshot(await request(`/support-sessions/${s.id}/snapshot`));await load()}catch(e){setError(e.message)}finally{setBusy(false)}};

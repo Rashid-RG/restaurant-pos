@@ -11,6 +11,7 @@ import { createOrderChatRouter } from './routes/order-chat.js';
 import { createTrackingGuard, makeTrackingAccess } from './lib/order-tracking.js';
 import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
 import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
+import { initExpensesTable, createExpensesRouter } from './routes/expenses.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
 import express from 'express';
@@ -266,7 +267,8 @@ if (!process.env.VITEST) {
   });
 }
 
-const SYSTEM_BUILD_TIMESTAMP = Date.now();
+// Use a stable build timestamp so server restarts/sleep-wake cycles on Render do not trigger continuous update banners
+const SYSTEM_BUILD_TIMESTAMP = Number(process.env.BUILD_TIMESTAMP) || 1730900000000;
 const SYSTEM_VERSION = '1.3.0';
 
 // GET /api/system/version — Public endpoint for PWA/client instant update detection
@@ -1253,6 +1255,7 @@ async function initTables() {
     await initCheckoutRecovery(dbRun);
     await initPlatformOperations(dbRun);
     await initSaasBilling(dbRun);
+    await initExpensesTable(dbRun);
     await seedDatabase();
     // A singleton records platform ownership independently of restaurant roles.
     await dbRun(`CREATE TABLE IF NOT EXISTS platform_ownership (
@@ -1820,6 +1823,7 @@ app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],a
 app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
 app.use('/api', createPlatformOperations({dbGet,dbAll,dbRun,authenticateToken,requirePlatformAdmin}));
 app.use('/api', createSupportRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolvePublicTenant,notifyPOS,rateLimiter:publicApiLimiter}));
+app.use('/api', createExpensesRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,broadcastEvent}));
 
 // Reject writes to an ID owned by another restaurant before any upsert can replace it.
 for (const table of ['categories', 'menu_items', 'tables', 'customers']) {

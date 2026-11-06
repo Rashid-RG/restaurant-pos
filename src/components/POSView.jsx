@@ -1,6 +1,7 @@
 import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { usePOS } from '../context/POSContext';
+import { resolvePrinterPaperSize } from '../utils/printer';
 
 export function getFoodImageForItem(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
@@ -1521,7 +1522,7 @@ export default function POSView() {
 
       {/* Hidden print receipt window (triggered on complete) */}
       {printReceiptOrder && (
-        <div className={`receipt-print-area ${settings?.printerPaperWidth === '58mm' ? 'paper-58mm' : 'paper-80mm'}`}>
+        <div className={`receipt-print-area paper-${resolvePrinterPaperSize(settings?.printerPaperWidth)}`}>
           <div className="receipt-center">
             {settings?.logoUrl || settings?.logo || settings?.restaurantLogo ? (
               <img

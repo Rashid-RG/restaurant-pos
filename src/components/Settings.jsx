@@ -2,6 +2,7 @@ import SubscriptionBilling from './SubscriptionBilling';
 import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
+import { testPrintReceipt } from '../utils/printer';
 
 export default function Settings() {
   const {
@@ -1035,20 +1036,34 @@ export default function Settings() {
                       </button>
                     </div>
 
-                    <div style={{ flex: 1, minWidth: '200px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Thermal Printer & Drawer</h3>
+                    <div style={{ flex: 1, minWidth: '220px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Smart Printer & Paper Size</h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Thermal Paper Width</label>
+                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Printer Paper Size</label>
                         <select 
                           className="form-select"
-                          value={settings.find(s => s.key === 'printerPaperWidth')?.value || '80mm'}
+                          value={settings.find(s => s.key === 'printerPaperWidth')?.value || 'auto'}
                           onChange={async (e) => {
                             await updateSetting('printerPaperWidth', e.target.value);
+                            try { localStorage.setItem('gastroflow_printer_paper', e.target.value); } catch (_) {}
                           }}
                         >
-                          <option value="80mm">80mm Standard Thermal Printer</option>
-                          <option value="58mm">58mm Compact Thermal Printer</option>
+                          <option value="auto">⚡ Auto-Detect (Handheld: 58mm · Counter: 80mm)</option>
+                          <option value="80mm">🖨️ 80mm Standard Thermal Printer (POS-80)</option>
+                          <option value="58mm">🧾 58mm Compact Portable Printer (POS-58 / Sunmi)</option>
+                          <option value="a4">📄 A4 / Letter Full Invoice (Laser / Inkjet)</option>
                         </select>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ fontSize: '12px', padding: '6px 12px', height: 'auto', marginTop: '4px' }}
+                          onClick={() => {
+                            const curSettingsObj = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
+                            testPrintReceipt(curSettingsObj, settings.find(s => s.key === 'currencySymbol')?.value || 'Rs.');
+                          }}
+                        >
+                          🖨️ Test Print Slip
+                        </button>
                         <label style={{ fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', marginTop: '4px' }}>
                           <input 
                             type="checkbox"
