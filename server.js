@@ -290,8 +290,22 @@ const sqlite = libsqlStore ? null : (await import('sqlite3')).default.verbose();
 let _resolveDbReady, _rejectDbReady;
 let databaseIsReady = false;
 export const dbReady = new Promise((resolve, reject) => { _resolveDbReady = resolve; _rejectDbReady = reject; });
+
+// HEALTH CHECK ENDPOINT (Public, unauthenticated for Docker/K8s/Render/Uptime monitoring)
+// Must respond immediately (<50ms) to prevent orchestrator cold-start timeouts.
+app.get(['/api/health', '/healthz'], (req, res) => {
+  const uptime = Math.floor(process.uptime());
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime,
+    database: databaseIsReady ? 'connected' : 'initializing'
+  });
+});
+
 // Requests cannot observe half-created schemas or partially seeded accounts.
 app.use('/api', (req, res, next) => {
+  if (req.path === '/health' || req.path === '/healthz') return next();
   if (!databaseIsReady) return res.status(503).json({ error: 'Service is initializing.', status: 'starting' });
   next();
 });
@@ -1965,27 +1979,6 @@ const writeAuditLog = async (userId, username, action, details) => {
     console.error('Audit logging error:', err);
   }
 };
-
-// HEALTH CHECK ENDPOINT (Public, unauthenticated for Docker/K8s/Uptime monitoring)
-app.get('/api/health', async (req, res) => {
-  try {
-    await dbGet('SELECT 1');
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: Math.floor(process.uptime()),
-      database: 'connected'
-    });
-  } catch (err) {
-    res.status(503).json({
-      status: 'error',
-      timestamp: new Date().toISOString(),
-      uptime: Math.floor(process.uptime()),
-      database: 'disconnected',
-      error: errMsg(err)
-    });
-  }
-});
 
 // AUTH ENDPOINTS
 
@@ -6805,20 +6798,22 @@ app.use((err, req, res, next) => {
 // Start Server — skip when imported by the test runner (supertest drives `app` directly).
 let server = null;
 if (!process.env.VITEST) {
-  try {
-    await dbReady;
-    server = app.listen(PORT, () => {
-      console.log(`===============================================`);
-      console.log(`GastroFlow POS Backend running on port ${PORT}`);
-      console.log(`Access endpoint directly at http://localhost:${PORT}/api`);
-      console.log(`===============================================`);
-    });
-  } catch (err) {
-    console.error('[Startup] Refusing to serve an uninitialized database.');
+  server = app.listen(PORT, () => {
+    console.log(`===============================================`);
+    console.log(`GastroFlow POS Backend running on port ${PORT}`);
+    console.log(`Access endpoint directly at http://localhost:${PORT}/api`);
+    console.log(`===============================================`);
+  });
+
+  dbReady.then(() => {
+    console.log('[Startup] Database initialization and schema verification complete.');
+  }).catch((err) => {
+    console.error('[Startup] Database startup failed. Shutting down:', err?.message || err);
     process.exitCode = 1;
     libsqlStore?.close();
     db?.close();
-  }
+    if (server) server.close();
+  });
 }
 
 // Graceful Shutdown Handler
