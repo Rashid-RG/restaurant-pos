@@ -292,14 +292,23 @@ let databaseIsReady = false;
 export const dbReady = new Promise((resolve, reject) => { _resolveDbReady = resolve; _rejectDbReady = reject; });
 
 // HEALTH CHECK ENDPOINT (Public, unauthenticated for Docker/K8s/Render/Uptime monitoring)
-// Must respond immediately (<50ms) to prevent orchestrator cold-start timeouts.
+// Must respond immediately (<50ms) to prevent orchestrator cold-start timeouts,
+// while correctly reporting 503 until database initialization is complete.
 app.get(['/api/health', '/healthz'], (req, res) => {
   const uptime = Math.floor(process.uptime());
+  if (!databaseIsReady) {
+    return res.status(503).json({
+      status: 'starting',
+      timestamp: new Date().toISOString(),
+      uptime,
+      database: 'initializing'
+    });
+  }
   res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime,
-    database: databaseIsReady ? 'connected' : 'initializing'
+    database: 'connected'
   });
 });
 
