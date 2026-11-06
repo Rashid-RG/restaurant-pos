@@ -1,79 +1,42 @@
-/**
- * src/utils/offlineSync.js — POS Offline Order Queue & Sync Engine
- *
- * Persists Cash sales to localStorage/IndexedDB when offline and automatically
- * flushes the queue to /api/orders/offline-sync when network connectivity returns.
- */
-
-const STORAGE_KEY = 'gastroflow_offline_orders';
-
-export function getOfflineQueue() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (err) {
-    console.error('Error reading offline queue:', err);
-    return [];
-  }
+// Tenant-bound reconciliation queue. Never discard an unacknowledged sale.
+const legacyKey = 'gastroflow_offline_orders';
+let inFlight = null;
+function tenant() {
+  try { return JSON.parse(localStorage.getItem('gastroflow_user') || 'null')?.tenant_id || null; }
+  catch { return null; }
 }
-
+const key = id => `${legacyKey}:${id}`;
+function read(id) {
+  try { const rows = JSON.parse(localStorage.getItem(key(id)) || '[]'); return Array.isArray(rows) ? rows : []; }
+  catch { return []; }
+}
+export function getOfflineQueue() { const id = tenant(); return id ? read(id) : []; }
 export function saveOfflineOrder(orderPayload) {
-  try {
-    const queue = getOfflineQueue();
-    const offlineOrder = {
-      ...orderPayload,
-      offlineId: `off_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      createdAt: Date.now()
-    };
-    queue.push(offlineOrder);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
-    console.log(`[Offline Sync] Order ${offlineOrder.offlineId} queued locally.`);
-    return offlineOrder;
-  } catch (err) {
-    console.error('Failed to save offline order:', err);
-    throw err;
-  }
+  const id = tenant();
+  if (!id) throw new Error('Sign in to a restaurant before saving an offline sale.');
+  const order = { ...orderPayload, tenant_id: id, offlineId: `off_${crypto.randomUUID()}`, createdAt: Date.now() };
+  localStorage.setItem(key(id), JSON.stringify([...read(id), order]));
+  return order;
 }
-
-export function clearOfflineQueue() {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
+export function clearOfflineQueue() { const id = tenant(); if (id) localStorage.removeItem(key(id)); }
 export async function flushOfflineQueue(apiBaseUrl = '') {
-  const queue = getOfflineQueue();
-  if (queue.length === 0) return { syncedCount: 0 };
-
-  console.log(`[Offline Sync] Attempting to flush ${queue.length} queued orders...`);
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/api/orders/offline-sync`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}`
-      },
-      body: JSON.stringify({ orders: queue })
-    });
-
-    if (response.ok) {
+  if (inFlight) return inFlight;
+  const id = tenant();
+  const token = localStorage.getItem('gastroflow_token');
+  if (!id || !token) return { syncedCount: 0 };
+  const queue = read(id);
+  if (!queue.length) return { syncedCount: 0 };
+  inFlight = (async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/orders/offline-sync`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ orders: queue }) });
       const data = await response.json();
-      clearOfflineQueue();
-      console.log(`[Offline Sync] Successfully synced ${data.syncedCount} orders.`);
+      if (!response.ok) return { syncedCount: 0, error: data.error };
+      const acknowledged = new Set(data.syncedIds || []);
+      localStorage.setItem(key(id), JSON.stringify(read(id).filter(order => !acknowledged.has(order.offlineId))));
       return data;
-    } else {
-      console.warn('[Offline Sync] Server rejected queue sync:', await response.text());
-      return { syncedCount: 0 };
-    }
-  } catch (err) {
-    console.warn('[Offline Sync] Network offline or server unreachable:', err.message);
-    return { syncedCount: 0 };
-  }
+    } catch (error) { return { syncedCount: 0, error: error.message }; }
+    finally { inFlight = null; }
+  })();
+  return inFlight;
 }
-
-// Auto-sync listener on window online event
-if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    console.log('[Network] System came back online. Flushing offline queue...');
-    flushOfflineQueue();
-  });
-}
+if (typeof window !== 'undefined') window.addEventListener('online', () => flushOfflineQueue());

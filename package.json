@@ -8,6 +8,9 @@
   "scripts": {
     "dev": "vite --port 3000 --host",
     "server": "node server.js",
+    "start:production": "node server.js",
+    "check": "node scripts/check-syntax.js",
+    "backup": "node scripts/backup.js",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
     "start:all": "npx concurrently -k -n \"BACKEND,POS,FOOD,DRIVER\" -c \"cyan,blue,green,magenta\" \"npm run server\" \"npm run dev\" \"npm run customer:dev\" \"npm run driver:dev\"",
     "customer:dev": "vite apps/customer-web --port 3001 --host",
@@ -16,7 +19,6 @@
     "driver:build": "vite build apps/driver-web",
     "build": "vite build",
     "build:all": "vite build && vite build apps/customer-web && vite build apps/driver-web",
-    "postinstall": "vite build && vite build apps/customer-web && vite build apps/driver-web",
     "cap:sync": "npx cap sync",
     "cap:android": "npx cap add android && npx cap sync",
     "cap:ios": "npx cap add ios && npx cap sync",
@@ -25,8 +27,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "@neondatabase/serverless": "^1.1.0",
-    "@vitejs/plugin-react": "^4.3.1",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
     "cors": "^2.8.5",
@@ -39,15 +41,13 @@
     "jsonwebtoken": "^9.0.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.26.0",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.3.1",
     "pg": "^8.22.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.24.0",
     "recharts": "^3.10.0",
-    "sqlite3": "^5.1.7",
-    "vite": "^5.3.1",
+    "sqlite3": "^6.0.1",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },
@@ -59,6 +59,11 @@
     "concurrently": "^8.2.2",
     "supertest": "^7.2.2",
     "typescript": "^7.0.2",
-    "vitest": "^1.6.1"
+    "vitest": "^5.1.0",
+    "vite": "^8.3.5",
+    "@vitejs/plugin-react": "^6.2.1"
+  },
+  "engines": {
+    "node": ">=24 <25"
   }
 }

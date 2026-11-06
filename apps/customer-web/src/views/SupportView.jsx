@@ -1,3 +1,4 @@
+import { getActiveTenant } from '../utils/tenant.js';
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -27,23 +28,23 @@ export default function SupportView({ onBack, toast = () => {} }) {
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
 
+  const accessKey = `gastroflow_support_access_${getActiveTenant() || 'default_tenant'}`;
+  const guestTickets = () => { try { return JSON.parse(localStorage.getItem(accessKey) || '[]'); } catch { return []; } };
+  const accessHeaders = id => { const item = guestTickets().find(row => row.id === id); return item ? { 'X-Support-Token': item.token } : {}; };
   const fetchTickets = async () => {
-    const contact = customer?.phone || customer?.email || phoneInput || emailInput || localStorage.getItem('gastroflow_guest_contact');
-    if (!contact) return;
     setLoadingTickets(true);
     try {
-      const isEmail = contact.includes('@');
-      const data = await apiFetch(`/customer/support/tickets?${isEmail ? `email=${encodeURIComponent(contact)}` : `phone=${encodeURIComponent(contact)}`}`);
-      setMyTickets(data || []);
-    } catch (_) {
-    } finally {
-      setLoadingTickets(false);
-    }
+      if (customer) setMyTickets(await apiFetch('/customer/support/tickets'));
+      else {
+        const results = await Promise.allSettled(guestTickets().map(item => apiFetch(`/public/support/tickets?id=${encodeURIComponent(item.id)}`, { headers: { 'X-Support-Token': item.token } })));
+        setMyTickets(results.filter(row => row.status === 'fulfilled').flatMap(row => row.value));
+      }
+    } catch { setMyTickets([]); } finally { setLoadingTickets(false); }
   };
 
   const fetchMessages = async (ticketId) => {
     try {
-      const data = await apiFetch(`/public/support/tickets/${ticketId}/messages`);
+      const data = await apiFetch(`/public/support/tickets/${ticketId}/messages`, { headers: accessHeaders(ticketId) });
       setThreadMessages(data || []);
     } catch (err) {
       console.error('Error fetching messages:', err);
@@ -53,24 +54,8 @@ export default function SupportView({ onBack, toast = () => {} }) {
   useEffect(() => {
     fetchTickets();
 
-    // Subscribe to SSE for real-time ticket & reply updates
-    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const es = new EventSource(`${API_BASE}/api/events`);
-
-    es.onmessage = (e) => {
-      try {
-        const payload = JSON.parse(e.data);
-        if (payload.type === 'support_ticket_updated') {
-          fetchTickets();
-          if (activeTicket && payload.data?.ticketId === activeTicket.id) {
-            fetchMessages(activeTicket.id);
-            toast(`💬 New message on Ticket #${activeTicket.id}!`, 'info');
-          }
-        }
-      } catch (_) {}
-    };
-
-    return () => es.close();
+    const timer = setInterval(() => { if (!document.hidden) { fetchTickets(); if (activeTicket) fetchMessages(activeTicket.id); } }, 5000);
+    return () => clearInterval(timer);
   }, [customer?.id, activeTicket]);
 
   const handleSendOtp = async () => {
@@ -108,16 +93,8 @@ export default function SupportView({ onBack, toast = () => {} }) {
     }
 
     const contact = customer?.phone || customer?.email || phoneInput.trim() || emailInput.trim();
-    if (!customer && !contact) {
-      toast('Please provide your name and phone number or email.', 'warning');
-      return;
-    }
-
-    // Guest verification requirement
-    if (!customer && !showOtpStep) {
-      await handleSendOtp();
-      return;
-    }
+    // Linking an order requires its authenticated customer.
+    if (!customer && orderIdInput.trim()) { toast('Sign in to link a support request to an order.', 'warning'); return; }
 
     setSubmitting(true);
     try {
@@ -134,6 +111,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
         })
       });
 
+      if (res.accessToken) localStorage.setItem(accessKey, JSON.stringify([{ id: res.ticketId, token: res.accessToken }, ...guestTickets()].slice(0,20)));
       toast(`✅ Support Ticket #${res.ticketId} Created!`, 'success');
       if (contact) localStorage.setItem('gastroflow_guest_contact', contact);
       setMessageInput('');
@@ -158,6 +136,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
     setSendingReply(true);
     try {
       await apiFetch(`/public/support/tickets/${activeTicket.id}/messages`, {
+        headers: accessHeaders(activeTicket.id),
         method: 'POST',
         body: JSON.stringify({
           message: replyText.trim(),
@@ -283,16 +262,7 @@ export default function SupportView({ onBack, toast = () => {} }) {
                   style={{ width: '100%', padding: '10px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.85rem' }}
                 />
               </div>
-              <div>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 4 }}>Phone or Email:</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 0760130922 or email"
-                  value={phoneInput || emailInput}
-                  onChange={e => { setPhoneInput(e.target.value); setEmailInput(e.target.value); }}
-                  style={{ width: '100%', padding: '10px', borderRadius: 8, background: 'var(--bg-main)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.85rem' }}
-                />
-              </div>
+              <p style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>Guest tickets stay private in this browser. Sign in to link an order or use support across devices.</p>
             </div>
           )}
 

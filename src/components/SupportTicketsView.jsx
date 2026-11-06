@@ -30,7 +30,7 @@ export default function SupportTicketsView() {
 
   const fetchMessages = async (ticketId) => {
     try {
-      const res = await fetch(`/api/tickets/${ticketId}/messages`);
+      const res = await fetch(`/api/tickets/${ticketId}/messages`, { headers: { Authorization: `Bearer ${localStorage.getItem('gastroflow_token')}` } });
       if (res.ok) {
         const data = await res.json();
         setThreadMessages(data);
@@ -43,24 +43,8 @@ export default function SupportTicketsView() {
   useEffect(() => {
     fetchTickets();
 
-    // Subscribe to Real-Time SSE updates for instant ticket alerts
-    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const es = new EventSource(`${API_BASE}/api/events`);
-
-    es.onmessage = (e) => {
-      try {
-        const payload = JSON.parse(e.data);
-        if (payload.type === 'support_ticket_created' || payload.type === 'support_ticket_updated') {
-          showToast(`🎧 Live Support Alert: ${payload.data?.message || 'New ticket update!'}`, 'info');
-          fetchTickets();
-          if (selectedTicket && payload.data?.ticketId === selectedTicket.id) {
-            fetchMessages(selectedTicket.id);
-          }
-        }
-      } catch (_) {}
-    };
-
-    return () => es.close();
+    const timer = setInterval(() => { if (!document.hidden) { fetchTickets(); if (selectedTicket) fetchMessages(selectedTicket.id); } }, 5000);
+    return () => clearInterval(timer);
   }, [selectedTicket]);
 
   const handleOpenThread = (tkt) => {
@@ -75,7 +59,7 @@ export default function SupportTicketsView() {
     try {
       const res = await fetch(`/api/tickets/${selectedTicket.id}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('gastroflow_token')}` },
         body: JSON.stringify({
           message: replyText.trim(),
           senderType: 'staff',

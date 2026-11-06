@@ -11,6 +11,8 @@ export default function Dashboard() {
   const [refundReason, setRefundReason] = useState('');
   const [managerPin, setManagerPin] = useState('');
   const [refundError, setRefundError] = useState('');
+  const refundBusyRef = useRef(false);
+  const [refundBusy, setRefundBusy] = useState(false);
 
   // Timeclock, Feedback & X-Report States
   const [timeclockLogs, setTimeclockLogs] = useState([]);
@@ -18,7 +20,7 @@ export default function Dashboard() {
   const [showXReportModal, setShowXReportModal] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem('pos_token');
+    const token = localStorage.getItem('gastroflow_token');
     if (!token) return;
 
     fetch('/api/timeclock/entries', { headers: { Authorization: `Bearer ${token}` } })
@@ -42,7 +44,7 @@ export default function Dashboard() {
   const getTodayOrders = () => {
     const today = new Date().toDateString();
     return orders.filter(
-      (order) => order.status === 'paid' && safeDate(order.paymentTimestamp || order.timestamp).toDateString() === today
+      (order) => (order.paymentStatus === 'paid' || order.status === 'paid') && safeDate(order.paymentTimestamp || order.timestamp).toDateString() === today
     );
   };
 
@@ -91,7 +93,7 @@ export default function Dashboard() {
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       
       const daySales = orders
-        .filter((o) => o.status === 'paid' && safeDate(o.paymentTimestamp || o.timestamp).toDateString() === dateStr)
+        .filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid') && safeDate(o.paymentTimestamp || o.timestamp).toDateString() === dateStr)
         .reduce((sum, o) => sum + o.total, 0);
 
       daysData.push({ day: dayName, total: daySales });
@@ -197,7 +199,7 @@ export default function Dashboard() {
   const getTopItems = () => {
     const itemCounts = {};
     orders
-      .filter((o) => o.status === 'paid')
+      .filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid'))
       .forEach((order) => {
         order.items.forEach((item) => {
           itemCounts[item.name] = (itemCounts[item.name] || 0) + item.quantity;
@@ -213,7 +215,7 @@ export default function Dashboard() {
   const topItems = getTopItems();
 
   // Get recent transactions
-  const recentSales = orders.filter((o) => o.status === 'paid').slice(0, 5);
+  const recentSales = orders.filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid')).slice(0, 5);
 
   // Export CSV handler
   const exportToCSV = () => {
@@ -574,6 +576,8 @@ export default function Dashboard() {
                   return;
                 }
 
+                if (refundBusyRef.current) return;
+                refundBusyRef.current = true; setRefundBusy(true);
                 try {
                   await refundOrder(refundTarget.id, amt, refundReason, managerPin);
                   showToast('Refund processed successfully!', 'success');
@@ -583,7 +587,7 @@ export default function Dashboard() {
                   setManagerPin('');
                 } catch (err) {
                   setRefundError(err.message || 'Refund failed');
-                }
+                } finally { refundBusyRef.current = false; setRefundBusy(false); }
               }}>
                 {refundError && (
                   <div style={{ background: 'var(--color-danger-light)', color: 'var(--color-danger)', padding: '10px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
@@ -633,17 +637,17 @@ export default function Dashboard() {
                   <label>Manager Security PIN</label>
                   <input
                     type="password"
-                    maxLength="4"
+                    maxLength="6"
                     className="form-input"
                     value={managerPin}
                     onChange={(e) => setManagerPin(e.target.value.replace(/\D/g, ''))}
-                    placeholder="••••"
+                    placeholder="••••••"
                     required
                   />
                 </div>
 
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', background: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}>
-                  Authorize & Process Refund
+                <button type="submit" disabled={refundBusy} className="btn btn-primary" style={{ width: '100%', background: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}>
+                  {refundBusy ? 'Saving refund…' : 'Authorize & Process Refund'}
                 </button>
               </form>
             </div>

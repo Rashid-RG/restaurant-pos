@@ -1,0 +1,46 @@
+/* Shared device behavior. Wide tables scroll within their own container. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { min-inline-size: 0; }
+button, a, input, select, textarea { touch-action: manipulation; }
+button, input, select, textarea { max-inline-size: 100%; }
+textarea { resize: vertical; }
+:where(main, section, article, form, fieldset) { min-inline-size: 0; }
+:where(p, h1, h2, h3, dd, td) { overflow-wrap: anywhere; }
+:where(.data-table-container, .table-responsive) { max-inline-size: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+:where(dialog, [role="dialog"], .device-dialog, .modal-content, .platform-modal, .mobile-more-sheet, .command-dialog) {
+  max-block-size: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto; overscroll-behavior-y: contain; scroll-padding-block: 16px;
+}
+@media (max-width: 900px), (pointer: coarse) {
+  button, select, input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']) {
+    min-block-size: 44px;
+  }
+  button, select { min-inline-size: 44px; }
+  input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: max(16px, 1em); }
+  .workspace-search { min-block-size: 44px; min-inline-size: 44px; }
+  .workspace-toolbar { min-block-size: 50px; height: auto; }
+  .mobile-more-sheet { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  .driver-content > .card > div:first-child { flex-wrap: wrap; gap: 12px; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .login-wrapper { align-items: flex-start; padding-block: 16px; }
+  .modal-overlay { align-items: flex-start; overflow-y: auto; padding-block: 12px; }
+  .command-dialog { margin-block: 12px; }
+  .mobile-more-sheet { border-radius: 16px 16px 0 0; }
+}
+@media print {
+  button, input, select { min-block-size: 0; }
+}
+
+.device-dialog{max-inline-size:calc(100vw - 24px);max-block-size:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;scroll-padding-block:16px}
+@media (max-width: 768px) {
+  .workspace {
+    padding-top: calc(58px + env(safe-area-inset-top));
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+  .mobile-top-header {
+    height: calc(58px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+  }
+}

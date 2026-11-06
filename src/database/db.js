@@ -18,15 +18,21 @@ export const db = {
   // Get all rows in a database table
   getAll: async (tableName) => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
       const response = await fetch(`/api/${tableName}`, {
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       if (response.status === 401 || response.status === 403) {
         const errJson = await response.clone().json().catch(() => ({}));
         window.dispatchEvent(new CustomEvent('gastroflow_auth_error', { detail: { status: response.status, data: errJson } }));
         return [];
       }
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) return [];
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) return [];
       const data = await response.json();
       if (Array.isArray(data)) return data;
       if (tableName === 'settings' && data && typeof data === 'object') {
@@ -34,7 +40,7 @@ export const db = {
       }
       return [];
     } catch (err) {
-      console.error(`Error querying GET /api/${tableName}:`, err);
+      console.warn(`Query GET /api/${tableName} timed out or failed:`, err.message);
       return [];
     }
   },

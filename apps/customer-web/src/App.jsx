@@ -1,3 +1,5 @@
+import { ShoppingBag, Store, Utensils, Package, UserRound, Headphones, Bike, LogIn } from 'lucide-react';
+import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, Component } from 'react';
 import { CustomerAuthProvider, useCustomerAuth } from './context/CustomerAuthContext.jsx';
 import { CartProvider, useCart } from './context/CartContext.jsx';
@@ -34,22 +36,23 @@ class ErrorBoundary extends Component {
 
 
 function CartSheet({ onCheckout }) {
-  const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems } = useCart();
+  const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems, rates } = useCart();
   // Use the same formula as CartCheckoutView so the cart sidebar and checkout
   // page show a consistent total. Previously CartSheet used subtotal * 1.10
   // while checkout adds 10% service charge AND 10% tax (~21% effective markup).
-  const serviceCharge = subtotal * 0.10;
-  const tax = (subtotal + serviceCharge) * 0.10;
+  const serviceCharge = subtotal * rates.serviceChargeRate / 100;
+  const tax = (subtotal + serviceCharge) * rates.taxRate / 100;
   const total = Math.round(subtotal + serviceCharge + tax);
 
+  if (!cartOpen) return null;
   return (
     <>
       <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} />
-      <div className={`cart-sheet ${cartOpen ? 'open' : ''}`}>
+      <div className={`cart-sheet ${cartOpen ? 'open' : ''}`} role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="cart-sheet-handle" />
         <div className="cart-sheet-header">
           <h2>🛒 Cart · {totalItems} items</h2>
-          <button className="cart-close-btn" onClick={() => setCartOpen(false)}>✕</button>
+          <button aria-label="Close cart" className="cart-close-btn" onClick={() => setCartOpen(false)}>✕</button>
         </div>
         <div className="cart-body">
           {items.length === 0 ? (
@@ -91,8 +94,8 @@ function CartSheet({ onCheckout }) {
         {items.length > 0 && (
           <div className="cart-footer">
             <div className="cart-summary-row"><span>Subtotal</span><span>Rs. {subtotal.toFixed(2)}</span></div>
-            <div className="cart-summary-row"><span>Service Charge (10%)</span><span>Rs. {serviceCharge.toFixed(2)}</span></div>
-            <div className="cart-summary-row"><span>Tax (10%)</span><span>Rs. {tax.toFixed(2)}</span></div>
+            <div className="cart-summary-row"><span>Service charge ({rates.serviceChargeRate}%)</span><span>Rs. {serviceCharge.toFixed(2)}</span></div>
+            <div className="cart-summary-row"><span>Tax ({rates.taxRate}%)</span><span>Rs. {tax.toFixed(2)}</span></div>
             <div className="cart-summary-row total"><span>Est. Total</span><span>Rs. {total.toFixed(2)}</span></div>
             <button
               className="btn btn-brand"
@@ -277,11 +280,11 @@ function InnerApp() {
 
   const handleOrderPlaced = (orderId) => {
     setTrackingOrderId(orderId);
-    setView('track');
+    navigate('track',{track:orderId,group:null});
   };
 
   return (
-    <div className="app-shell">
+    <div className="app-shell"><ConnectionStatus/>
       <Toast messages={messages} />
       <InstallPrompt />
       <SystemUpdatePrompt />
@@ -320,10 +323,10 @@ function InnerApp() {
               <span className="back-btn-text">Back</span>
             </button>
           )}
-          <img src="food-logo.png" alt="GastroFood Logo" style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover', flexShrink: 0, cursor: 'pointer' }} onClick={() => navigate('restaurants')} />
-          <span className="restaurant-name" style={{ fontSize: '1.2rem', fontWeight: 900, fontFamily: "'Outfit', sans-serif", color: '#ff6b35', letterSpacing: '-0.5px', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} onClick={() => navigate('restaurants')}>
-            GastroFlow
-          </span>
+          <button className="header-home" aria-label="Browse restaurants" onClick={()=>navigate('restaurants')}>
+            <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="" width="32" height="32" />
+            <span className="restaurant-name">GastroFlow</span>
+          </button>
 
           {localStorage.getItem('gastroflow_table_number') && (
             <span style={{ background: '#10b98120', color: '#10b981', padding: '2px 6px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800, border: '1px solid #10b98150', flexShrink: 0 }}>
@@ -334,10 +337,10 @@ function InnerApp() {
 
         <div className="header-actions">
           <button className="icon-btn" onClick={() => navigate('support')} title="Customer Support Desk" style={{ fontSize: '1.1rem', background: '#3b82f620', border: '1px solid #3b82f650' }}>
-            🎧
+            <Headphones size={18}/>
           </button>
           <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
-            🛵
+            <Bike size={18}/>
           </button>
           <select
             className="lang-select"
@@ -349,13 +352,13 @@ function InnerApp() {
             {languages.map(l => <option key={l.code} value={l.code}>{l.short}</option>)}
           </select>
           {totalItems > 0 && (
-            <button className="icon-btn" onClick={() => setCartOpen(true)} title={t('navCart')}>
+            <button className="icon-btn header-cart-shortcut" onClick={() => setCartOpen(true)} title={t('navCart')}>
               🛒
               <span className="badge">{totalItems}</span>
             </button>
           )}
-          <button className="icon-btn" onClick={() => navigate('account')} title={t('navAccount')}>
-            {customer ? '👤' : '🔑'}
+          <button className="icon-btn header-account-shortcut" onClick={() => navigate('account')} title={t('navAccount')}>
+            <UserRound size={19}/>
           </button>
         </div>
       </header>
@@ -371,7 +374,7 @@ function InnerApp() {
             toast={toast}
           />
         )}
-        {view === 'menu' && <MenuView onNavigate={navigate} toast={toast} />}
+        {view === 'menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
@@ -389,7 +392,7 @@ function InnerApp() {
           color: 'var(--text-muted)'
         }}>
           <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-1)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <img src="food-logo.png" alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
+            <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
             <span>GastroFlow Bistro & Marketplace Platform</span>
           </div>
 
@@ -433,7 +436,7 @@ function InnerApp() {
               Crafted & Engineered by <strong style={{ color: 'var(--brand)' }}>RS Technologies</strong> 🇱🇰
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-              Owner & Founder: <strong style={{ color: 'var(--text-1)' }}>M.R.M Rashid</strong> · Certified Proprietary SaaS Engine
+              Owner & Founder: <strong style={{ color: 'var(--text-1)' }}>Mohammed Rashid</strong>
             </div>
           </div>
 
@@ -452,24 +455,24 @@ function InnerApp() {
       {/* Bottom Navigation */}
       <nav className="bottom-nav">
         <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} onClick={() => navigate('restaurants')}>
-          <span className="nav-icon">🏪</span>
+          <span className="nav-icon"><Store size={21}/></span>
           Stores
         </button>
         <button className={`nav-item ${view === 'menu' ? 'active' : ''}`} onClick={() => navigate('menu')}>
-          <span className="nav-icon">🍽️</span>
+          <span className="nav-icon"><Utensils size={21}/></span>
           {t('navMenu')}
         </button>
         <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} onClick={() => navigate('checkout')}>
-          <span className="nav-icon">🛒</span>
+          <span className="nav-icon"><ShoppingBag size={21}/></span>
           {t('navCart')}
           {totalItems > 0 && <span className="badge" style={{ position: 'static', fontSize: '0.6rem', padding: '1px 5px' }}>{totalItems}</span>}
         </button>
         <button className={`nav-item ${view === 'track' ? 'active' : ''}`} onClick={() => navigate('track')}>
-          <span className="nav-icon">📦</span>
+          <span className="nav-icon"><Package size={21}/></span>
           {t('navTrack')}
         </button>
         <button className={`nav-item ${view === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>
-          <span className="nav-icon">{customer ? '👤' : '🔑'}</span>
+          <span className="nav-icon"><UserRound size={21}/></span>
           {customer ? t('navAccount') : t('navSignIn')}
         </button>
       </nav>

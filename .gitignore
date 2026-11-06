@@ -1,7 +1,8 @@
 # Environment and secrets
 .env
 .env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Database files
 *.db
@@ -39,3 +40,8 @@ personal/
 # Claude files
 .claude/
 CLAUDE.md
+
+# Operational artifacts
+backups/
+coverage/
+*.timestamp-*.mjs

@@ -35,6 +35,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveAndCalculateBill, allocateInvoiceNumber } from '../lib/billing.js';
 
+describe('Rejected billing input and configuration', () => {
+  it.each(['NaN', 'Infinity', '75invalid'])('rejects malformed tips (%s)', async tip => {
+    await expect(calc({ menuItems: { a: item('a', 100) } }, [cartItem('a')], null, 0, 0, tip)).rejects.toThrow('Invalid tip');
+  });
+  it.each([-10, 'Infinity', 'invalid'])('rejects invalid delivery fees (%s)', async fee => {
+    await expect(calc({ menuItems: { a: item('a', 100) } }, [cartItem('a')], null, 0, 0, 0, null, fee)).rejects.toThrow('Invalid tip or delivery fee');
+  });
+  it('rejects duplicate modifier IDs rather than charging twice', async () => {
+    await expect(calc({ menuItems: { a: item('a', 100) }, modifiers: { 'm:a': { id: 'm', name: 'Extra', priceDelta: 25 } } }, [cartItem('a',1,[{ id: 'm' },{ id: 'm' }])])).rejects.toThrow('duplicate modifier');
+  });
+  it('rejects negative tax and malformed service-charge settings', async () => {
+    await expect(calc({ menuItems: { a: item('a',100) }, settings: { taxRate: -10 } }, [cartItem('a')])).rejects.toThrow('tax configuration');
+    await expect(calc({ menuItems: { a: item('a',100) }, settings: { serviceChargeRate: '10invalid' } }, [cartItem('a')])).rejects.toThrow('service charge configuration');
+  });
+  it('rejects a negative promotion rather than increasing the bill', async () => {
+    await expect(calc({ menuItems: { a: item('a',100) }, promos: { BAD: { code: 'BAD', type: 'flat', value: -50, minSpend: 0 } } }, [cartItem('a')], null, 0, 0, 0, 'BAD')).rejects.toThrow('promotion configuration');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Helpers — build a minimal mock DB
 // ---------------------------------------------------------------------------
@@ -209,14 +228,8 @@ describe('Modifiers', () => {
     expect(bill.subtotal).toBe(2700);
   });
 
-  it('silently ignores an unknown modifier (no price added)', async () => {
-    // If a client sends a spoofed modifier ID that doesn't exist for this item, it's skipped
-    const bill = await calc(
-      { menuItems, modifiers: {} },
-      [cartItem('burger', 1, [{ id: 'nonexistent-mod' }])]
-    );
-    expect(bill.resolvedItems[0].unitPrice).toBe(1000);
-    expect(bill.resolvedItems[0].selectedModifiers).toHaveLength(0);
+  it('rejects an unknown modifier instead of silently omitting it', async () => {
+    await expect(calc({ menuItems, modifiers: {} }, [cartItem('burger', 1, [{ id: 'nonexistent-mod' }])])).rejects.toThrow('Selected modifier');
   });
 
   it('correctly records resolved modifier list', async () => {
@@ -262,10 +275,8 @@ describe('Discounts', () => {
     expect(bill.total).toBe(0);
   });
 
-  it('ignores unknown discount type (no discount applied)', async () => {
-    const bill = await calc(db, [cartItem('p', 1)], 'bogus', 50);
-    expect(bill.discount).toBe(0);
-    expect(bill.total).toBe(1000);
+  it('rejects an unknown nonzero discount type', async () => {
+    await expect(calc(db, [cartItem('p', 1)], 'bogus', 50)).rejects.toThrow('Invalid discount');
   });
 
   it('applies no discount when discountType is null', async () => {

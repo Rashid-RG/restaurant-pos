@@ -1,5 +1,8 @@
+import SubscriptionBilling from './SubscriptionBilling';
 import React, { useState, useEffect } from 'react';
+import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
+import { testPrintReceipt } from '../utils/printer';
 
 export default function Settings() {
   const {
@@ -20,7 +23,7 @@ export default function Settings() {
     showToast,
   } = usePOS();
 
-  const isMasterSuperAdmin = !currentUser?.tenant_id || currentUser?.tenant_id === 'default_tenant';
+  const isMasterSuperAdmin = currentUser?.isPlatformAdmin === true;
 
   // Settings sub-tab selection: 'business' | 'menu' | 'database'
   const [subTab, setSubTab] = useState('business');
@@ -622,12 +625,13 @@ export default function Settings() {
             >
               🌐 Online Store
             </button>
+            {currentUser?.role === 'owner' && <button className={`settings-nav-btn ${subTab === 'billing' ? 'active' : ''}`} onClick={() => setSubTab('billing')}>Plan and billing</button>}
             {isMasterSuperAdmin && (
               <button
                 className={`settings-nav-btn ${subTab === 'saas' ? 'active' : ''}`}
                 onClick={() => setSubTab('saas')}
               >
-                ☁️ SaaS Multi-Tenancy
+                Platform administration
               </button>
             )}
           </nav>
@@ -1032,20 +1036,34 @@ export default function Settings() {
                       </button>
                     </div>
 
-                    <div style={{ flex: 1, minWidth: '200px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Thermal Printer & Drawer</h3>
+                    <div style={{ flex: 1, minWidth: '220px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Smart Printer & Paper Size</h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Thermal Paper Width</label>
+                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Printer Paper Size</label>
                         <select 
                           className="form-select"
-                          value={settings.find(s => s.key === 'printerPaperWidth')?.value || '80mm'}
+                          value={settings.find(s => s.key === 'printerPaperWidth')?.value || 'auto'}
                           onChange={async (e) => {
                             await updateSetting('printerPaperWidth', e.target.value);
+                            try { localStorage.setItem('gastroflow_printer_paper', e.target.value); } catch (_) {}
                           }}
                         >
-                          <option value="80mm">80mm Standard Thermal Printer</option>
-                          <option value="58mm">58mm Compact Thermal Printer</option>
+                          <option value="auto">⚡ Auto-Detect (Handheld: 58mm · Counter: 80mm)</option>
+                          <option value="80mm">🖨️ 80mm Standard Thermal Printer (POS-80)</option>
+                          <option value="58mm">🧾 58mm Compact Portable Printer (POS-58 / Sunmi)</option>
+                          <option value="a4">📄 A4 / Letter Full Invoice (Laser / Inkjet)</option>
                         </select>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ fontSize: '12px', padding: '6px 12px', height: 'auto', marginTop: '4px' }}
+                          onClick={() => {
+                            const curSettingsObj = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
+                            testPrintReceipt(curSettingsObj, settings.find(s => s.key === 'currencySymbol')?.value || 'Rs.');
+                          }}
+                        >
+                          🖨️ Test Print Slip
+                        </button>
                         <label style={{ fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', marginTop: '4px' }}>
                           <input 
                             type="checkbox"
@@ -1388,285 +1406,8 @@ export default function Settings() {
             )}
 
             {/* 5. SaaS Multi-Tenancy Management */}
-            {subTab === 'saas' && (
-              <div>
-                <h2 className="settings-section-title">☁️ SaaS Multi-Tenancy Platform</h2>
-                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>
-                  Manage tenant organizations, provision isolated subdomains, and configure SaaS subscription tiers.
-                </p>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                  <div className="card glass" style={{ padding: '16px', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Tenant Isolation</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-primary)', marginTop: '4px' }}>Multi-Tenant (tenant_id)</div>
-                  </div>
-                  <div className="card glass" style={{ padding: '16px', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Database Adapter</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#22c55e', marginTop: '4px' }}>PostgreSQL / SQLite Dual</div>
-                  </div>
-                  <div className="card glass" style={{ padding: '16px', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Security Level</div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#f59e0b', marginTop: '4px' }}>RLS Compatible</div>
-                  </div>
-                </div>
-
-                <div className="card glass" style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-surface)', marginBottom: '24px' }}>
-                  <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>Provision New SaaS Tenant Subdomain</h3>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const form = e.target;
-                    const tenant = {
-                      name: form.tenantName.value,
-                      subdomain: form.subdomain.value.toLowerCase().replace(/[^a-z0-9-]/g, ''),
-                      ownerEmail: form.ownerEmail.value,
-                      plan: form.plan.value
-                    };
-                    try {
-                      const token = localStorage.getItem('gastroflow_token') || localStorage.getItem('token');
-                      const res = await fetch('/api/saas/tenants', {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify(tenant)
-                      });
-                      const data = await res.json();
-                      if (!res.ok) throw new Error(data.error || 'Failed to provision tenant.');
-                      showToast(`🎉 Tenant "${tenant.name}" provisioned successfully!`, 'success');
-                      setLastProvisioned(data.tenant);
-                      fetchTenants();
-                      form.reset();
-                    } catch (err) {
-                      showToast('Provisioning error: ' + err.message, 'error');
-                    }
-                  }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Restaurant Tenant Name</label>
-                        <input name="tenantName" type="text" className="form-input" placeholder="e.g. Twin BBQ Grill" required />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Subdomain Slug</label>
-                        <input name="subdomain" type="text" className="form-input" placeholder="e.g. twinbbq" required />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                      <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Owner Contact Email</label>
-                        <input name="ownerEmail" type="email" className="form-input" placeholder="owner@restaurant.lk" required />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Subscription Plan</label>
-                        <select name="plan" className="form-input">
-                          <option value="pro">Pro (Rs. 7,500/mo)</option>
-                          <option value="enterprise">Enterprise (Rs. 15,000/mo)</option>
-                          <option value="basic">Basic (Rs. 4,500/mo)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <button type="submit" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: '14px' }}>
-                      🚀 Provision Tenant Instance
-                    </button>
-                  </form>
-                </div>
-
-                {/* Newly Provisioned Credentials & Instant Links Card */}
-                {lastProvisioned && (
-                  <div className="card glass fade-in" style={{ padding: '20px', borderRadius: '12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid #22c55e', marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                      <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#22c55e', margin: 0 }}>
-                        🎉 Store Provisioned Successfully: {lastProvisioned.name}
-                      </h3>
-                      <button className="btn btn-sm" onClick={() => setLastProvisioned(null)} style={{ fontSize: '11px' }}>✕ Close</button>
-                    </div>
-
-                    {/* Login Credentials Box */}
-                    <div style={{ background: 'var(--bg-card)', padding: '14px', borderRadius: '10px', marginBottom: '14px', border: '1px solid var(--border-color)' }}>
-                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-main)', marginBottom: '6px' }}>🔐 Owner POS Login Credentials:</div>
-                      <div style={{ display: 'flex', gap: '24px', fontSize: '13px', fontFamily: 'monospace' }}>
-                        <div><strong>Username:</strong> {lastProvisioned.staffUsername}</div>
-                        <div><strong>Password:</strong> {lastProvisioned.temporaryPassword}</div>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-outline"
-                        style={{ marginTop: '10px', fontSize: '12px' }}
-                        onClick={() => {
-                          const creds = `Store: ${lastProvisioned.name}\nPOS URL: ${window.location.origin}/?tenant=${lastProvisioned.id}\nUsername: ${lastProvisioned.staffUsername}\nPassword: ${lastProvisioned.temporaryPassword}`;
-                          navigator.clipboard.writeText(creds);
-                          showToast('📋 Login credentials copied to clipboard!', 'success');
-                        }}
-                      >
-                        📋 Copy Login Credentials
-                      </button>
-                    </div>
-
-                    {/* Copyable URLs Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
-                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>🖥️ Cashier / Staff POS URL</div>
-                        <div style={{ fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all', margin: '4px 0 8px' }}>
-                          {window.location.origin}/?tenant={lastProvisioned.id}
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/?tenant=${lastProvisioned.id}`);
-                            showToast('📋 POS Link copied to clipboard!', 'success');
-                          }}
-                        >
-                          📋 Copy POS URL
-                        </button>
-                      </div>
-
-                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>📱 Customer Web App URL</div>
-                        <div style={{ fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all', margin: '4px 0 8px' }}>
-                          {window.location.origin}/customer/?tenant={lastProvisioned.id}
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/customer/?tenant=${lastProvisioned.id}`);
-                            showToast('📋 Customer Web Link copied!', 'success');
-                          }}
-                        >
-                          📋 Copy Customer URL
-                        </button>
-                      </div>
-
-                      <div style={{ background: 'var(--bg-card)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)' }}>🛵 Driver Dispatch App URL</div>
-                        <div style={{ fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all', margin: '4px 0 8px' }}>
-                          {window.location.origin}/driver-app/?tenant={lastProvisioned.id}
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          onClick={() => {
-                            navigator.clipboard.writeText(`${window.location.origin}/driver-app/?tenant=${lastProvisioned.id}`);
-                            showToast('📋 Driver App Link copied!', 'success');
-                          }}
-                        >
-                          📋 Copy Driver URL
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Provisioned Tenant Stores List Table */}
-                <div className="card glass" style={{ padding: '20px', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                    <h3 style={{ fontSize: '15px', fontWeight: 700, margin: 0 }}>🏢 Active SaaS Tenant Stores ({tenantsList.length})</h3>
-                    <button className="btn btn-sm btn-outline" onClick={fetchTenants} disabled={loadingTenants}>
-                      🔄 {loadingTenants ? 'Refreshing...' : 'Refresh Stores'}
-                    </button>
-                  </div>
-
-                  {tenantsList.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                      No custom tenant stores provisioned yet. Use the form above to provision your first store!
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: 'auto' }}>
-                      <table className="table" style={{ width: '100%', fontSize: '13px' }}>
-                        <thead>
-                          <tr>
-                            <th>Store Name</th>
-                            <th>Subdomain Slug</th>
-                            <th>Owner Contact</th>
-                            <th>Plan</th>
-                            <th>Status</th>
-                            <th>Actions & Copy Links</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {tenantsList.map(t => (
-                            <tr key={t.id}>
-                              <td style={{ fontWeight: 700 }}>{t.name}</td>
-                              <td style={{ fontFamily: 'monospace' }}>{t.subdomain}</td>
-                              <td>{t.ownerEmail}</td>
-                              <td><span className="badge badge-info">{t.plan?.toUpperCase() || 'PRO'}</span></td>
-                              <td>
-                                <span className={`badge ${t.status === 'suspended' ? 'badge-danger' : 'badge-success'}`}>
-                                  {t.status?.toUpperCase() || 'ACTIVE'}
-                                </span>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                  <button
-                                    className="btn btn-sm btn-outline"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(`${window.location.origin}/?tenant=${t.id}`);
-                                      showToast(`📋 POS Link for ${t.name} copied!`, 'success');
-                                    }}
-                                  >
-                                    📋 POS Link
-                                  </button>
-                                  <button
-                                    className="btn btn-sm btn-outline"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(`${window.location.origin}/customer/?tenant=${t.id}`);
-                                      showToast(`📋 Customer App Link for ${t.name} copied!`, 'success');
-                                    }}
-                                  >
-                                    📋 Customer Link
-                                  </button>
-                                  <button
-                                    className="btn btn-sm btn-outline"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(`${window.location.origin}/driver-app/?tenant=${t.id}`);
-                                      showToast(`📋 Driver App Link for ${t.name} copied!`, 'success');
-                                    }}
-                                  >
-                                    📋 Driver Link
-                                  </button>
-                                  <a
-                                    href={`${window.location.origin}/?tenant=${t.id}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="btn btn-sm btn-primary"
-                                    style={{ textDecoration: 'none' }}
-                                  >
-                                    🔗 Open Store
-                                  </a>
-                                  {t.id !== 'default_tenant' && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm ${t.status === 'suspended' ? 'btn-success' : 'btn-outline'}`}
-                                        style={{ color: t.status === 'suspended' ? '#fff' : '#f59e0b', borderColor: '#f59e0b' }}
-                                        onClick={() => handleToggleStatus(t)}
-                                      >
-                                        {t.status === 'suspended' ? '▶️ Activate' : '⏸️ Suspend'}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn btn-sm btn-danger"
-                                        onClick={() => handleDeleteTenant(t)}
-                                      >
-                                        🗑️ Delete Store
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-              </div>
-            )}
+            {subTab === 'billing' && currentUser?.role === 'owner' && <SubscriptionBilling />}
+            {subTab === 'saas' && isMasterSuperAdmin && <PlatformAdmin embedded />}
 
           </div>
         </div>

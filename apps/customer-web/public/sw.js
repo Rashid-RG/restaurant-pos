@@ -1,81 +1,27 @@
-// GastroFlow customer PWA service worker
-// - Precache the app shell so the app opens offline
-// - Stale-while-revalidate for menu/API GETs (fast, self-healing)
-// - Offline fallback page for navigations when nothing is cached
-const VERSION = 'v3';
-const SHELL_CACHE = `gastroflow-shell-${VERSION}`;
-const DATA_CACHE = `gastroflow-data-${VERSION}`;
-
-const SHELL_ASSETS = [
-  '/',
-  '/index.html',
-  '/offline.html',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png'
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_ASSETS).catch(() => {}))
-  );
+// Offline shell only. Never cache authenticated API responses or other apps.
+const PREFIX = 'gastroflow-customer-';
+const CACHE = `${PREFIX}v5`;
+const BASE = new URL('./', self.location.href).pathname;
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll([BASE, `${BASE}offline.html`])));
   self.skipWaiting();
 });
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((k) => k !== SHELL_CACHE && k !== DATA_CACHE)
-          .map((k) => caches.delete(k))
-      )
-    )
-  );
+self.addEventListener('activate', event => {
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => (key.startsWith(PREFIX) || key.startsWith('gastroflow-data-') || key.startsWith('gastroflow-shell-')) && key !== CACHE).map(key => caches.delete(key)))));
   self.clients.claim();
 });
-
-// Stale-while-revalidate: serve cache immediately, refresh in the background.
-async function staleWhileRevalidate(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-  const network = fetch(request)
-    .then((response) => {
-      if (response && response.ok) cache.put(request, response.clone());
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || !url.pathname.startsWith(BASE) || url.pathname.startsWith('/api/')) return;
+  if (event.request.mode === 'navigate') {
+    event.respondWith(fetch(event.request).catch(async () => (await caches.match(BASE)) || (await caches.match(`${BASE}offline.html`)) || Response.error()));
+  } else if (/\.(js|css|png|svg|webp|woff2?)$/.test(url.pathname)) {
+    event.respondWith(caches.open(CACHE).then(async cache => {
+      const cached = await cache.match(event.request);
+      if (cached) return cached;
+      const response = await fetch(event.request);
+      if (response.ok) await cache.put(event.request, response.clone());
       return response;
-    })
-    .catch(() => null);
-  return cached || network || new Response(null, { status: 504 });
-}
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return; // never cache mutations
-
-  const url = new URL(request.url);
-  const isApi = url.pathname.startsWith('/api/');
-
-  // Never cache auth/order/payment endpoints — always hit the network.
-  const noCache = /\/api\/(customer\/auth|payments|orders|public\/orders|stream)/.test(url.pathname);
-  if (isApi && noCache) return;
-
-  // Menu and other safe API GETs: stale-while-revalidate.
-  if (isApi) {
-    event.respondWith(staleWhileRevalidate(request, DATA_CACHE));
-    return;
+    }));
   }
-
-  // Navigations: try network, fall back to cached shell, then offline page.
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(async () => {
-        const cache = await caches.open(SHELL_CACHE);
-        return (await cache.match('/index.html')) || (await cache.match('/offline.html'));
-      })
-    );
-    return;
-  }
-
-  // Static assets: cache-first with background refresh.
-  event.respondWith(staleWhileRevalidate(request, SHELL_CACHE));
 });

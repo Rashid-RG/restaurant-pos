@@ -7,9 +7,13 @@ import React, { useState, useEffect } from 'react';
 export default function SystemUpdatePrompt() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    try { return sessionStorage.getItem('gastro_update_dismissed') === '1'; } catch (_) { return false; }
+  });
   const [swRegistration, setSwRegistration] = useState(null);
 
   useEffect(() => {
+    if (dismissed) return;
     // 1. Listen to Service Worker updates
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
@@ -70,7 +74,13 @@ export default function SystemUpdatePrompt() {
     }, 400);
   };
 
-  if (!updateAvailable) return null;
+  const handleDismiss = () => {
+    setDismissed(true);
+    setUpdateAvailable(false);
+    try { sessionStorage.setItem('gastro_update_dismissed', '1'); } catch (_) {}
+  };
+
+  if (!updateAvailable || dismissed) return null;
 
   return (
     <div
@@ -107,25 +117,46 @@ export default function SystemUpdatePrompt() {
         </div>
       </div>
 
-      <button
-        onClick={handleApplyUpdate}
-        disabled={updating}
-        style={{
-          background: '#ffffff',
-          color: '#059669',
-          border: 'none',
-          padding: '10px 16px',
-          borderRadius: 12,
-          fontWeight: 900,
-          fontSize: '0.85rem',
-          cursor: 'pointer',
-          whiteSpace: 'nowrap',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          transition: 'all 0.2s ease'
-        }}
-      >
-        {updating ? '⏳ Updating…' : '🚀 Update Now'}
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={handleApplyUpdate}
+          disabled={updating}
+          style={{
+            background: '#ffffff',
+            color: '#059669',
+            border: 'none',
+            padding: '10px 16px',
+            borderRadius: 12,
+            fontWeight: 900,
+            fontSize: '0.85rem',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          {updating ? '⏳ Updating…' : '🚀 Update Now'}
+        </button>
+        <button
+          onClick={handleDismiss}
+          aria-label="Dismiss update"
+          style={{
+            background: 'rgba(255,255,255,0.25)',
+            border: 'none',
+            color: '#ffffff',
+            width: 28,
+            height: 28,
+            borderRadius: '50%',
+            cursor: 'pointer',
+            display: 'grid',
+            placeItems: 'center',
+            fontSize: '13px',
+            fontWeight: 700
+          }}
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
 }

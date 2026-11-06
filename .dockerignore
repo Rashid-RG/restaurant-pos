@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite*
+backups
+coverage
+*.log
+.system_generated
+*.timestamp-*.mjs

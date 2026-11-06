@@ -1,3 +1,5 @@
+import { getActiveTenant } from '../utils/tenant.js';
+import { AnimatedFeatureIcon } from '../../../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -151,20 +153,27 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     } catch (_) {}
   };
 
+  const applyOrderUpdate = (update) => {
+    let items = update.items ?? orderRef.current?.items ?? [];
+    if (typeof items === 'string') {
+      try { items = JSON.parse(items); } catch { items = []; }
+    }
+    const data = { ...update, items: Array.isArray(items) ? items : [] };
+    if (orderRef.current?.status && data.status !== orderRef.current.status) {
+      playCustomerChime();
+      toast(`🔔 Order Status Updated: ${String(data.status).toUpperCase()}`, 'info');
+    }
+    orderRef.current = data;
+    setOrder(data);
+    if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
+  };
+
   const fetchOrder = async (id) => {
     if (!id) return;
     setLoading(true); setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
-      // Bug 7 fix: compare against orderRef.current (always up-to-date) instead
-      // of the `order` state variable which is stale inside this closure.
-      if (orderRef.current && orderRef.current.status && data.status !== orderRef.current.status) {
-        playCustomerChime();
-        toast(`🔔 Order Status Updated: ${data.status.toUpperCase()}`, 'info');
-      }
-      orderRef.current = data;
-      setOrder(data);
-      if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
+      applyOrderUpdate(data);
       setFeedbackSubmitted(false);
     } catch (err) {
       setError(err.message);
@@ -191,7 +200,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     // SSE Stream setup
     let es;
     try {
-      const streamUrl = new URL(`/api/stream/orders/${order.id}`, window.location.origin).href;
+      const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
+      const streamUrl = stream.href;
       es = new EventSource(streamUrl);
       es.onmessage = (e) => {
         try {
@@ -199,7 +209,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           if (msg && msg.type === 'driver_location') {
             setDriverLoc({ lat: msg.lat, lng: msg.lng, driverName: msg.driverName });
           } else if (msg && msg.id) {
-            setOrder(msg);
+            applyOrderUpdate(msg);
           }
         } catch (err) {}
       };
@@ -328,6 +338,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           {/* UBER EATS HERO LIVE BANNER */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
+              {!isCancelled && <AnimatedFeatureIcon kind={curStep === 1 ? 'cooking' : curStep === 2 ? (isDelivery ? 'delivery' : 'ready') : curStep === 3 ? 'ready' : 'order'} size={72} active={curStep < 3}/>}
               {isCancelled ? (
                 <div>
                   <div className="uber-status-badge cancelled">Cancelled</div>
@@ -650,7 +661,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                   return (
                     <div key={step.id} className={`status-step ${done ? 'done' : active ? 'active' : ''}`}>
                       <div className="step-dot">
-                        {done ? '✓' : step.icon}
+                        {done ? '✓' : <AnimatedFeatureIcon kind={i === 1 ? 'cooking' : i === 2 ? (isDelivery ? 'delivery' : 'ready') : i === 3 ? 'ready' : 'order'} size={32} active={active}/>}
                       </div>
                       <div className="step-info">
                         <h4>{step.label}</h4>

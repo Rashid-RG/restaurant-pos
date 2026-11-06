@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
+import WorkspaceTools from './components/WorkspaceTools';
+import { ConnectionStatus } from '../shared/ui/Resilience.jsx';
 import { POSProvider, usePOS } from './context/POSContext';
 import Sidebar from './components/Sidebar';
+import PlatformAdmin from './components/PlatformAdmin';
 import Dashboard from './components/Dashboard';
 import POSView from './components/POSView';
 import FloorPlan from './components/FloorPlan';
@@ -10,17 +13,16 @@ import Customers from './components/Customers';
 import Settings from './components/Settings';
 import DeliveryView from './components/DeliveryView';
 import SupportTicketsView from './components/SupportTicketsView';
+import DailyExpenses from './components/DailyExpenses';
 import Login from './components/Login';
 import StoreStatusScreen from './components/StoreStatusScreen';
-
-import SystemUpdatePrompt from '../apps/customer-web/src/components/SystemUpdatePrompt.jsx';
 
 function AppContent() {
   const { activeTab, loading, currentUser, tenantLock, setTenantLock, logout } = usePOS();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // If the store is suspended or deleted, display full-screen status view immediately
-  const isMasterOwner = currentUser?.role === 'owner' && (!currentUser?.tenant_id || currentUser?.tenant_id === 'default_tenant');
+  const isMasterOwner = currentUser?.isPlatformAdmin === true;
   if (tenantLock && !isMasterOwner) {
     return (
       <StoreStatusScreen
@@ -60,6 +62,8 @@ function AppContent() {
 
   const renderActiveView = () => {
     switch (activeTab) {
+      case 'platform':
+        return currentUser.isPlatformAdmin === true ? <PlatformAdmin /> : <Dashboard />;
       case 'dashboard':
         return <Dashboard />;
       case 'pos':
@@ -70,6 +74,8 @@ function AppContent() {
         return <KDSView />;
       case 'inventory':
         return <Inventory />;
+      case 'expenses':
+        return <DailyExpenses />;
       case 'customers':
         return <Customers />;
       case 'delivery':
@@ -85,9 +91,8 @@ function AppContent() {
 
   return (
     <div className="app-container">
-      <SystemUpdatePrompt />
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      {renderActiveView()}
+      <div className="workspace"><WorkspaceTools/><ConnectionStatus/>{renderActiveView()}</div>
     </div>
   );
 }

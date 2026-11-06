@@ -15,7 +15,7 @@ const request = (await import('supertest')).default;
 /** Mint a staff JWT directly (same secret the server uses in test mode) */
 function staffToken(role = 'owner') {
   return jwt.sign(
-    { id: 'test_admin', username: 'admin', role, tenant_id: 'default_tenant' },
+    { id: 'user_admin', username: 'admin', role, tenant_id: 'default_tenant' },
     process.env.JWT_SECRET,
     { expiresIn: '1h' }
   );
@@ -56,7 +56,7 @@ describe('Uber Eats-Grade Features Integration Tests', () => {
     expect(etaData.estimatedMinutes).toBeGreaterThanOrEqual(15);
     expect(etaData.estimatedDeliveryTime).toBeGreaterThan(Date.now());
 
-    const res = await request(app).get(`/api/public/orders/${testOrderId}/eta`);
+    const res = await request(app).get(`/api/public/orders/${testOrderId}/eta`).set('Authorization', `Bearer ${staffToken()}`);
     expect(res.status).toBe(200);
     expect(res.body.estimatedMinutes).toBeGreaterThanOrEqual(15);
   });

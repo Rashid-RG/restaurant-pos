@@ -99,9 +99,12 @@ describe('Offline Sales Bulk Sync & Deduplication', () => {
 
   it('ingests bulk offline sales and skips duplicates', async () => {
     const offlineId = `off_${Date.now()}`;
+    const menu = await request(app).get('/api/public/menu');
+    const item = menu.body.items[0];
+    const quote = await request(app).post('/api/public/orders').send({ items: [{menuItemId: item.id, quantity: 1}], orderType: 'takeaway', customerName: 'Offline Tester', customerPhone: '0770000000' });
     const payload = {
       orders: [
-        { offlineId, orderType: 'dine_in', total: 1800, paymentMethod: 'cash', createdAt: Date.now() }
+        { offlineId, orderType: 'takeaway', items: [{ menuItemId: item.id, quantity: 1 }], total: quote.body.total, paymentMethod: 'cash', createdAt: Date.now() }
       ]
     };
 

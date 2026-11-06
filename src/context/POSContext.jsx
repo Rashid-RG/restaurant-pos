@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db, seedDatabase } from '../database/db';
 
 const DB_VERSION = 1;
@@ -29,7 +29,7 @@ export const POSProvider = ({ children }) => {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gastroflow_theme') === 'dark');
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem('gastroflow_user');
     const user = saved ? JSON.parse(saved) : null;
@@ -72,6 +72,18 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('gastroflow_auth_error', handleGlobalAuthError);
   }, [currentUser]);
 
+  // Refresh server-owned capabilities for saved sessions after an upgrade.
+  useEffect(() => {
+    const token = localStorage.getItem('gastroflow_token');
+    if (!token) return;
+    let cancelled = false;
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+      .then(async response => { if (!response.ok) return; const data = await response.json();
+        if (!cancelled && data.user) { setCurrentUser(data.user); localStorage.setItem('gastroflow_user', JSON.stringify(data.user)); }
+      }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
+
   // Database lists
   const [menuItems, setMenuItems] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -87,6 +99,9 @@ export const POSProvider = ({ children }) => {
   const [diningType, setDiningType] = useState('dine-in');
   const [discountType, setDiscountType] = useState('percent'); // 'percent' or 'flat'
   const [discountValue, setDiscountValue] = useState(0);
+  const orderAttempt = useRef(null);
+  const recalledOrder = useRef(null);
+  const refundAttempt = useRef(null);
 
   // Toast system
   const [toasts, setToasts] = useState([]);
@@ -108,8 +123,14 @@ export const POSProvider = ({ children }) => {
     // Verify tenant if an explicit store is in the URL or user belongs to a specific tenant
     if (urlTenant || (currentUser && currentUser.tenant_id !== 'default_tenant')) {
       try {
-        const statusRes = await fetch(`/api/public/tenant/status?tenant=${encodeURIComponent(targetTenant)}`);
-        const statusData = await statusRes.json().catch(() => ({}));
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const statusRes = await fetch(`/api/public/tenant/status?tenant=${encodeURIComponent(targetTenant)}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const contentType = statusRes.headers.get('content-type') || '';
+        const statusData = contentType.includes('application/json') ? await statusRes.json().catch(() => ({})) : {};
         if (statusRes.status === 404 || statusData.exists === false) {
           setTenantLock({
             status: 'deleted',
@@ -369,7 +390,7 @@ export const POSProvider = ({ children }) => {
           } else if (data.type === 'tenant_status_changed') {
             const currentTid = currentUser?.tenant_id || new URLSearchParams(window.location.search).get('tenant') || 'default_tenant';
             if (data.tenantId === currentTid || (currentTid === 'kb2c' && data.tenantId === 'tenant_kb2c')) {
-              if (data.status === 'suspended' && currentUser?.role !== 'owner') {
+              if (data.status === 'suspended' && currentUser?.isPlatformAdmin !== true) {
                 setTenantLock({
                   status: 'suspended',
                   storeId: data.tenantId,
@@ -567,25 +588,30 @@ export const POSProvider = ({ children }) => {
   };
 
   const refundOrder = async (orderId, refundAmount, reason, managerPin) => {
+    const key = JSON.stringify({ orderId, refundAmount, reason });
+    if (refundAttempt.current?.key !== key) refundAttempt.current = { key, id: crypto.randomUUID() };
+    const refundId = refundAttempt.current.id;
     const response = await fetch(`/api/orders/${orderId}/refund`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}`
       },
-      body: JSON.stringify({ refundAmount, reason, managerPin })
+      body: JSON.stringify({ refundAmount, reason, managerPin, refundId })
     });
     await handleAuthResponse(response);
     if (!response.ok) {
       const err = await response.json();
       throw new Error(err.error || 'Failed to refund order');
     }
+    if (refundAttempt.current?.id === refundId) refundAttempt.current = null;
     await loadAllData();
   };
 
   // Theme Toggler
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    localStorage.setItem('gastroflow_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
 
   // Settings Actions
@@ -744,6 +770,8 @@ export const POSProvider = ({ children }) => {
   };
 
   const clearCart = () => {
+    orderAttempt.current = null;
+    recalledOrder.current = null;
     setCart([]);
     setDiscountValue(0);
     // selectedCustomer is intentionally preserved so consecutive orders for the same
@@ -753,6 +781,7 @@ export const POSProvider = ({ children }) => {
 
   // Reset POS view states when shifting tables
   const loadOrderToPOS = (order) => {
+    recalledOrder.current = order.id;
     setCart(order.items || []);
     setDiningType(order.diningType || 'dine-in');
     setDiscountType(order.discountType || 'percent');
@@ -765,7 +794,8 @@ export const POSProvider = ({ children }) => {
 
   // Calculate Subtotal, Tax, Discount, and Total
   const getCartTotals = (tipVal = 0, deliveryFeeVal = 0) => {
-    const subtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+    const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
+    const subtotal = cart.reduce((acc, item) => acc + (item.unitPrice ?? (Number(item.price) + (item.modifiers || item.selectedModifiers || []).reduce((sum, mod) => sum + Number(mod.priceDelta || 0), 0))) * item.quantity, 0);
     
     let discount = 0;
     if (discountType === 'percent') {
@@ -773,17 +803,17 @@ export const POSProvider = ({ children }) => {
     } else {
       discount = discountValue;
     }
-    discount = Math.min(discount, subtotal);
+    discount = money(Math.max(0, Math.min(discount, subtotal)));
 
     const serviceChargeRate = parseFloat(settings.serviceChargeRate || 0);
-    const serviceCharge = ((subtotal - discount) * serviceChargeRate) / 100;
+    const serviceCharge = money(((subtotal - discount) * serviceChargeRate) / 100);
 
     const taxRate = parseFloat(settings.taxRate || 0);
-    const tax = ((subtotal - discount + serviceCharge) * taxRate) / 100;
+    const tax = money(((subtotal - discount + serviceCharge) * taxRate) / 100);
 
     const deliveryFee = diningType === 'delivery' ? parseFloat(deliveryFeeVal || 0) : 0;
 
-    const rawTotal = subtotal - discount + serviceCharge + tax + parseFloat(tipVal || 0) + deliveryFee;
+    const rawTotal = money(subtotal - discount + serviceCharge + tax + money(Number(tipVal || 0)) + money(deliveryFee));
     const total = Math.round(rawTotal);
     const roundedAmount = total - rawTotal;
 
@@ -793,7 +823,7 @@ export const POSProvider = ({ children }) => {
       serviceCharge: parseFloat(serviceCharge.toFixed(2)),
       tax: parseFloat(tax.toFixed(2)),
       deliveryFee: parseFloat(deliveryFee.toFixed(2)),
-      tip: parseFloat((tipVal || 0).toFixed(2)),
+      tip: money(Number(tipVal || 0)),
       roundedAmount: parseFloat(roundedAmount.toFixed(2)),
       total: total,
     };
@@ -814,7 +844,7 @@ export const POSProvider = ({ children }) => {
       customerPhone: selectedCustomer ? selectedCustomer.phone : (extraOrderData.customerPhone || null),
       deliveryAddress: extraOrderData.deliveryAddress || (selectedCustomer ? selectedCustomer.address : null),
       deliveryFee: extraOrderData.deliveryFee || 0,
-      items: cart.map(item => ({ id: item.id, quantity: item.quantity, notes: item.notes || '' })),
+      items: cart.map(item => ({ id: item.id, quantity: item.quantity, notes: item.notes || '', selectedModifiers: item.modifiers || item.selectedModifiers || [] })),
       discountType,
       discountValue,
       status: isHold ? 'hold' : 'pending',
@@ -825,8 +855,18 @@ export const POSProvider = ({ children }) => {
       ...extraOrderData
     };
 
-    // Save order
-    await db.put('orders', newOrder);
+    // Reuse an intent identifier after an interrupted create/settle request.
+    const intentKey = JSON.stringify({ ...newOrder, id: null, timestamp: null });
+    if (orderAttempt.current?.key === intentKey) newOrder.id = orderAttempt.current.id;
+    else { newOrder.id = `ord_${crypto.randomUUID()}`; orderAttempt.current = { key: intentKey, id: newOrder.id }; }
+    let savedOrder;
+    if (recalledOrder.current) {
+      const id=recalledOrder.current;
+      const response=await fetch(`/api/orders/${id}/modify`,{method:'PUT',headers:{Authorization:'Bearer '+localStorage.getItem('gastroflow_token'),'Content-Type':'application/json'},body:JSON.stringify(newOrder)});
+      const result=await response.json(); if(!response.ok) throw new Error(result.error||'Cannot modify saved bill.');
+      const saved=await db.getAll('orders'); savedOrder=saved.find(order=>order.id===id);
+      if(!savedOrder) throw new Error('Saved bill needs refresh before payment.');
+    } else savedOrder = await db.put('orders', newOrder);
     
     // Reload database state to reflect stock and table status updates in the UI
     await loadAllData();
@@ -835,7 +875,7 @@ export const POSProvider = ({ children }) => {
       clearCart();
       setSelectedTable(null);
     }
-    return newOrder;
+    return { ...newOrder, ...savedOrder };
   };
 
   // Update order status (KDS view or checkout)

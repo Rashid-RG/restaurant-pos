@@ -1,5 +1,7 @@
+import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { usePOS } from '../context/POSContext';
+import { resolvePrinterPaperSize } from '../utils/printer';
 
 export function getFoodImageForItem(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
@@ -59,6 +61,7 @@ export default function POSView() {
     updateCartNotes,
     removeFromCart,
     clearCart,
+    loadOrderToPOS,
     getCartTotals,
     // Selection states
     selectedTable,
@@ -86,6 +89,10 @@ export default function POSView() {
   } = usePOS();
 
   // Search/Filter states
+  const [mobileCartOpen,setMobileCartOpen]=useState(false);
+  const mobileCartToggle=useRef(null);
+  const closeMobileCart=()=>{setMobileCartOpen(false);mobileCartToggle.current?.focus();};
+  useEffect(()=>{if(!mobileCartOpen)return;const close=event=>{if(event.key==='Escape'){setMobileCartOpen(false);mobileCartToggle.current?.focus();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[mobileCartOpen]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
 
@@ -118,15 +125,13 @@ export default function POSView() {
 
   // Advanced Billing states
   const [tipInput, setTipInput] = useState(0);
-  const [showSplitModal, setShowSplitModal] = useState(false);
-  const [splitMode, setSplitMode] = useState('even'); // 'even' | 'itemized'
-  const [splitCount, setSplitCount] = useState(2);
+  const [manualOrder,setManualOrder]=useState(null);
   const [showRecallModal, setShowRecallModal] = useState(false);
   const [splitPayments, setSplitPayments] = useState([]);
-  // Split Bill multi-portion state: { count, portionAmount, paid, collectedPayments }
-  const [splitBillProgress, setSplitBillProgress] = useState(null);
   // Ref flag: true only when a new payment just completed — prevents double-print on manual reprint
   const autoPrintRef = useRef(false);
+  const settlementBusyRef = useRef(false);
+  const [settlementBusy, setSettlementBusy] = useState(false);
   const [showShiftCloseModal, setShowShiftCloseModal] = useState(false);
   const [shiftReport, setShiftReport] = useState(null);
 
@@ -246,9 +251,21 @@ export default function POSView() {
     }
   };
 
+  const openSavedBill = async () => {
+    if (settlementBusyRef.current || !cart.length) return;
+    settlementBusyRef.current=true; setSettlementBusy(true);
+    try {
+      const order=await placeOrder(false,tipInput);
+      if (!order) return;
+      clearCart(); setSelectedTable(null); setShowPaymentModal(false);
+      setManualOrder(order.id);
+    } catch(e) { showToast(e.message || 'Could not save this bill. Retry before collecting money.','error'); }
+    finally { settlementBusyRef.current=false; setSettlementBusy(false); }
+  };
+
   const handlePayClick = () => {
     if (cart.length === 0) return;
-    setSplitBillProgress(null); // Clear any stale split-bill state from a previous order
+     // Clear any stale split-bill state from a previous order
     setCashReceived(totals.total.toString());
     setShowPaymentModal(true);
   };
@@ -298,61 +315,21 @@ export default function POSView() {
   };
 
   const handlePaymentComplete = async () => {
-    // ─── Split Bill Portion Collection Mode ───────────────────────────────────
-    // When splitBillProgress is active, we collect one portion payment at a time
-    // and only finalize the order once all portions have been collected.
-    if (splitBillProgress) {
-      const { count, portionAmount, paid, collectedPayments } = splitBillProgress;
-      const newCollected = [...collectedPayments, { method: paymentMethod, amount: portionAmount }];
-      const newPaid = paid + 1;
+    if (settlementBusyRef.current) return;
+    const due = totals.total;
+    if (paymentMethod === 'cash' && (!Number.isFinite(Number(cashReceived)) || Number(cashReceived) < due)) { showToast('Enter enough cash to cover the amount due.', 'error'); return; }
+    settlementBusyRef.current = true; setSettlementBusy(true);
+    try { await performPaymentComplete(); }
+    finally { settlementBusyRef.current = false; setSettlementBusy(false); }
+  };
 
-      if (newPaid < count) {
-        // More portions still to collect — update progress and stay in payment modal
-        setSplitBillProgress({ ...splitBillProgress, paid: newPaid, collectedPayments: newCollected });
-        setCashReceived(portionAmount.toFixed(2));
-        setPaymentMethod('cash');
-        showToast(`✅ Portion ${newPaid}/${count} collected (${currencySymbol}${portionAmount.toFixed(2)}). Collect next portion.`, 'success');
-        return;
-      }
+  const applyServerReceipt = (order, receiptItems, receiptTotals) => {
+    if (Math.round(Number(order.total) * 100) !== Math.round(Number(receiptTotals.total) * 100)) throw new Error('The server total changed. Review the saved ticket before taking payment.');
+    Object.assign(receiptTotals, order);
+    receiptItems.splice(0, receiptItems.length, ...order.items);
+  };
 
-      // All portions collected — place & settle the full order
-      try {
-        const receiptItems = [...cart];
-        const receiptTotals = { ...totals };
-        const splitDetails = newCollected;
-        const order = await placeOrder(false, tipInput, splitDetails);
-        if (order) {
-          const settlement = await completePayment(order.id, 'split', tipInput, splitDetails);
-          const receiptData = {
-            ...order,
-            paymentMethod: 'split',
-            paymentTimestamp: Date.now(),
-            invoiceNumber: settlement?.invoiceNumber || null,
-            items: receiptItems,
-            subtotal: receiptTotals.subtotal,
-            discount: receiptTotals.discount,
-            serviceCharge: receiptTotals.serviceCharge,
-            tax: receiptTotals.tax,
-            tip: receiptTotals.tip,
-            roundedAmount: receiptTotals.roundedAmount,
-            total: receiptTotals.total,
-            paymentSplit: splitDetails,
-          };
-          setLastPaidOrder(receiptData);
-          autoPrintRef.current = true;
-          setPrintReceiptOrder(receiptData);
-          setShowPaymentModal(false);
-          setSplitBillProgress(null);
-          clearCart();
-          setSelectedTable(null);
-          setTipInput(0);
-        }
-      } catch (err) {
-        showToast('Split checkout failed: ' + (err.message || err), 'error');
-      }
-      return;
-    }
-
+  const performPaymentComplete = async () => {
     const receiptItems = [...cart];
     const receiptTotals = { ...totals };
 
@@ -364,6 +341,7 @@ export default function POSView() {
         // 1. Create the real order first so the server prices it and can settle it authoritatively.
         const order = await placeOrder(false, tipInput, splitDetails);
         if (!order) return;
+        applyServerReceipt(order, receiptItems, receiptTotals);
 
         // 2. Ask the server for signed checkout params for the REAL order total.
         const checkRes = await fetch('/api/payments/payhere/checkout', {
@@ -448,6 +426,7 @@ export default function POSView() {
       };
       const order = await placeOrder(false, tipInput, splitDetails, extraOrderData);
       if (order) {
+        applyServerReceipt(order, receiptItems, receiptTotals);
         const settlement = await completePayment(order.id, paymentMethod, tipInput, splitDetails);
         const receiptData = {
           ...order,
@@ -488,8 +467,8 @@ export default function POSView() {
 
   const getChangeAmount = () => {
     const received = parseFloat(cashReceived) || 0;
-    // In split-bill mode, change is calculated against the per-portion amount, not the full total
-    const amountDue = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+    // Change is calculated against the saved receipt when available.
+    const amountDue = printReceiptOrder ? Number(printReceiptOrder.total) : totals.total;
     const change = received - amountDue;
     return change > 0 ? change : 0;
   };
@@ -575,6 +554,7 @@ export default function POSView() {
     <div className="pos-layout">
       {/* 1. Left panel: Menu items browser */}
       <div className="menu-panel">
+        <ManualPayments openOrder={manualOrder} onOpened={()=>setManualOrder(null)} onReceipt={order=>{autoPrintRef.current=false;setPrintReceiptOrder(order);}}/>
         <div className="menu-filters">
           <div className="search-bar">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -668,45 +648,63 @@ export default function POSView() {
       </div>
 
       {/* 2. Right panel: Active Cart & Checkout */}
-      <div className="cart-panel">
+      <button ref={mobileCartToggle} className="mobile-cart-toggle" aria-controls="pos-current-order" aria-expanded={mobileCartOpen} onClick={()=>setMobileCartOpen(true)}>
+        <span>View order · {cart.reduce((sum,item)=>sum+item.quantity,0)} items</span><strong>{currencySymbol}{totals.total.toFixed(2)}</strong>
+      </button>
+      <div id="pos-current-order" aria-label="Current order" className={`cart-panel ${mobileCartOpen?'mobile-cart-open':''}`}>
+        <div className="mobile-cart-toolbar"><strong>Your order</strong><button className="btn btn-secondary" onClick={closeMobileCart}>Back to menu</button></div>
         <div className="cart-header">
           <div className="cart-title">
-            <h2>Current Order</h2>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <h2>
+              Current Order
+              {cart.length > 0 && (
+                <span className="cart-badge">
+                  {cart.reduce((sum, item) => sum + item.quantity, 0)} {cart.reduce((sum, item) => sum + item.quantity, 0) === 1 ? 'item' : 'items'}
+                </span>
+              )}
+            </h2>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
               {lastPaidOrder && (
                 <button 
                   className="btn btn-secondary" 
-                  style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                  style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
                   onClick={() => {
-                    autoPrintRef.current = false; // Manual reprint — do NOT trigger the auto-print effect
+                    autoPrintRef.current = false;
                     setPrintReceiptOrder(lastPaidOrder);
                   }}
-                  title="Print Last Order Receipt"
+                  title="Reprint last bill"
                 >
-                  🖨️ Last Bill
+                  🖨️ Last
                 </button>
               )}
               <button 
                 className="btn btn-secondary" 
-                style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
                 onClick={() => setShowShiftCloseModal(true)}
+                title="Shift management"
               >
-                💼 Shift Control
+                💼 Shift
               </button>
               <button 
                 className="btn btn-secondary" 
-                style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
+                style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}
                 onClick={() => {
                   setCashMoveAmount('');
                   setCashMoveReason('');
                   setShowCashMoveModal(true);
                 }}
+                title="Cash drawer movement"
               >
-                💵 Cash In/Out
+                💵 Cash
               </button>
               {cart.length > 0 && (
-                <button className="btn" style={{ padding: '4px 8px', fontSize: '12px', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }} onClick={() => handleProtectedAction(() => clearCart())}>
-                  Clear All
+                <button 
+                  className="btn" 
+                  style={{ padding: '3px 7px', fontSize: '11px', height: '28px', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }} 
+                  onClick={() => handleProtectedAction(() => clearCart())}
+                  title="Clear all items"
+                >
+                  🗑️ Clear
                 </button>
               )}
             </div>
@@ -720,8 +718,9 @@ export default function POSView() {
                 setDiningType('dine-in');
                 setShowTableModal(true);
               }}
+              title="Select dining table"
             >
-              🍽️ {selectedTable ? `Table ${selectedTable.number}` : 'Select Table'}
+              🍽️ {selectedTable ? `T-${selectedTable.number}` : 'Table'}
             </button>
             
             <button 
@@ -731,6 +730,7 @@ export default function POSView() {
                 setSelectedTable(null);
                 showToast('🥡 Order mode set to Takeaway Pickup', 'info');
               }}
+              title="Takeaway pickup"
             >
               🥡 Takeaway
             </button>
@@ -742,16 +742,18 @@ export default function POSView() {
                 setSelectedTable(null);
                 setShowDeliveryModal(true);
               }}
+              title="Delivery order"
             >
-              🛵 {deliveryInfo.customerName ? `Delivery: ${deliveryInfo.customerName}` : (deliveryInfo.address ? `Delivery: ${deliveryInfo.address.slice(0, 14)}...` : 'Delivery')}
+              🛵 {deliveryInfo.customerName ? `Delivery (${deliveryInfo.customerName.slice(0, 8)})` : 'Delivery'}
             </button>
 
             {/* Customer Toggle */}
             <button 
               className={`meta-chip ${selectedCustomer ? 'active' : ''}`}
               onClick={() => setShowCustomerModal(true)}
+              title={selectedCustomer ? selectedCustomer.name : 'Attach customer for loyalty & history'}
             >
-              👤 {selectedCustomer ? selectedCustomer.name : 'Add Customer'}
+              👤 {selectedCustomer ? selectedCustomer.name.slice(0, 10) : '+ Customer'}
             </button>
           </div>
         </div>
@@ -762,7 +764,8 @@ export default function POSView() {
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
               </svg>
-              <p>Add items from the menu to start order.</p>
+              <p style={{ margin: 0, fontSize: '13px' }}>Your current order is empty.</p>
+              <span style={{ fontSize: '11px', opacity: 0.7 }}>Click dishes on the left to add items to bill.</span>
             </div>
           ) : (
             cart.map((item, index) => (
@@ -779,6 +782,13 @@ export default function POSView() {
                     <button className="qty-btn" onClick={() => updateCartQuantity(index, item.quantity + 1)}>＋</button>
                   </div>
                   <span className="cart-item-total">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                  <button 
+                    className="cart-item-remove" 
+                    onClick={() => updateCartQuantity(index, 0)}
+                    title="Remove item from order"
+                  >
+                    ✕
+                  </button>
                 </div>
               </div>
             ))
@@ -788,13 +798,33 @@ export default function POSView() {
         <div className="cart-summary">
           <div className="summary-row">
             <span>Subtotal</span>
-            <span>{currencySymbol}{totals.subtotal.toFixed(2)}</span>
+            <span style={{ fontWeight: 600 }}>{currencySymbol}{totals.subtotal.toFixed(2)}</span>
           </div>
 
-          <div className="summary-row" style={{ cursor: 'pointer', color: discountValue > 0 ? 'var(--color-primary)' : 'var(--text-muted)' }} onClick={() => handleProtectedAction(() => setShowDiscountModal(true))}>
-            <span>Discount {discountValue > 0 && `(${discountType === 'percent' ? `${discountValue}%` : `${currencySymbol}${discountValue}`})`}</span>
-            <span>-{currencySymbol}{totals.discount.toFixed(2)}</span>
-          </div>
+          {totals.discount > 0 ? (
+            <div className="summary-row" style={{ cursor: 'pointer', color: 'var(--color-primary)' }} onClick={() => handleProtectedAction(() => setShowDiscountModal(true))}>
+              <span>Discount {discountValue > 0 && `(${discountType === 'percent' ? `${discountValue}%` : `${currencySymbol}${discountValue}`})`}</span>
+              <span>-{currencySymbol}{totals.discount.toFixed(2)}</span>
+            </div>
+          ) : (
+            <div className="summary-row" style={{ fontSize: '11px' }}>
+              <span style={{ cursor: 'pointer', color: 'var(--color-primary)', opacity: 0.85 }} onClick={() => handleProtectedAction(() => setShowDiscountModal(true))}>
+                + Add Discount / Promo
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Tip:</span>
+                <input 
+                  type="number" 
+                  className="form-input" 
+                  style={{ width: '60px', padding: '2px 6px', fontSize: '12px', textAlign: 'right', margin: 0, height: '24px', borderRadius: '4px' }}
+                  min="0"
+                  value={tipInput || ''}
+                  placeholder="0"
+                  onChange={(e) => setTipInput(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+          )}
 
           {settings.serviceChargeRate > 0 && (
             <div className="summary-row">
@@ -803,25 +833,30 @@ export default function POSView() {
             </div>
           )}
 
-          <div className="summary-row">
-            <span>Tax ({settings.taxRate || 0}%)</span>
-            <span>{currencySymbol}{totals.tax.toFixed(2)}</span>
-          </div>
+          {totals.tax > 0 && (
+            <div className="summary-row">
+              <span>Tax ({settings.taxRate}%)</span>
+              <span>{currencySymbol}{totals.tax.toFixed(2)}</span>
+            </div>
+          )}
 
-          <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Add Tip ({currencySymbol})</span>
-            <input 
-              type="number" 
-              className="form-input" 
-              style={{ width: '80px', padding: '4px 8px', fontSize: '13px', textAlign: 'right', margin: 0, height: '30px' }}
-              min="0"
-              value={tipInput}
-              onChange={(e) => setTipInput(parseFloat(e.target.value) || 0)}
-            />
-          </div>
+          {totals.discount > 0 && (
+            <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Add Tip ({currencySymbol})</span>
+              <input 
+                type="number" 
+                className="form-input" 
+                style={{ width: '60px', padding: '2px 6px', fontSize: '12px', textAlign: 'right', margin: 0, height: '24px', borderRadius: '4px' }}
+                min="0"
+                value={tipInput || ''}
+                placeholder="0"
+                onChange={(e) => setTipInput(parseFloat(e.target.value) || 0)}
+              />
+            </div>
+          )}
 
           {totals.roundedAmount !== 0 && (
-            <div className="summary-row" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            <div className="summary-row" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
               <span>Rounding Adjustment</span>
               <span>{totals.roundedAmount > 0 ? '+' : ''}{currencySymbol}{totals.roundedAmount.toFixed(2)}</span>
             </div>
@@ -829,21 +864,21 @@ export default function POSView() {
 
           <div className="summary-row total">
             <span>Payable Amount</span>
-            <span>{currencySymbol}{totals.total.toFixed(2)}</span>
+            <span style={{ color: 'var(--color-primary)' }}>{currencySymbol}{totals.total.toFixed(2)}</span>
           </div>
 
-          <div className="cart-actions" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <button className="btn btn-secondary" onClick={handlePlaceHoldOrder} disabled={cart.length === 0} style={{ padding: '8px', fontSize: '13px' }}>
+          <div className="cart-actions">
+            <button className="btn btn-secondary" onClick={handlePlaceHoldOrder} disabled={cart.length === 0} title="Send Kitchen Order Ticket">
               🔥 Kitchen KOT
             </button>
-            <button className="btn btn-secondary" onClick={() => setShowRecallModal(true)} style={{ padding: '8px', fontSize: '13px' }}>
-              📋 Recall Tab ({orders.filter(o => o.status === 'hold').length})
+            <button className="btn btn-secondary" onClick={() => setShowRecallModal(true)} title="Recall held tabs">
+              📋 Tab ({orders.filter(o => o.status === 'hold').length})
             </button>
-            <button className="btn btn-secondary" onClick={() => setShowSplitModal(true)} disabled={cart.length === 0} style={{ padding: '8px', fontSize: '13px' }}>
-              ✂️ Split Bill
+            <button className="btn btn-secondary" onClick={openSavedBill} disabled={cart.length === 0 || settlementBusy} title="Split bill or partial payments">
+              Split / Portions
             </button>
-            <button className="btn btn-primary" onClick={handlePayClick} disabled={cart.length === 0} style={{ padding: '8px', fontSize: '13px' }}>
-              💳 Proceed to Pay
+            <button className="btn btn-primary" onClick={handlePayClick} disabled={cart.length === 0} style={{ fontWeight: 700, background: 'var(--color-primary)' }}>
+              💳 Pay {currencySymbol}{totals.total.toFixed(2)}
             </button>
           </div>
         </div>
@@ -1132,31 +1167,19 @@ export default function POSView() {
           <div className="modal-content" style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h2>Select Payment Mode</h2>
-              <button className="modal-close" onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>×</button>
+              <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false);  }}>×</button>
             </div>
-
-            {/* Split Bill Progress Indicator */}
-            {splitBillProgress && (
-              <div style={{ background: 'var(--color-primary-light)', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', textAlign: 'center' }}>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Split Bill Progress</div>
-                <div style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '16px' }}>
-                  Portion {splitBillProgress.paid + 1} of {splitBillProgress.count}
-                </div>
-                <div style={{ fontSize: '13px', marginTop: '4px' }}>
-                  {currencySymbol}{splitBillProgress.portionAmount.toFixed(2)} per portion · {splitBillProgress.paid} collected
-                </div>
-              </div>
-            )}
 
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
               <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-                {splitBillProgress ? `Portion ${splitBillProgress.paid + 1} Amount` : 'Final Amount Payable'}
+                Final Amount Payable
               </p>
               <h3 style={{ fontSize: '36px', fontWeight: '800', color: 'var(--color-primary)' }}>
-                {currencySymbol}{(splitBillProgress ? splitBillProgress.portionAmount : totals.total).toFixed(2)}
+                {currencySymbol}{(totals.total).toFixed(2)}
               </h3>
             </div>
 
+            <button className="btn btn-secondary" disabled={settlementBusy} onClick={openSavedBill}>Save bill for cash / bank / partial payments</button>
             <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '20px' }}>
               <div 
                 className={`payment-mode-card ${paymentMethod === 'cash' ? 'active' : ''}`}
@@ -1188,14 +1211,14 @@ export default function POSView() {
                 <div style={{ fontSize: '24px', marginBottom: '4px' }}>🔀</div>
                 <span>Split Tender</span>
               </div>
-              <div 
+              {settings.payhereEnabled === true && <div
                 className={`payment-mode-card ${paymentMethod === 'payhere' ? 'active' : ''}`}
                 style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center', cursor: 'pointer' }}
                 onClick={() => setPaymentMethod('payhere')}
               >
                 <div style={{ fontSize: '24px', marginBottom: '4px' }}>🇱🇰</div>
                 <span>PayHere Gate</span>
-              </div>
+              </div>}
             </div>
 
             {paymentMethod === 'cash' && (
@@ -1212,7 +1235,7 @@ export default function POSView() {
                 {/* Cash helpers */}
                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                   {(() => {
-                    const amountDue = splitBillProgress ? splitBillProgress.portionAmount : totals.total;
+                    const amountDue = totals.total;
                     const roundedUp = Math.ceil(amountDue / 100) * 100;
                     const noteOptions = [100, 500, 1000, 2000, 5000, 10000];
                     const helpers = [amountDue, roundedUp, ...noteOptions.filter(n => n > roundedUp)];
@@ -1285,15 +1308,11 @@ export default function POSView() {
             )}
 
             <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-              <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => { setShowPaymentModal(false); setSplitBillProgress(null); }}>
+              <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => { setShowPaymentModal(false);  }}>
                 Cancel
               </button>
-              <button className="btn btn-primary" style={{ flexGrow: 2 }} onClick={handlePaymentComplete}>
-                {splitBillProgress
-                  ? (splitBillProgress.paid + 1 < splitBillProgress.count
-                      ? `Collect Portion ${splitBillProgress.paid + 1} of ${splitBillProgress.count}`
-                      : `Settle Final Portion & Close Bill`)
-                  : 'Complete Settlement'}
+              <button className="btn btn-primary" style={{ flexGrow: 2 }} disabled={settlementBusy} onClick={handlePaymentComplete}>
+                {settlementBusy ? 'Saving settlement…' : 'Complete Settlement'}
               </button>
             </div>
           </div>
@@ -1381,7 +1400,7 @@ export default function POSView() {
               <div className="form-group" style={{ textAlign: 'center' }}>
                 <input
                   type="password"
-                  maxLength="4"
+                  maxLength="6"
                   className="form-input"
                   style={{
                     fontSize: '28px',
@@ -1392,7 +1411,7 @@ export default function POSView() {
                     margin: '0 auto',
                     padding: '8px'
                   }}
-                  placeholder="••••"
+                  placeholder="••••••"
                   value={pinValue}
                   onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ''))}
                   autoFocus
@@ -1491,6 +1510,7 @@ export default function POSView() {
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>Expected Cash Sales:</span>
                     <span>{currencySymbol}{shiftReport.stats.cashSales.toFixed(2)}</span>
+                  </div><div style={{display:'flex',justifyContent:'space-between'}}><span>Bank receipts (verified manually):</span><span>{currencySymbol}{(shiftReport.stats.bankSales||0).toFixed(2)}</span></div><div style={{display:'flex',justifyContent:'space-between'}}><span>Cash returned:</span><span>{currencySymbol}{(shiftReport.stats.cashRefunds||0).toFixed(2)}</span></div><div style={{display:'flex',justifyContent:'space-between'}}><span>Bank returned:</span><span>{currencySymbol}{(shiftReport.stats.bankRefunds||0).toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
                     <span>Expected Cash in Drawer:</span>
@@ -1553,7 +1573,7 @@ export default function POSView() {
 
       {/* Hidden print receipt window (triggered on complete) */}
       {printReceiptOrder && (
-        <div className={`receipt-print-area ${settings?.printerPaperWidth === '58mm' ? 'paper-58mm' : 'paper-80mm'}`}>
+        <div className={`receipt-print-area paper-${resolvePrinterPaperSize(settings?.printerPaperWidth)}`}>
           <div className="receipt-center">
             {settings?.logoUrl || settings?.logo || settings?.restaurantLogo ? (
               <img
@@ -1635,6 +1655,7 @@ export default function POSView() {
             <span>TOTAL AMOUNT:</span>
             <span>{currencySymbol}{(printReceiptOrder.total || 0).toFixed(2)}</span>
           </div>
+          {Number(printReceiptOrder.refundedAmount||0)>0&&<><div className="receipt-row"><span>REFUNDED:</span><span>{currencySymbol}{Number(printReceiptOrder.refundedAmount).toFixed(2)}</span></div><div className="receipt-row"><span>NET RETAINED:</span><span>{currencySymbol}{(Number(printReceiptOrder.total)-Number(printReceiptOrder.refundedAmount)).toFixed(2)}</span></div><p>Status: {printReceiptOrder.status}</p></>}
           <div className="receipt-divider"></div>
           <div className="receipt-center">
             <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
@@ -1801,78 +1822,7 @@ export default function POSView() {
         </div>
       )}
 
-      {/* 3h. Split Bill Modal */}
-      {showSplitModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '450px' }}>
-            <div className="modal-header">
-              <h2>✂️ Split Bill / Divide Check</h2>
-              <button className="modal-close" onClick={() => setShowSplitModal(false)}>×</button>
-            </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                <button
-                  className={`btn ${splitMode === 'even' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ flex: 1 }}
-                  onClick={() => setSplitMode('even')}
-                >
-                  🔢 Even Split (by N)
-                </button>
-              </div>
-
-              <div style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '12px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total Check Amount</div>
-                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-primary)' }}>
-                  {currencySymbol}{totals.total.toFixed(2)}
-                </div>
-              </div>
-
-              {splitMode === 'even' && (
-                <div>
-                  <div className="form-group">
-                    <label>Number of Diners / Portions</label>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {[2, 3, 4, 5].map(n => (
-                        <button
-                          key={n}
-                          className={`btn ${splitCount === n ? 'btn-primary' : 'btn-secondary'}`}
-                          style={{ flex: 1, padding: '8px' }}
-                          onClick={() => setSplitCount(n)}
-                        >
-                          {n} Diners
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '14px', borderRadius: '8px', color: 'var(--color-primary)', fontWeight: 700, fontSize: '15px', textAlign: 'center', marginTop: '16px' }}>
-                    Each Portion: {currencySymbol}{(totals.total / splitCount).toFixed(2)}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button className="btn btn-secondary" onClick={() => setShowSplitModal(false)}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  const portionAmount = totals.total / splitCount;
-                  // Initialise split-bill progress state to track each portion collection
-                  setSplitBillProgress({ count: splitCount, portionAmount, paid: 0, collectedPayments: [] });
-                  setShowSplitModal(false);
-                  setCashReceived(portionAmount.toFixed(2));
-                  setPaymentMethod('cash');
-                  setShowPaymentModal(true);
-                }}
-              >
-                Collect Portion 1 of {splitCount} ({currencySymbol}{(totals.total / splitCount).toFixed(2)})
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

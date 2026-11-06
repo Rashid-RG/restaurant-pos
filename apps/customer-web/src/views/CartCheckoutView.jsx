@@ -1,3 +1,4 @@
+import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/checkout-recovery.js';
 import React, { useState, useEffect } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
@@ -17,7 +18,7 @@ const LOCAL_PAYMENTS = [
 ];
 
 export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
-  const { items, subtotal, clearCart, setCartOpen, addItem } = useCart();
+  const { items, subtotal, clearCart, setCartOpen, addItem, rates } = useCart();
   const { customer, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
 
@@ -55,6 +56,13 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
   // States
   const [loading, setLoading] = useState(false);
+  const [pendingCheckout,setPendingCheckout]=useState(readPendingCheckout);
+  const finishRecovery=()=>{clearPendingCheckout();setPendingCheckout(null);};
+  const recoverCheckout=async()=>{
+    if(loading||!pendingCheckout)return;setLoading(true);
+    try{const result=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':pendingCheckout.key},body:JSON.stringify({...pendingCheckout.payload,customerToken:getToken()||null})});if(JSON.stringify(pendingCheckout.payload.items)===JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();finishRecovery();setCartOpen(false);onOrderPlaced&&onOrderPlaced(result.orderId);}
+    catch(error){toast(error.message,'error');}finally{setLoading(false);}
+  };
   const [payhereRedirectData, setPayhereRedirectData] = useState(null);
 
   // OTP Verification States
@@ -161,10 +169,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     }
   }
 
-  const taxRate = 0.10; // 10% tax rate
-  const discountTotal = loyaltyDiscount + promoDiscount;
-  const serviceCharge = (subtotal - discountTotal) * 0.10; // 10% service charge
-  const tax = (subtotal - discountTotal + serviceCharge) * taxRate;
+  const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
+  const taxRate = rates.taxRate / 100;
+  const discountTotal = money(Math.min(subtotal, loyaltyDiscount + money(promoDiscount)));
+  const serviceCharge = money((subtotal - discountTotal) * rates.serviceChargeRate / 100);
+  const tax = money((subtotal - discountTotal + serviceCharge) * taxRate);
   
   // Dynamic delivery fee addition
   const activeDeliveryFee = orderType === 'delivery' ? deliveryFee : 0;
@@ -172,7 +181,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   const tipAmount = tipPercent === 'custom'
     ? Math.max(0, Number(customTip) || 0)
     : Math.round((subtotal * tipPercent) / 100 * 100) / 100;
-  const rawTotal = subtotal - discountTotal + serviceCharge + tax + activeDeliveryFee + tipAmount;
+  const rawTotal = money(subtotal - discountTotal + serviceCharge + tax + activeDeliveryFee + money(tipAmount));
   const total = Math.round(rawTotal);
   const roundedAmount = total - rawTotal;
 
@@ -247,9 +256,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     setLoading(true);
     try {
       const token = getToken();
-      const data = await apiFetch('/public/orders', {
-        method: 'POST',
-        body: JSON.stringify({
+      const payload = {
           items: items.map(i => ({
             menuItemId: i.id,
             quantity: i.qty,
@@ -264,14 +271,18 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           deliveryAddress: orderType === 'delivery' ? (geoLocation?.label || address.trim()) : null,
           deliveryLat: orderType === 'delivery' && geoLocation ? geoLocation.lat : null,
           deliveryLng: orderType === 'delivery' && geoLocation ? geoLocation.lng : null,
-          customerToken: token || null,
           loyaltyPointsToRedeem,
           promoCode: appliedPromo?.code || null,
           scheduledTime: isScheduled ? scheduledTimeVal : null,
           tip: tipAmount,
           paymentMethod: paymentMethod === 'payhere' ? 'online_pending' : 'cash'
-        })
-      });
+        };
+      const attempt=checkoutIntent(payload);setPendingCheckout(attempt);
+      const data=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':attempt.key},body:JSON.stringify({...attempt.payload,customerToken:token||null})});
+      if(['cancelled','rejected','refunded','partially_refunded'].includes(data.status)){finishRecovery();toast('This order already exists and is closed. Opening its current status.','info');onOrderPlaced&&onOrderPlaced(data.orderId);return;}
+      if(data.paymentStatus==='paid'){
+        finishRecovery();clearCart();setCartOpen(false);onOrderPlaced&&onOrderPlaced(data.orderId);return;
+      }
 
       if (paymentMethod === 'payhere') {
         const payhereRes = await apiFetch('/public/payment/payhere/hash', {
@@ -284,10 +295,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         });
 
         if (window.payhere) {
-          window.payhere.onCompleted = function onPaymentCompleted(orderId) {
-            clearCart();
+          window.payhere.onCompleted = async function onPaymentCompleted(orderId) {
+            const settled=await pollOrderPaid(data.orderId);
+            finishRecovery();clearCart();
             setCartOpen(false);
-            toast('Payment successful via PayHere! 🎉', 'success');
+            toast(settled?'Payment confirmed by the server.':'Payment is still processing. Check order tracking before trying another payment.',settled?'success':'info');
             onOrderPlaced && onOrderPlaced(data.orderId);
           };
 
@@ -319,13 +331,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
             country: 'Sri Lanka'
           });
         } else {
-          clearCart();
-          setCartOpen(false);
-          toast(`Order #${data.orderId.slice(-4).toUpperCase()} created! PayHere Sandbox Hash: ${payhereRes.hash.slice(0, 8)}...`, 'success');
-          onOrderPlaced && onOrderPlaced(data.orderId);
+          const redirect=await apiFetch('/payments/payhere/checkout',{method:'POST',body:JSON.stringify({orderId:data.orderId})});
+          setPayhereRedirectData(redirect);
         }
       } else {
-        clearCart();
+        finishRecovery();clearCart();
         setCartOpen(false);
         toast('Order placed successfully! 🎉', 'success');
         onOrderPlaced && onOrderPlaced(data.orderId);
@@ -438,7 +448,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     for (let i = 0; i < attempts; i++) {
       try {
         const order = await apiFetch(`/public/orders/${orderId}`);
-        if (order && order.status === 'paid') return true;
+        if (order && (order.paymentStatus==='paid'||order.status === 'paid')) return true;
       } catch { /* keep polling */ }
       await new Promise(r => setTimeout(r, intervalMs));
     }
@@ -455,8 +465,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
     const params = {
       merchant_id: payhereRedirectData.merchantId,
-      return_url: window.location.origin + `/tracking/${payhereRedirectData.orderId}`,
-      cancel_url: window.location.origin + '/checkout',
+      return_url: window.location.origin+window.location.pathname+'?track='+encodeURIComponent(payhereRedirectData.orderId),
+      cancel_url: window.location.origin+window.location.pathname+'?view=checkout',
       notify_url: payhereRedirectData.notifyUrl || '',
       first_name: name.split(' ')[0] || 'Customer',
       last_name: name.split(' ')[1] || 'Guest',
@@ -486,11 +496,18 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
   return (
     <div className="checkout-view fade-in" style={{ padding: '16px 12px', paddingBottom: 'calc(var(--bottom-bar) + var(--sa-bottom) + 96px)' }}>
+      {pendingCheckout&&<section aria-label="Previous checkout" className="glass" style={{padding:16,marginBottom:16}}>
+        <strong>Previous checkout</strong>
+        <p>Your last checkout may already be saved. Check its order before placing another.</p>
+        <button className="btn btn-brand" disabled={loading} onClick={recoverCheckout}>Recover previous order</button>
+        <button className="btn btn-ghost" disabled={loading} onClick={()=>{if(window.confirm('Have you checked the previous order? Starting again can create an additional order.'))finishRecovery();}}>Start a separate order</button>
+      </section>}
+
       
       {/* PayHere Sandbox Redirect Pop-up */}
       {payhereRedirectData && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.65)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div className="glass" style={{ width: '100%', maxWidth: 400, background: 'var(--bg-card)', padding: 24, borderRadius: 16, border: '2px solid var(--brand)', textAlign: 'center' }}>
+          <div className="glass device-dialog" role="dialog" aria-modal="true" aria-label="Online payment" style={{ width: '100%', maxWidth: 400, background: 'var(--bg-card)', padding: 24, borderRadius: 16, border: '2px solid var(--brand)', textAlign: 'center' }}>
             <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>💳 PayHere Sandbox Gateway</h3>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '8px 0 20px' }}>
               Checkout total: <strong>Rs. {payhereRedirectData.amount}</strong> for Order: <code>{payhereRedirectData.orderId}</code>.
@@ -521,7 +538,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       {/* OTP Verification Modal */}
       {showOtpModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 16, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
+          <div className="device-dialog" role="dialog" aria-modal="true" aria-label="Verify order" style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 16, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
             <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 800 }}>🔐 Verify Order Credentials</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
               Verification code sent to <strong>{otpChannel === 'email' ? (email || customer?.email) : phone}</strong>.
@@ -873,7 +890,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Payment Method</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            {LOCAL_PAYMENTS.map(p => (
+            {LOCAL_PAYMENTS.filter(p => p.id !== 'payhere' || rates.payhereEnabled === true).map(p => (
               <label 
                 key={p.id} 
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(0,0,0,0.02)', borderRadius: 8, cursor: 'pointer' }}

@@ -2,13 +2,19 @@
   "short_name": "GastroFood",
   "name": "GastroFlow Food Delivery & Marketplace",
   "description": "Order gourmet Sri Lankan meals & takeaway fast, easy, delicious.",
-  "start_url": "/customer",
+  "start_url": "/customer/",
   "scope": "/customer/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#060606",
-  "theme_color": "#ff6b35",
+  "background_color": "#f7f7f2",
+  "theme_color": "#c55b3b",
   "icons": [
+    {
+      "src": "food-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "food-logo.png",
       "sizes": "512x512",

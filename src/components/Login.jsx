@@ -1,3 +1,4 @@
+import { Eye, EyeOff, UtensilsCrossed } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
 
@@ -137,6 +138,13 @@ export default function Login() {
       left: 0,
       zIndex: 9999
     }}>
+      <section className="login-intro" aria-label="Welcome to GastroFlow">
+        <div className="sidebar-brand"><img src="/pos-logo.svg" alt="" width="38" height="38"/><strong>gastroflow.</strong></div>
+        <div className="login-eyebrow">A LITTLE LESS BUSYWORK. A LOT MORE FLOW.</div>
+        <h1>Good food.<br/>Great service.<br/><em>One workspace.</em></h1>
+        <p>Bring your counter, kitchen and deliveries together. Everything your team needs for a smoother service.</p>
+        <ul><li>Take orders and keep the kitchen in sync</li><li>Keep track of every table and delivery</li><li>Make informed decisions with live reporting</li></ul>
+      </section>
       <div className="login-card glass" style={{
         width: '100%',
         maxWidth: '420px',
@@ -153,14 +161,14 @@ export default function Login() {
             width: '64px',
             height: '64px',
             borderRadius: 'var(--radius-md)',
-            background: 'linear-gradient(135deg, var(--color-primary), hsl(265, 89%, 60%))',
+            background: 'var(--color-primary)',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '32px',
             marginBottom: '16px',
             boxShadow: 'var(--shadow-glow)'
           }}>
-            🍕
+            <img src="/pos-logo.svg" alt="GastroFlow logo" width="64" height="64"/>
           </div>
           <h2 style={{ fontFamily: 'var(--font-title)', fontWeight: 800, fontSize: '24px', margin: 0 }}>
             {view === 'login' && 'GastroFlow Terminal'}
@@ -262,7 +270,7 @@ export default function Login() {
                   }}
                   title={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? '👁️' : '🙈'}
+                  {showPassword ? <Eye size={18}/> : <EyeOff size={18}/>}
                 </button>
               </div>
             </div>
@@ -468,7 +476,7 @@ export default function Login() {
         )}
 
         <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
-          GastroFlow Commercial POS & SaaS Platform
+          Your restaurant. In good flow.
         </div>
       </div>
     </div>
