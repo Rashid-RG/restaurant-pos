@@ -2220,7 +2220,7 @@ async function settleOrderPaid(order, method = 'payhere', withinTransaction = fa
       await dbRun('UPDATE orders SET invoiceNumber = ? WHERE id = ?', [invoiceNumber, order.id]);
     }
     if (order.tableId && (order.status==='served' || (await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[order.id,order.tenant_id]))?.state==='served')) {
-      await dbRun('UPDATE tables SET status="free",currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?',[order.tableId,order.tenant_id,order.id]);
+      await dbRun("UPDATE tables SET status='free',currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?",[order.tableId,order.tenant_id,order.id]);
     }
     const earnedPoints = Math.floor(order.total / 10);
     if (order.customerId) {
@@ -2456,10 +2456,15 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
 app.post(['/api/menu_items/clear-all', '/api/menu/clear-all'], authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
   try {
     const tenantId = req.tenantId || 'default_tenant';
+    const isDefault = tenantId === 'default_tenant';
     await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ? OR orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId, tenantId]);
-    await dbRun('DELETE FROM recipes WHERE tenant_id = ?', [tenantId]);
-    await dbRun('DELETE FROM modifiers WHERE tenant_id = ?', [tenantId]);
-    await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+    await dbRun('DELETE FROM recipes WHERE tenant_id = ?', [tenantId]).catch(() => {});
+    await dbRun('DELETE FROM modifiers WHERE tenant_id = ?', [tenantId]).catch(() => {});
+    if (isDefault) {
+      await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR tenant_id IS NULL', [tenantId]);
+    } else {
+      await dbRun('DELETE FROM menu_items WHERE tenant_id = ?', [tenantId]);
+    }
     await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'menu_initial_seeded', '1')", [tenantId]).catch(() => {});
     try {
       notifyPublicStore({ type: 'menu_cleared' }, tenantId);
@@ -2475,6 +2480,7 @@ app.post(['/api/menu_items/clear-all', '/api/menu/clear-all'], authenticateToken
 app.post('/api/tenant/reset-test-data', authenticateToken, requireRole(['owner']), async (req, res) => {
   try {
     const tenantId = req.tenantId || 'default_tenant';
+    const isDefault = tenantId === 'default_tenant';
     const { wipeOrders = true, wipeExpenses = true, wipeMenu = false, wipeCategories = false } = req.body || {};
 
     if (wipeOrders) {
@@ -2497,12 +2503,20 @@ app.post('/api/tenant/reset-test-data', authenticateToken, requireRole(['owner']
       await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ?', [tenantId]);
       await dbRun('DELETE FROM recipes WHERE tenant_id = ?', [tenantId]).catch(() => {});
       await dbRun('DELETE FROM modifiers WHERE tenant_id = ?', [tenantId]).catch(() => {});
-      await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+      if (isDefault) {
+        await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR tenant_id IS NULL', [tenantId]);
+      } else {
+        await dbRun('DELETE FROM menu_items WHERE tenant_id = ?', [tenantId]);
+      }
       await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'menu_initial_seeded', '1')", [tenantId]).catch(() => {});
     }
 
     if (wipeCategories) {
-      await dbRun('DELETE FROM categories WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+      if (isDefault) {
+        await dbRun('DELETE FROM categories WHERE tenant_id = ? OR tenant_id IS NULL', [tenantId]);
+      } else {
+        await dbRun('DELETE FROM categories WHERE tenant_id = ?', [tenantId]);
+      }
       await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'categories_initial_seeded', '1')", [tenantId]).catch(() => {});
     }
 
@@ -2526,7 +2540,12 @@ app.post('/api/tenant/reset-test-data', authenticateToken, requireRole(['owner']
 app.post(['/api/categories/clear-all'], authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
   try {
     const tenantId = req.tenantId || 'default_tenant';
-    await dbRun('DELETE FROM categories WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+    const isDefault = tenantId === 'default_tenant';
+    if (isDefault) {
+      await dbRun('DELETE FROM categories WHERE tenant_id = ? OR tenant_id IS NULL', [tenantId]);
+    } else {
+      await dbRun('DELETE FROM categories WHERE tenant_id = ?', [tenantId]);
+    }
     await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'categories_initial_seeded', '1')", [tenantId]).catch(() => {});
     try {
       notifyPublicStore({ type: 'categories_cleared' }, tenantId);
@@ -5833,7 +5852,7 @@ app.post('/api/orders/:id/reject', requireRole(['owner', 'manager', 'cashier']),
     const kitchen=await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[orderId,req.tenantId]);
     if(kitchen&&kitchen.state!=='pending'&&!['cancelled','rejected'].includes(order.status)){await dbRun('ROLLBACK');transaction=false;return res.status(409).json({error:'Use the manager kitchen cancellation for prepared food.'});}
     if (!['cancelled','rejected'].includes(order.status)) {
-      await dbRun('UPDATE orders SET status="cancelled",rejectedReason=? WHERE id=? AND tenant_id=?', [req.body.reason || 'Kitchen unavailable at this time',orderId,req.tenantId]);
+      await dbRun("UPDATE orders SET status='cancelled',rejectedReason=? WHERE id=? AND tenant_id=?", [req.body.reason || 'Kitchen unavailable at this time',orderId,req.tenantId]);
       const items = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [orderId]);
       await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:[],reason:'rejected_order',actorId:req.user.id,requireExisting:true});
       await releaseOrderLoyalty(orderId,req.tenantId);
@@ -6127,9 +6146,9 @@ app.post('/api/tables/transfer', requireRole(['owner', 'manager', 'cashier']), a
     // Update order's tableId pointer
     await dbRun('UPDATE orders SET tableId = ? WHERE id = ?', [toTableId, orderId]);
     // Free source table
-    await dbRun('UPDATE tables SET status = "free", currentOrderId = NULL WHERE id = ?', [fromTableId]);
+    await dbRun("UPDATE tables SET status = 'free', currentOrderId = NULL WHERE id = ?", [fromTableId]);
     // Occupy target table
-    await dbRun('UPDATE tables SET status = "occupied", currentOrderId = ? WHERE id = ?', [orderId, toTableId]);
+    await dbRun("UPDATE tables SET status = 'occupied', currentOrderId = ? WHERE id = ?", [orderId, toTableId]);
 
     await writeAuditLog(req.user.id, req.user.username, 'transfer_table', `Transferred Order ${orderId} from Table ${fromTable.number} to Table ${toTable.number}`);
     await dbRun('COMMIT');
@@ -6229,7 +6248,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           await syncKitchen({dbGet,dbAll,dbRun,orderId:id,tenantId,items:JSON.parse(current.items||'[]'),reason:'before_payment',actorId:userId});
           await dbRun("UPDATE orders SET paymentStatus='paid', paymentTimestamp=?, cashierId=? WHERE id=? AND tenant_id=?", [Date.now(),userId,id,tenantId]);
           if (!current.invoiceNumber) await dbRun('UPDATE orders SET invoiceNumber=? WHERE id=? AND tenant_id=?', [await allocateInvoiceNumber(),id,tenantId]);
-          if (current.tableId && (current.status==='served' || (await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[id,tenantId]))?.state==='served')) await dbRun('UPDATE tables SET status="free",currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?',[current.tableId,tenantId,id]);
+          if (current.tableId && (current.status==='served' || (await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[id,tenantId]))?.state==='served')) await dbRun("UPDATE tables SET status='free',currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?",[current.tableId,tenantId,id]);
           const points = Math.floor((current.total || 0) / 10);
           if (current.customerId) await dbRun('UPDATE customers SET points=COALESCE(points,0)+?,orderCount=COALESCE(orderCount,0)+1,totalSpent=COALESCE(totalSpent,0)+? WHERE id=? AND tenant_id=?', [points,current.total,current.customerId,tenantId]);
           if (current.customerAccountId) await dbRun('UPDATE customer_accounts SET loyaltyPoints=COALESCE(loyaltyPoints,0)+?,totalSpent=COALESCE(totalSpent,0)+? WHERE id=? AND tenant_id=?', [points,current.total,current.customerAccountId,tenantId]);
@@ -6241,7 +6260,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           const savedItems = await dbAll('SELECT menuItemId,quantity FROM order_items WHERE orderId=?', [id]);
           await setOrderInventory({dbGet,dbAll,dbRun,orderId:id,tenantId,items:[],reason:'cancelled_order',actorId:req.user.id,requireExisting:true});
           await releaseOrderLoyalty(id,tenantId);
-          if (current.tableId) await dbRun('UPDATE tables SET status="free",currentOrderId=NULL WHERE id=? AND tenant_id=?', [current.tableId,tenantId]);
+          if (current.tableId) await dbRun("UPDATE tables SET status='free',currentOrderId=NULL WHERE id=? AND tenant_id=?", [current.tableId,tenantId]);
           await writeAuditLog(userId, username, 'cancel_order', `Cancelled order ${id}`);
         }
         // Status-only requests cannot rewrite tips, timestamps, or tender records.
