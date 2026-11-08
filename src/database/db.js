@@ -88,7 +88,10 @@ export const db = {
         window.dispatchEvent(new CustomEvent('gastroflow_auth_error', { detail: { status: response.status, data: errJson } }));
         throw new Error(errJson.error || 'Unauthorized');
       }
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || `HTTP error! status: ${response.status}`);
+      }
       return await response.json();
     } catch (err) {
       console.error(`Error querying DELETE /api/${tableName}/${key}:`, err);

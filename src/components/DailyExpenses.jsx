@@ -101,20 +101,20 @@ export default function DailyExpenses() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save expense');
-      showToast(`Saved expense: ${formCategory} (${currencySymbol || 'Rs. '} ${parseFloat(formAmount).toFixed(2)})`, 'success');
+      showToast(`✅ Expense Recorded: ${formCategory} (${currencySymbol || 'Rs. '}${parseFloat(formAmount).toFixed(2)}) for ${formDate || selectedDate}`, 'success');
       setShowAddModal(false);
       setFormAmount('');
       setFormNotes('');
       fetchExpensesAndSummary(selectedDate);
     } catch (err) {
-      showToast(err.message, 'error');
+      showToast(`❌ Could not record expense: ${err.message}`, 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteExpense = async (id, cat, amt) => {
-    if (!window.confirm(`Delete expense "${cat}" (${currencySymbol || 'Rs. '} ${amt.toFixed(2)})?`)) return;
+    if (!window.confirm(`Delete expense "${cat}" (${currencySymbol || 'Rs. '}${amt.toFixed(2)})?`)) return;
     try {
       const token = localStorage.getItem('gastroflow_token');
       const res = await fetch(`/api/expenses/${id}`, {
@@ -122,10 +122,10 @@ export default function DailyExpenses() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Could not delete expense.');
-      showToast('Expense removed.', 'info');
+      showToast(`🗑️ Removed expense: ${cat} (${currencySymbol || 'Rs. '}${amt.toFixed(2)})`, 'info');
       fetchExpensesAndSummary(selectedDate);
     } catch (err) {
-      showToast(err.message, 'error');
+      showToast(`❌ Error removing expense: ${err.message}`, 'error');
     }
   };
 
@@ -169,7 +169,7 @@ export default function DailyExpenses() {
   const curr = currencySymbol || 'Rs.';
 
   return (
-    <div className="main-content" style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div className="main-content" style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto', width: '100%', height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
       {/* View Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>

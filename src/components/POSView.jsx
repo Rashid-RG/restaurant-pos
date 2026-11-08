@@ -424,7 +424,7 @@ export default function POSView() {
         deliveryFee: diningType === 'delivery' ? parseFloat(deliveryInfo.fee || 0) : 0,
         notes: deliveryInfo.notes || ''
       };
-      const order = await placeOrder(false, tipInput, splitDetails, extraOrderData);
+      const order = await placeOrder(false, tipInput, splitDetails, extraOrderData, true);
       if (order) {
         applyServerReceipt(order, receiptItems, receiptTotals);
         const settlement = await completePayment(order.id, paymentMethod, tipInput, splitDetails);

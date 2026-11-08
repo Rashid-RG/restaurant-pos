@@ -2456,6 +2456,9 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
 app.post(['/api/menu_items/clear-all', '/api/menu/clear-all'], authenticateToken, requireRole(['owner', 'manager', 'admin']), async (req, res) => {
   try {
     const tenantId = req.tenantId || 'default_tenant';
+    await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ? OR orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId, tenantId]);
+    await dbRun('DELETE FROM recipes WHERE tenant_id = ?', [tenantId]);
+    await dbRun('DELETE FROM modifiers WHERE tenant_id = ?', [tenantId]);
     await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
     await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'menu_initial_seeded', '1')", [tenantId]).catch(() => {});
     try {
@@ -2463,6 +2466,57 @@ app.post(['/api/menu_items/clear-all', '/api/menu/clear-all'], authenticateToken
       notifyPOS({ type: 'menu_cleared' }, tenantId);
     } catch (_) {}
     res.json({ success: true, message: 'All menu items cleared successfully from database.' });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
+// Tenant Test Data Reset Endpoint: Reset sales orders, expenses, shifts, and optionally menu for clean start
+app.post('/api/tenant/reset-test-data', authenticateToken, requireRole(['owner']), async (req, res) => {
+  try {
+    const tenantId = req.tenantId || 'default_tenant';
+    const { wipeOrders = true, wipeExpenses = true, wipeMenu = false, wipeCategories = false } = req.body || {};
+
+    if (wipeOrders) {
+      await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ? OR orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId, tenantId]);
+      await dbRun('DELETE FROM order_items WHERE tenant_id = ? OR orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId, tenantId]);
+      await dbRun('DELETE FROM orders WHERE tenant_id = ?', [tenantId]);
+      await dbRun('DELETE FROM kitchen_tickets WHERE tenant_id = ?', [tenantId]).catch(() => {});
+      await dbRun('DELETE FROM order_inventory_state WHERE tenant_id = ?', [tenantId]).catch(() => {});
+      await dbRun('DELETE FROM inventory_movements WHERE tenant_id = ?', [tenantId]).catch(() => {});
+      await dbRun('DELETE FROM cash_movements WHERE tenant_id = ?', [tenantId]).catch(() => {});
+      await dbRun('DELETE FROM shifts WHERE tenant_id = ?', [tenantId]).catch(() => {});
+      await dbRun("UPDATE tables SET status = 'free', currentOrderId = NULL WHERE tenant_id = ?", [tenantId]).catch(() => {});
+    }
+
+    if (wipeExpenses) {
+      await dbRun('DELETE FROM daily_expenses WHERE tenant_id = ?', [tenantId]).catch(() => {});
+    }
+
+    if (wipeMenu) {
+      await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ?', [tenantId]);
+      await dbRun('DELETE FROM recipes WHERE tenant_id = ?', [tenantId]).catch(() => {});
+      await dbRun('DELETE FROM modifiers WHERE tenant_id = ?', [tenantId]).catch(() => {});
+      await dbRun('DELETE FROM menu_items WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+      await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'menu_initial_seeded', '1')", [tenantId]).catch(() => {});
+    }
+
+    if (wipeCategories) {
+      await dbRun('DELETE FROM categories WHERE tenant_id = ? OR (tenant_id IS NULL AND ? = "default_tenant")', [tenantId, tenantId]);
+      await dbRun("INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, 'categories_initial_seeded', '1')", [tenantId]).catch(() => {});
+    }
+
+    await writeAuditLog(req.user.id, req.user.username, 'reset_tenant_test_data', `Reset test data for store ${tenantId}: orders=${wipeOrders}, expenses=${wipeExpenses}, menu=${wipeMenu}`);
+    
+    try {
+      notifyPublicStore({ type: 'menu_updated' }, tenantId);
+      notifyPOS({ type: 'data_refreshed' }, tenantId);
+    } catch (_) {}
+
+    res.json({ 
+      success: true, 
+      message: 'Test data has been successfully cleared. Your restaurant is ready for real data.' 
+    });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -5925,10 +5979,17 @@ app.post('/api/menu_items', authenticateToken, requireRole(['owner', 'manager'])
 app.delete('/api/menu_items/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
     const tid = req.tenantId || 'default_tenant';
-    await dbRun('DELETE FROM menu_items WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
-    await writeAuditLog(req.user.id, req.user.username, 'delete_menu_item', `Deleted menu item ${req.params.id}`);
-    notifyPublicStore({ type: 'menu_updated', deletedItemId: req.params.id }, tid);
-    notifyPOS({ type: 'menu_updated', deletedItemId: req.params.id }, tid);
+    const itemId = req.params.id;
+    // Unlink foreign key in order_items so historical receipts keep item name & price without blocking deletion
+    await dbRun('UPDATE order_items SET menuItemId = NULL WHERE menuItemId = ?', [itemId]);
+    // Remove recipe mappings & modifiers associated with this menu item
+    await dbRun('DELETE FROM recipes WHERE menuItemId = ? AND tenant_id = ?', [itemId, tid]);
+    await dbRun('DELETE FROM modifiers WHERE menuItemId = ? AND tenant_id = ?', [itemId, tid]);
+    // Delete the menu item
+    await dbRun('DELETE FROM menu_items WHERE id = ? AND tenant_id = ?', [itemId, tid]);
+    await writeAuditLog(req.user.id, req.user.username, 'delete_menu_item', `Deleted menu item ${itemId}`);
+    notifyPublicStore({ type: 'menu_updated', deletedItemId: itemId }, tid);
+    notifyPOS({ type: 'menu_updated', deletedItemId: itemId }, tid);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });

@@ -171,70 +171,14 @@ export const POSProvider = ({ children }) => {
         db.getAll('customers'),
       ]);
 
-      // Convert settings array to object
+      // Convert settings array or object to object
       const settingsObj = {};
-      loadedSettings.forEach((item) => {
-        settingsObj[item.key] = item.value;
-      });
-
-      let finalCustomers = loadedCustomers;
-
-      // Real-time server sync for long-running POS sessions
-      const token = localStorage.getItem('gastroflow_token');
-      if (token) {
-        try {
-          const authHeaders = { Authorization: `Bearer ${token}` };
-          const [menuRes, catRes, orderRes, setRes, custRes] = await Promise.all([
-            fetch('/api/menu_items', { headers: authHeaders }).catch(() => null),
-            fetch('/api/categories', { headers: authHeaders }).catch(() => null),
-            fetch('/api/orders', { headers: authHeaders }).catch(() => null),
-            fetch('/api/settings', { headers: authHeaders }).catch(() => null),
-            fetch('/api/customers', { headers: authHeaders }).catch(() => null)
-          ]);
-
-          if (menuRes?.ok) {
-            const serverItems = await menuRes.json();
-            if (Array.isArray(serverItems) && serverItems.length > 0) {
-              loadedItems = serverItems;
-              await db.bulkPut('menu_items', serverItems).catch(() => {});
-            }
-          }
-          if (catRes?.ok) {
-            const serverCats = await catRes.json();
-            if (Array.isArray(serverCats) && serverCats.length > 0) {
-              loadedCats = serverCats;
-              await db.bulkPut('categories', serverCats).catch(() => {});
-            }
-          }
-          if (orderRes?.ok) {
-            const serverOrders = await orderRes.json();
-            if (Array.isArray(serverOrders)) {
-              loadedOrders = serverOrders;
-              await db.bulkPut('orders', serverOrders).catch(() => {});
-            }
-          }
-          if (setRes?.ok) {
-            const serverSettings = await setRes.json();
-            if (Array.isArray(serverSettings)) {
-              loadedSettings = serverSettings;
-              await db.bulkPut('settings', serverSettings).catch(() => {});
-              serverSettings.forEach(item => {
-                settingsObj[item.key] = item.value;
-              });
-            } else if (serverSettings && typeof serverSettings === 'object') {
-              Object.entries(serverSettings).forEach(([k, v]) => {
-                settingsObj[k] = v;
-              });
-            }
-          }
-          if (custRes?.ok) {
-            const apiCustomers = await custRes.json();
-            if (Array.isArray(apiCustomers)) {
-              finalCustomers = apiCustomers;
-              await db.bulkPut('customers', apiCustomers).catch(() => {});
-            }
-          }
-        } catch (_) {}
+      if (Array.isArray(loadedSettings)) {
+        loadedSettings.forEach((item) => {
+          if (item && item.key !== undefined) settingsObj[item.key] = item.value;
+        });
+      } else if (loadedSettings && typeof loadedSettings === 'object') {
+        Object.assign(settingsObj, loadedSettings);
       }
 
       setSettings(prev => {
@@ -245,11 +189,11 @@ export const POSProvider = ({ children }) => {
         }
         return settingsObj;
       });
-      setCategories(loadedCats);
-      setMenuItems(loadedItems);
-      setTables(loadedTables);
-      setOrders(loadedOrders);
-      setCustomers(finalCustomers);
+      setCategories(loadedCats || []);
+      setMenuItems(loadedItems || []);
+      setTables(loadedTables || []);
+      setOrders(loadedOrders || []);
+      setCustomers(loadedCustomers || []);
     } catch (error) {
       console.error('Failed to load database contents:', error);
     } finally {
@@ -830,7 +774,7 @@ export const POSProvider = ({ children }) => {
   };
 
   // Place Order / Create Ticket (KOT)
-  const placeOrder = async (isHold = false, tipVal = 0, splitDetails = null, extraOrderData = {}) => {
+  const placeOrder = async (isHold = false, tipVal = 0, splitDetails = null, extraOrderData = {}, skipReload = false) => {
     if (cart.length === 0) return null;
 
     const orderId = `ord_${Date.now()}`;
@@ -868,8 +812,10 @@ export const POSProvider = ({ children }) => {
       if(!savedOrder) throw new Error('Saved bill needs refresh before payment.');
     } else savedOrder = await db.put('orders', newOrder);
     
-    // Reload database state to reflect stock and table status updates in the UI
-    await loadAllData();
+    // Reload database state to reflect stock and table status updates in the UI (skip if immediate settlement follows)
+    if (!skipReload) {
+      await loadAllData();
+    }
 
     if (isHold) {
       clearCart();
@@ -978,17 +924,29 @@ export const POSProvider = ({ children }) => {
     }
   };
 
-  const resetAllDatabase = async () => {
+  const resetStoreTestData = async (options = { wipeOrders: true, wipeExpenses: true, wipeMenu: false, wipeCategories: false }) => {
     setLoading(true);
-    await Promise.all([
-      db.clear('settings'),
-      db.clear('categories'),
-      db.clear('menu_items'),
-      db.clear('tables'),
-      db.clear('orders'),
-      db.clear('customers'),
-    ]);
-    await loadAllData();
+    try {
+      const token = localStorage.getItem('gastroflow_token');
+      const res = await fetch('/api/tenant/reset-test-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify(options)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to reset store test data');
+      await loadAllData();
+      return data;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetAllDatabase = async () => {
+    return resetStoreTestData({ wipeOrders: true, wipeExpenses: true, wipeMenu: true, wipeCategories: false });
   };
 
   return (
@@ -1066,10 +1024,11 @@ export const POSProvider = ({ children }) => {
         rejectOnlineOrder,
         updateOrderEta,
 
-        // Backup
+        // Backup & Reset
         exportDatabase,
         importDatabase,
         resetAllDatabase,
+        resetStoreTestData,
 
         // Toast & Audio Ringer
         showToast,

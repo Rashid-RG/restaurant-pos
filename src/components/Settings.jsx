@@ -20,6 +20,7 @@ export default function Settings() {
     exportDatabase,
     importDatabase,
     resetAllDatabase,
+    resetStoreTestData,
     showToast,
   } = usePOS();
 
@@ -573,12 +574,30 @@ export default function Settings() {
     reader.readAsText(file);
   };
 
-  const handleResetClick = async () => {
-    if (confirm('⚠️ WARNING: This will completely wipe all sales records, inventory stock, customers, and menu items. Are you sure you want to reset the database?')) {
-      await resetAllDatabase();
-      showToast('Database reset to defaults.', 'info');
-      window.location.reload();
+  const handleClearOrdersAndExpenses = async () => {
+    if (confirm("⚠️ Clear all test sales orders and expenses?\n\nThis will reset Today's Gross Sales to Rs. 0.00 and clear all test receipts. Your menu items will NOT be deleted.")) {
+      try {
+        await resetStoreTestData({ wipeOrders: true, wipeExpenses: true, wipeMenu: false });
+        showToast("✅ All test sales and expenses cleared! Gross sales reset to Rs. 0.00.", 'success');
+      } catch (err) {
+        showToast("❌ Failed to clear test sales: " + err.message, 'error');
+      }
     }
+  };
+
+  const handleFullStoreReset = async () => {
+    if (confirm("🚨 DANGER: Full Reset!\n\nThis will wipe all test orders, test sales history, daily expenses, AND all demo menu items for this restaurant so you can start completely from scratch.\n\nAre you sure you want to proceed?")) {
+      try {
+        await resetStoreTestData({ wipeOrders: true, wipeExpenses: true, wipeMenu: true });
+        showToast("✅ Store completely reset to clean state! Ready for your real data.", 'success');
+      } catch (err) {
+        showToast("❌ Failed to reset store: " + err.message, 'error');
+      }
+    }
+  };
+
+  const handleResetClick = async () => {
+    await handleFullStoreReset();
   };
 
   return (
@@ -983,15 +1002,73 @@ export default function Settings() {
                     </div>
                   </div>
 
-                  {/* Wipe block */}
-                  <div style={{ padding: '20px', border: '1px solid var(--color-danger-light)', borderRadius: '12px', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}>
-                    <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Danger Zone: Reset Database</h3>
-                    <p style={{ fontSize: '13px', marginBottom: '16px', opacity: 0.9 }}>
-                      Wipes all sales records, inventory adjustments, and resets the terminal to factory defaults. This action is irreversible!
+                  {/* Danger Zone: Test Data & Reset Tools */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderTop: '2px dashed var(--border-color)', paddingTop: '20px' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '800', margin: '0 0 4px', color: 'var(--color-danger)' }}>
+                      ⚠️ Restaurant Test Data & Reset Tools
+                    </h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                      Prepare your restaurant for live production by clearing demo data, wiping test orders, or starting fresh from scratch.
                     </p>
-                    <button className="btn btn-danger" onClick={handleResetClick}>
-                      ⚠️ Wipe & Reset POS
-                    </button>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px', marginTop: '8px' }}>
+                      {/* Card 1: Clear Sales Orders & Expenses */}
+                      <div style={{ padding: '18px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '12px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '14px', fontWeight: '700', margin: '0 0 6px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            🧾 Clear Test Orders & Sales
+                          </h4>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                            Wipes all test sales receipts, KOT tickets, and test daily expenses. Sets <strong>Today's Gross Sales back to Rs. 0.00</strong>. Your menu items and business info remain safe.
+                          </p>
+                        </div>
+                        <button 
+                          className="btn btn-outline" 
+                          style={{ color: '#f59e0b', borderColor: '#f59e0b', fontWeight: 700, fontSize: '12px' }}
+                          onClick={handleClearOrdersAndExpenses}
+                        >
+                          🧹 Clear Sales & Expenses (Reset to Rs. 0)
+                        </button>
+                      </div>
+
+                      {/* Card 2: Clear All Menu Items */}
+                      <div style={{ padding: '18px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-card)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '12px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '14px', fontWeight: '700', margin: '0 0 6px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            🍕 Delete All Menu Items
+                          </h4>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                            Removes all demo dishes and drinks from the database ({menuItems.length} items currently). Gives you a blank menu so you can add your real dishes from scratch.
+                          </p>
+                        </div>
+                        <button 
+                          className="btn btn-outline" 
+                          style={{ color: '#ef4444', borderColor: '#ef4444', fontWeight: 700, fontSize: '12px' }}
+                          onClick={handleClearAllMenu}
+                        >
+                          🗑️ Delete All Menu Items ({menuItems.length})
+                        </button>
+                      </div>
+
+                      {/* Card 3: Full Store Reset */}
+                      <div style={{ padding: '18px', border: '1px solid #ef4444', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.05)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '12px' }}>
+                        <div>
+                          <h4 style={{ fontSize: '14px', fontWeight: '800', margin: '0 0 6px 0', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            🚨 Full Store Reset (Clean Slate)
+                          </h4>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                            Completely cleans this restaurant by wiping all test orders, test expenses, and demo menu items simultaneously. Keeps your login and store address intact.
+                          </p>
+                        </div>
+                        <button 
+                          className="btn" 
+                          style={{ background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: '12px' }}
+                          onClick={handleFullStoreReset}
+                        >
+                          ⚠️ Full Reset (Start From Scratch)
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                 </div>
