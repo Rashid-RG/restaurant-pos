@@ -17,6 +17,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - run: npm test -- --maxWorkers=1
+      - run: npm test
       - run: npm run build:all
       - run: node scripts/production-smoke.js

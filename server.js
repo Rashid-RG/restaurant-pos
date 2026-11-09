@@ -1134,7 +1134,7 @@ async function initTables() {
       'users', 'orders', 'menu_items', 'tables', 'ingredients', 'customers',
       'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
       'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'suppliers',
-      'order_items', 'daily_expenses'
+      'order_items'
     ];
     for (const tTable of tenantTables) {
       await safeAddColumn(tTable, 'tenant_id', "TEXT DEFAULT 'default_tenant'");
