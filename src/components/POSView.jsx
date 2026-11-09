@@ -1164,42 +1164,70 @@ export default function POSView() {
       {/* 3e. Payment Settlement Modal */}
       {showPaymentModal && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '500px' }}>
-            <div className="modal-header">
-              <h2>Select Payment Mode</h2>
-              <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false);  }}>×</button>
+          <div className="modal-content" style={{ maxWidth: '480px', padding: '20px 24px', maxHeight: '92vh', overflowY: 'auto' }}>
+            <div className="modal-header" style={{ marginBottom: '12px' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '18px' }}>Select Payment Mode</h2>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose tender to settle bill</span>
+              </div>
+              <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false); }}>×</button>
             </div>
 
-            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-                Final Amount Payable
-              </p>
-              <h3 style={{ fontSize: '36px', fontWeight: '800', color: 'var(--color-primary)' }}>
+            {/* Compact Amount Banner */}
+            <div style={{ textAlign: 'center', background: 'var(--bg-surface)', padding: '10px 16px', borderRadius: '10px', marginBottom: '14px', border: '1px solid var(--border-color)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Total Payable Amount
+              </div>
+              <div style={{ fontSize: '30px', fontWeight: '800', color: 'var(--color-primary)', lineHeight: 1.2 }}>
                 {currencySymbol}{(totals.total).toFixed(2)}
-              </h3>
+              </div>
             </div>
 
-            <button className="btn btn-secondary" disabled={settlementBusy} onClick={openSavedBill}>Save bill for cash / bank / partial payments</button>
-            <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '20px' }}>
+            {/* Payment Mode Selector - Compact 1 Row */}
+            <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: settings.payhereEnabled ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)', gap: '8px', marginBottom: '14px' }}>
               <div 
                 className={`payment-mode-card ${paymentMethod === 'cash' ? 'active' : ''}`}
-                style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center', cursor: 'pointer' }}
+                style={{
+                  padding: '10px 6px',
+                  borderRadius: '10px',
+                  border: paymentMethod === 'cash' ? '2px solid var(--color-primary)' : '1px solid var(--border-color)',
+                  background: paymentMethod === 'cash' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
                 onClick={() => setPaymentMethod('cash')}
               >
-                <div style={{ fontSize: '24px', marginBottom: '4px' }}>💵</div>
-                <span>Cash</span>
+                <div style={{ fontSize: '20px', marginBottom: '2px' }}>💵</div>
+                <span style={{ fontSize: '13px', fontWeight: paymentMethod === 'cash' ? '700' : '500' }}>Cash</span>
               </div>
               <div 
                 className={`payment-mode-card ${paymentMethod === 'card' ? 'active' : ''}`}
-                style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center', cursor: 'pointer' }}
+                style={{
+                  padding: '10px 6px',
+                  borderRadius: '10px',
+                  border: paymentMethod === 'card' ? '2px solid var(--color-primary)' : '1px solid var(--border-color)',
+                  background: paymentMethod === 'card' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
                 onClick={() => setPaymentMethod('card')}
               >
-                <div style={{ fontSize: '24px', marginBottom: '4px' }}>💳</div>
-                <span>Card</span>
+                <div style={{ fontSize: '20px', marginBottom: '2px' }}>💳</div>
+                <span style={{ fontSize: '13px', fontWeight: paymentMethod === 'card' ? '700' : '500' }}>Card</span>
               </div>
               <div 
                 className={`payment-mode-card ${paymentMethod === 'split' ? 'active' : ''}`}
-                style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center', cursor: 'pointer' }}
+                style={{
+                  padding: '10px 6px',
+                  borderRadius: '10px',
+                  border: paymentMethod === 'split' ? '2px solid var(--color-primary)' : '1px solid var(--border-color)',
+                  background: paymentMethod === 'split' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
                 onClick={() => {
                   setPaymentMethod('split');
                   setSplitPayments([
@@ -1208,32 +1236,52 @@ export default function POSView() {
                   ]);
                 }}
               >
-                <div style={{ fontSize: '24px', marginBottom: '4px' }}>🔀</div>
-                <span>Split Tender</span>
+                <div style={{ fontSize: '20px', marginBottom: '2px' }}>🔀</div>
+                <span style={{ fontSize: '13px', fontWeight: paymentMethod === 'split' ? '700' : '500' }}>Split</span>
               </div>
-              {settings.payhereEnabled === true && <div
-                className={`payment-mode-card ${paymentMethod === 'payhere' ? 'active' : ''}`}
-                style={{ padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center', cursor: 'pointer' }}
-                onClick={() => setPaymentMethod('payhere')}
-              >
-                <div style={{ fontSize: '24px', marginBottom: '4px' }}>🇱🇰</div>
-                <span>PayHere Gate</span>
-              </div>}
+              {settings.payhereEnabled === true && (
+                <div 
+                  className={`payment-mode-card ${paymentMethod === 'payhere' ? 'active' : ''}`}
+                  style={{
+                    padding: '10px 6px',
+                    borderRadius: '10px',
+                    border: paymentMethod === 'payhere' ? '2px solid var(--color-primary)' : '1px solid var(--border-color)',
+                    background: paymentMethod === 'payhere' ? 'rgba(16, 185, 129, 0.08)' : 'transparent',
+                    textAlign: 'center',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setPaymentMethod('payhere')}
+                >
+                  <div style={{ fontSize: '20px', marginBottom: '2px' }}>🇱🇰</div>
+                  <span style={{ fontSize: '13px' }}>PayHere</span>
+                </div>
+              )}
             </div>
 
             {paymentMethod === 'cash' && (
-              <div className="form-group">
-                <label>Cash Received ({currencySymbol})</label>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', margin: 0 }}>Cash Received ({currencySymbol})</label>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary"
+                    style={{ padding: '3px 8px', fontSize: '11px', lineHeight: 1 }}
+                    onClick={openSavedBill}
+                    disabled={settlementBusy}
+                  >
+                    Save Bill (Partial)
+                  </button>
+                </div>
                 <input
                   type="number"
                   className="form-input"
-                  style={{ fontSize: '20px', fontWeight: 'bold' }}
+                  style={{ fontSize: '18px', fontWeight: 'bold', padding: '8px 12px', height: '40px', width: '100%', boxSizing: 'border-box' }}
                   value={cashReceived}
                   onChange={(e) => setCashReceived(e.target.value)}
                 />
                 
-                {/* Cash helpers */}
-                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                {/* Cash quick denomination helpers */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
                   {(() => {
                     const amountDue = totals.total;
                     const roundedUp = Math.ceil(amountDue / 100) * 100;
@@ -1245,7 +1293,7 @@ export default function POSView() {
                         key={val}
                         type="button"
                         className="btn btn-secondary"
-                        style={{ padding: '6px 12px', fontSize: '12px' }}
+                        style={{ padding: '4px 10px', fontSize: '12px', borderRadius: '6px' }}
                         onClick={() => setCashReceived(val.toString())}
                       >
                         {currencySymbol}{val}
@@ -1254,8 +1302,9 @@ export default function POSView() {
                   })()}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px' }}>
-                  <span style={{ fontWeight: '600' }}>Change Return:</span>
+                {/* Change Return Row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <span style={{ fontWeight: '600', fontSize: '13px' }}>Change Return:</span>
                   <span style={{ fontWeight: '800', color: 'var(--color-success)', fontSize: '16px' }}>
                     {currencySymbol}{getChangeAmount().toFixed(2)}
                   </span>
@@ -1263,15 +1312,25 @@ export default function POSView() {
               </div>
             )}
 
+            {paymentMethod === 'card' && (
+              <div style={{ marginBottom: '14px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '6px' }}>Swipe or tap customer card on terminal</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold', color: 'var(--color-primary)' }}>
+                  Total to charge: {currencySymbol}{(totals.total).toFixed(2)}
+                </div>
+              </div>
+            )}
+
             {paymentMethod === 'split' && (
-              <div style={{ background: 'var(--bg-surface)', padding: '16px', borderRadius: '8px', marginBottom: '20px' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '14px' }}>Specify Tender Amounts</h4>
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+              <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px', marginBottom: '14px', border: '1px solid var(--border-color)' }}>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '13px' }}>Specify Tender Amounts</h4>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Cash Amount</label>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Cash Amount</label>
                     <input
                       type="number"
                       className="form-input"
+                      style={{ height: '36px', fontSize: '14px' }}
                       value={splitPayments.find(p => p.method === 'cash')?.amount || 0}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
@@ -1283,10 +1342,11 @@ export default function POSView() {
                     />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Card Amount</label>
+                    <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Card Amount</label>
                     <input
                       type="number"
                       className="form-input"
+                      style={{ height: '36px', fontSize: '14px' }}
                       value={splitPayments.find(p => p.method === 'card')?.amount || 0}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value) || 0;
@@ -1298,8 +1358,8 @@ export default function POSView() {
                     />
                   </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
-                  <span>Tendered Total:</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px', borderTop: '1px solid var(--border-color)', paddingTop: '6px' }}>
+                  <span>Tendered:</span>
                   <span style={{ color: Math.abs(splitPayments.reduce((acc, p) => acc + p.amount, 0) - totals.total) < 0.01 ? 'var(--color-success)' : 'var(--color-danger)' }}>
                     {currencySymbol}{splitPayments.reduce((acc, p) => acc + p.amount, 0).toFixed(2)} / {currencySymbol}{totals.total.toFixed(2)}
                   </span>
@@ -1307,12 +1367,24 @@ export default function POSView() {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-              <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => { setShowPaymentModal(false);  }}>
+            {/* Modal Actions - ALWAYS Visible Without Scrolling */}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
+              <button 
+                type="button"
+                className="btn btn-secondary" 
+                style={{ flex: 1, padding: '10px', height: '42px', fontSize: '14px' }} 
+                onClick={() => { setShowPaymentModal(false); }}
+              >
                 Cancel
               </button>
-              <button className="btn btn-primary" style={{ flexGrow: 2 }} disabled={settlementBusy} onClick={handlePaymentComplete}>
-                {settlementBusy ? 'Saving settlement…' : 'Complete Settlement'}
+              <button 
+                type="button"
+                className="btn btn-primary" 
+                style={{ flex: 2, padding: '10px', height: '42px', fontSize: '14px', fontWeight: '700' }} 
+                disabled={settlementBusy} 
+                onClick={handlePaymentComplete}
+              >
+                {settlementBusy ? 'Processing…' : 'Complete Settlement'}
               </button>
             </div>
           </div>

@@ -28,20 +28,20 @@ export const db = {
       if (response.status === 401 || response.status === 403) {
         const errJson = await response.clone().json().catch(() => ({}));
         window.dispatchEvent(new CustomEvent('gastroflow_auth_error', { detail: { status: response.status, data: errJson } }));
-        return [];
+        return null;
       }
-      if (!response.ok) return [];
+      if (!response.ok) return null;
       const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) return [];
+      if (!contentType.includes('application/json')) return null;
       const data = await response.json();
       if (Array.isArray(data)) return data;
       if (tableName === 'settings' && data && typeof data === 'object') {
         return Object.entries(data).map(([key, value]) => ({ key, value }));
       }
-      return [];
+      return null;
     } catch (err) {
       console.warn(`Query GET /api/${tableName} timed out or failed:`, err.message);
-      return [];
+      return null;
     }
   },
 

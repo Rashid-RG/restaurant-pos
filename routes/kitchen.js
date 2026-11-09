@@ -241,7 +241,7 @@ export function createKitchenRouter({
           current.tableId
         )
           await dbRun(
-            'UPDATE tables SET status="free",currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?',
+            "UPDATE tables SET status='free',currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?",
             [current.tableId, req.tenantId, current.orderId],
           );
         updated = await dbGet(

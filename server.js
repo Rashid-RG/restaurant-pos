@@ -2161,7 +2161,7 @@ app.post('/api/auth/verify-pin', authenticateToken, pinLimiter, async (req, res)
   try {
     const tenantId = req.tenantId || 'default_tenant';
     const managers = await dbAll(
-      'SELECT id, username, role, pin FROM users WHERE role IN ("owner", "manager") AND tenant_id = ?',
+      "SELECT id, username, role, pin FROM users WHERE role IN ('owner', 'manager') AND tenant_id = ?",
       [tenantId]
     );
     let authorizedManager = null;
@@ -2407,7 +2407,7 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
   let transaction = false;
   try {
     await dbRun('BEGIN TRANSACTION'); transaction = true;
-    const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
+    const shift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND status = 'open'", [req.user.id]);
     if (!shift) { await dbRun('ROLLBACK'); transaction = false; return res.status(400).json({ error: 'No active open shift found.' }); }
 
     // Reconcile only this cashier's settled tenders, by settlement time.
@@ -2436,7 +2436,7 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
 
     await dbRun(`
       UPDATE shifts
-      SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = "closed", notes = ?
+      SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = 'closed', notes = ?
       WHERE id = ?
     `, [Date.now(), endCash, endCash, expectedCash, notes || '', shift.id]);
 
@@ -6179,7 +6179,7 @@ app.post('/api/cash-movements', validateRequest(cashMovementSchema), async (req,
   }
 
   try {
-    const shift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
+    const shift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND status = 'open'", [req.user.id]);
     const movementId = `cm_${Date.now()}`;
     await dbRun(`
       INSERT INTO cash_movements (id, shiftId, userId, type, amount, reason, timestamp, tenant_id)
@@ -6293,7 +6293,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
           return res.status(403).json({ error: 'Discount requires a manager PIN override.' });
         }
         // Verify manager PIN
-        const managers = await dbAll('SELECT pin FROM users WHERE role IN ("owner", "manager") AND tenant_id = ?', [tenantId]);
+        const managers = await dbAll("SELECT pin FROM users WHERE role IN ('owner', 'manager') AND tenant_id = ?", [tenantId]);
         let pinVerified = false;
         for (const mgr of managers) {
           if (mgr.pin === managerPin) {
@@ -6454,7 +6454,7 @@ app.post('/api/orders/:id/refund', async (req, res) => {
   try {
     let authorized = ['owner','manager'].includes(req.user.role);
     if (!authorized && managerPin) {
-      const managers = await dbAll('SELECT pin FROM users WHERE tenant_id=? AND role IN ("owner","manager")', [req.tenantId]);
+      const managers = await dbAll("SELECT pin FROM users WHERE tenant_id=? AND role IN ('owner','manager')", [req.tenantId]);
       for (const manager of managers) if (manager.pin && await bcrypt.compare(String(managerPin), manager.pin)) authorized = true;
     }
     if (!authorized) return res.status(403).json({ error: 'Manager authorization is required.' });
@@ -6721,7 +6721,7 @@ app.get('/api/marketplace/partner-earnings', requireRole(['owner']), requirePlat
 // ── 3.1 Reporting & Compliance API (X-Report, Tax/VAT Report, Item Profitability COGS) ──
 app.get('/api/reports/x-report', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const activeShift = await dbGet('SELECT * FROM shifts WHERE userId = ? AND status = "open"', [req.user.id]);
+    const activeShift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND status = 'open'", [req.user.id]);
     if (!activeShift) {
       return res.status(400).json({ error: 'No active open shift found for X-report generation.' });
     }

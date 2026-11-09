@@ -120,8 +120,8 @@ export const POSProvider = ({ children }) => {
     const urlTenant = params.get('tenant') || params.get('tenantId');
     const targetTenant = urlTenant || currentUser?.tenant_id || 'default_tenant';
 
-    // Verify tenant if an explicit store is in the URL or user belongs to a specific tenant
-    if (urlTenant || (currentUser && currentUser.tenant_id !== 'default_tenant')) {
+    // Verify tenant on initial load if an explicit store is in the URL or user belongs to a specific tenant
+    if (isInitial && (urlTenant || (currentUser && currentUser.tenant_id !== 'default_tenant'))) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 7000);
@@ -137,7 +137,7 @@ export const POSProvider = ({ children }) => {
             storeId: targetTenant,
             message: `The restaurant store "${targetTenant}" was not found or does not exist on this platform.`
           });
-          if (isInitial) setLoading(false);
+          setLoading(false);
           return;
         } else if (statusData.status === 'suspended') {
           setTenantLock({
@@ -146,7 +146,7 @@ export const POSProvider = ({ children }) => {
             storeName: statusData.name,
             message: `The restaurant store "${statusData.name || targetTenant}" is currently suspended by the platform administrator.`
           });
-          if (isInitial) setLoading(false);
+          setLoading(false);
           return;
         } else if (statusData.status === 'active') {
           setTenantLock(null);
@@ -160,9 +160,8 @@ export const POSProvider = ({ children }) => {
     }
     try {
       if (isInitial) setLoading(true);
-      await seedDatabase();
 
-      let [loadedSettings, loadedCats, loadedItems, loadedTables, loadedOrders, loadedCustomers] = await Promise.all([
+      const [loadedSettings, loadedCats, loadedItems, loadedTables, loadedOrders, loadedCustomers] = await Promise.all([
         db.getAll('settings'),
         db.getAll('categories'),
         db.getAll('menu_items'),
@@ -172,28 +171,31 @@ export const POSProvider = ({ children }) => {
       ]);
 
       // Convert settings array or object to object
-      const settingsObj = {};
-      if (Array.isArray(loadedSettings)) {
-        loadedSettings.forEach((item) => {
-          if (item && item.key !== undefined) settingsObj[item.key] = item.value;
+      if (loadedSettings) {
+        const settingsObj = {};
+        if (Array.isArray(loadedSettings)) {
+          loadedSettings.forEach((item) => {
+            if (item && item.key !== undefined) settingsObj[item.key] = item.value;
+          });
+        } else if (typeof loadedSettings === 'object') {
+          Object.assign(settingsObj, loadedSettings);
+        }
+        setSettings(prev => {
+          const prevKeys = Object.keys(prev || {});
+          const newKeys = Object.keys(settingsObj || {});
+          if (prevKeys.length === newKeys.length && prevKeys.every(k => prev[k] === settingsObj[k])) {
+            return prev;
+          }
+          return settingsObj;
         });
-      } else if (loadedSettings && typeof loadedSettings === 'object') {
-        Object.assign(settingsObj, loadedSettings);
       }
 
-      setSettings(prev => {
-        const prevKeys = Object.keys(prev || {});
-        const newKeys = Object.keys(settingsObj || {});
-        if (prevKeys.length === newKeys.length && prevKeys.every(k => prev[k] === settingsObj[k])) {
-          return prev;
-        }
-        return settingsObj;
-      });
-      setCategories(loadedCats || []);
-      setMenuItems(loadedItems || []);
-      setTables(loadedTables || []);
-      setOrders(loadedOrders || []);
-      setCustomers(loadedCustomers || []);
+      // Safe state updates: NEVER overwrite existing loaded data with empty arrays if a fetch returned null/error
+      if (Array.isArray(loadedCats)) setCategories(loadedCats);
+      if (Array.isArray(loadedItems)) setMenuItems(loadedItems);
+      if (Array.isArray(loadedTables)) setTables(loadedTables);
+      if (Array.isArray(loadedOrders)) setOrders(loadedOrders);
+      if (Array.isArray(loadedCustomers)) setCustomers(loadedCustomers);
     } catch (error) {
       console.error('Failed to load database contents:', error);
     } finally {
@@ -309,10 +311,10 @@ export const POSProvider = ({ children }) => {
 
     if (!currentUser) return;
 
-    // 8-second auto refresh fallback for POS
+    // 30-second passive background heartbeat (EventSource handles instant live updates)
     const interval = setInterval(() => {
       loadAllData(false);
-    }, 8000);
+    }, 30000);
 
     // Live EventSource Stream for instant online order & tenant status alerts
     let es;
@@ -847,8 +849,21 @@ export const POSProvider = ({ children }) => {
       tip: tipVal
     });
 
-    // Reload state (this will sync customer loyalty points, table statuses, etc.)
-    await loadAllData();
+    // Update order in state immediately so the settlement reflects with zero delay
+    if (result && result.id) {
+      setOrders(prev => {
+        const idx = prev.findIndex(o => o.id === result.id);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = { ...updated[idx], ...result, status: 'paid', paymentStatus: 'paid' };
+          return updated;
+        }
+        return [result, ...prev];
+      });
+    }
+
+    // Background sync tables and customers without blocking checkout UI
+    loadAllData(false).catch(() => {});
     return result;
   };
 
