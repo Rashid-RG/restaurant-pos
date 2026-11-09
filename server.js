@@ -1266,9 +1266,15 @@ async function initTables() {
     // Indexes
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_timestamp ON orders(timestamp)`);
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_tenant_timestamp ON orders(tenant_id, timestamp DESC)`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_tenant_status ON orders(tenant_id, status)`);
     // Enforce that a fiscal invoice number is never reused (NULLs allowed for unsettled orders).
     await dbRun(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_invoice ON orders(invoiceNumber)`);
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(orderId)`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_order_items_tenant_order ON order_items(tenant_id, orderId)`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_tables_tenant ON tables(tenant_id)`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_customers_tenant ON customers(tenant_id)`);
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_menu_items_tenant ON menu_items(tenant_id)`);
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)`);
 
     console.log('All SQLite tables verified successfully.');
@@ -3880,15 +3886,58 @@ Return valid JSON:
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
     const tenantId = req.tenantId || 'default_tenant';
-    const orders = await dbAll(
-      `SELECT * FROM orders WHERE tenant_id = ? ORDER BY timestamp DESC`,
-      [tenantId]
-    );
-    for (const order of orders) {
-      const saved = typeof order.items==='string' ? JSON.parse(order.items || '[]') : order.items;
-      if (Array.isArray(saved) && saved.length) order.items=staffReceipt({...order,items:saved}).items;
-      else { const rows=await dbAll('SELECT * FROM order_items WHERE orderId=? AND tenant_id=?',[order.id,tenantId]);order.items=rows.map(item=>({...item,lineId:item.id,id:item.menuItemId,unitPrice:item.price})); }
+    const limitParam = req.query.limit ? parseInt(req.query.limit, 10) : null;
+    let sql = 'SELECT * FROM orders WHERE tenant_id = ? ORDER BY timestamp DESC';
+    const params = [tenantId];
+    if (limitParam && Number.isSafeInteger(limitParam) && limitParam > 0) {
+      sql += ' LIMIT ?';
+      params.push(limitParam);
     }
+    const orders = await dbAll(sql, params);
+    
+    // Batch lookup for missing items instead of N+1 sequential queries
+    const missingOrderIds = [];
+    for (const order of orders) {
+      let saved = null;
+      if (typeof order.items === 'string') {
+        try { saved = JSON.parse(order.items || '[]'); } catch (_) { saved = null; }
+      } else if (Array.isArray(order.items)) {
+        saved = order.items;
+      }
+      if (Array.isArray(saved) && saved.length > 0) {
+        order.items = staffReceipt({ ...order, items: saved }).items;
+      } else {
+        missingOrderIds.push(order.id);
+      }
+    }
+
+    if (missingOrderIds.length > 0) {
+      const chunkSize = 50;
+      const itemsByOrderId = new Map();
+      for (let i = 0; i < missingOrderIds.length; i += chunkSize) {
+        const chunk = missingOrderIds.slice(i, i + chunkSize);
+        const placeholders = chunk.map(() => '?').join(',');
+        const rows = await dbAll(
+          `SELECT * FROM order_items WHERE tenant_id = ? AND orderId IN (${placeholders})`,
+          [tenantId, ...chunk]
+        );
+        for (const row of rows) {
+          if (!itemsByOrderId.has(row.orderId)) itemsByOrderId.set(row.orderId, []);
+          itemsByOrderId.get(row.orderId).push({
+            ...row,
+            lineId: row.id,
+            id: row.menuItemId,
+            unitPrice: row.price
+          });
+        }
+      }
+      for (const order of orders) {
+        if (!order.items || (Array.isArray(order.items) && order.items.length === 0)) {
+          order.items = itemsByOrderId.get(order.id) || [];
+        }
+      }
+    }
+
     res.json(orders);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });

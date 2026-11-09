@@ -215,6 +215,21 @@ export const POSProvider = ({ children }) => {
     }
   };
 
+  // Fast targeted refresh helpers to avoid firing 6 parallel requests
+  const refreshOrders = async () => {
+    try {
+      const freshOrders = await db.getAll('orders');
+      if (Array.isArray(freshOrders)) setOrders(freshOrders);
+    } catch (_) {}
+  };
+
+  const refreshTables = async () => {
+    try {
+      const freshTables = await db.getAll('tables');
+      if (Array.isArray(freshTables)) setTables(freshTables);
+    } catch (_) {}
+  };
+
   // Helper to handle API authentication errors gracefully
   const handleAuthResponse = async (response) => {
     if (response.status === 401 || response.status === 403) {
@@ -323,10 +338,10 @@ export const POSProvider = ({ children }) => {
 
     if (!currentUser) return;
 
-    // 30-second passive background heartbeat (EventSource handles instant live updates)
+    // 45-second passive background heartbeat: only poll orders if SSE misses anything, avoiding heavy 6-table storms
     const interval = setInterval(() => {
-      loadAllData(false);
-    }, 30000);
+      refreshOrders().catch(() => {});
+    }, 45000);
 
     // Live EventSource Stream for instant online order & tenant status alerts
     let es;
@@ -342,9 +357,29 @@ export const POSProvider = ({ children }) => {
           const data = JSON.parse(event.data);
           if (data.type === 'new_online_order') {
             playNewOrderChime();
-            loadAllData(false);
-          } else if (data.type === 'order_updated' || data.type === 'customer_registered') {
-            loadAllData(false);
+            if (data.order && data.order.id) {
+              setOrders(prev => [data.order, ...prev.filter(o => o.id !== data.order.id)]);
+              if (data.order.tableId) refreshTables().catch(() => {});
+            } else {
+              refreshOrders().catch(() => {});
+            }
+          } else if (data.type === 'order_updated') {
+            if (data.order && data.order.id) {
+              setOrders(prev => {
+                const idx = prev.findIndex(o => o.id === data.order.id);
+                if (idx >= 0) {
+                  const copy = [...prev];
+                  copy[idx] = { ...copy[idx], ...data.order };
+                  return copy;
+                }
+                return [data.order, ...prev];
+              });
+              if (data.order.tableId) refreshTables().catch(() => {});
+            } else {
+              refreshOrders().catch(() => {});
+            }
+          } else if (data.type === 'customer_registered') {
+            db.getAll('customers').then(c => Array.isArray(c) && setCustomers(c)).catch(() => {});
           } else if (data.type === 'tenant_status_changed') {
             const currentTid = currentUser?.tenant_id || new URLSearchParams(window.location.search).get('tenant') || 'default_tenant';
             if (data.tenantId === currentTid || (currentTid === 'kb2c' && data.tenantId === 'tenant_kb2c')) {
@@ -825,33 +860,54 @@ export const POSProvider = ({ children }) => {
     else { newOrder.id = `ord_${crypto.randomUUID()}`; orderAttempt.current = { key: intentKey, id: newOrder.id }; }
     let savedOrder;
     if (recalledOrder.current) {
-      const id=recalledOrder.current;
-      const response=await fetch(`/api/orders/${id}/modify`,{method:'PUT',headers:{Authorization:'Bearer '+localStorage.getItem('gastroflow_token'),'Content-Type':'application/json'},body:JSON.stringify(newOrder)});
-      const result=await response.json(); if(!response.ok) throw new Error(result.error||'Cannot modify saved bill.');
-      const saved=await db.getAll('orders'); savedOrder=saved.find(order=>order.id===id);
-      if(!savedOrder) throw new Error('Saved bill needs refresh before payment.');
-    } else savedOrder = await db.put('orders', newOrder);
+      const id = recalledOrder.current;
+      const response = await fetch(`/api/orders/${id}/modify`, {
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer ' + localStorage.getItem('gastroflow_token'),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(newOrder)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Cannot modify saved bill.');
+      savedOrder = result.order || result;
+    } else {
+      savedOrder = await db.put('orders', newOrder);
+    }
     
-    // Reload database state to reflect stock and table status updates in the UI (skip if immediate settlement follows)
-    if (!skipReload) {
-      await loadAllData();
+    // Immediately reflect new/modified order in state with zero delay
+    const finalOrder = { ...newOrder, ...savedOrder };
+    if (finalOrder && finalOrder.id) {
+      setOrders(prev => {
+        const idx = prev.findIndex(o => o.id === finalOrder.id);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = finalOrder;
+          return updated;
+        }
+        return [finalOrder, ...prev];
+      });
+    }
+
+    // Targeted table sync if dine-in, without firing a full 6-table database reload
+    if (!skipReload && diningType === 'dine-in') {
+      refreshTables().catch(() => {});
     }
 
     if (isHold) {
       clearCart();
       setSelectedTable(null);
     }
-    return { ...newOrder, ...savedOrder };
+    return finalOrder;
   };
 
   // Update order status (KDS view or checkout)
   const updateOrderStatus = async (orderId, status) => {
-    // Merge status into the full existing order object so the server endpoint
-    // receives a complete record and cannot accidentally overwrite other fields
-    // with nulls (previously only { id, status } was sent — a partial-write bug).
+    // Optimistic UI update so KDS and POS respond with zero delay
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
     const existingOrder = orders.find((o) => o.id === orderId) || {};
     await db.put('orders', { ...existingOrder, id: orderId, status });
-    await loadAllData();
   };
 
   // Complete Payment
@@ -880,8 +936,8 @@ export const POSProvider = ({ children }) => {
       });
     }
 
-    // Background sync tables and customers without blocking checkout UI
-    loadAllData(false).catch(() => {});
+    // Refresh tables in background if dine-in table was freed, without triggering a full 6-table database reload
+    refreshTables().catch(() => {});
     return result;
   };
 
@@ -1026,6 +1082,8 @@ export const POSProvider = ({ children }) => {
         recordCashMovement,
         refundOrder,
         loadAllData,
+        refreshOrders,
+        refreshTables,
 
         // Cart Actions
         cart,
