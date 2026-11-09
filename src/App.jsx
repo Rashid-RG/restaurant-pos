@@ -18,7 +18,7 @@ import Login from './components/Login';
 import StoreStatusScreen from './components/StoreStatusScreen';
 
 function AppContent() {
-  const { activeTab, loading, currentUser, tenantLock, setTenantLock, logout } = usePOS();
+  const { activeTab, loading, currentUser, tenantLock, setTenantLock, logout, platformBroadcast, setPlatformBroadcast } = usePOS();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // If the store is suspended or deleted, display full-screen status view immediately
@@ -92,7 +92,37 @@ function AppContent() {
   return (
     <div className="app-container">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div className="workspace"><WorkspaceTools/><ConnectionStatus/>{renderActiveView()}</div>
+      <div className="workspace">
+        <WorkspaceTools/>
+        <ConnectionStatus/>
+        {platformBroadcast && (
+          <div style={{
+            background: platformBroadcast.type === 'alert' ? '#ef4444' : platformBroadcast.type === 'warning' ? '#f59e0b' : '#2563eb',
+            color: '#ffffff',
+            padding: '10px 18px',
+            fontSize: '13px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            zIndex: 100
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '15px' }}>📢</span>
+              <span><strong>Platform Announcement:</strong> {platformBroadcast.message}</span>
+            </div>
+            <button
+              onClick={() => setPlatformBroadcast(null)}
+              style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer', fontWeight: 'bold', padding: '0 4px', lineHeight: 1 }}
+              aria-label="Dismiss announcement"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {renderActiveView()}
+      </div>
     </div>
   );
 }

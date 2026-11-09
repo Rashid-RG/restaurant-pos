@@ -105,6 +105,18 @@ export const POSProvider = ({ children }) => {
 
   // Toast system
   const [toasts, setToasts] = useState([]);
+  const [platformBroadcast, setPlatformBroadcast] = useState(null);
+
+  // Load any active platform announcement on boot
+  useEffect(() => {
+    fetch('/api/public/platform/broadcast')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.message) setPlatformBroadcast(data);
+      })
+      .catch(() => {});
+  }, []);
+
   const showToast = (message, type = 'info') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -358,6 +370,12 @@ export const POSProvider = ({ children }) => {
                 message: 'This restaurant store has been permanently removed by the platform administrator.'
               });
             }
+          } else if (data.type === 'platform_broadcast') {
+            setPlatformBroadcast({
+              message: data.message,
+              type: data.broadcastType || 'info',
+              expiresAt: data.expiresAt
+            });
           }
         } catch (e) {}
       };
@@ -1048,6 +1066,8 @@ export const POSProvider = ({ children }) => {
         // Toast & Audio Ringer
         showToast,
         playNewOrderChime,
+        platformBroadcast,
+        setPlatformBroadcast,
       }}
     >
       {children}

@@ -1497,6 +1497,12 @@ button {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
+  #root, .app-container, .main-content, .view-body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+  }
   body * {
     visibility: hidden;
   }
@@ -1508,7 +1514,7 @@ button {
   }
   .sales-report-print-area {
     display: block !important;
-    position: absolute !important;
+    position: relative !important;
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
@@ -1522,6 +1528,19 @@ button {
     line-height: 1.4 !important;
     z-index: 9999999 !important;
     box-sizing: border-box !important;
+    page-break-after: auto !important;
+  }
+  .sales-report-print-area table {
+    page-break-inside: auto !important;
+  }
+  .sales-report-print-area tr {
+    page-break-inside: avoid !important;
+  }
+  .sales-report-print-area thead {
+    display: table-header-group !important;
+  }
+  .sales-report-print-area tfoot {
+    display: table-footer-group !important;
   }
   .receipt-print-area, .z-report-print-area {
     display: block !important;

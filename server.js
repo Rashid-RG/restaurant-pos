@@ -680,6 +680,7 @@ async function initTables() {
         price REAL,
         quantity INTEGER,
         notes TEXT,
+        tenant_id TEXT DEFAULT 'default_tenant',
         FOREIGN KEY(orderId) REFERENCES orders(id) ON DELETE CASCADE,
         FOREIGN KEY(menuItemId) REFERENCES menu_items(id)
       )
@@ -1132,7 +1133,8 @@ async function initTables() {
     const tenantTables = [
       'users', 'orders', 'menu_items', 'tables', 'ingredients', 'customers',
       'categories', 'modifiers', 'recipes', 'shifts', 'cash_movements',
-      'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'suppliers'
+      'feedbacks', 'promotions', 'customer_accounts', 'drivers', 'suppliers',
+      'order_items', 'daily_expenses'
     ];
     for (const tTable of tenantTables) {
       await safeAddColumn(tTable, 'tenant_id', "TEXT DEFAULT 'default_tenant'");
@@ -2457,7 +2459,8 @@ app.post(['/api/menu_items/clear-all', '/api/menu/clear-all'], authenticateToken
   try {
     const tenantId = req.tenantId || 'default_tenant';
     const isDefault = tenantId === 'default_tenant';
-    await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ? OR orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId, tenantId]);
+    // Nullify menuItemId references on order_items - use orderId subquery (tenant_id may not exist on order_items yet)
+    await dbRun('UPDATE order_items SET menuItemId = NULL WHERE orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId]).catch(() => {});
     await dbRun('DELETE FROM recipes WHERE tenant_id = ?', [tenantId]).catch(() => {});
     await dbRun('DELETE FROM modifiers WHERE tenant_id = ?', [tenantId]).catch(() => {});
     if (isDefault) {
@@ -2484,8 +2487,9 @@ app.post('/api/tenant/reset-test-data', authenticateToken, requireRole(['owner']
     const { wipeOrders = true, wipeExpenses = true, wipeMenu = false, wipeCategories = false } = req.body || {};
 
     if (wipeOrders) {
-      await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ? OR orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId, tenantId]);
-      await dbRun('DELETE FROM order_items WHERE tenant_id = ? OR orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId, tenantId]);
+      // Use orderId subquery for order_items (tenant_id column may not yet exist on old DBs)
+      await dbRun('UPDATE order_items SET menuItemId = NULL WHERE orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId]).catch(() => {});
+      await dbRun('DELETE FROM order_items WHERE orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId]).catch(() => {});
       await dbRun('DELETE FROM orders WHERE tenant_id = ?', [tenantId]);
       await dbRun('DELETE FROM kitchen_tickets WHERE tenant_id = ?', [tenantId]).catch(() => {});
       await dbRun('DELETE FROM order_inventory_state WHERE tenant_id = ?', [tenantId]).catch(() => {});
@@ -2500,7 +2504,8 @@ app.post('/api/tenant/reset-test-data', authenticateToken, requireRole(['owner']
     }
 
     if (wipeMenu) {
-      await dbRun('UPDATE order_items SET menuItemId = NULL WHERE tenant_id = ?', [tenantId]);
+      // Use orderId subquery for order_items (tenant_id may not exist on older Turso schemas)
+      await dbRun('UPDATE order_items SET menuItemId = NULL WHERE orderId IN (SELECT id FROM orders WHERE tenant_id = ?)', [tenantId]).catch(() => {});
       await dbRun('DELETE FROM recipes WHERE tenant_id = ?', [tenantId]).catch(() => {});
       await dbRun('DELETE FROM modifiers WHERE tenant_id = ?', [tenantId]).catch(() => {});
       if (isDefault) {

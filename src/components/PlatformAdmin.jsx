@@ -1,12 +1,16 @@
 import PlatformOperations from './PlatformOperations';
 import React, { useEffect, useState } from 'react';
-import { Store, Plus, RefreshCw, Search, ShieldCheck, X, Key, Copy, Check, Eye, EyeOff, Lock, ExternalLink, ShieldAlert } from 'lucide-react';
+import { 
+  Store, Plus, RefreshCw, Search, ShieldCheck, X, Key, Copy, Check, 
+  Eye, EyeOff, Lock, ExternalLink, ShieldAlert, BarChart3, Radio, 
+  Palette, Send, ArrowRightCircle, Megaphone, DollarSign, Building2
+} from 'lucide-react';
 import { usePOS } from '../context/POSContext';
 import './platform.css';
 
 export default function PlatformAdmin({ embedded = false }) {
   const { currentUser, showToast } = usePOS();
-  const [activeSubTab, setActiveSubTab] = useState('restaurants'); // 'restaurants' | 'credentials' | 'operations'
+  const [activeSubTab, setActiveSubTab] = useState('restaurants'); // 'restaurants' | 'credentials' | 'analytics' | 'broadcasts' | 'branding' | 'operations'
   const [restaurants, setRestaurants] = useState([]);
   const [credentialsList, setCredentialsList] = useState([]);
   const [plans, setPlans] = useState([]);
@@ -19,6 +23,30 @@ export default function PlatformAdmin({ embedded = false }) {
   const [busy, setBusy] = useState(false);
   const [updating, setUpdating] = useState(null);
   const [created, setCreated] = useState(null);
+
+  // Platform Analytics State
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  // Broadcasts State
+  const [broadcastsList, setBroadcastsList] = useState([]);
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [broadcastType, setBroadcastType] = useState('info');
+  const [broadcastHours, setBroadcastHours] = useState('24');
+  const [broadcastBusy, setBroadcastBusy] = useState(false);
+
+  // Branding Settings State
+  const [brandingSettings, setBrandingSettings] = useState({
+    platformName: 'GastroFlow',
+    platformCompany: 'RS Technologies',
+    platformSlogan: 'Smarter Dining Operations & Cloud POS',
+    platformLogoUrl: '/pos-logo.svg',
+    commissionRate: '15',
+    supportEmail: 'support@gastroflow.lk'
+  });
+  const [brandingLoading, setBrandingLoading] = useState(false);
+  const [brandingBusy, setBrandingBusy] = useState(false);
 
   // Password reset modal state
   const [resetModalTenant, setResetModalTenant] = useState(null);
@@ -86,6 +114,101 @@ export default function PlatformAdmin({ embedded = false }) {
     }
   };
 
+  const loadAnalytics = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const data = await request('/api/platform/analytics');
+      setAnalyticsData(data);
+    } catch (err) {
+      showToast(err.message || 'Could not load platform analytics.', 'error');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  const loadBroadcasts = async () => {
+    setBroadcastLoading(true);
+    try {
+      const list = await request('/api/platform/broadcasts');
+      setBroadcastsList(Array.isArray(list) ? list : []);
+    } catch (err) {
+      showToast(err.message || 'Could not load broadcasts.', 'error');
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
+  const loadBranding = async () => {
+    setBrandingLoading(true);
+    try {
+      const data = await request('/api/platform/settings');
+      if (data && Object.keys(data).length > 0) {
+        setBrandingSettings(prev => ({ ...prev, ...data }));
+      }
+    } catch (err) {
+      showToast(err.message || 'Could not load platform branding settings.', 'error');
+    } finally {
+      setBrandingLoading(false);
+    }
+  };
+
+  const handleSendBroadcast = async (e) => {
+    e.preventDefault();
+    if (!broadcastMsg.trim() || broadcastBusy) return;
+    setBroadcastBusy(true);
+    try {
+      await request('/api/platform/broadcasts', {
+        method: 'POST',
+        body: JSON.stringify({
+          message: broadcastMsg.trim(),
+          type: broadcastType,
+          expiresInHours: Number(broadcastHours) || 24
+        })
+      });
+      showToast('📢 Broadcast announcement sent live to all restaurant terminals!', 'success');
+      setBroadcastMsg('');
+      await loadBroadcasts();
+    } catch (err) {
+      showToast(err.message || 'Failed to dispatch broadcast.', 'error');
+    } finally {
+      setBroadcastBusy(false);
+    }
+  };
+
+  const handleDeactivateBroadcast = async (id) => {
+    try {
+      await request(`/api/platform/broadcasts/${id}/deactivate`, { method: 'PATCH' });
+      showToast('Broadcast deactivated.', 'info');
+      await loadBroadcasts();
+    } catch (err) {
+      showToast(err.message || 'Failed to deactivate broadcast.', 'error');
+    }
+  };
+
+  const handleSaveBranding = async (e) => {
+    e.preventDefault();
+    if (brandingBusy) return;
+    setBrandingBusy(true);
+    try {
+      await request('/api/platform/settings', {
+        method: 'POST',
+        body: JSON.stringify(brandingSettings)
+      });
+      showToast('✅ Platform branding settings updated globally!', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to save settings.', 'error');
+    } finally {
+      setBrandingBusy(false);
+    }
+  };
+
+  const handleImpersonate = (tenantId, name) => {
+    showToast(`⚡ Switching context to "${name}"...`, 'info');
+    setTimeout(() => {
+      window.location.href = `/?tenant=${encodeURIComponent(tenantId)}`;
+    }, 400);
+  };
+
   useEffect(() => {
     if (currentUser?.isPlatformAdmin === true) {
       load();
@@ -93,8 +216,11 @@ export default function PlatformAdmin({ embedded = false }) {
   }, [currentUser?.isPlatformAdmin]);
 
   useEffect(() => {
-    if (currentUser?.isPlatformAdmin === true && activeSubTab === 'credentials') {
-      loadCredentials();
+    if (currentUser?.isPlatformAdmin === true) {
+      if (activeSubTab === 'credentials') loadCredentials();
+      else if (activeSubTab === 'analytics') loadAnalytics();
+      else if (activeSubTab === 'broadcasts') loadBroadcasts();
+      else if (activeSubTab === 'branding') loadBranding();
     }
   }, [activeSubTab, currentUser?.isPlatformAdmin]);
 
@@ -229,6 +355,27 @@ export default function PlatformAdmin({ embedded = false }) {
           style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
         >
           <Key size={16} /> Passwords & Access Vault
+        </button>
+        <button
+          className={`btn ${activeSubTab === 'analytics' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveSubTab('analytics')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
+        >
+          <BarChart3 size={16} /> Global Analytics & GMV
+        </button>
+        <button
+          className={`btn ${activeSubTab === 'broadcasts' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveSubTab('broadcasts')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
+        >
+          <Megaphone size={16} /> Broadcast Alerts
+        </button>
+        <button
+          className={`btn ${activeSubTab === 'branding' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveSubTab('branding')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
+        >
+          <Palette size={16} /> Platform Branding & Company
         </button>
         <button
           className={`btn ${activeSubTab === 'operations' ? 'btn-primary' : 'btn-outline'}`}
@@ -368,6 +515,14 @@ export default function PlatformAdmin({ embedded = false }) {
                   <footer>
                     <a href={row.customerUrl} target="_blank" rel="noreferrer">View storefront ↗</a>
                     <a href={row.posUrl} target="_blank" rel="noreferrer">Open POS ↗</a>
+                    <button
+                      className="btn btn-primary"
+                      style={{ padding: '4px 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px', height: 'auto', marginLeft: 'auto' }}
+                      onClick={() => handleImpersonate(row.id, row.name)}
+                      title="Directly switch to this store without logging out"
+                    >
+                      ⚡ Switch Store
+                    </button>
                   </footer>
                 </article>
               ))}
@@ -574,7 +729,354 @@ export default function PlatformAdmin({ embedded = false }) {
         </section>
       )}
 
-      {/* TAB 3: PLATFORM OPERATIONS & FINANCIALS */}
+      {/* TAB 3: GLOBAL ANALYTICS & GMV */}
+      {activeSubTab === 'analytics' && (
+        <section aria-label="Cross-Restaurant Platform Analytics">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h2 style={{ fontSize: '20px', margin: '0 0 4px 0', fontWeight: 700 }}>Global Platform Analytics & GMV</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
+                Consolidated real-time revenue across all independent restaurants and storefronts.
+              </p>
+            </div>
+            <button className="btn btn-outline" onClick={loadAnalytics} disabled={analyticsLoading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={15} /> Refresh Analytics
+            </button>
+          </div>
+
+          {analyticsLoading ? (
+            <p>Aggregating platform revenue and store data…</p>
+          ) : (
+            <>
+              {/* Aggregate KPI Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Total Platform GMV</div>
+                  <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-primary)', marginTop: '4px' }}>
+                    Rs. {Number(analyticsData?.totals?.totalRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: '11px' }}>All-time settled revenue</small>
+                </div>
+
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Today's Platform Revenue</div>
+                  <div style={{ fontSize: '24px', fontWeight: 800, color: '#10b981', marginTop: '4px' }}>
+                    Rs. {Number(analyticsData?.totals?.todayRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{analyticsData?.totals?.todayOrders || 0} orders today</small>
+                </div>
+
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Total Settled Orders</div>
+                  <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-main)', marginTop: '4px' }}>
+                    {analyticsData?.totals?.totalOrders || 0}
+                  </div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Across all {partners.length} restaurants</small>
+                </div>
+
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '18px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Active Partner Stores</div>
+                  <div style={{ fontSize: '24px', fontWeight: 800, color: '#3b82f6', marginTop: '4px' }}>
+                    {partners.filter(p => p.status === 'active' || p.status === 'trial').length}
+                  </div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Of {partners.length} registered</small>
+                </div>
+              </div>
+
+              {/* Per-Store Performance Comparison Table */}
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>Restaurant Sales Comparison</h3>
+                  <small style={{ color: 'var(--text-muted)' }}>Ranked by All-Time Revenue</small>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-main)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '12px 16px' }}>Restaurant</th>
+                        <th style={{ padding: '12px 16px' }}>Plan</th>
+                        <th style={{ padding: '12px 16px' }}>Status</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Today's Sales</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>All-Time GMV</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Orders</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right' }}>Staff</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'center' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(analyticsData?.tenants || []).map((t, idx) => (
+                        <tr key={t.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                          <td style={{ padding: '12px 16px' }}>
+                            <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{t.name}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t.subdomain}</div>
+                          </td>
+                          <td style={{ padding: '12px 16px', textTransform: 'uppercase', fontSize: '11px', fontWeight: 700 }}>
+                            {t.plan}
+                          </td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <span className={`platform-status ${t.status}`}>{t.status}</span>
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 600, color: '#10b981' }}>
+                            Rs. {Number(t.todayRevenue || 0).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>
+                            Rs. {Number(t.totalRevenue || 0).toFixed(2)}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{t.totalOrders || 0}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>{t.staffCount || 0}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                            <button
+                              className="btn btn-outline"
+                              style={{ padding: '4px 8px', fontSize: '11px', height: 'auto' }}
+                              onClick={() => handleImpersonate(t.id, t.name)}
+                            >
+                              ⚡ Switch
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* TAB 4: BROADCAST ANNOUNCEMENTS */}
+      {activeSubTab === 'broadcasts' && (
+        <section aria-label="Platform Broadcast Announcements">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h2 style={{ fontSize: '20px', margin: '0 0 4px 0', fontWeight: 700 }}>Live Platform Broadcasts</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
+                Send global announcement banners live to all active restaurant POS cashiers, managers, and kitchen screens.
+              </p>
+            </div>
+            <button className="btn btn-outline" onClick={loadBroadcasts} disabled={broadcastLoading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={15} /> Refresh List
+            </button>
+          </div>
+
+          {/* Broadcast Composer */}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px', marginBottom: '24px' }}>
+            <h3 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: 700 }}>📢 Compose Global Announcement</h3>
+            <form onSubmit={handleSendBroadcast}>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Announcement Message</label>
+                <textarea
+                  className="form-input"
+                  rows={3}
+                  required
+                  placeholder="e.g. ⚠️ Scheduled platform maintenance tonight at 11:30 PM (approx. 10 minutes). Cloud POS will automatically sync."
+                  value={broadcastMsg}
+                  onChange={e => setBroadcastMsg(e.target.value)}
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Banner Style</label>
+                  <select
+                    className="form-input"
+                    value={broadcastType}
+                    onChange={e => setBroadcastType(e.target.value)}
+                    style={{ width: '100%', height: '38px' }}
+                  >
+                    <option value="info">ℹ️ Information (Blue)</option>
+                    <option value="warning">⚠️ Notice / Warning (Yellow)</option>
+                    <option value="alert">🚨 Urgent Alert (Red)</option>
+                    <option value="success">🎉 Success / Release (Green)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Duration</label>
+                  <select
+                    className="form-input"
+                    value={broadcastHours}
+                    onChange={e => setBroadcastHours(e.target.value)}
+                    style={{ width: '100%', height: '38px' }}
+                  >
+                    <option value="2">2 Hours</option>
+                    <option value="6">6 Hours</option>
+                    <option value="24">24 Hours (1 Day)</option>
+                    <option value="48">48 Hours (2 Days)</option>
+                    <option value="168">7 Days</option>
+                  </select>
+                </div>
+              </div>
+
+              <button type="submit" className="btn btn-primary" disabled={broadcastBusy} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Send size={15} /> {broadcastBusy ? 'Dispatching Broadcast…' : 'Dispatch Live Broadcast'}
+              </button>
+            </form>
+          </div>
+
+          {/* Broadcasts History */}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 700 }}>Announcement History</h3>
+            </div>
+            {broadcastsList.length === 0 ? (
+              <p style={{ padding: '24px', color: 'var(--text-muted)', margin: 0 }}>No broadcasts have been sent yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {broadcastsList.map(b => (
+                  <div key={b.id} style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase',
+                          background: b.isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.2)',
+                          color: b.isActive ? '#10b981' : '#64748b'
+                        }}>
+                          {b.isActive ? 'Active' : 'Expired / Dismissed'}
+                        </span>
+                        <small style={{ color: 'var(--text-muted)' }}>Sent by {b.createdBy || 'Platform'}</small>
+                        <small style={{ color: 'var(--text-muted)' }}>• {new Date(b.createdAt).toLocaleString()}</small>
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 600 }}>{b.message}</div>
+                    </div>
+                    {Boolean(b.isActive) && (
+                      <button
+                        className="btn btn-outline"
+                        style={{ padding: '4px 10px', fontSize: '12px', height: 'auto', color: '#ef4444', borderColor: '#ef4444' }}
+                        onClick={() => handleDeactivateBroadcast(b.id)}
+                      >
+                        Deactivate
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* TAB 5: PLATFORM BRANDING & COMPANY SETTINGS */}
+      {activeSubTab === 'branding' && (
+        <section aria-label="White-Label Platform Branding Settings">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h2 style={{ fontSize: '20px', margin: '0 0 4px 0', fontWeight: 700 }}>White-Label Platform Branding</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
+                Customize your company name, software title, logo, and slogan displayed across all terminals, PDFs, and invoices.
+              </p>
+            </div>
+            <button className="btn btn-outline" onClick={loadBranding} disabled={brandingLoading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={15} /> Reload Settings
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveBranding} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', maxWidth: '720px' }}>
+            <div style={{ display: 'grid', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Platform Creator / Engineering Company Name
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  required
+                  value={brandingSettings.platformCompany || ''}
+                  onChange={e => setBrandingSettings({ ...brandingSettings, platformCompany: e.target.value })}
+                  placeholder="e.g. RS Technologies"
+                  style={{ width: '100%', height: '40px' }}
+                />
+                <small style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                  Appears in all audit statement PDF footers, system labels, and Z-Reports (e.g. "Platform Engineered by RS Technologies").
+                </small>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Platform Software Product Name
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  required
+                  value={brandingSettings.platformName || ''}
+                  onChange={e => setBrandingSettings({ ...brandingSettings, platformName: e.target.value })}
+                  placeholder="e.g. GastroFlow"
+                  style={{ width: '100%', height: '40px' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Platform Tagline / Slogan
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={brandingSettings.platformSlogan || ''}
+                  onChange={e => setBrandingSettings({ ...brandingSettings, platformSlogan: e.target.value })}
+                  placeholder="e.g. Smarter Dining Operations & Cloud POS"
+                  style={{ width: '100%', height: '40px' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Platform Logo URL
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={brandingSettings.platformLogoUrl || ''}
+                  onChange={e => setBrandingSettings({ ...brandingSettings, platformLogoUrl: e.target.value })}
+                  placeholder="/pos-logo.svg"
+                  style={{ width: '100%', height: '40px' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                    Default Commission Rate (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    className="form-input"
+                    value={brandingSettings.commissionRate || ''}
+                    onChange={e => setBrandingSettings({ ...brandingSettings, commissionRate: e.target.value })}
+                    placeholder="15"
+                    style={{ width: '100%', height: '40px' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                    Platform Support Email
+                  </label>
+                  <input
+                    type="email"
+                    className="form-input"
+                    value={brandingSettings.supportEmail || ''}
+                    onChange={e => setBrandingSettings({ ...brandingSettings, supportEmail: e.target.value })}
+                    placeholder="support@gastroflow.lk"
+                    style={{ width: '100%', height: '40px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <button type="submit" className="btn btn-primary" disabled={brandingBusy} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Check size={16} /> {brandingBusy ? 'Saving Branding…' : 'Save Platform Branding'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {/* TAB 6: PLATFORM OPERATIONS & FINANCIALS */}
       {activeSubTab === 'operations' && (
         <PlatformOperations restaurants={partners} />
       )}

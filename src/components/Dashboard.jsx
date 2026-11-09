@@ -332,6 +332,72 @@ export default function Dashboard() {
       .slice(0, 5);
   }, [filteredOrders]);
 
+  // ─── PDF Print via Clean Popup Window (bypasses viewport/overflow constraints) ───
+  const handlePrintPdf = () => {
+    const printArea = document.getElementById('sales-audit-report-printable');
+    const content = printArea ? printArea.innerHTML : '<p>Report not available</p>';
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=800,scrollbars=yes');
+    if (!printWindow) {
+      // Fallback: popup was blocked
+      window.print();
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sales Audit Statement \u2014 ${shopName}</title>
+<style>
+  @page { size: A4 portrait; margin: 12mm 10mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 11px;
+    color: #111827;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; margin: 0; }
+  h2 { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+  h3 { font-size: 12px; font-weight: 700; margin: 0 0 6px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 0; }
+  thead tr { background: #f3f4f6 !important; }
+  th, td { padding: 5px 7px; border: 1px solid #e5e7eb; vertical-align: top; }
+  th { font-weight: 700; color: #374151; font-size: 10px; }
+  tfoot tr { background: #f3f4f6 !important; font-weight: 800; }
+  tr:nth-child(even) td { background: #f9fafb; }
+  img { max-width: 100%; }
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  div { page-break-inside: auto; }
+</style>
+</head>
+<body>${content}</body>
+</html>`);
+    printWindow.document.close();
+    // Give images and fonts time to load before triggering print
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 350);
+    };
+    // Fallback if onload does not fire (some browsers)
+    setTimeout(() => {
+      try {
+        if (printWindow && !printWindow.closed) {
+          printWindow.focus();
+          printWindow.print();
+        }
+      } catch (_) {}
+    }, 1500);
+  };
+
   // Export CSV handler for currently filtered sales
   const exportToCSV = () => {
     if (!filteredOrders || filteredOrders.length === 0) {
@@ -704,7 +770,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ─── FOOTER (PLATFORM BRANDING + SLOGAN) ─── */}
+        {/* ─── FOOTER (PLATFORM BRANDING, COMPANY & SLOGAN) ─── */}
         <div style={{
           borderTop: '2px solid #e5e7eb',
           paddingTop: '12px',
@@ -712,15 +778,28 @@ export default function Dashboard() {
           justifyContent: 'space-between',
           alignItems: 'center',
           fontSize: '10px',
-          color: '#6b7280'
+          color: '#6b7280',
+          flexWrap: 'wrap',
+          gap: '8px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <img src="/pos-logo.svg" alt="GastroFlow" width="18" height="18" style={{ borderRadius: '3px' }} />
-            <strong style={{ color: '#24664f' }}>GastroFlow Restaurant Workspace</strong>
-            <span>• Smarter Dining Operations & Cloud POS</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <img src="/pos-logo.svg" alt="GastroFlow" width="20" height="20" style={{ borderRadius: '4px' }} />
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <strong style={{ color: '#24664f', fontWeight: '800' }}>GastroFlow Restaurant Workspace</strong>
+                <span style={{ color: '#9ca3af' }}>|</span>
+                <span>Smarter Dining Operations & Cloud POS</span>
+              </div>
+              <div style={{ fontSize: '9px', color: '#4b5563', marginTop: '2px' }}>
+                Platform Engineered & Powered by <strong>{settings?.platformCompany || 'RS Technologies'}</strong> • All Rights Reserved
+              </div>
+            </div>
           </div>
-          <div>
-            Official Financial Statement • Store: <strong>{shopName}</strong> • www.gastroflow.lk
+          <div style={{ textAlign: 'right' }}>
+            <div>Official Financial Statement • Store: <strong style={{ color: '#111827' }}>{shopName}</strong></div>
+            <div style={{ fontSize: '9px', color: '#6b7280', marginTop: '2px' }}>
+              System by <strong>{settings?.platformCompany || 'RS Technologies'}</strong> • www.gastroflow.lk
+            </div>
           </div>
         </div>
       </div>
@@ -741,7 +820,7 @@ export default function Dashboard() {
           </button>
           <button 
             className="btn btn-secondary" 
-            onClick={() => setShowPdfModal(true)}
+            onClick={handlePrintPdf}
             style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <Printer size={15} />
@@ -1271,7 +1350,7 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   <button 
                     className="btn btn-primary" 
-                    onClick={() => window.print()}
+                    onClick={handlePrintPdf}
                     style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700' }}
                   >
                     <Printer size={15} /> Save as PDF / Print
@@ -1296,8 +1375,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Hidden Printable Container: Becomes visible only on window.print() */}
-        <div className="sales-report-print-area">
+        {/* Hidden Printable Container: rendered off-screen, used by handlePrintPdf() */}
+        <div id="sales-audit-report-printable" style={{ position: 'absolute', left: '-9999px', top: 0, width: '794px' }}>
           {renderAuditDocument()}
         </div>
 

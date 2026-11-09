@@ -250,5 +250,128 @@ export function createPlatformRouter({ authenticateToken, requirePlatformAdmin, 
   router.patch('/saas/tenants/:id/status', update);
   // Suspending preserves invoices, evidence and customer records.
   router.delete('/saas/tenants/:id', (req,res) => res.status(409).json({ error:'Suspend this restaurant instead. Permanent removal requires a verified retention and backup workflow.' }));
+
+  // ─── PLATFORM ANALYTICS ───────────────────────────────────────────────────
+  router.get('/platform/analytics', authenticateToken, requirePlatformAdmin, async (req, res, next) => {
+    try {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      // Per-tenant breakdown
+      const tenants = await dbAll(`
+        SELECT t.id, t.name, t.subdomain, t.plan, t.status,
+          (SELECT COUNT(*) FROM orders o WHERE o.tenant_id = t.id AND o.status = 'paid') AS totalOrders,
+          (SELECT COALESCE(SUM(o.total),0) FROM orders o WHERE o.tenant_id = t.id AND o.status = 'paid') AS totalRevenue,
+          (SELECT COALESCE(SUM(o.total),0) FROM orders o WHERE o.tenant_id = t.id AND o.status = 'paid' AND o.paymentTimestamp >= ?) AS todayRevenue,
+          (SELECT COUNT(*) FROM orders o WHERE o.tenant_id = t.id AND o.status = 'paid' AND o.paymentTimestamp >= ?) AS todayOrders,
+          (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id) AS staffCount
+        FROM tenants t
+        WHERE t.id != 'default_tenant'
+        ORDER BY totalRevenue DESC
+      `, [startOfToday.getTime(), startOfToday.getTime()]);
+
+      const totals = tenants.reduce((acc, t) => {
+        acc.totalRevenue += Number(t.totalRevenue || 0);
+        acc.todayRevenue += Number(t.todayRevenue || 0);
+        acc.totalOrders += Number(t.totalOrders || 0);
+        acc.todayOrders += Number(t.todayOrders || 0);
+        return acc;
+      }, { totalRevenue: 0, todayRevenue: 0, totalOrders: 0, todayOrders: 0 });
+
+      res.json({ totals, tenants });
+    } catch (error) { next(error); }
+  });
+
+  // ─── PLATFORM SETTINGS (BRANDING) ─────────────────────────────────────────
+  router.get('/platform/settings', authenticateToken, requirePlatformAdmin, async (req, res, next) => {
+    try {
+      const rows = await dbAll(`SELECT key, value FROM settings WHERE tenant_id = 'platform_global'`);
+      const settings = {};
+      (rows || []).forEach(r => { settings[r.key] = r.value; });
+      res.json(settings);
+    } catch (error) { next(error); }
+  });
+
+  router.post('/platform/settings', authenticateToken, requirePlatformAdmin, async (req, res, next) => {
+    try {
+      const allowed = ['platformName', 'platformCompany', 'platformSlogan', 'platformLogoUrl', 'commissionRate', 'supportEmail'];
+      for (const [key, value] of Object.entries(req.body || {})) {
+        if (!allowed.includes(key)) continue;
+        await dbRun(
+          `INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES ('platform_global', ?, ?)`,
+          [key, String(value)]
+        );
+      }
+      await writeAuditLog(req.user.id, req.user.username, 'update_platform_settings', 'Updated platform branding settings');
+      res.json({ success: true, message: 'Platform settings saved.' });
+    } catch (error) { next(error); }
+  });
+
+  // ─── BROADCAST ANNOUNCEMENTS ───────────────────────────────────────────────
+  dbRun(`CREATE TABLE IF NOT EXISTS platform_broadcasts (
+    id TEXT PRIMARY KEY,
+    message TEXT NOT NULL,
+    type TEXT DEFAULT 'info',
+    createdAt BIGINT NOT NULL,
+    createdBy TEXT,
+    expiresAt BIGINT,
+    isActive INTEGER DEFAULT 1
+  )`).catch(() => {});
+
+  // Public endpoint for active broadcast banner
+  router.get('/public/platform/broadcast', async (req, res) => {
+    try {
+      const now = Date.now();
+      const row = await dbGet('SELECT message, type, expiresAt FROM platform_broadcasts WHERE isActive = 1 AND expiresAt > ? ORDER BY createdAt DESC LIMIT 1', [now]);
+      res.json(row || null);
+    } catch (_) {
+      res.json(null);
+    }
+  });
+
+  router.get('/platform/broadcasts', authenticateToken, requirePlatformAdmin, async (req, res, next) => {
+    try {
+      const rows = await dbAll(`SELECT * FROM platform_broadcasts ORDER BY createdAt DESC LIMIT 50`);
+      res.json(rows || []);
+    } catch (error) { next(error); }
+  });
+
+  router.post('/platform/broadcasts', authenticateToken, requirePlatformAdmin, async (req, res, next) => {
+    try {
+      const { message, type = 'info', expiresInHours = 24 } = req.body || {};
+      if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required.' });
+      const id = `bcast_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const now = Date.now();
+      const expiresAt = now + (Number(expiresInHours) || 24) * 3600000;
+      await dbRun(
+        `INSERT INTO platform_broadcasts (id, message, type, createdAt, createdBy, expiresAt, isActive) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [id, message.trim(), type, now, req.user?.username || 'platform_owner', expiresAt]
+      );
+      // Broadcast to all tenants via SSE
+      try { notifyPOS({ type: 'platform_broadcast', message: message.trim(), broadcastType: type, expiresAt }); } catch (_) {}
+      await writeAuditLog(req.user.id, req.user.username, 'platform_broadcast', `Broadcast sent: "${message.trim().slice(0, 80)}"`);
+      res.status(201).json({ success: true, id });
+    } catch (error) { next(error); }
+  });
+
+  router.patch('/platform/broadcasts/:id/deactivate', authenticateToken, requirePlatformAdmin, async (req, res, next) => {
+    try {
+      await dbRun(`UPDATE platform_broadcasts SET isActive = 0 WHERE id = ?`, [req.params.id]);
+      res.json({ success: true });
+    } catch (error) { next(error); }
+  });
+
+  // ─── IMPERSONATION / SWITCH STORE ─────────────────────────────────────────
+  router.post('/platform/impersonate', authenticateToken, requirePlatformAdmin, async (req, res, next) => {
+    try {
+      const { tenantId } = req.body || {};
+      if (!tenantId) return res.status(400).json({ error: 'tenantId is required.' });
+      const tenant = await dbGet('SELECT id, name FROM tenants WHERE id = ?', [tenantId]);
+      if (!tenant) return res.status(404).json({ error: 'Restaurant not found.' });
+      await writeAuditLog(req.user.id, req.user.username, 'impersonate_tenant', `Switched view to tenant ${tenantId} (${tenant.name})`);
+      res.json({ success: true, posUrl: `/?tenant=${encodeURIComponent(tenantId)}`, tenantName: tenant.name });
+    } catch (error) { next(error); }
+  });
+
   return router;
 }
