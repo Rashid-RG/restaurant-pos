@@ -1,5 +1,6 @@
 import ServiceExceptions from "./ServiceExceptions.jsx";
 import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePOS } from "../context/POSContext";
 import { AnimatedFeatureIcon } from "../../shared/ui/AnimatedFeatureIcon.jsx";
 import { LayoutGrid, Columns, Maximize2, Minimize2, Clock, CheckCircle2, Flame } from "lucide-react";
@@ -10,8 +11,17 @@ export default function KDSView() {
   const [printTicket, setPrintTicket] = useState(null);
   useEffect(() => {
     if (printTicket) {
-      const timer = setTimeout(() => window.print(), 150);
-      return () => clearTimeout(timer);
+      document.body.classList.add('printing-receipt');
+      const timer = setTimeout(() => {
+        window.print();
+        setTimeout(() => {
+          document.body.classList.remove('printing-receipt');
+        }, 1200);
+      }, 200);
+      return () => {
+        clearTimeout(timer);
+        document.body.classList.remove('printing-receipt');
+      };
     }
   }, [printTicket]);
 
@@ -515,53 +525,57 @@ export default function KDSView() {
         </div>
       </div>
 
-      {printTicket && (
-        <div
-          className={
-            "receipt-print-area " +
-            (settings.printerPaperWidth === "58mm"
-              ? "paper-58mm"
-              : "paper-80mm")
-          }
-        >
-          <h2>KITCHEN TICKET</h2>
-          <p>
-            Order #{printTicket.orderId.slice(-6).toUpperCase()} · Revision{" "}
-            {printTicket.revision}
-          </p>
-          <p>
-            {printTicket.diningType}{" "}
-            {printTicket.tableId
-              ? "Table " +
-                (tables.find((t) => t.id === printTicket.tableId)?.number ||
-                  "—")
-              : ""}
-          </p>
-          <p>
-            Copy requested {new Date(printTicket.printedAt).toLocaleString()}
-          </p>
-          {printTicket.visibleLines.map((l) => (
-            <section key={l.id}>
-              <div className="receipt-divider" />
-              <strong>
-                {l.quantity} × {l.name}
-              </strong>
-              <p>
-                {l.station} · {l.state}
-              </p>
-              {l.modifiers.map((m) => (
-                <p key={m.id}>{m.name}</p>
-              ))}
-              {l.notes && (
+      {printTicket && (() => {
+        const printRoot = typeof document !== 'undefined' ? document.getElementById('receipt-print-root') : null;
+        const ticketContent = (
+          <div
+            className={
+              "receipt-print-area " +
+              (settings.printerPaperWidth === "58mm"
+                ? "paper-58mm"
+                : "paper-80mm")
+            }
+          >
+            <h2>KITCHEN TICKET</h2>
+            <p>
+              Order #{printTicket.orderId.slice(-6).toUpperCase()} · Revision{" "}
+              {printTicket.revision}
+            </p>
+            <p>
+              {printTicket.diningType}{" "}
+              {printTicket.tableId
+                ? "Table " +
+                  (tables.find((t) => t.id === printTicket.tableId)?.number ||
+                    "—")
+                : ""}
+            </p>
+            <p>
+              Copy requested {new Date(printTicket.printedAt).toLocaleString()}
+            </p>
+            {printTicket.visibleLines.map((l) => (
+              <section key={l.id}>
+                <div className="receipt-divider" />
+                <strong>
+                  {l.quantity} × {l.name}
+                </strong>
                 <p>
-                  <strong>NOTE: {l.notes}</strong>
+                  {l.station} · {l.state}
                 </p>
-              )}
-            </section>
-          ))}
-          <p>Match order and revision before preparing a duplicate copy.</p>
-        </div>
-      )}
+                {l.modifiers.map((m) => (
+                  <p key={m.id}>{m.name}</p>
+                ))}
+                {l.notes && (
+                  <p>
+                    <strong>NOTE: {l.notes}</strong>
+                  </p>
+                )}
+              </section>
+            ))}
+            <p>Match order and revision before preparing a duplicate copy.</p>
+          </div>
+        );
+        return printRoot ? createPortal(ticketContent, printRoot) : ticketContent;
+      })()}
 
       <ServiceExceptions
         ticket={amendTicket}
