@@ -2,7 +2,7 @@ import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePOS } from '../context/POSContext';
-import { resolvePrinterPaperSize } from '../utils/printer';
+import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint } from '../utils/printer';
 
 export function getFoodImageForItem(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
@@ -187,10 +187,12 @@ export default function POSView() {
       else document.body.classList.remove('print-58mm');
       document.body.classList.add('printing-receipt');
       const timer = setTimeout(() => {
+        prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
         window.print();
         setTimeout(() => {
           document.body.classList.remove('print-58mm');
           document.body.classList.remove('printing-receipt');
+          cleanupThermalPrint();
         }, 1200);
       }, 350);
       return () => clearTimeout(timer);
@@ -1430,10 +1432,12 @@ export default function POSView() {
                   if (is58mm) document.body.classList.add('print-58mm');
                   else document.body.classList.remove('print-58mm');
                   document.body.classList.add('printing-receipt');
+                  prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
                   window.print();
                   setTimeout(() => {
                     document.body.classList.remove('print-58mm');
                     document.body.classList.remove('printing-receipt');
+                    cleanupThermalPrint();
                   }, 1200);
                 }}
               >
@@ -1640,9 +1644,11 @@ export default function POSView() {
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => {
                     document.body.classList.add('printing-receipt');
+                    prepareThermalPrint('#z-report-print', settings?.printerPaperWidth || '80mm');
                     window.print();
                     setTimeout(() => {
                       document.body.classList.remove('printing-receipt');
+                      cleanupThermalPrint();
                     }, 1200);
                   }}>
                     🖨️ Print Z-Report

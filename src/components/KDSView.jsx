@@ -2,6 +2,7 @@ import ServiceExceptions from "./ServiceExceptions.jsx";
 import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePOS } from "../context/POSContext";
+import { prepareThermalPrint, cleanupThermalPrint } from "../utils/printer";
 import { AnimatedFeatureIcon } from "../../shared/ui/AnimatedFeatureIcon.jsx";
 import { LayoutGrid, Columns, Maximize2, Minimize2, Clock, CheckCircle2, Flame } from "lucide-react";
 import "./service-workflows.css";
@@ -13,14 +14,17 @@ export default function KDSView() {
     if (printTicket) {
       document.body.classList.add('printing-receipt');
       const timer = setTimeout(() => {
+        prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
         window.print();
         setTimeout(() => {
           document.body.classList.remove('printing-receipt');
+          cleanupThermalPrint();
         }, 1200);
       }, 200);
       return () => {
         clearTimeout(timer);
         document.body.classList.remove('printing-receipt');
+        cleanupThermalPrint();
       };
     }
   }, [printTicket]);

@@ -37,8 +37,10 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
     return;
   }
 
-  const paperWidth = paper === '58mm' ? '56mm' : paper === 'a4' ? '190mm' : '78mm';
+  const paperWidth = paper === '58mm' ? '52mm' : paper === 'a4' ? '190mm' : '76mm';
+  const rollWidth = paper === '58mm' ? '58mm' : paper === 'a4' ? '210mm' : '80mm';
   const fontSize = paper === '58mm' ? '11px' : paper === 'a4' ? '13px' : '12px';
+  const pageHeight = paper === 'a4' ? '297mm' : '110mm';
 
   testWindow.document.write(`
     <!doctype html>
@@ -46,7 +48,7 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
       <head>
         <title>GastroFlow Printer Test</title>
         <style>
-          @page { margin: 0; size: ${paper === 'a4' ? 'A4 portrait' : paper === '58mm' ? '58mm auto' : '80mm auto'}; }
+          @page { margin: 0; size: ${paper === 'a4' ? 'A4 portrait' : `${rollWidth} ${pageHeight}`}; }
           body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
             margin: 0;
@@ -95,5 +97,100 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
     </html>
   `);
   testWindow.document.close();
+}
+
+/**
+ * Programmatically measures receipt DOM content and injects exact @page dimensions
+ * into the document head prior to window.print().
+ * This prevents Chromium from falling back to default driver page length (297mm / A4)
+ * which causes thermal printers to feed excessive trailing blank paper before cutting.
+ */
+export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
+  if (typeof document === 'undefined') return { widthMm: 80, totalHeightMm: 140 };
+
+  const resolved = resolvePrinterPaperSize(paperSetting);
+  if (resolved === 'a4') {
+    let styleEl = document.getElementById('dynamic-thermal-page-style');
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'dynamic-thermal-page-style';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.innerHTML = `
+      @page {
+        size: A4 portrait !important;
+        margin: 8mm !important;
+      }
+    `;
+    return { widthMm: 210, totalHeightMm: 297 };
+  }
+
+  const is58mm = resolved === '58mm';
+  const widthMm = is58mm ? 58 : 80;
+  const contentWidthMm = is58mm ? 52 : 76;
+
+  let el = typeof elementOrSelector === 'string'
+    ? document.querySelector(elementOrSelector)
+    : elementOrSelector;
+
+  if (!el) {
+    el = document.getElementById('receipt-print-root') || document.querySelector('.receipt-print-area') || document.querySelector('.z-report-print-area');
+  }
+
+  let totalHeightMm = 120; // default safe receipt length
+  if (el) {
+    const heightPx = el.scrollHeight || el.offsetHeight || 0;
+    if (heightPx > 0) {
+      // 96 CSS pixels = 1 inch = 25.4mm  =>  1mm = 3.7795px
+      // Add a small 4mm margin for clean tear/cut line right after the footer
+      totalHeightMm = Math.ceil(heightPx / 3.7795) + 4;
+    }
+  }
+
+  // Bound minimum and maximum to prevent malformed pages
+  if (totalHeightMm < 45) totalHeightMm = 45;
+  if (totalHeightMm > 1200) totalHeightMm = 1200;
+
+  let styleEl = document.getElementById('dynamic-thermal-page-style');
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'dynamic-thermal-page-style';
+    document.head.appendChild(styleEl);
+  }
+
+  styleEl.innerHTML = `
+    @page {
+      size: ${widthMm}mm ${totalHeightMm}mm !important;
+      margin: 0mm !important;
+    }
+    @media print {
+      html, body {
+        width: ${widthMm}mm !important;
+        height: ${totalHeightMm}mm !important;
+        max-height: ${totalHeightMm}mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+      }
+      #receipt-print-root, .receipt-print-area, .z-report-print-area {
+        width: ${contentWidthMm}mm !important;
+        max-width: ${contentWidthMm}mm !important;
+        margin: 0 auto !important;
+        padding: 1mm 2mm 0mm 2mm !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+    }
+  `;
+
+  return { widthMm, totalHeightMm };
+}
+
+export function cleanupThermalPrint() {
+  if (typeof document === 'undefined') return;
+  const styleEl = document.getElementById('dynamic-thermal-page-style');
+  if (styleEl && styleEl.parentNode) {
+    styleEl.parentNode.removeChild(styleEl);
+  }
 }
 
