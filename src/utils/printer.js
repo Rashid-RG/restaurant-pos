@@ -106,7 +106,7 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
  * which causes thermal printers to feed excessive trailing blank paper before cutting.
  */
 export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
-  if (typeof document === 'undefined') return { widthMm: 80, totalHeightMm: 140 };
+  if (typeof document === 'undefined') return { widthMm: 80, totalHeightMm: 120 };
 
   const resolved = resolvePrinterPaperSize(paperSetting);
   if (resolved === 'a4') {
@@ -137,19 +137,46 @@ export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
     el = document.getElementById('receipt-print-root') || document.querySelector('.receipt-print-area') || document.querySelector('.z-report-print-area');
   }
 
-  let totalHeightMm = 120; // default safe receipt length
+  let measuredPx = 0;
   if (el) {
-    const heightPx = el.scrollHeight || el.offsetHeight || 0;
-    if (heightPx > 0) {
-      // 96 CSS pixels = 1 inch = 25.4mm  =>  1mm = 3.7795px
-      // Add a small 4mm margin for clean tear/cut line right after the footer
-      totalHeightMm = Math.ceil(heightPx / 3.7795) + 4;
+    // If the element has height in layout, measure directly;
+    // otherwise create an invisible off-screen clone to measure real height with exact typography & wrapping!
+    if (el.offsetHeight > 0 || el.scrollHeight > 0) {
+      measuredPx = Math.max(el.offsetHeight, el.scrollHeight);
+    } else {
+      try {
+        const clone = el.cloneNode(true);
+        clone.style.position = 'fixed';
+        clone.style.left = '-9999px';
+        clone.style.top = '0px';
+        clone.style.width = `${contentWidthMm}mm`;
+        clone.style.maxWidth = `${contentWidthMm}mm`;
+        clone.style.visibility = 'hidden';
+        clone.style.display = 'block';
+        clone.style.height = 'auto';
+        clone.style.margin = '0';
+        clone.style.padding = '1mm 2mm 0mm 2mm';
+        clone.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, monospace';
+        clone.style.fontSize = is58mm ? '11px' : '12px';
+        clone.style.lineHeight = '1.3';
+        document.body.appendChild(clone);
+        measuredPx = Math.max(clone.offsetHeight || 0, clone.scrollHeight || 0);
+        document.body.removeChild(clone);
+      } catch (_) {
+        measuredPx = 0;
+      }
     }
   }
 
-  // Bound minimum and maximum to prevent malformed pages
-  if (totalHeightMm < 45) totalHeightMm = 45;
-  if (totalHeightMm > 1200) totalHeightMm = 1200;
+  // 96 CSS pixels = 1 inch = 25.4mm  =>  1mm = 3.7795px
+  // Add 3mm safety margin for the tear/cut blade right below the footer
+  let totalHeightMm = measuredPx > 0
+    ? Math.ceil(measuredPx / 3.7795) + 3
+    : (is58mm ? 90 : 100);
+
+  // Safety clamps: never less than 35mm, never more than 1500mm
+  if (totalHeightMm < 35) totalHeightMm = 35;
+  if (totalHeightMm > 1500) totalHeightMm = 1500;
 
   let styleEl = document.getElementById('dynamic-thermal-page-style');
   if (!styleEl) {
@@ -175,6 +202,8 @@ export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
       #receipt-print-root, .receipt-print-area, .z-report-print-area {
         width: ${contentWidthMm}mm !important;
         max-width: ${contentWidthMm}mm !important;
+        min-height: 0 !important;
+        height: auto !important;
         margin: 0 auto !important;
         padding: 1mm 2mm 0mm 2mm !important;
         page-break-after: avoid !important;

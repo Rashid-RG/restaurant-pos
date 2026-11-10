@@ -1477,7 +1477,13 @@ button {
 }
 
 #receipt-print-root {
-  display: none;
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 76mm;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -9999;
 }
 
 @page {
