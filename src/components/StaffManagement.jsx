@@ -110,7 +110,7 @@ export default function StaffManagement() {
     if (!window.confirm(`Confirm that ${person.username} has actually been paid ${currency} ${Number(person.record.totalPay).toFixed(2)}? This action is permanent.`)) return;
     setBusy(true);
     try {
-      await payrollApi('/payroll/' + encodeURIComponent(person.record.id) + '/mark-paid', {method:'POST',body:JSON.stringify({reference})});
+      await payrollApi('/payroll-records/' + encodeURIComponent(person.record.id) + '/mark-paid', {method:'POST',body:JSON.stringify({reference})});
       showToast('Payment recorded (no transfer was made).','success'); await refresh();
     } catch(e){showToast(e.message,'error');}finally{setBusy(false);}
   };
