@@ -15,6 +15,16 @@ export default function MarketplaceMenu({ onChooseStore }) {
   const [menusLoaded, setMenusLoaded] = useState(0);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  // Open/closed state can change while a customer is browsing. Refresh the
+  // public marketplace without changing their selected restaurant or cart.
+  useEffect(() => {
+    const onFocus = () => setRefresh(v => v + 1);
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') setRefresh(v => v + 1);
+    }, 60000);
+    window.addEventListener('focus', onFocus);
+    return () => { window.clearInterval(interval); window.removeEventListener('focus', onFocus); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,9 +35,9 @@ export default function MarketplaceMenu({ onChooseStore }) {
       setMenus({});
       setMenusLoaded(0);
       try {
-        const discovered = await apiFetch('/public/restaurants');
+        const discovered = await apiFetch('/public/restaurants', { cache: 'no-store' });
         if (cancelled) return;
-        const openStores = Array.isArray(discovered) ? discovered.filter(s => s && s.id && s.isOpen !== false) : [];
+        const openStores = Array.isArray(discovered) ? discovered.filter(store => store && store.id && store.isOpen === true) : [];
         setStores(openStores);
         // Batch requests so a large marketplace does not overload the API.
         // Public menu lookups are tenant-scoped and cannot change the active cart tenant.
@@ -36,7 +46,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
           const results = await Promise.allSettled(batch.map(async store => {
             const url = new URL(apiUrl('/api/public/menu'));
             url.searchParams.set('tenantId', store.id);
-            const response = await fetch(url.toString(), { signal: controller.signal });
+            const response = await fetch(url.toString(), { signal: controller.signal, cache: 'no-store' });
             if (!response.ok) throw new Error('Unable to load store menu');
             const data = await response.json();
             if (data.tenantId !== store.id) throw new Error('Mismatched restaurant menu');
@@ -64,7 +74,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
 
   const allItems = useMemo(() => stores.flatMap(store => {
     const menu = menus[store.id];
-    if (!menu || menu.storeOpen === false) return [];
+    if (!menu || menu.storeOpen !== true) return [];
     return asItems(menu).filter(isMenuItemAvailable).map(item => ({ item, store }));
   }), [stores, menus]);
 
