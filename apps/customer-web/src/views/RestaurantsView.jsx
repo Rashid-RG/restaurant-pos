@@ -486,30 +486,28 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   });
 
   return (
-    <div style={{ padding: '16px', maxWidth: 600, margin: '0 auto', paddingBottom: 90, fontFamily: 'system-ui, sans-serif' }}>
+    <div className="restaurants-view" style={{ padding: '16px', maxWidth: 1120, margin: '0 auto', paddingBottom: 96, fontFamily: 'inherit' }}>
       
       {/* Top Location & Banner */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ cursor: 'pointer' }} onClick={() => setShowLocationModal(true)}>
+      <div className="restaurants-location-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <button type="button" className="restaurants-location-button" onClick={() => setShowLocationModal(true)} aria-label="Select delivery location">
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
             {t('deliveringTo') || 'Delivering to'}
           </div>
           <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 4 }}>
             📍 {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
           </div>
-        </div>
-        <div style={{ background: '#ff6b3515', color: '#ff6b35', padding: '6px 12px', borderRadius: 20, fontSize: '0.78rem', fontWeight: 700 }}>
-          🛵 15-35 Mins
-        </div>
+        </button>
+        <div className="restaurants-context-label">Order from local restaurants</div>
       </div>
 
       {/* Location Picker Modal */}
       {showLocationModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#111827', border: '1px solid #374151', borderRadius: 16, padding: 24, maxWidth: 440, width: '100%', color: '#f8fafc' }}>
+          <div className="restaurants-location-dialog" role="dialog" aria-modal="true" aria-label="Select delivery location" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, maxWidth: 440, width: '100%', maxHeight:'calc(100dvh - 32px)', overflowY:'auto', color: 'var(--text-1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 {t('selectDeliveryLocation') || 'Select Delivery Location'}</h3>
-              <button onClick={() => setShowLocationModal(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+              <button type="button" aria-label="Close location picker" onClick={() => setShowLocationModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-1)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
             </div>
 
             {/* GPS Auto-detect button */}
@@ -545,7 +543,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                   placeholder="e.g. 45 Main Street, Kandy or Galle Road"
                   value={customAddressInput}
                   onChange={e => setCustomAddressInput(e.target.value)}
-                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: '#1f2937', border: '1px solid #374151', color: '#fff', fontSize: '0.88rem' }}
+                  style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.88rem' }}
                 />
                 <button type="submit" style={{ padding: '10px 16px', borderRadius: 8, background: '#ff6b35', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
                   {isSearchingAddress ? '...' : (t('save') || 'Save')}
@@ -635,7 +633,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <button
                 onClick={() => { setShowOutOfCoverageModal(false); onSelectRestaurant && onSelectRestaurant(nearestStore); }}
-                style={{ width: '100%', padding: '14px', borderRadius: 14, background: 'linear-gradient(135deg, #ff6b35 0%, #f97316 100%)', color: '#fff', border: 'none', fontWeight: 800, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(255,107,53,0.4)' }}
+                style={{ width: '100%', padding: '14px', borderRadius: 14, background: 'var(--brand-gradient)', color: '#fff', border: 'none', fontWeight: 800, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(255,107,53,0.4)' }}
               >
                 <span>{t('orderSelfPickup') || '🏬 Order for Self-Pickup / Takeaway Instead'}</span>
               </button>
@@ -795,6 +793,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             {filtered.slice(0, 4).map(r => (
               <div
                 key={`pick_${r.id}`}
+                role="button"
+                tabIndex={0}
+                aria-label={`Browse featured restaurant ${r.name}`}
+                onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelectRestaurant?.(r)}}}
                 onClick={() => onSelectRestaurant && onSelectRestaurant(r)}
                 style={{
                   minWidth: 220,
@@ -809,8 +811,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               >
                 <div style={{ height: 100, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span style={{ fontSize: '3rem' }}>{r.emoji || '🏬'}</span>
-                  <span style={{ position: 'absolute', top: 8, left: 8, background: '#10b981', color: '#fff', padding: '2px 8px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 800 }}>
-                    🔥 Top Rated
+                  <span style={{ position: 'absolute', top: 8, left: 8, background: '#24664f', color: '#fff', padding: '2px 8px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 800 }}>
+                    Featured
                   </span>
                 </div>
                 <div style={{ padding: 12 }}>
@@ -818,7 +820,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                     {r.name}
                   </h4>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6 }}>
-                    ⭐ {r.rating} · ⏱️ {r.deliveryTime || '20-30 min'}
+                    {r.ratingCount > 0 ? `⭐ ${r.rating} (${r.ratingCount})` : 'New restaurant'}{r.deliveryTime ? ` · ⏱️ ${r.deliveryTime}` : ''}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
                     📍 {r.distanceKm ? `${r.distanceKm} km away` : 'Near you'}
@@ -854,10 +856,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Try searching for another dish or cuisine type.</p>
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: 18 }}>
+        <div className="restaurants-result-grid" style={{ display: 'grid', gap: 18 }}>
           {filtered.map(r => (
             <div
               key={r.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Browse menu at ${r.name}`}
+              onKeyDown={e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelectRestaurant?.(r);} }}
               onClick={() => onSelectRestaurant && onSelectRestaurant(r)}
               style={{
                 background: 'var(--surface-1)',
@@ -918,7 +924,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 </div>
 
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 6 }}>
-                  {r.cuisine} · 📍 {r.location || 'Colombo'}
+                  {r.cuisine}{r.location ? ` · 📍 ${r.location}` : ''}
                 </div>
 
                 {/* AI Score Badge */}
