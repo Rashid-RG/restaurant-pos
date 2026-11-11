@@ -373,3 +373,82 @@
   .customer-premium .auth-tab,
   .customer-premium .tracking-card .status-step{transition:none!important}
 }
+
+/* 2026 customer screens: sign-in, verification, support, coverage and tracking */
+.customer-premium .auth-brand-symbol{
+  width:58px;height:58px;display:grid;place-items:center;margin:0 auto 13px;
+  background:linear-gradient(140deg,#1b7d58,#12553c);color:white;
+  border-radius:19px;box-shadow:0 12px 24px rgba(24,102,67,.2)
+}
+.customer-premium .auth-secure-note{
+  display:inline-flex;gap:6px;align-items:center;margin:8px auto 4px;
+  font-size:11px;font-weight:750;letter-spacing:.03em;color:#277656
+}
+.customer-premium .auth-page .auth-logo h1{margin:0}
+.customer-premium .auth-page .auth-logo p{margin-top:8px}
+.customer-premium .auth-page .auth-tab.active{border:1px solid #d9e9dc}
+.customer-premium .auth-page .link-btn{min-height:38px}
+.customer-premium .auth-page :is(input,select):disabled{opacity:.6}
+.customer-premium .customer-coverage-dialog{
+  border:1px solid #dbe8db!important;
+  color:#203b2b!important;
+  background:linear-gradient(140deg,#fff,#f5faf5)!important;
+  box-shadow:0 24px 80px rgba(18,45,28,.24)!important;
+  max-height:calc(100dvh - 36px);overflow-y:auto;
+}
+.customer-premium .customer-coverage-dialog h3{color:#966118!important}
+.customer-premium .customer-coverage-dialog > div:nth-child(2){
+  background:#fff6e7!important;border:1px solid #ecd9b5!important
+}
+.customer-premium .customer-coverage-dialog > div:nth-child(2) p{
+  color:#604b2a!important
+}
+.customer-premium .customer-coverage-dialog > div:last-child button:first-child{
+  background:linear-gradient(120deg,#1b6c4d,#2d8d61)!important;
+  box-shadow:0 9px 24px rgba(25,99,65,.14)!important
+}
+.customer-premium .customer-coverage-dialog > div:last-child button:last-child{
+  background:#edf4ed!important;border:1px solid #d4e6d6!important;
+  color:#21513b!important
+}
+.customer-premium .customer-coverage-dialog button:focus-visible{outline:3px solid #3e9b6f;outline-offset:3px}
+.customer-premium .tracking-card .status-step.active{
+  box-shadow:0 6px 20px rgba(26,107,64,.065)
+}
+.customer-premium .tracking-card .status-step.active .step-dot{
+  animation:gf-stage-halo 2.5s ease-in-out infinite;
+}
+@keyframes gf-stage-halo{
+  0%,100%{box-shadow:0 0 0 3px rgba(27,119,79,.11)}
+  50%{box-shadow:0 0 0 8px rgba(27,119,79,.055)}
+}
+.customer-premium .tracking-card .status-step.done .step-dot{
+  animation:gf-stage-reveal .25s ease-out both
+}
+@keyframes gf-stage-reveal{from{transform:scale(.88)}to{transform:scale(1)}}
+.customer-premium .customer-tracking-tools{box-shadow:0 5px 17px rgba(16,65,37,.045)}
+.customer-premium .tracking-card .status-step .step-info h4{line-height:1.4}
+.customer-premium .support-page a,.customer-premium .customer-support-page a{
+  border-radius:12px
+}
+.customer-premium .support-page :is(input,textarea,select),
+.customer-premium .customer-support-page :is(input,textarea,select){
+  width:100%;min-height:44px;border-radius:12px;border:1px solid #d3e5d6;
+  color:#173e2d;background:#fff
+}
+.customer-premium .support-page :is(input,textarea,select):focus-visible,
+.customer-premium .customer-support-page :is(input,textarea,select):focus-visible{
+  border-color:#2f8f63;box-shadow:0 0 0 3px rgba(40,130,85,.12)
+}
+@media(max-width:600px){
+  .customer-premium .customer-coverage-dialog{
+    padding:20px!important;border-radius:20px!important
+  }
+  .customer-premium .auth-brand-symbol{width:52px;height:52px;border-radius:16px}
+}
+@media(prefers-reduced-motion:reduce){
+  .customer-premium .tracking-card .status-step.active .step-dot,
+  .customer-premium .tracking-card .status-step.done .step-dot{
+    animation:none!important
+  }
+}
