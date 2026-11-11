@@ -1,3 +1,4 @@
+import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,pushConfigured} from './lib/customer-push.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
 import {initServiceExceptions,createServiceExceptions} from './routes/service-exceptions.js';
 import {initManualPayments,createManualPayments} from './routes/manual-payments.js';
@@ -959,6 +960,8 @@ async function initTables() {
       )
     `);
 
+    await initCustomerPush(dbRun);
+
     // 23. Timeclock Entries Table (Staff shift tracking)
     await dbRun(`
       CREATE TABLE IF NOT EXISTS timeclock_entries (
@@ -1843,6 +1846,8 @@ app.use('/api',createKitchenRouter({dbGet,dbAll,dbRun,authenticateToken,requireR
 app.use('/api',createInventoryOperations({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyPOS}));
 app.use('/api',createOrderChatRouter({dbGet,dbAll,dbRun,authenticateToken,authenticateCustomer,authenticateDriver,broadcastEvent,rateLimiter:publicApiLimiter}));
 app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
+app.post('/api/public/orders/:id/push-subscription',publicApiLimiter,createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}),
+  createCustomerPushRoutes({dbRun,dbGet,resolvePublicTenant}));
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],(req,res,next)=>{req.params.id=req.body?.orderId;return createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver})(req,res,next);});
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],async(req,res,next)=>{try{if(await dbGet('SELECT id FROM manual_payments WHERE orderId=?',[req.body?.orderId]))return res.status(409).json({error:'This order has recorded manual payments. Contact the restaurant to settle its remaining balance.'});next();}catch(e){next(e);}});
 app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
@@ -4538,6 +4543,7 @@ function notifyPublicStore(eventData, tenantId) {
 }
 
 function notifyOrderUpdate(orderId, orderData) {
+  if (orderData?.tenant_id) void sendOrderPush(dbAll,dbRun,orderId,orderData.tenant_id,orderData.status).catch(()=>{});
   notifyOrderStream(orderId, orderData);
   notifyPOS({ type: 'order_updated', orderId, order: orderData }, orderData?.tenant_id);
 }
@@ -5220,7 +5226,7 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       timeZone: (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: s.timeZone || 'Asia/Colombo' }).resolvedOptions().timeZone; } catch { return 'Asia/Colombo'; } })(),
       lat: s.restaurantLat ? Number(s.restaurantLat) : null,
       lng: s.restaurantLng ? Number(s.restaurantLng) : null,
-      vapidPublicKey: 'BEl62iUYgUivxIkv69yViEuiBIa1-Zpe5-93Aae7lUab6l3e5Jq9l14X_2-Wd5x-J8f90X26m5V0X9Z8m5V0X9Z'
+      vapidPublicKey: pushConfigured() ? process.env.VAPID_PUBLIC_KEY : null
     });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
