@@ -2793,7 +2793,7 @@ async function verifyOTPAsync(destination, code, purpose, tenantId) {
 }
 
 app.get('/api/public/customer-auth-capabilities', publicApiLimiter, (_req, res) =>
-  res.set('Cache-Control','no-store').json({ emailOtp: isEmailConfigured(), smsOtp: false, passwordLogin: true })
+  res.set('Cache-Control','no-store').json({ emailOtp: isEmailConfigured(), smsOtp: isSmsConfigured(), passwordLogin: true })
 );
 
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
@@ -2813,10 +2813,8 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
       error: 'Email verification is not configured. Contact GastroFlow support.',
       code: 'EMAIL_PROVIDER_UNAVAILABLE'
     });
-    // The current SMS helper only simulates gateway delivery; do not falsely
-    // report successful dispatch or issue a login secret through a fake gateway.
-    if (!isEmail) return res.status(503).json({
-      error: 'SMS verification is not yet available. Choose email verification.',
+    if (!isEmail && !isSmsConfigured()) return res.status(503).json({
+      error: 'SMS verification is not configured. Choose email verification.',
       code: 'SMS_PROVIDER_UNAVAILABLE'
     });
 
@@ -2887,6 +2885,10 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
         console.error('[OTP EMAIL EXCEPTION]', e.message);
       }
 
+      if (!emailSent) {
+        await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
+        return res.status(503).json({error:'We could not send the email code. Try again later or choose SMS if available.',code:'EMAIL_DELIVERY_FAILED'});
+      }
       return res.json({
         success: true,
         channel: 'email',
@@ -2900,22 +2902,14 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
     } else {
       const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
 
-      // Fire-and-forget background SMS dispatch
-      sendSms({ to: cleanDest, message: msg }).then(smsRes => {
-        if (!smsRes || smsRes.simulated || !smsRes.success) {
-          console.warn(`[SMS SEND BACKGROUND WARNING] Diagnostic result:`, smsRes);
-        } else {
-          console.log(`[OTP SMS SUCCESS] Delivered to ${cleanDest}`);
-        }
-      }).catch(e => {
-        console.error('[SMS OTP BACKGROUND EXCEPTION]', e.message);
-      });
-
+      const smsRes = await sendSms({ to: cleanDest, message: msg });
+      if (!smsRes?.success) {
+        await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
+        return res.status(503).json({error:'SMS delivery failed. Try email verification or contact support.',code:'SMS_DELIVERY_FAILED'});
+      }
       return res.json({
-        success: true,
-        channel: 'sms',
-        destination: cleanDest,
-        message: `Verification code sent via SMS to ${cleanDest}. Please check your phone.`
+        success:true, channel:'sms', destination:cleanDest,
+        message:'Verification message accepted by the SMS provider. Check your phone.'
       });
     }
   } catch (err) {
@@ -5535,7 +5529,7 @@ app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ error: 'email is required.' });
   try {
-    const acct = await dbGet('SELECT id, email, phone FROM customer_accounts WHERE email = ?', [String(email).trim().toLowerCase()]);
+    const acct = await dbGet('SELECT id,email,phone FROM customer_accounts WHERE email=? AND tenant_id=?', [String(email).trim().toLowerCase(),await resolvePublicTenant(req)]);
     // Always respond the same way — no account enumeration.
     if (acct) {
       const { token, code } = await createPasswordReset('customer', acct.id);
@@ -5565,7 +5559,7 @@ app.post('/api/customer/auth/reset-password', otpLimiter, async (req, res) => {
   const { token, email, code, newPassword } = req.body || {};
   if (typeof newPassword !== 'string' || newPassword.length < 10 || newPassword.length > 72) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
   try {
-    const reset = await resolveReset('customer', { token, email, code, lookupByEmail: async (e) => dbGet('SELECT id FROM customer_accounts WHERE email = ?', [String(e).trim().toLowerCase()]) });
+    const reset = await resolveReset('customer', { token, email, code, lookupByEmail: async (e) => dbGet('SELECT id FROM customer_accounts WHERE email = ? AND tenant_id = ?', [String(e).trim().toLowerCase(),await resolvePublicTenant(req)]) });
     if (!reset) return res.status(400).json({ error: 'Invalid or expired reset request.' });
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await dbRun('UPDATE customer_accounts SET passwordHash = ? WHERE id = ?', [passwordHash, reset.userId]);
