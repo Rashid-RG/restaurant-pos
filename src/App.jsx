@@ -12,6 +12,7 @@ import Inventory from './components/Inventory';
 import Customers from './components/Customers';
 import Settings from './components/Settings';
 import DeliveryView from './components/DeliveryView';
+import OnlineOrders from './components/OnlineOrders';
 import SupportTicketsView from './components/SupportTicketsView';
 import DailyExpenses from './components/DailyExpenses';
 import SoldItems from './components/SoldItems';
@@ -90,6 +91,8 @@ function AppContent() {
         return <DailyExpenses />;
       case 'customers':
         return <Customers />;
+      case 'online-orders':
+        return <OnlineOrders />;
       case 'delivery':
         return <DeliveryView />;
       case 'tickets':
