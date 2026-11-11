@@ -23,17 +23,20 @@ class ErrorBoundary extends Component {
   static getDerivedStateFromError(error) { return { error }; }
   render() {
     if (this.state.error) return (
-      <div style={{ padding: 24, fontFamily: 'monospace', color: '#c00', background: '#fff0f0', minHeight: '100dvh' }}>
-        <h2>⚠ App Error</h2>
-        <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', marginTop: 12 }}>
-          {this.state.error?.message}{'\n\n'}{this.state.error?.stack}
-        </pre>
-      </div>
+      <main className="customer-error-screen" role="alert">
+        <div className="customer-error-panel">
+          <div className="customer-error-symbol" aria-hidden="true">!</div>
+          <p className="customer-eyebrow">WE COULDN'T LOAD THIS SCREEN</p>
+          <h1>Something went wrong</h1>
+          <p>We couldn't display this page. Your order may already have been submitted, so check tracking before placing another order.</p>
+          <button className="btn btn-brand" onClick={() => window.location.reload()}>Try again</button>
+          <a href={import.meta.env.BASE_URL + '?view=track'}>Check an existing order</a>
+        </div>
+      </main>
     );
     return this.props.children;
   }
 }
-
 
 function CartSheet({ onCheckout }) {
   const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems, rates } = useCart();
@@ -47,7 +50,7 @@ function CartSheet({ onCheckout }) {
   if (!cartOpen) return null;
   return (
     <>
-      <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} />
+      <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} aria-hidden="true" />
       <div className={`cart-sheet ${cartOpen ? 'open' : ''}`} role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="cart-sheet-handle" />
         <div className="cart-sheet-header">
@@ -84,9 +87,9 @@ function CartSheet({ onCheckout }) {
                 <div className="cart-item-price">Rs. {item.unitPrice.toFixed(2)} each</div>
               </div>
               <div className="qty-control">
-                <button className="dec" onClick={() => removeItem(item.cartId)}>−</button>
+                <button className="dec" aria-label={`Remove one ${item.name}`} onClick={() => removeItem(item.cartId)}>−</button>
                 <span className="qty">{item.qty}</span>
-                <button className="inc" onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+                <button className="inc" aria-label={`Add one ${item.name}`} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
               </div>
             </div>
           ))}
@@ -284,7 +287,7 @@ function InnerApp({ switchRestaurant }) {
   };
 
   return (
-    <div className="app-shell"><ConnectionStatus/>
+    <div className="app-shell customer-premium"><ConnectionStatus/>
       <Toast messages={messages} />
       <InstallPrompt />
       <SystemUpdatePrompt />
@@ -292,7 +295,7 @@ function InnerApp({ switchRestaurant }) {
 
 
       {/* Top Header */}
-      <header className="top-header">
+      <header className="top-header" role="banner">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexShrink: 1 }}>
           {view !== 'restaurants' && (
             <button
@@ -364,7 +367,7 @@ function InnerApp({ switchRestaurant }) {
       </header>
 
       {/* Main Content */}
-      <main className="main-content">
+      <main className="main-content" id="customer-main">
         {view === 'restaurants' && (
           <RestaurantsView
             onSelectRestaurant={(rest) => {
@@ -455,25 +458,25 @@ function InnerApp({ switchRestaurant }) {
       <CartSheet onCheckout={() => navigate('checkout')} />
 
       {/* Bottom Navigation */}
-      <nav className="bottom-nav">
-        <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} onClick={() => navigate('restaurants')}>
+      <nav className="bottom-nav" aria-label="Customer app navigation">
+        <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} aria-current={view==='restaurants'?'page':undefined} onClick={() => navigate('restaurants')}>
           <span className="nav-icon"><Store size={21}/></span>
           Stores
         </button>
-        <button className={`nav-item ${view === 'menu' ? 'active' : ''}`} onClick={() => navigate('menu')}>
+        <button className={`nav-item ${view === 'menu' ? 'active' : ''}`} aria-current={view==='menu'?'page':undefined} onClick={() => navigate('menu')}>
           <span className="nav-icon"><Utensils size={21}/></span>
           {t('navMenu')}
         </button>
-        <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} onClick={() => navigate('checkout')}>
+        <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} aria-current={view==='checkout'?'page':undefined} onClick={() => navigate('checkout')}>
           <span className="nav-icon"><ShoppingBag size={21}/></span>
           {t('navCart')}
           {totalItems > 0 && <span className="badge" style={{ position: 'static', fontSize: '0.6rem', padding: '1px 5px' }}>{totalItems}</span>}
         </button>
-        <button className={`nav-item ${view === 'track' ? 'active' : ''}`} onClick={() => navigate('track')}>
+        <button className={`nav-item ${view === 'track' ? 'active' : ''}`} aria-current={view==='track'?'page':undefined} onClick={() => navigate('track')}>
           <span className="nav-icon"><Package size={21}/></span>
           {t('navTrack')}
         </button>
-        <button className={`nav-item ${view === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>
+        <button className={`nav-item ${view === 'account' ? 'active' : ''}`} aria-current={view==='account'?'page':undefined} onClick={() => navigate('account')}>
           <span className="nav-icon"><UserRound size={21}/></span>
           {customer ? t('navAccount') : t('navSignIn')}
         </button>
