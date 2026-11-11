@@ -11,6 +11,7 @@ const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedV
 export default function Settings() {
   const {
     currentUser,
+    setActiveTab,
     settings,
     updateSetting,
     menuItems,
@@ -654,7 +655,7 @@ export default function Settings() {
               className={`settings-nav-btn ${subTab === 'online' ? 'active' : ''}`}
               onClick={() => setSubTab('online')}
             >
-              🌐 Online Store
+              🌐 Online Store Settings
             </button>
             {currentUser?.role === 'owner' && <button className={`settings-nav-btn ${subTab === 'billing' ? 'active' : ''}`} onClick={() => setSubTab('billing')}>Plan and billing</button>}
             {isMasterSuperAdmin && (
@@ -1111,7 +1112,10 @@ export default function Settings() {
             {/* 4. Online Store Admin Settings */}
             {subTab === 'online' && (
               <div>
-                <h2 className="settings-section-title">Online Store Management</h2>
+                <div style={{display:'flex',gap:10,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',marginBottom:14}}>
+                  <h2 className="settings-section-title" style={{margin:0}}>Online Store Settings</h2>
+                  <button type="button" className="btn btn-outline" onClick={()=>setActiveTab('online-store')}>← Online Store dashboard</button>
+                </div>
                 <section className="online-store-launch-panel" aria-label="Customer store setup and preview" style={{background:'var(--bg-surface)',border:'1px solid var(--border-color)',borderRadius:18,padding:20,marginBottom:24}}>
                   <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:14,flexWrap:'wrap'}}>
                     <div>
