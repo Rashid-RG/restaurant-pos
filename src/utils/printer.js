@@ -269,16 +269,44 @@ export function buildStandaloneReceiptDocument(receiptMarkup, paperSetting='80mm
   ].join('');
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>GastroFlow POS Bill</title><style>'+css+'</style></head><body>'+receiptMarkup+'</body></html>';
 }
+// The print document must size itself to the actual receipt, not a fixed roll length.
+// Use the isolated print document's layout to avoid measurement of hidden POS elements.
+export function fitStandaloneReceiptPage(doc, paperSetting = '80mm') {
+  if (!doc) return false;
+  // Some embedded print hosts expose a minimal document API without layout
+  // measurement; preserve the already-validated receipt instead of suppressing print.
+  if (typeof doc.querySelector !== 'function') return true;
+  const receipt = doc.querySelector('.receipt-print-area');
+  if (!receipt || !receipt.textContent?.trim()) return false;
+  const paper = resolvePrinterPaperSize(paperSetting);
+  if (paper === 'a4') return true;
+  const width = paper === '58mm' ? 58 : 80;
+  // Ensure all dimensions are measured with actual receipt wrapping after fonts load.
+  const px = Math.max(receipt.scrollHeight, receipt.getBoundingClientRect().height);
+  if (!Number.isFinite(px) || px <= 0) return false;
+  const mm = Math.max(35, Math.ceil(px * 25.4 / 96) + 5);
+  let style = doc.getElementById('receipt-content-page-size');
+  if (!style) {
+    style = doc.createElement('style');
+    style.id = 'receipt-content-page-size';
+    doc.head.appendChild(style);
+  }
+  // A length longer than the printer supports should paginate, not request an
+  // enormous single page. Receipts below 600 mm use exactly one fitted page.
+  style.textContent = '@page { size: ' + width + 'mm ' + Math.min(mm, 600) + 'mm !important; margin: 0 !important; }';
+  return true;
+}
 let activePrintFrame=null;
 export function printRenderedReceipt(paperSetting='80mm',options={}) {
   if(typeof document==='undefined'||typeof window==='undefined')return false;
-  const receipt=document.getElementById('receipt-print-root')?.querySelector('.receipt-print-area');
+  const receipt=options.selector ? document.querySelector(options.selector) : document.getElementById('receipt-print-root')?.querySelector('.receipt-print-area');
   const text=receipt?.textContent?.replace(/\s+/g,' ').trim()||'';
   if(!receipt||text.length<24||!receipt.outerHTML){
     console.error('[GastroFlow] Blank bill prevented: receipt has not rendered');
     return false;
   }
-  const html=buildStandaloneReceiptDocument(receipt.outerHTML,paperSetting);
+  const receiptHtml=options.selector ? '<div class="receipt-print-area">'+receipt.outerHTML+'</div>' : receipt.outerHTML;
+  const html=buildStandaloneReceiptDocument(receiptHtml,paperSetting);
   let popup=null;
   if(options.userInitiated){
     try{popup=window.open('','_blank','width=480,height=740');}catch(_){}
@@ -291,7 +319,7 @@ export function printRenderedReceipt(paperSetting='80mm',options={}) {
         await Promise.all([...popup.document.images].map(img=>img.complete?null:new Promise(resolve=>{
           img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});setTimeout(resolve,1500);
         })));
-        if(!popup.closed){popup.focus();popup.print();}
+        if(!popup.closed && fitStandaloneReceiptPage(popup.document,paperSetting)){popup.focus();popup.print();}
       }catch(error){console.error('[GastroFlow] Bill print preview failed',error);}
     };
     setTimeout(show,180);
@@ -320,7 +348,7 @@ export function printRenderedReceipt(paperSetting='80mm',options={}) {
       await Promise.all([...(doc?.images||[])].map(img=>img.complete?null:new Promise(resolve=>{
         img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});setTimeout(resolve,1500);
       })));
-      if(!doc?.body?.textContent?.trim())throw Error('Print frame is empty');
+      if(!fitStandaloneReceiptPage(doc,paperSetting))throw Error('Print frame is empty or has no measurable receipt');
       const win=frame.contentWindow;
       if(!win)throw Error('Browser print frame unavailable');
       win.addEventListener('afterprint',()=>setTimeout(finish,1500),{once:true});
@@ -331,4 +359,9 @@ export function printRenderedReceipt(paperSetting='80mm',options={}) {
   };
   frame.srcdoc=html;
   return true;
+}
+
+/** Print only the selected existing receipt, never the whole POS application. */
+export function printSelectedReceipt(selector, paperSetting = '80mm') {
+  return printRenderedReceipt(paperSetting, { selector, userInitiated: true });
 }

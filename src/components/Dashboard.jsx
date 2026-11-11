@@ -4,6 +4,7 @@ import {
   Search, X, Eye, FileText, CheckCircle2, ShieldCheck, Utensils
 } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
+import { printSelectedReceipt } from '../utils/printer';
 import { restaurantTimeZone, dateAtRestaurant, formatRestaurantTime, shiftCalendarDate } from '../utils/restaurant-time';
 
 export default function Dashboard() {
@@ -323,8 +324,7 @@ export default function Dashboard() {
 
     const printWindow = window.open('', '_blank', 'width=1000,height=800,scrollbars=yes');
     if (!printWindow) {
-      // Fallback: popup was blocked
-      window.print();
+      showToast('Allow popups to print the Sales Audit report. The report was not sent to the printer.', 'error');
       return;
     }
     printWindow.document.open();
@@ -364,22 +364,17 @@ export default function Dashboard() {
 <body>${content}</body>
 </html>`);
     printWindow.document.close();
-    // Give images and fonts time to load before triggering print
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.focus();
-        printWindow.print();
-      }, 350);
+    // Print exactly once: the previous load handler plus fallback could
+    // open two print dialogs and feed duplicate paper on Windows printers.
+    let started = false;
+    const printOnce = () => {
+      if (started || printWindow.closed) return;
+      started = true;
+      printWindow.focus();
+      printWindow.print();
     };
-    // Fallback if onload does not fire (some browsers)
-    setTimeout(() => {
-      try {
-        if (printWindow && !printWindow.closed) {
-          printWindow.focus();
-          printWindow.print();
-        }
-      } catch (_) {}
-    }, 1500);
+    printWindow.onload = () => setTimeout(printOnce, 350);
+    setTimeout(printOnce, 1500);
   };
 
   // Export CSV handler for currently filtered sales
@@ -1476,7 +1471,11 @@ export default function Dashboard() {
                 <button 
                   className="btn btn-secondary" 
                   style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    if (!printSelectedReceipt('#printable-receipt', settings?.printerPaperWidth || '80mm')) {
+                      showToast('Receipt content is not ready. Reopen the receipt and retry.', 'error');
+                    }
+                  }}
                 >
                   <Printer size={15} /> Print
                 </button>

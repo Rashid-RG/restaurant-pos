@@ -23,8 +23,11 @@ export const workspaceDestinations = [
   { id: 'settings', name: 'Settings', description: 'Your restaurant and team', icon: Settings, management: true }
 ];
 export function useDestinations() {
-  const { currentUser } = usePOS();
-  const destinations = currentUser?.isPlatformAdmin === true ? [{ id: 'platform', name: 'Platform admin', description: 'Manage restaurants and their owners', icon: Store }, ...workspaceDestinations] : workspaceDestinations;
+  const { currentUser, activeTab } = usePOS();
+  // Platform-owner navigation uses the active workspace; ordinary restaurant users are unchanged.
+  const destinations = currentUser?.isPlatformAdmin === true && activeTab === 'platform'
+    ? [{ id: 'platform', name: 'Platform administration', description: 'Manage restaurants, plans and platform operations', icon: Store }]
+    : workspaceDestinations;
   return destinations.filter(item => !item.management || ['owner', 'manager'].includes(currentUser?.role) || Boolean(currentUser?.isPlatformAdmin));
 }
 export default function WorkspaceTools() {
@@ -43,7 +46,7 @@ export default function WorkspaceTools() {
   const navigate = id => { setActiveTab(id); dialog.current.close(); };
   return <>
     <div className="workspace-toolbar">
-      <div className="workspace-location"><Store size={16}/><span>{settings.businessName || settings.restaurantName || 'My restaurant'}</span><span className="workspace-separator">/</span><strong>{destinations.find(item => item.id === activeTab)?.name || 'Workspace'}</strong></div>
+      <div className="workspace-location"><Store size={16}/>{currentUser?.isPlatformAdmin === true && activeTab === 'platform' ? <><span>Platform owner</span><span className="workspace-separator">/</span><strong>Platform administration</strong></> : <><span>{settings.businessName || settings.restaurantName || 'My restaurant'}</span><span className="workspace-separator">/</span><strong>{destinations.find(item => item.id === activeTab)?.name || 'Workspace'}</strong></>}</div>
       <div className="workspace-toolbar-actions"><ConnectionStatus compact/><button className="workspace-search" aria-label="Go to anything" onClick={open}><Search size={15}/><span>Go to anything</span><kbd>⌘ K</kbd></button><span className="workspace-avatar" title={currentUser?.username}>{currentUser?.username?.slice(0, 2).toUpperCase()}</span></div>
     </div>
     <dialog ref={dialog} className="command-dialog" onClick={event => { if (event.target === dialog.current) dialog.current.close(); }} aria-label="Navigate your workspace">

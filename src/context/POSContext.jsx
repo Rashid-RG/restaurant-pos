@@ -536,6 +536,8 @@ export const POSProvider = ({ children }) => {
     setTenantLock(null);
     setSessionChecking(false);
     setCurrentUser(data.user);
+    // Open the dedicated platform workspace for the single designated owner only.
+    if (data.user?.isPlatformAdmin === true) setActiveTab('platform');
   };
 
   const logout = () => {

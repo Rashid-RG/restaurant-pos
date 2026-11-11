@@ -1,5 +1,5 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {printRenderedReceipt,buildStandaloneReceiptDocument} from '../src/utils/printer.js';
+import {printRenderedReceipt,buildStandaloneReceiptDocument,fitStandaloneReceiptPage} from '../src/utils/printer.js';
 
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 
@@ -37,5 +37,21 @@ describe('POS-80 receipt print isolation',()=>{
     expect(parentPrint).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(200);
     expect(print).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Thermal roll length safety',()=>{
+  it.each([['58mm',58],['80mm',80]])('fits %s print page to rendered content', (paper,width)=>{
+    vi.stubGlobal('localStorage',{getItem:()=>null});
+    const page={id:'receipt-content-page-size',textContent:''};
+    const receipt={textContent:'Rice x 2 | Rs 1800',scrollHeight:240,getBoundingClientRect:()=>({height:240})};
+    const doc={querySelector:()=>receipt,getElementById:()=>null,createElement:()=>page,head:{appendChild:vi.fn()}};
+    expect(fitStandaloneReceiptPage(doc,paper)).toBe(true);
+    expect(page.textContent).toContain('size: '+width+'mm 69mm');
+    expect(page.textContent).not.toContain('180mm');
+  });
+  it('never prepares a blank receipt for printing',()=>{
+    const doc={querySelector:()=>({textContent:''}),getElementById:()=>null};
+    expect(fitStandaloneReceiptPage(doc,'80mm')).toBe(false);
   });
 });
