@@ -12,6 +12,7 @@ import { createTrackingGuard, makeTrackingAccess } from './lib/order-tracking.js
 import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
 import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
 import { initExpensesTable, createExpensesRouter } from './routes/expenses.js';
+import { initStaffPayroll, createStaffPayrollRouter } from './routes/staff-payroll.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
 import express from 'express';
@@ -1288,6 +1289,7 @@ async function initTables() {
     await initPlatformOperations(dbRun);
     await initSaasBilling(dbRun);
     await initExpensesTable(dbRun);
+    await initStaffPayroll(dbRun);
     await seedDatabase();
     // A singleton records platform ownership independently of restaurant roles.
     await dbRun(`CREATE TABLE IF NOT EXISTS platform_ownership (
@@ -1844,6 +1846,7 @@ app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,req
 app.use('/api', createPlatformOperations({dbGet,dbAll,dbRun,authenticateToken,requirePlatformAdmin}));
 app.use('/api', createSupportRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolvePublicTenant,notifyPOS,rateLimiter:publicApiLimiter}));
 app.use('/api', createExpensesRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,broadcastEvent}));
+app.use('/api', createStaffPayrollRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
 
 // Reject writes to an ID owned by another restaurant before any upsert can replace it.
 for (const table of ['categories', 'menu_items', 'tables', 'customers']) {
