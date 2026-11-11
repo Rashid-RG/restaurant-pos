@@ -11,6 +11,7 @@ import KDSView from './components/KDSView';
 import Inventory from './components/Inventory';
 import Customers from './components/Customers';
 import Settings from './components/Settings';
+import OnlineStoreWorkspace from './components/OnlineStoreWorkspace';
 import DeliveryView from './components/DeliveryView';
 import OnlineOrders from './components/OnlineOrders';
 import SupportTicketsView from './components/SupportTicketsView';
@@ -101,6 +102,8 @@ function AppContent() {
         return <DeliveryView />;
       case 'tickets':
         return <SupportTicketsView />;
+      case 'online-store':
+        return ['owner', 'manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <OnlineStoreWorkspace /> : <Dashboard />;
       case 'settings':
         return <Settings />;
       default:
