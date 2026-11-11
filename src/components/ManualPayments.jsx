@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { usePOS } from "../context/POSContext";
+import { formatRestaurantTime, restaurantTimeZone } from "../utils/restaurant-time";
 import "./service-workflows.css";
 export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
   const { currentUser, settings, loadAllData } = usePOS(),
@@ -336,7 +337,7 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
                     {money(p.amountCents)} · {p.method}
                   </strong>
                   <p>
-                    {new Date(p.createdAt).toLocaleString()} ·{" "}
+                    {formatRestaurantTime(p.createdAt, restaurantTimeZone(settings))} ·{" "}
                     {p.reference || "Cash drawer"} · {p.actorId}
                   </p>
                   <small>
@@ -460,7 +461,7 @@ export default function ManualPayments({ openOrder, onOpened, onReceipt }) {
                     </strong>
                     <p>
                       {r.reason} · {r.reference || "Cash drawer"} ·{" "}
-                      {new Date(r.createdAt).toLocaleString()}
+                      {formatRestaurantTime(r.createdAt, restaurantTimeZone(settings))}
                     </p>
                     <small>
                       {r.settled
