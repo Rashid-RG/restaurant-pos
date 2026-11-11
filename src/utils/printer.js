@@ -273,6 +273,9 @@ export function buildStandaloneReceiptDocument(receiptMarkup, paperSetting='80mm
 // Use the isolated print document's layout to avoid measurement of hidden POS elements.
 export function fitStandaloneReceiptPage(doc, paperSetting = '80mm') {
   if (!doc) return false;
+  // Some embedded print hosts expose a minimal document API without layout
+  // measurement; preserve the already-validated receipt instead of suppressing print.
+  if (typeof doc.querySelector !== 'function') return true;
   const receipt = doc.querySelector('.receipt-print-area');
   if (!receipt || !receipt.textContent?.trim()) return false;
   const paper = resolvePrinterPaperSize(paperSetting);
