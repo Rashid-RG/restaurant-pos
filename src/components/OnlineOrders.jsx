@@ -57,7 +57,7 @@ export default function OnlineOrders(){
   return <main className="view-body online-orders-page">
     <header className="online-orders-heading"><div><p className="online-orders-eyebrow"><ShoppingBag size={15}/> CUSTOMER ORDERING</p><h1>Online Orders</h1><p>Manage customer orders separately from walk-in POS sales. Kitchen and dispatch remain connected.</p></div>
       <div className="online-orders-header-actions"><button type="button" className="online-orders-outline" onClick={()=>refreshOrders()}><RefreshCw size={16}/> Refresh</button>
-        {['owner','manager'].includes(currentUser?.role)&&<button type="button" className="online-orders-primary" onClick={()=>setActiveTab('settings')}><ArrowUpRight size={17}/> Online store settings</button>}</div>
+        {['owner','manager'].includes(currentUser?.role)&&<button type="button" className="online-orders-primary" onClick={()=>{sessionStorage.setItem('gastroflow_settings_tab','online');setActiveTab('settings')}}><ArrowUpRight size={17}/> Online store settings</button>}</div>
     </header>
     <div className="online-orders-stats"><article><ShoppingBag size={19}/><small>Online orders</small><strong>{stats.all}</strong></article><article><Clock3 size={19}/><small>Awaiting action</small><strong>{stats.pending}</strong></article><article><ChefHat size={19}/><small>Preparing</small><strong>{stats.preparing}</strong></article><article><CheckCircle2 size={19}/><small>Ready</small><strong>{stats.ready}</strong></article></div>
     <div className="online-orders-tools"><div className="online-orders-filter">{FILTERS.map(([key,label])=><button key={key} type="button" aria-pressed={filter===key} onClick={()=>setFilter(key)} className={filter===key?'selected':''}>{label} <span>{stats[key]}</span></button>)}</div>
