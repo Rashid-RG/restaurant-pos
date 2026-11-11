@@ -36,6 +36,17 @@ export async function initStaffPayroll(dbRun) {
     UNIQUE(tenant_id, userId, month)
   )`);
   await dbRun('CREATE INDEX IF NOT EXISTS idx_staff_payroll_tenant_month ON staff_payroll_records(tenant_id, month)');
+  await dbRun(`CREATE TABLE IF NOT EXISTS staff_profiles (
+    tenant_id TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    fullName TEXT NOT NULL DEFAULT '',
+    jobTitle TEXT NOT NULL DEFAULT '',
+    department TEXT NOT NULL DEFAULT '',
+    phone TEXT NOT NULL DEFAULT '',
+    employmentDate TEXT,
+    updatedAt BIGINT NOT NULL,
+    PRIMARY KEY (tenant_id, userId)
+  )`);
 }
 
 export function createStaffPayrollRouter({dbGet, dbAll, dbRun, authenticateToken, requireRole}) {
@@ -58,12 +69,14 @@ export function createStaffPayrollRouter({dbGet, dbAll, dbRun, authenticateToken
   const loadPreview = async (tenantId, timeZone, month) => {
     const users = await dbAll('SELECT id, username, role FROM users WHERE tenant_id=? ORDER BY username', [tenantId]);
     const compensation = await dbAll('SELECT userId, payType, rate, allowance, deduction FROM staff_compensation WHERE tenant_id=?', [tenantId]);
+    const profiles = await dbAll('SELECT userId, fullName, jobTitle, department, phone, employmentDate FROM staff_profiles WHERE tenant_id=?', [tenantId]);
     const {start,end} = payrollPeriod(month,timeZone);
     // Entries remain in the existing attendance table, with tenant isolation via the user join.
     const entries = await dbAll(`SELECT e.userId, e.clockIn, e.clockOut
       FROM timeclock_entries e JOIN users u ON e.userId=u.id
       WHERE u.tenant_id=? AND e.clockIn < ? AND e.clockOut IS NOT NULL AND e.clockOut > ?`, [tenantId,end,start]);
-    return {users, compensation, entries, preview:previewPayroll({month,timeZone,users,entries,compensation})};
+    const profilesByUser = new Map(profiles.map(p => [p.userId, p]));
+    return {users, compensation, entries, preview:previewPayroll({month,timeZone,users,entries,compensation}).map(p=>({...p, profile:profilesByUser.get(p.userId)||null}))};
   };
 
   router.get('/staff-management/overview', async(req,res) => {
@@ -75,6 +88,26 @@ export function createStaffPayrollRouter({dbGet, dbAll, dbRun, authenticateToken
       const saved = await dbAll('SELECT * FROM staff_payroll_records WHERE tenant_id=? AND month=? ORDER BY createdAt DESC', [tenantId, selectedMonth]);
       const records = new Map(saved.map(row=>[row.userId,row]));
       res.json({month:selectedMonth,timeZone, staff:data.preview.map(row=>({...row, record: records.get(row.userId)||null})), activeClockIns:await dbAll(`SELECT e.id, e.userId, e.username, e.clockIn FROM timeclock_entries e JOIN users u ON e.userId=u.id WHERE u.tenant_id=? AND e.clockOut IS NULL ORDER BY e.clockIn DESC`, [tenantId])});
+    } catch(e) {error(res,e);}
+  });
+
+  router.put('/staff-management/profile/:userId', async(req,res) => {
+    try {
+      const {tenantId} = await scope(req);
+      const user = await dbGet('SELECT id FROM users WHERE id=? AND tenant_id=?',[req.params.userId, tenantId]);
+      if (!user) return res.status(404).json({error:'Staff member not found.'});
+      const {fullName='',jobTitle='',department='',phone='',employmentDate=''} = req.body || {};
+      const fields=[fullName,jobTitle,department,phone,employmentDate];
+      if (!fields.every(x=>typeof x==='string') || fullName.length>120 || jobTitle.length>100 ||
+        department.length>100 || phone.length>40 || (employmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(employmentDate))) {
+        return res.status(400).json({error:'Invalid staff profile details.'});
+      }
+      await dbRun(`INSERT INTO staff_profiles(tenant_id,userId,fullName,jobTitle,department,phone,employmentDate,updatedAt)
+        VALUES(?,?,?,?,?,?,?,?)
+        ON CONFLICT(tenant_id,userId) DO UPDATE SET fullName=excluded.fullName,jobTitle=excluded.jobTitle,
+        department=excluded.department,phone=excluded.phone,employmentDate=excluded.employmentDate,updatedAt=excluded.updatedAt`,
+        [tenantId,user.id,fullName.trim(),jobTitle.trim(),department.trim(),phone.trim(),employmentDate||null,Date.now()]);
+      res.json({success:true});
     } catch(e) {error(res,e);}
   });
 
