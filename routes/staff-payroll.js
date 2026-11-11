@@ -161,7 +161,7 @@ export function createStaffPayrollRouter({dbGet, dbAll, dbRun, authenticateToken
     } catch(e) {error(res,e);}
   });
 
-  router.post('/staff-management/payroll/:id/mark-paid', requireRole(['owner']), async(req,res) => {
+  router.post('/staff-management/payroll-records/:id/mark-paid', requireRole(['owner']), async(req,res) => {
     try {
       const tenantId = req.tenantId;
       const reference=String(req.body?.reference||'').trim();
