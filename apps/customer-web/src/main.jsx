@@ -20,6 +20,5 @@ if ('serviceWorker' in navigator) {
 }
 
 import './modern.css';
-import './premium-motion.css';
-
 import '../../../shared/ui/devices.css';
+import './premium-motion.css';
