@@ -218,3 +218,158 @@
   .customer-premium .checkout-view .form-control,
   .customer-premium .menu-section .cat-pill{transition:none!important}
 }
+
+/* Consistent sign-in, registration, OTP, password recovery and login trust hierarchy. */
+.customer-premium .auth-page{
+  width:min(100%,520px);
+  max-width:520px;
+  margin:clamp(10px,3vw,36px) auto 28px;
+  min-height:auto;
+  padding:clamp(20px,4vw,34px)!important;
+  background:linear-gradient(165deg,#fff 68%,#f5faf5);
+  border:1px solid #d9e8dc;
+  border-radius:26px;
+  box-shadow:0 22px 65px rgba(20,68,40,.075);
+}
+.customer-premium .auth-logo{
+  margin-bottom:25px!important;
+}
+.customer-premium .auth-logo h1{
+  font-size:clamp(24px,5vw,34px);
+  font-weight:850;
+  letter-spacing:-.045em;
+  color:#184e3a;
+  line-height:1.18;
+}
+.customer-premium .auth-logo p{
+  color:#60796b;
+  line-height:1.55;
+}
+.customer-premium .auth-tabs{
+  padding:5px!important;
+  background:#eff5ee!important;
+  border:1px solid #e0ebe0;
+  border-radius:15px!important;
+  gap:4px;
+}
+.customer-premium .auth-tab{
+  min-height:46px;
+  border-radius:11px!important;
+  transition:background-color .15s ease,box-shadow .15s ease;
+}
+.customer-premium .auth-tab.active{
+  background:#fff!important;
+  color:#195e46!important;
+  box-shadow:0 5px 15px rgba(25,73,45,.075)!important;
+}
+.customer-premium .auth-page .form-group label{
+  display:block;
+  font-size:13px;
+  line-height:1.5;
+  color:#314e3d;
+  font-weight:740;
+  margin-bottom:7px;
+}
+.customer-premium .auth-page .form-control{
+  width:100%;
+  background:white!important;
+  border:1px solid #ccdecf!important;
+  border-radius:12px!important;
+  min-height:48px!important;
+  color:#19382b!important;
+  font-size:16px;
+}
+.customer-premium .auth-page .form-control:focus{
+  border-color:#27815e!important;
+  outline:none;
+  box-shadow:0 0 0 3px rgba(39,129,94,.14)!important;
+}
+.customer-premium .auth-page .btn{
+  min-height:46px;
+  border-radius:12px!important;
+  font-weight:800;
+}
+.customer-premium .auth-page .link-btn{
+  color:#17674c!important;
+  font-weight:750;
+  text-underline-offset:3px;
+}
+.customer-premium .auth-page .form-group{
+  min-width:0;
+}
+.customer-premium .auth-page :is(input,button,select){
+  max-width:100%;
+}
+.customer-premium .tracking-card .status-steps{
+  position:relative;
+  display:grid;
+  gap:0;
+}
+.customer-premium .tracking-card .status-step{
+  position:relative;
+  display:flex;
+  align-items:flex-start;
+  gap:13px;
+  padding:13px 10px;
+  border-radius:14px;
+  transition:background .2s ease;
+}
+.customer-premium .tracking-card .status-step.active{
+  background:#edf7ef;
+  border:1px solid #d5ebda;
+}
+.customer-premium .tracking-card .status-step.done{
+  background:transparent;
+}
+.customer-premium .tracking-card .status-step .step-dot{
+  flex:0 0 38px;
+  width:38px;
+  height:38px;
+  display:grid;
+  place-items:center;
+  border:2px solid #d7e3d7;
+  border-radius:50%;
+  background:white;
+  color:#5a7464;
+}
+.customer-premium .tracking-card .status-step.active .step-dot{
+  background:#176f4d;
+  border-color:#176f4d;
+  color:#fff;
+  box-shadow:0 0 0 4px rgba(25,126,82,.12);
+}
+.customer-premium .tracking-card .status-step.done .step-dot{
+  background:#1c7854!important;
+  border-color:#1c7854!important;
+  color:white!important;
+}
+.customer-premium .tracking-card .status-step .step-info h4{
+  margin:2px 0 5px;
+  font-size:14px;
+  color:#1b4531;
+  font-weight:800;
+}
+.customer-premium .tracking-card .status-step .step-info p{
+  margin:0;
+  font-size:12px;
+  color:#657b6c;
+  line-height:1.5;
+}
+.customer-premium .tracking-card .status-step.active .step-info p{
+  color:#275f44;
+}
+@media(max-width:580px){
+  .customer-premium .auth-page{
+    width:calc(100% - 24px);
+    padding:21px 16px!important;
+    border-radius:20px;
+    margin:12px auto 24px;
+  }
+  .customer-premium .tracking-card .status-step{
+    padding:11px 7px;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .customer-premium .auth-tab,
+  .customer-premium .tracking-card .status-step{transition:none!important}
+}
