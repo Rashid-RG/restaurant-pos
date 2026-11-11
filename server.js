@@ -2776,6 +2776,10 @@ async function verifyOTPAsync(destination, code, purpose) {
 }
 
 
+app.get('/api/public/customer-auth-capabilities', publicApiLimiter, (_req, res) =>
+  res.set('Cache-Control','no-store').json({ emailOtp: isEmailConfigured(), smsOtp: false, passwordLogin: true })
+);
+
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
 // BUG-008 fix: use the stricter otpLimiter (3 sends / 10 min) instead of the general publicApiLimiter
 app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) => {
@@ -2789,6 +2793,16 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 
     const isEmail = (channel === 'email') || String(target).includes('@');
     const cleanDest = normalizeOtpDestination(target);
+    if (isEmail && !isEmailConfigured()) return res.status(503).json({
+      error: 'Email verification is not configured. Contact GastroFlow support.',
+      code: 'EMAIL_PROVIDER_UNAVAILABLE'
+    });
+    // The current SMS helper only simulates gateway delivery; do not falsely
+    // report successful dispatch or issue a login secret through a fake gateway.
+    if (!isEmail) return res.status(503).json({
+      error: 'SMS verification is not yet available. Choose email verification.',
+      code: 'SMS_PROVIDER_UNAVAILABLE'
+    });
 
     if (!isEmail && !isValidSriLankanPhone(target)) {
       return res.status(400).json({ error: 'A valid Sri Lankan phone number is required (e.g. 0771234567).' });
@@ -2898,7 +2912,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 });
 
 // POST /api/otp/verify — Verify OTP code and login existing customer or return verification status
-app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
+app.post('/api/otp/verify', otpLimiter, async (req, res) => {
   try {
     const { destination, code, phone, email } = req.body;
     const target = destination || email || phone;
@@ -2960,8 +2974,8 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   if (!otpCode) {
     return res.status(400).json({ error: 'Verification code is required.' });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  if (typeof password !== 'string' || password.length < 10 || password.length > 72) {
+    return res.status(400).json({ error: 'Password must contain between 10 and 72 characters.' });
   }
 
   const cleanPhone = phone.replace(/[\s-]/g, '');
@@ -3043,7 +3057,11 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 });
 
 // POST /api/customer/auth/login
-app.post('/api/customer/auth/login', authLimiter, async (req, res) => {
+const customerLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Try again later.' }
+});
+app.post('/api/customer/auth/login', customerLoginLimiter, async (req, res) => {
   const { phone, password } = req.body;
   if (!phone || !password) {
     return res.status(400).json({ error: 'Phone number and password are required.' });
@@ -3138,22 +3156,32 @@ app.get('/api/customer/profile', authenticateCustomer, async (req, res) => {
 
 // PUT /api/customer/profile
 app.put('/api/customer/profile', authenticateCustomer, async (req, res) => {
-  const { name, phone, password } = req.body;
+  const { name, phone, password, currentPassword } = req.body || {};
   try {
-    if (password) {
-      if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-      const passwordHash = await bcrypt.hash(password, 10);
-      await dbRun('UPDATE customer_accounts SET name = ?, phone = ?, passwordHash = ? WHERE id = ?',
-        [name || req.customer.name, phone || null, passwordHash, req.customer.id]);
-    } else {
-      await dbRun('UPDATE customer_accounts SET name = ?, phone = ? WHERE id = ?',
-        [name || req.customer.name, phone || null, req.customer.id]);
+    const account = await dbGet('SELECT id,name,phone,passwordHash FROM customer_accounts WHERE id=? AND tenant_id=?',
+      [req.customer.id, req.customer.tenant_id]);
+    if (!account) return res.status(404).json({ error: 'Customer account unavailable.' });
+    const safeName = typeof name === 'string' ? name.trim() : account.name;
+    if (!safeName || safeName.length > 120) return res.status(400).json({ error: 'Enter a valid name of up to 120 characters.' });
+    // Phone ownership changes require their own verified change flow.
+    if (phone && normalizeLkPhone(phone) !== normalizeLkPhone(account.phone)) {
+      return res.status(409).json({ error: 'Changing your phone requires verification. Contact support.', code: 'PHONE_VERIFICATION_REQUIRED' });
     }
+    let newHash = null;
+    if (password) {
+      if (typeof password !== 'string' || password.length < 10 || password.length > 72)
+        return res.status(400).json({ error: 'New password must be 10–72 characters.' });
+      if (typeof currentPassword !== 'string' || !(await bcrypt.compare(currentPassword, account.passwordHash)))
+        return res.status(403).json({ error: 'Current password is incorrect.', code: 'CURRENT_PASSWORD_REQUIRED' });
+      newHash = await bcrypt.hash(password, 10);
+    }
+    await dbRun('UPDATE customer_accounts SET name=?,passwordHash=? WHERE id=? AND tenant_id=?',
+      [safeName, newHash || account.passwordHash, account.id, req.customer.tenant_id]);
     const updated = await dbGet(
-      'SELECT id, name, email, phone, loyaltyPoints, totalSpent FROM customer_accounts WHERE id = ?',
-      [req.customer.id]
+      'SELECT id,name,email,phone,phoneVerified,loyaltyPoints,totalSpent FROM customer_accounts WHERE id=? AND tenant_id=?',
+      [account.id, req.customer.tenant_id]
     );
-    res.json(updated);
+    res.set('Cache-Control','no-store').json({ ...updated, reauthenticationRequired: Boolean(newHash) });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -5608,7 +5636,7 @@ app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
 // ── Customer: reset password (confirm) ───────────────────────────────────────
 app.post('/api/customer/auth/reset-password', otpLimiter, async (req, res) => {
   const { token, email, code, newPassword } = req.body || {};
-  if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 10 || newPassword.length > 72) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
   try {
     const reset = await resolveReset('customer', { token, email, code, lookupByEmail: async (e) => dbGet('SELECT id FROM customer_accounts WHERE email = ?', [String(e).trim().toLowerCase()]) });
     if (!reset) return res.status(400).json({ error: 'Invalid or expired reset request.' });
