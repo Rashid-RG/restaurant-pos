@@ -6,7 +6,7 @@ import LoginRegisterView from './LoginRegisterView.jsx';
 import { apiFetch } from '../utils/api.js';
 import { dateAtRestaurant } from '../../../../src/utils/restaurant-time.js';
 
-export default function ProfileView({ toast, resetToken, onResetHandled }) {
+export default function ProfileView({ toast, resetToken, onResetHandled, onBack }) {
   const { customer, logout, refreshProfile, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
   const { addItem, setCartOpen } = useCart();
@@ -131,7 +131,7 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
   };
 
   if (!customer) {
-    return <LoginRegisterView onSuccess={refreshProfile} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
+    return <LoginRegisterView onSuccess={refreshProfile} onBack={onBack} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
   }
 
   const initials = customer.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
