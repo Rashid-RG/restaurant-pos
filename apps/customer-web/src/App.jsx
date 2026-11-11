@@ -396,7 +396,7 @@ function InnerApp({ switchRestaurant }) {
         {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
 
         {/* ── Signature Footer & Gateway Legal Policies ── */}
-        <footer style={{
+        <footer className="customer-page-footer" style={{
           padding: '24px 16px 44px',
           textAlign: 'center',
           borderTop: '1px solid var(--border-color)',
@@ -516,7 +516,7 @@ export default function App() {
       <LanguageProvider>
         <CustomerAuthProvider key={tenantId}>
           <CartProvider key={tenantId} tenantId={tenantId}>
-            <InnerApp switchRestaurant={switchRestaurant} />
+            <InnerApp key={tenantId} switchRestaurant={switchRestaurant} />
           </CartProvider>
         </CustomerAuthProvider>
       </LanguageProvider>
