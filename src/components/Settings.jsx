@@ -1241,6 +1241,18 @@ export default function Settings() {
                 </div>
 
                 <div id="online-store-delivery" />
+                <section className="online-schedule-settings" style={{padding:20,border:'1px solid var(--border-color)',borderRadius:16,background:'var(--bg-surface)',marginBottom:24}}>
+                  <h3 style={{fontSize:16,fontWeight:800,marginBottom:8}}>Scheduled order capacity</h3>
+                  <p style={{fontSize:13,color:'var(--text-muted)',marginBottom:14}}>Limit how many customer orders can reserve each 15-minute pickup, dine-in or delivery slot. A full slot disappears from the customer checkout. Changes save when you leave the field.</p>
+                  <label style={{display:'grid',gap:8,maxWidth:260,fontSize:13,fontWeight:700}}>
+                    Orders per 15-minute slot
+                    <input className="form-input" type="number" min="1" max="100" step="1" key={settings.find(s=>s.key==='scheduledOrdersPerSlot')?.value||'6'}
+                      defaultValue={settings.find(s=>s.key==='scheduledOrdersPerSlot')?.value||'6'}
+                      onBlur={async e=>{const n=Number(e.target.value);if(!Number.isSafeInteger(n)||n<1||n>100){showToast('Choose a capacity from 1 to 100 orders.','error');return;}await updateSetting('scheduledOrdersPerSlot',String(n));}} />
+                  </label>
+                  <small style={{display:'block',color:'var(--text-muted)',marginTop:9}}>Default: 6. Capacity is checked again when the customer submits an order.</small>
+                </section>
+
                 {/* ── Delivery Zone Strategy Panel ── */}
                 <div style={{ marginBottom: '32px' }}>
                   <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '4px' }}>📍 Delivery Zone Strategy</h3>
