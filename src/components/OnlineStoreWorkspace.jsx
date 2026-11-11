@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Store, ExternalLink, Copy, ClipboardList, UtensilsCrossed, Truck, Settings2, CheckCircle2, CircleAlert, Power, Clock3, ArrowUpRight, Eye, Package } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
 import './OnlineStoreWorkspace.css';
@@ -7,25 +7,64 @@ export default function OnlineStoreWorkspace() {
   const { currentUser, settings = {}, menuItems = [], setActiveTab, updateSetting, showToast } = usePOS();
   const [saving, setSaving] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [publicStore, setPublicStore] = useState(null);
+  const [storeCheck, setStoreCheck] = useState('checking');
+  const [storeError, setStoreError] = useState('');
   const tenantId = currentUser?.tenant_id || currentUser?.tenantId;
   const storeUrl = tenantId
     ? new URL(`/customer/?tenant=${encodeURIComponent(tenantId)}&view=menu`, window.location.origin).href
     : null;
-  const isOpen = settings.storeOpen === 'true';
+  const isOpen = publicStore?.storeOpen === true;
   const activeItems = menuItems.filter(item => item.isAvailable !== false && item.isAvailable !== 0 && item.isAvailable !== '0').length;
   const shopName = settings.businessName || settings.restaurantName || currentUser?.tenantName || 'Your restaurant';
+  const verifyStore = useCallback(async () => {
+    if (!tenantId) {
+      setStoreCheck('error');
+      setStoreError('Restaurant session missing. Please sign in again.');
+      return null;
+    }
+    setStoreCheck('checking');
+    setStoreError('');
+    try {
+      const token = localStorage.getItem('gastroflow_token');
+      const [identityResponse, publicResponse] = await Promise.all([
+        fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token || ''}` }, cache: 'no-store' }),
+        fetch(`/api/public/menu?tenantId=${encodeURIComponent(tenantId)}`, { cache: 'no-store' })
+      ]);
+      if (!identityResponse.ok || !publicResponse.ok) throw new Error('Could not verify your restaurant. Check your connection and account.');
+      const [identity, store] = await Promise.all([identityResponse.json(), publicResponse.json()]);
+      if (identity?.user?.tenant_id !== tenantId || store?.tenantId !== tenantId) {
+        throw new Error('Restaurant mismatch. Reload this workspace and sign in again before making changes.');
+      }
+      setPublicStore(store);
+      setStoreCheck('ready');
+      return store;
+    } catch (error) {
+      setStoreCheck('error');
+      setStoreError(error?.message || 'Restaurant verification failed.');
+      return null;
+    }
+  }, [tenantId]);
+  useEffect(() => { void verifyStore(); }, [verifyStore]);
   const goSettings = tab => {
     sessionStorage.setItem('gastroflow_settings_tab', tab);
     setActiveTab('settings');
   };
   const toggleStore = async () => {
-    if (saving) return;
+    if (saving || storeCheck !== 'ready') return;
     setSaving(true);
     try {
-      await updateSetting('storeOpen', isOpen ? 'false' : 'true');
-      showToast(isOpen ? 'Online orders paused' : 'Online store opened', 'success');
+      const before = await verifyStore();
+      if (!before) throw new Error('Restaurant verification failed. No changes were made.');
+      const next = before.storeOpen ? 'false' : 'true';
+      const confirmed = await updateSetting('storeOpen', next);
+      if (confirmed?.tenantId !== tenantId) throw new Error('Store update was not confirmed for this restaurant.');
+      const after = await verifyStore();
+      if (!after || after.storeOpen !== (next === 'true')) throw new Error('Store update could not be verified. Please reload before retrying.');
+      showToast(next === 'true' ? 'Your restaurant is now accepting online orders' : 'Your restaurant paused online orders', 'success');
     } catch (error) {
-      showToast(error?.message || 'Unable to update store status', 'error');
+      showToast(error?.message || 'Unable to update your store', 'error');
+      await verifyStore();
     } finally {
       setSaving(false);
     }
@@ -66,10 +105,11 @@ export default function OnlineStoreWorkspace() {
       <div className="view-body store-workspace-body">
         <section className="store-workspace-hero">
           <div className="store-workspace-hero-main">
-            <span className={`store-workspace-status ${isOpen ? 'open' : 'paused'}`}><span className="store-workspace-status-dot"/>{isOpen ? 'Accepting online orders' : 'Online orders paused'}</span>
+            <span className={`store-workspace-status ${isOpen ? 'open' : 'paused'}`}><span className="store-workspace-status-dot"/>{storeCheck === 'checking' ? 'Verifying restaurant…' : storeCheck === 'error' ? 'Store verification required' : isOpen ? 'Accepting online orders' : 'Online orders paused'}</span>
             <h2>{shopName}</h2>
-            <p>{isOpen ? 'Your customer storefront is accepting orders.' : 'Your storefront is not currently accepting new online orders. You can preview it before opening.'}</p>
-            <button type="button" onClick={toggleStore} disabled={saving} className={`store-workspace-toggle ${isOpen ? 'stop' : ''}`}><Power size={17}/>{saving ? 'Saving…' : isOpen ? 'Pause incoming orders' : 'Open online store'}</button>
+            {storeError && <p role="alert" className="store-workspace-verification-error">{storeError} <button type="button" onClick={() => void verifyStore()}>Retry</button></p>}
+            <p>{storeCheck === 'ready' && isOpen ? 'Your customer storefront is accepting orders.' : 'Your storefront is not currently accepting new online orders. You can preview it before opening.'}</p>
+            <button type="button" onClick={toggleStore} disabled={saving || storeCheck !== 'ready'} className={`store-workspace-toggle ${isOpen ? 'stop' : ''}`}><Power size={17}/>{saving ? 'Verifying update…' : storeCheck === 'checking' ? 'Checking restaurant…' : storeCheck === 'error' ? 'Verification required' : isOpen ? 'Pause incoming orders' : 'Open online store'}</button>
           </div>
           <div className="store-workspace-hero-stats" aria-label="Store overview">
             <div><span>Menu items</span><strong>{menuItems.length}</strong><small>Total in POS menu</small></div>

@@ -635,8 +635,16 @@ export const POSProvider = ({ children }) => {
 
   // Settings Actions
   const updateSetting = async (key, value) => {
-    await db.put('settings', { key, value });
-    setSettings((prev) => ({ ...prev, [key]: value }));
+    const expectedTenantId = currentUser?.tenant_id;
+    if (!expectedTenantId) throw new Error('Restaurant session unavailable. Please sign in again.');
+    // The server checks expectedTenantId against the authenticated token. Never
+    // allow an owner action to silently edit the wrong restaurant.
+    const saved = await db.put('settings', { key, value, expectedTenantId });
+    if (saved?.tenantId !== expectedTenantId) {
+      throw new Error('Restaurant mismatch: setting not confirmed. Refresh your account.');
+    }
+    setSettings(prev => ({ ...prev, [key]: value }));
+    return saved;
   };
 
   // Category CRUD

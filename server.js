@@ -2353,7 +2353,14 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
 app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const body = req.body || {};
   try {
-    const tenantId = req.tenantId || 'default_tenant';
+    const tenantId = req.tenantId;
+    // Tenant identity is derived only from the authenticated staff session.
+    if (!tenantId || (body.expectedTenantId && String(body.expectedTenantId) !== tenantId)) {
+      return res.status(409).json({ error: 'Restaurant session mismatch. Reload your workspace and sign in again.', code: 'TENANT_MISMATCH' });
+    }
+    if (body.key === 'storeOpen' && !['true', 'false'].includes(String(body.value))) {
+      return res.status(400).json({ error: 'Invalid online store status.' });
+    }
 
     // Validate tenant-local time zone before persisting either update form.
     const requestedZone = body.key === 'timeZone' ? body.value : body.timeZone;
@@ -2369,12 +2376,17 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
     if (body.key !== undefined) {
       await setSetting(tenantId, body.key, body.value);
       notifyPublicStore({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
+      if (body.key === 'storeOpen') notifyPublicStore({ type: 'store_update', storeOpen: body.value === 'true' }, tenantId);
       notifyPOS({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
-      return res.json({ success: true, key: body.key, value: body.value });
+      return res.set('Cache-Control', 'no-store').json({ success: true, tenantId, key: body.key, value: body.value });
     }
 
     // 2. Bulk settings update: { businessName, address, phone, logoUrl, ... }
-    const settingsEntries = Object.entries(body).filter(([k]) => k !== 'tenant_id' && k !== 'id');
+    const settingsEntries = Object.entries(body).filter(([k]) => !['tenant_id','tenantId','id','expectedTenantId'].includes(k));
+    const requestedStoreStatus = settingsEntries.find(([k]) => k === 'storeOpen');
+    if (requestedStoreStatus && !['true','false'].includes(String(requestedStoreStatus[1]))) {
+      return res.status(400).json({ error: 'Invalid online store status.' });
+    }
     if (settingsEntries.length === 0) {
       return res.status(400).json({ error: 'No settings provided.' });
     }
@@ -2382,10 +2394,11 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
     for (const [k, v] of settingsEntries) {
       await setSetting(tenantId, k, v);
       notifyPublicStore({ type: 'settings_updated', key: k, value: v }, tenantId);
+      if (k === 'storeOpen') notifyPublicStore({ type: 'store_update', storeOpen: v === 'true' }, tenantId);
       notifyPOS({ type: 'settings_updated', key: k, value: v }, tenantId);
     }
 
-    res.json({ success: true, count: settingsEntries.length });
+    res.set('Cache-Control', 'no-store').json({ success: true, tenantId, count: settingsEntries.length });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -3250,11 +3263,21 @@ async function isPeakHour(tenantId = 'default_tenant') {
 // ── Server-authoritative delivery fee calculator ──
 async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0, tenantId = 'default_tenant') {
   const s = await getSettingsMap(tenantId, [
-    'storeLat', 'storeLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
+    'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
     'deliveryMaxRadiusKm', 'deliveryPeakSurcharge', 'deliveryRainSurcharge', 'deliveryFreeThreshold', 'isRainyWeather'
   ]);
-  const storeLat = parseFloat(s.storeLat || 6.9271);
-  const storeLng = parseFloat(s.storeLng || 79.8612);
+  // Never use another restaurant's coordinates as a fallback. Older tenant
+  // profiles may have their own restaurantLat/restaurantLng settings.
+  const rawStoreLat = s.storeLat || s.restaurantLat;
+  const rawStoreLng = s.storeLng || s.restaurantLng;
+  const storeLat = rawStoreLat ? Number(rawStoreLat) : NaN;
+  const storeLng = rawStoreLng ? Number(rawStoreLng) : NaN;
+  if (!Number.isFinite(storeLat) || !Number.isFinite(storeLng) || Math.abs(storeLat) > 90 || Math.abs(storeLng) > 180) {
+    const error = new Error('Delivery location is not configured for this restaurant. Ask the owner to set the store map pin in Online Store settings, or choose pickup.');
+    error.status = 422;
+    error.code = 'STORE_DELIVERY_LOCATION_MISSING';
+    throw error;
+  }
   const baseFee = parseFloat(s.deliveryBaseFee || 99);
   const freeRadius = parseFloat(s.deliveryFreeRadiusKm || 2);
   const perKmRate = parseFloat(s.deliveryPerKmRate || 50);
@@ -3663,7 +3686,7 @@ app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {
     const result = await calculateDeliveryFee(customerLat, customerLng, parseFloat(subtotal || 0), tenantId);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    res.status(err.status || 500).json({ error: errMsg(err), ...(err.code ? { code: err.code } : {}) });
   }
 });
 
@@ -4336,14 +4359,16 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
   if((lat!=null||lng!=null)&&(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lng)||Math.abs(lng)>180))return res.status(400).json({error:'Invalid location.'});
   for(const tenant of tenants){
    if((await getTenantMeta(tenant.id)).status!=='active')continue;
-   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
+   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','restaurantLat','restaurantLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
    const ratings=await dbGet('SELECT AVG(rating) AS rating,COUNT(*) AS count FROM feedbacks WHERE tenant_id=? AND rating BETWEEN 1 AND 5',[tenant.id]);
-   const storeLat=settings.storeLat==null||settings.storeLat===''?null:Number(settings.storeLat),storeLng=settings.storeLng==null||settings.storeLng===''?null:Number(settings.storeLng);
+   const latitude=settings.storeLat || settings.restaurantLat;
+   const longitude=settings.storeLng || settings.restaurantLng;
+   const storeLat=latitude ? Number(latitude) : null,storeLng=longitude ? Number(longitude) : null;
    const configuredLocation=Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
    let quote=null;if(lat!=null&&configuredLocation)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
    stores.push({id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true',isDeliverable:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
   }
-  res.json(stores);
+  res.set('Cache-Control', 'no-store').json(stores);
  }catch(error){res.status(500).json({error:errMsg(error)});}
 });
 
@@ -4374,7 +4399,8 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
       { key: 'taxRate', value: '10' },
       { key: 'serviceChargeRate', value: '10' },
       { key: 'address', value: address || 'Colombo, Sri Lanka' },
-      { key: 'phone', value: cleanPhone || '+94 77 123 4567' }
+      { key: 'phone', value: cleanPhone || '+94 77 123 4567' },
+      { key: 'storeOpen', value: 'false' }
     ];
     for (const set of defaultSettings) {
       await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId, set.key, set.value]);
@@ -4477,6 +4503,10 @@ app.get('/api/menu', authenticateToken, async (req, res) => {
 app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
+    if ((await getTenantMeta(tenantId)).status !== 'active' || !(await dbGet('SELECT id FROM tenants WHERE id=?', [tenantId]))) {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
+    res.set('Cache-Control', 'no-store');
     const categories = await dbAll(
       `SELECT id, name, emoji FROM categories WHERE tenant_id = ? ORDER BY name`,
       [tenantId]
@@ -4505,11 +4535,11 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
 
     res.json({
       tenantId,
-      restaurantName: st.restaurantName || st.businessName || 'GastroFlow Bistro',
-      storePhone: st.phone || '0752237947',
+      restaurantName: st.restaurantName || st.businessName || (await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]))?.name || 'Restaurant',
+      storePhone: st.phone || '',
       address: st.address || 'Sri Lanka',
       logo: st.logo || null,
-      storeOpen: st.storeOpen !== undefined ? st.storeOpen === 'true' : true,
+      storeOpen: st.storeOpen === 'true',
       defaultPrepTime: parseInt(st.defaultPrepTime || 20, 10),
       deliveryFee: parseFloat(st.deliveryFee || 0),
       minimumOrder: parseFloat(st.minimumOrder || 0),
@@ -4668,6 +4698,9 @@ const createPublicOrder = async (req, res) => {
   try {
     const cleanPhone = customerPhone.replace(/[\s-]/g, '');
     const tenantId = await resolvePublicTenant(req);
+    if (!(await dbGet('SELECT id FROM tenants WHERE id=?',[tenantId])) || (await getTenantMeta(tenantId)).status !== 'active') {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
 
     let customerAccountId = null;
     let isAlreadyVerified = false;
@@ -4723,8 +4756,10 @@ const createPublicOrder = async (req, res) => {
         deliveryEtaMinutes = feeResult.etaMinutes;
         deliveryFee = feeResult.totalFee; // will be recalculated after billing for free-threshold check
       } else {
-        // Fallback to flat fee if no GPS coordinates (legacy/manual address entry)
-        deliveryFee = parseFloat((await getSetting(tenantId, 'deliveryBaseFee')) || 99);
+        return res.status(422).json({
+          error: 'Select a precise delivery address pin to verify this restaurant’s delivery area and fee.',
+          code: 'DELIVERY_PIN_REQUIRED'
+        });
       }
     }
 
@@ -4759,7 +4794,7 @@ const createPublicOrder = async (req, res) => {
       const concurrentReplay=await findRecoveredOrder({dbGet,tenantId,identity});
       if(concurrentReplay){await dbRun('COMMIT');return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(concurrentReplay),trackingToken:makeTrackingAccess(concurrentReplay.id,tenantId)});}
 
-      if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')==='false')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
+      if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')!=='true')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
       const limit=checkLimit((await getTenantMeta(tenantId)).plan,'orders',await countTenantOrdersThisMonth(tenantId));if(!limit.allowed)throw Error('Restaurant order capacity reached.');
       if(requestedSchedule.scheduled){
         const limit=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
@@ -4922,6 +4957,7 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res._tenantId = await resolvePublicTenant(req);
+  if (!(await dbGet("SELECT id FROM tenants WHERE id=? AND status='active'",[res._tenantId])) || (await getTenantMeta(res._tenantId)).status !== 'active') return res.end();
   req.trackingTenant=res._tenantId;
   keepStreamAlive(req,res);
   publicSSESubscribers.add(res);
@@ -4930,8 +4966,9 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   try {
     const s = await getSettingsMap(res._tenantId, ['storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
     res.write(`data: ${JSON.stringify({
+      tenantId: res._tenantId,
       type: 'store_init',
-      storeOpen: (s.storeOpen ?? 'true') === 'true',
+      storeOpen: s.storeOpen === 'true',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
@@ -5218,12 +5255,18 @@ app.post('/api/public/feedback', publicApiLimiter, (req,res,next)=>{req.params.i
 app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
-    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
+    const tenant = await dbGet('SELECT id,name FROM tenants WHERE id=?',[tenantId]);
+    if (!tenant || (await getTenantMeta(tenantId)).status !== 'active') {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
+    res.set('Cache-Control', 'no-store');
+    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
     res.json({
-      name: s.businessName || s.restaurantName || 'GastroFlow',
+      tenantId,
+      name: s.businessName || s.restaurantName || tenant.name,
       address: s.address || '',
       phone: s.phone || '',
-      storeOpen: (s.storeOpen ?? 'true') === 'true',
+      storeOpen: s.storeOpen === 'true',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
@@ -5232,8 +5275,8 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       deliveryFee: Number(s.deliveryFee || 0),
       minimumOrder: Number(s.minimumOrder || 0),
       timeZone: (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: s.timeZone || 'Asia/Colombo' }).resolvedOptions().timeZone; } catch { return 'Asia/Colombo'; } })(),
-      lat: s.restaurantLat ? Number(s.restaurantLat) : null,
-      lng: s.restaurantLng ? Number(s.restaurantLng) : null,
+      lat: (s.storeLat || s.restaurantLat) ? Number(s.storeLat || s.restaurantLat) : null,
+      lng: (s.storeLng || s.restaurantLng) ? Number(s.storeLng || s.restaurantLng) : null,
       vapidPublicKey: pushConfigured() ? process.env.VAPID_PUBLIC_KEY : null
     });
   } catch (err) {
