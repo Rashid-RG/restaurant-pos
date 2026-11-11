@@ -325,15 +325,15 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       {!order ? (
 
         <div className="form-section" style={{ marginTop: 24 }}>
-          <h2>📦 Track Your Order</h2>
-          <p className="text-muted" style={{ marginBottom: 16 }}>Enter your order reference ID to see live status & ETA</p>
+          <h2>📦 {t('trackOrderTitle')}</h2>
+          <p className="text-muted" style={{ marginBottom: 16 }}>{t('trackOrderHelp')}</p>
           <div className="form-group">
-            <label>Order ID</label>
+            <label>{t('orderId')}</label>
             <input className="form-control" placeholder="e.g. ord_online_…"
               value={trackId} onChange={e => setTrackId(e.target.value)} />
           </div>
           <button className="btn btn-brand mt-8" onClick={() => fetchOrder(trackId)} disabled={loading || !trackId}>
-            {loading ? '⏳ Looking up…' : '🔍 Track Order Live'}
+            {loading ? '⏳ '+t('loading') : '🔍 '+t('trackOrderLive')}
           </button>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginTop: 12 }}>⚠ {error}</p>}
         </div>
@@ -341,8 +341,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         <>
           {order.paymentMethod === 'bank_transfer' && order.paymentStatus !== 'paid' && (
             <section role="status" className="form-section" style={{border:'1px solid #a2c5ae',background:'#eef8f1',padding:18,borderRadius:16,marginBottom:16,color:'#203c2b'}}>
-              <strong style={{display:'block',fontSize:'1rem',marginBottom:8}}>🏦 Bank transfer — awaiting verification</strong>
-              <p style={{fontSize:'.85rem',lineHeight:1.6,margin:0}}>Your order was received, but payment is <strong>not confirmed</strong>. Contact the restaurant for the correct bank account details before sending money. A manager will verify the transfer using the bank transaction reference. Do not send a second payment until the restaurant confirms the status.</p>
+              <strong style={{display:'block',fontSize:'1rem',marginBottom:8}}>🏦 {t('bankPending')}</strong>
+              <p style={{fontSize:'.85rem',lineHeight:1.6,margin:0}}>{t('bankPendingHelp')}</p>
             </section>
           )}
           <div className="customer-tracking-tools">
@@ -357,15 +357,15 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               {!isCancelled && <AnimatedFeatureIcon kind={curStep === 1 ? 'cooking' : curStep === 2 ? (isDelivery ? 'delivery' : 'ready') : curStep === 3 ? 'ready' : 'order'} size={72} active={curStep < 3}/>}
               {isCancelled ? (
                 <div>
-                  <div className="uber-status-badge cancelled">Cancelled</div>
-                  <h1 className="uber-hero-title" style={{ color: 'var(--danger)' }}>Order Cancelled</h1>
+                  <div className="uber-status-badge cancelled">{t('statusCancelled')}</div>
+                  <h1 className="uber-hero-title" style={{ color: 'var(--danger)' }}>{t('orderCancelledTitle')}</h1>
                   <p className="uber-hero-subtitle">{order.rejectedReason || 'The kitchen was unable to fulfill your order.'}</p>
                 </div>
               ) : curStep === 3 ? (
                 <div>
                   <div className="uber-status-badge completed">{isDineIn ? 'Served' : isTakeaway ? 'Picked Up' : 'Delivered'}</div>
                   <h1 className="uber-hero-title">{isDineIn ? 'Food Served! 🍽️' : isTakeaway ? 'Order Picked Up! 🛍️' : 'Order Delivered! 🎉'}</h1>
-                  <p className="uber-hero-subtitle">Thank you for dining with GastroFlow.</p>
+                  <p className="uber-hero-subtitle">{t('orderCompletedThanks')}</p>
                 </div>
               ) : (
                 <div>
@@ -680,7 +680,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                         {done ? '✓' : <AnimatedFeatureIcon kind={i === 1 ? 'cooking' : i === 2 ? (isDelivery ? 'delivery' : 'ready') : i === 3 ? 'ready' : 'order'} size={32} active={active}/>}
                       </div>
                       <div className="step-info">
-                        <h4>{step.label}</h4>
+                        <h4>{t(['orderStatusPending','orderStatusPreparing','orderStatusReady','orderStatusCompleted'][i])}</h4>
                         <p>{(done || active) ? step.desc : 'Waiting…'}</p>
                       </div>
                     </div>
