@@ -1,0 +1,72 @@
+/* Expenses is a scrolling document, not a flex column with shrinking child panels.
+   The shared .main-content display:flex caused the header and category chips to
+   collapse against the large ledger on shorter desktop viewports. */
+.main-content.expenses-page {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: 40px !important;
+}
+.expenses-page > * {
+  min-width: 0;
+}
+/* Category chips always remain visible and keyboard-accessible; no hidden
+   horizontal-scroll-only actions on touch, mouse or keyboard layouts. */
+.expenses-page .expenses-category-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+  width: 100%;
+  min-height: 42px;
+}
+.expenses-page .expenses-category-filters > button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  max-width: 100%;
+  white-space: normal !important;
+  text-align: left;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.expenses-page .expenses-category-filters > button:focus-visible,
+.expenses-page button:focus-visible,
+.expenses-page select:focus-visible,
+.expenses-page input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.expenses-page .modal-overlay {
+  padding: 14px;
+}
+.expenses-page .modal-content {
+  max-height: calc(100dvh - 28px);
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .main-content.expenses-page {
+    padding: 16px !important;
+    padding-bottom: 100px !important;
+  }
+  .expenses-page .expenses-category-filters {
+    gap: 7px;
+  }
+  .expenses-page .expenses-category-filters > button {
+    font-size: 12px;
+  }
+}
+@media (max-width: 460px) {
+  .expenses-page .modal-content {
+    padding: 16px;
+  }
+  .expenses-page .modal-content .form-row {
+    grid-template-columns: 1fr;
+  }
+}
