@@ -131,7 +131,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
     // 1. Fetch Menu for active tenant
     apiFetch('/public/menu')
       .then(data => {
-        setRates({taxRate: Number(data.taxRate || 0), serviceChargeRate: Number(data.serviceChargeRate || 0)});
+        setRates({taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0),payhereEnabled:data.payhereEnabled===true});
         setMenu({
           ...data,
           categories: data.categories || [],
@@ -491,6 +491,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
 
   return (
     <div className="fade-in customer-menu-view" style={{ paddingBottom: '100px' }}>
+      {menu.offlineSnapshot&&<div role="status" className="customer-offline-menu-banner"><strong>📡 Offline menu snapshot</strong><span>These are the last saved menu details and prices. You can prepare a cart, but live stock, final prices and order availability will be checked when you reconnect. No order can be submitted offline.</span></div>}
       {liveState!=='live'&&<p role="status" style={{padding:'10px 16px',fontSize:'0.85rem',color:'var(--text-muted)'}}>{liveState==='offline'?'Updates are temporarily unavailable. Check your connection; we will retry.':liveState==='polling'?'Live connection unavailable — refreshing the menu every 15 seconds.':'Connecting to live menu updates…'}</p>}
       
       {/* Store Closed Banner */}
