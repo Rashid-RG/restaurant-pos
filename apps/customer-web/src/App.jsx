@@ -292,7 +292,7 @@ function InnerApp({ switchRestaurant }) {
   };
 
   return (
-    <div className="app-shell customer-premium"><ConnectionStatus/>
+    <div className={`app-shell customer-premium ${view === 'account' && !customer ? 'customer-auth-route' : ''}`}><ConnectionStatus/>
       <Toast messages={messages} />
       <InstallPrompt />
       <SystemUpdatePrompt />
@@ -391,12 +391,12 @@ function InnerApp({ switchRestaurant }) {
         {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
-        {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
+        {view === 'account' && <ProfileView toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
         {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
 
         {/* ── Signature Footer & Gateway Legal Policies ── */}
-        <footer style={{
+        <footer className="customer-page-footer" style={{
           padding: '24px 16px 44px',
           textAlign: 'center',
           borderTop: '1px solid var(--border-color)',
@@ -516,7 +516,7 @@ export default function App() {
       <LanguageProvider>
         <CustomerAuthProvider key={tenantId}>
           <CartProvider key={tenantId} tenantId={tenantId}>
-            <InnerApp switchRestaurant={switchRestaurant} />
+            <InnerApp key={tenantId} switchRestaurant={switchRestaurant} />
           </CartProvider>
         </CustomerAuthProvider>
       </LanguageProvider>
