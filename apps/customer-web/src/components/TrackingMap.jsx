@@ -22,6 +22,7 @@ export default function TrackingMap({ store, dest, driver }) {
   const map = useRef(null);
   const markers = useRef({});
   const routeLine = useRef(null);
+  const hasFitted=useRef(false);
 
   useEffect(() => {
     if (map.current || !el.current) return;
@@ -32,7 +33,7 @@ export default function TrackingMap({ store, dest, driver }) {
     }).addTo(m);
     map.current = m;
     setTimeout(() => m.invalidateSize(), 200);
-    return () => { m.remove(); map.current = null; markers.current = {}; routeLine.current = null; };
+    return () => { m.remove(); map.current = null; markers.current = {}; routeLine.current = null;hasFitted.current=false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -58,12 +59,12 @@ export default function TrackingMap({ store, dest, driver }) {
     upsert('dest', dest, '📍', 'tm-dest', 'Your location');
     upsert('driver', driver, '🛵', 'tm-driver', 'Driver');
 
-    // Draw a line from driver (or store) to destination.
+    // Dashed straight-line proximity indicator. This is NOT a road route or driving ETA.
     const from = driver || store;
     if (from && dest) {
       const latlngs = [[from.lat, from.lng], [dest.lat, dest.lng]];
       if (!routeLine.current) {
-        routeLine.current = L.polyline(latlngs, { color: '#ff6b35', weight: 4, opacity: 0.8, dashArray: '6,8' }).addTo(m);
+        routeLine.current = L.polyline(latlngs, { color: '#257b54', weight: 3, opacity: 0.65, dashArray: '4,10' }).addTo(m);
       } else {
         routeLine.current.setLatLngs(latlngs);
       }
@@ -73,12 +74,12 @@ export default function TrackingMap({ store, dest, driver }) {
 
     // Fit all known points into view.
     const pts = [store, dest, driver].filter(p => p && typeof p.lat === 'number');
-    if (pts.length === 1) {
-      m.setView([pts[0].lat, pts[0].lng], 15);
-    } else if (pts.length > 1) {
-      m.fitBounds(L.latLngBounds(pts.map(p => [p.lat, p.lng])).pad(0.25));
+    if (!hasFitted.current && pts.length === 1) {
+      m.setView([pts[0].lat, pts[0].lng], 15);hasFitted.current=true;
+    } else if (!hasFitted.current && pts.length > 1) {
+      m.fitBounds(L.latLngBounds(pts.map(p => [p.lat, p.lng])).pad(0.25));hasFitted.current=true;
     }
   }, [store?.lat, store?.lng, dest?.lat, dest?.lng, driver?.lat, driver?.lng]);
 
-  return <div ref={el} className="tm-map" />;
+  return <div className="customer-delivery-map"><div ref={el} className="tm-map" role="img" aria-label="Map of restaurant, delivery destination and last available driver location"/><small className="customer-map-note">The dotted line shows straight-line proximity, not a navigable road route. Driver location appears only when a recent GPS update is available.</small></div>;
 }
