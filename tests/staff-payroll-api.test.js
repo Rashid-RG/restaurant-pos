@@ -14,7 +14,7 @@ const auth = (id, tenant_id, role = 'owner') => ({
 });
 
 const tenantA = 'payroll_test_a', tenantB = 'payroll_test_b';
-const ownerA = 'payroll_owner_a', ownerB = 'payroll_owner_b';
+const ownerA = 'payroll_owner_a', ownerB = 'payroll_owner_b', cashierA = 'payroll_cashier_a';
 
 beforeAll(async () => {
   await dbReady;
@@ -24,12 +24,13 @@ beforeAll(async () => {
     await dbRun('INSERT OR IGNORE INTO users (id,username,passwordHash,role,tenant_id) VALUES (?,?,?,?,?)',
       [user,user,'testhash','owner',tenant]);
   }
+  await dbRun('INSERT OR IGNORE INTO users (id,username,passwordHash,role,tenant_id) VALUES (?,?,?,?,?)', [cashierA,cashierA,'testhash','cashier',tenantA]);
 }, 30000);
 
 describe('Staff and payroll tenant security', () => {
   it('requires authentication and management privileges',async() => {
     expect((await request(app).get('/api/staff-management/overview')).status).toBe(401);
-    expect((await request(app).get('/api/staff-management/overview').set(auth(ownerA,tenantA,'cashier'))).status).toBe(403);
+    expect((await request(app).get('/api/staff-management/overview').set(auth(cashierA,tenantA,'cashier'))).status).toBe(403);
   });
   it('only exposes staff belonging to the authenticated restaurant',async() => {
     const a=await request(app).get('/api/staff-management/overview?month=2026-11').set(auth(ownerA,tenantA));
@@ -53,7 +54,7 @@ describe('Staff and payroll tenant security', () => {
     expect(first.status).toBe(201);
     const second=await request(app).post('/api/staff-management/payroll/'+ownerA+'/2026-11').set(headers);
     expect(second.status).toBe(409);
-    const cross=await request(app).post('/api/staff-management/payroll/'+first.body.id+'/mark-paid')
+    const cross=await request(app).post('/api/staff-management/payroll-records/'+first.body.id+'/mark-paid')
       .set(auth(ownerB,tenantB)).send({reference:'external-transfer-123'});
     expect(cross.status).toBe(404);
   });
