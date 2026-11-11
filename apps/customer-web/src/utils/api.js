@@ -27,7 +27,7 @@ export async function apiFetch(endpoint, options = {}) {
     try{
       const saved=JSON.parse(localStorage.getItem(cacheKey)||'null');
       if(saved?.data?.tenantId===(activeTenant||'default_tenant') && Date.now()-saved.storedAt<24*3600000)
-        return {...saved.data,offlineSnapshot:true,storeOpen:false};
+        return {...saved.data,offlineSnapshot:true};
     }catch{}
     return null;
   };
