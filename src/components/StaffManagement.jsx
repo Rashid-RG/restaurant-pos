@@ -52,6 +52,43 @@ function ProfileEditor({person, onSave, busy}) {
   </form>;
 }
 
+function ManualAttendanceForm({staff, onSaved, busy}) {
+  const [userId,setUserId] = useState('');
+  const [clockIn,setClockIn] = useState('');
+  const [clockOut,setClockOut] = useState('');
+  const [reason,setReason] = useState('');
+  const [saving,setSaving] = useState(false);
+  const submit=async event=>{
+    event.preventDefault();
+    const start=new Date(clockIn).getTime(),end=new Date(clockOut).getTime();
+    if(!userId || !Number.isFinite(start) || !Number.isFinite(end) || end<=start || reason.trim().length<6)return;
+    if(!window.confirm('Create a manual attendance entry? The original timeclock records will not be changed.'))return;
+    setSaving(true);
+    try {
+      await fetchManualAttendance({userId,clockIn:start,clockOut:end,reason:reason.trim()});
+      setClockIn('');setClockOut('');setReason('');setUserId('');
+      onSaved();
+    } catch(e){onSaved(e.message);}finally{setSaving(false);}
+  };
+  return <form className="staff-editor staff-manual-form" onSubmit={submit}>
+    <div className="staff-manual-heading"><div><h3>Enter missing attendance</h3><p>Add a completed shift when an employee forgot to clock in or out.</p></div><Clock3 size={23}/></div>
+    <label>Employee<select value={userId} onChange={e=>setUserId(e.target.value)} required><option value="">Choose a staff member</option>{staff.map(s=><option key={s.userId} value={s.userId}>{s.profile?.fullName || s.username} ({s.role})</option>)}</select></label>
+    <div className="staff-manual-time"><label>Clock in (device local time)<input type="datetime-local" value={clockIn} onChange={e=>setClockIn(e.target.value)} required/></label><label>Clock out (device local time)<input type="datetime-local" value={clockOut} onChange={e=>setClockOut(e.target.value)} required/></label></div>
+    <label>Reason for manual entry<textarea rows={2} maxLength={500} placeholder="e.g. Employee forgot to clock in; verified with shift manager" value={reason} onChange={e=>setReason(e.target.value)} required/></label>
+    <p className="staff-disclaimer">Enter times in your device's local time zone. The saved times are displayed using the restaurant time zone. Manual entries remain attributable to the manager who created them and cannot overlap an existing shift.</p>
+    <button type="submit" className="btn btn-primary" disabled={busy||saving||!userId||!clockIn||!clockOut||reason.trim().length<6}><Save size={16}/>{saving?'Saving…':'Save manual attendance'}</button>
+  </form>;
+}
+async function fetchManualAttendance(body){
+  const response=await fetch('/api/workday/manual-attendance',{
+    method:'POST',headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`,'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(result.error || 'Could not save attendance.');
+  return result;
+}
+
 export default function StaffManagement() {
   const { currentUser, settings, showToast } = usePOS();
   const timeZone = restaurantTimeZone(settings);
@@ -60,6 +97,7 @@ export default function StaffManagement() {
   const [tab, setTab] = useState('team');
   const [data, setData] = useState({ staff: [], activeClockIns: [] });
   const [attendance, setAttendance] = useState([]);
+  const [manualAudit,setManualAudit] = useState([]);
   const [selected, setSelected] = useState(null);
   const [editSection, setEditSection] = useState('salary');
   const [search, setSearch] = useState('');
@@ -70,11 +108,15 @@ export default function StaffManagement() {
   const refresh = async () => {
     setLoading(true); setError('');
     try {
-      const [overview, history] = await Promise.all([
+      const [overview, history, audit] = await Promise.all([
         payrollApi('/overview?month=' + encodeURIComponent(month)),
-        payrollApi('/attendance?month=' + encodeURIComponent(month))
+        payrollApi('/attendance?month=' + encodeURIComponent(month)),
+        fetch('/api/workday/manual-attendance', {headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`}}).then(async r=>{
+          if(!r.ok) throw new Error('Unable to load manual attendance log.');
+          return r.json();
+        })
       ]);
-      setData(overview); setAttendance(history.entries || []);
+      setData(overview); setAttendance(history.entries || []);setManualAudit(audit || []);
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   };
   useEffect(() => { refresh(); }, [month]);
@@ -149,6 +191,14 @@ export default function StaffManagement() {
         {!people.length && <p className="staff-placeholder">No staff accounts found.</p>}
       </section>}
       {tab==='attendance' && <section className="staff-panel">
+        <ManualAttendanceForm staff={data.staff||[]} busy={busy} onSaved={message=>{
+          if(message)showToast(message,'error');
+          else {showToast('Manual attendance saved with audit trail.','success');refresh();}
+        }}/>
+        <div className="staff-manual-separator"/>
+        <h3 className="staff-manual-log-title">Recent manual entries</h3>
+        <div className="staff-table-scroll"><table className="staff-table"><thead><tr><th>Employee</th><th>Clock in</th><th>Clock out</th><th>Entered by</th><th>Reason</th></tr></thead><tbody>{manualAudit.slice(0,12).map(row=><tr key={row.entryId}><td>{row.staffName}</td><td>{formatRestaurantTime(row.clockIn,timeZone)}</td><td>{formatRestaurantTime(row.clockOut,timeZone)}</td><td>{row.enteredBy||'Manager'}</td><td>{row.reason}</td></tr>)}</tbody></table>{!manualAudit.length&&<p className="staff-placeholder">No manual attendance entries yet.</p>}</div>
+        <div className="staff-manual-separator"/>
         <div className="staff-panel-header"><div><h2>Attendance log</h2><p>Actual staff clock-in / clock-out sessions. Open sessions are excluded from completed paid hours.</p></div></div>
         <div className="staff-table-scroll"><table className="staff-table"><thead><tr><th>Employee</th><th>Clock in</th><th>Clock out</th><th>Duration</th><th>Status</th></tr></thead><tbody>{attendance.map(entry=><tr key={entry.id}>
           <td><strong>{entry.username}</strong></td><td>{formatRestaurantTime(entry.clockIn,timeZone)}</td><td>{entry.clockOut?formatRestaurantTime(entry.clockOut,timeZone):'—'}</td><td>{entry.clockOut?Math.round((Number(entry.clockOut)-Number(entry.clockIn))/60000)+' min':'In progress'}</td><td><span className={'staff-status '+(entry.clockOut?'closed':'open')}>{entry.clockOut?'Completed':'Clocked in'}</span></td>
