@@ -71,6 +71,7 @@ export default function CashDrawer(){
     </header>
     {error&&<p role="alert" className="cashdesk-error">{error}</p>}
     <div className="cashdesk-kpis">
+      <article><span><Receipt size={19}/> Daily paid sales</span><strong>{money(report.paidSales)}</strong><small className="cashdesk-kpi-caption">{report.paidOrders || 0} paid orders on selected day</small></article>
       <article><span><Wallet size={19}/> Opening cash</span><strong>{money(metrics.opening)}</strong></article>
       <article><span><Banknote size={19}/> Cash receipts</span><strong>{money(metrics.cashSales)}</strong></article>
       <article><span><Receipt size={19}/> Non-cash receipts</span><strong>{money(metrics.nonCashReceipts)}</strong></article>
