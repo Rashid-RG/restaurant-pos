@@ -1750,6 +1750,16 @@ const authenticateToken = async (req, res, next) => {
     if (!user || user.tenant_id !== claims.tenant_id || !STAFF_ROLES.includes(user.role)) {
       return res.status(403).json({ error: 'Staff account is no longer authorized.' });
     }
+    const expectedTenant = req.headers['x-expected-tenant-id'];
+    if (expectedTenant) {
+      const selected = await resolvePosLoginTenant(expectedTenant);
+      if (!selected || selected.id !== user.tenant_id) {
+        return res.status(403).json({
+          error: 'This staff account does not belong to the restaurant in this URL.',
+          code: 'TENANT_URL_MISMATCH'
+        });
+      }
+    }
     const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [user.tenant_id]);
     if (!tenant || (tenant.status === 'suspended' && !user.isPlatformAdmin)) {
       return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
@@ -1998,11 +2008,21 @@ const writeAuditLog = async (userId, username, action, details) => {
   }
 };
 
+// Resolve the store encoded in the POS URL or login payload to its canonical
+// tenant ID. Only platform administrators using an unscoped platform URL may
+// authenticate without a store selector.
+async function resolvePosLoginTenant(raw) {
+  if (typeof raw !== 'string' || !raw.trim() || raw.length > 200) return null;
+  const requested = raw.trim();
+  const alias = requested === 'kb2c' ? 'tenant_kb2c' : requested;
+  return await dbGet('SELECT id FROM tenants WHERE id = ? OR subdomain = ?', [alias, alias]);
+}
+
 // AUTH ENDPOINTS
 
 // Login
 app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, expectedTenantId } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
@@ -2020,6 +2040,16 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
     }
 
     const userTenantId = user.tenant_id || 'default_tenant';
+    if (expectedTenantId !== undefined) {
+      const requestedTenant = await resolvePosLoginTenant(expectedTenantId);
+      // Never switch the POS URL to match credentials from another store.
+      if (!requestedTenant || requestedTenant.id !== userTenantId) {
+        return res.status(403).json({
+          error: 'These credentials belong to a different restaurant. Use the correct POS store link.',
+          code: 'TENANT_URL_MISMATCH'
+        });
+      }
+    }
     const ownership = await dbGet('SELECT userId FROM platform_ownership WHERE singleton = 1 AND userId = ?', [user.id]);
     const isPlatformAdmin = Boolean(ownership) && user.role === 'owner';
     if (!isPlatformAdmin) {

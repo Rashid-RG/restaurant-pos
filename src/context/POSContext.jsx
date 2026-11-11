@@ -70,22 +70,32 @@ export const POSProvider = ({ children }) => {
     let cancelled = false;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
+    const urlParams = new URLSearchParams(window.location.search);
+    const selectedTenant = urlParams.get('tenant') || urlParams.get('tenantId');
+    fetch('/api/auth/me', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(selectedTenant ? { 'X-Expected-Tenant-Id': selectedTenant } : {})
+      },
+      signal: controller.signal
+    })
       .then(async response => {
         const data = await response.json().catch(() => ({}));
         if (cancelled || localStorage.getItem('gastroflow_token') !== token) return;
         if (response.ok && data.user) {
           setCurrentUser(data.user);
           localStorage.setItem('gastroflow_user', JSON.stringify(data.user));
-          try {
-            const url = new URL(window.location.href);
-            if (data.user.tenant_id && url.searchParams.get('tenant') !== data.user.tenant_id) {
+          // Only canonicalize an unscoped POS URL. Never overwrite the
+          // requested restaurant link to silently admit another store's user.
+          if (!selectedTenant && data.user.tenant_id) {
+            try {
+              const url = new URL(window.location.href);
               url.searchParams.set('tenant', data.user.tenant_id);
-              url.searchParams.delete('tenantId');
               window.history.replaceState({}, '', url.toString());
-            }
-          } catch (_) {}
-        } else if (isExpiredStaffSession(response.status, data)) {
+            } catch (_) {}
+          }
+        } else if (data.code === 'TENANT_URL_MISMATCH' || isExpiredStaffSession(response.status, data)) {
+          // A cached token for Restaurant B must not unlock Restaurant A's URL.
           localStorage.removeItem('gastroflow_token');
           localStorage.removeItem('gastroflow_user');
           setCurrentUser(null);
@@ -490,10 +500,12 @@ export const POSProvider = ({ children }) => {
 
   // Auth Operations
   const login = async (username, password) => {
+    const url = new URL(window.location.href);
+    const expectedTenantId = url.searchParams.get('tenant') || url.searchParams.get('tenantId');
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, ...(expectedTenantId ? { expectedTenantId } : {}) })
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -514,13 +526,11 @@ export const POSProvider = ({ children }) => {
     localStorage.setItem('gastroflow_token', data.token);
     localStorage.setItem('gastroflow_user', JSON.stringify(data.user));
 
-    // Automatic Tenant URL Redirection: bind URL parameter to logged-in user's tenant_id
-    if (data.user && data.user.tenant_id) {
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.set('tenant', data.user.tenant_id);
-        window.history.replaceState({}, '', url.toString());
-      } catch (_) {}
+    // A tenant-specific POS URL is authoritative. The server already
+    // verified it matches the staff account; redirect only on generic URLs.
+    if (!expectedTenantId && data.user?.tenant_id) {
+      url.searchParams.set('tenant', data.user.tenant_id);
+      window.history.replaceState({}, '', url.toString());
     }
 
     setTenantLock(null);
