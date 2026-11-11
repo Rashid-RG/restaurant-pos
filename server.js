@@ -5767,6 +5767,9 @@ app.post('/api/print/receipt', async (req, res) => {
 
     const items = await dbAll('SELECT menuItemId, name, price, quantity FROM order_items WHERE orderId = ?', [order.id]);
     const businessName = await getSetting(req.tenantId, 'restaurantName', 'GastroFlow Bistro');
+    const receiptTimeZone = restaurantTimeZone({ timeZone: await getSetting(req.tenantId, 'timeZone', 'Asia/Colombo') });
+    const receiptCurrency = await getSetting(req.tenantId, 'currencySymbol', 'LKR');
+    const configuredCutterFeed = await getSetting(req.tenantId, 'printerCutterFeedLines', 3);
 
     const buffer = buildEscPosReceipt({
       restaurantName: businessName,
@@ -5782,6 +5785,9 @@ app.post('/api/print/receipt', async (req, res) => {
       total: order.total,
       paymentMethod: order.paymentMethod || 'cash',
       timestamp: order.timestamp,
+      timeZone: receiptTimeZone,
+      currencySymbol: receiptCurrency,
+      cutterFeedLines: configuredCutterFeed,
       paperWidth
     });
 
