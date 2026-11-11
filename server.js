@@ -5015,15 +5015,27 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
 // GET /api/public/orders/:id — Get status
 app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenant(req);
     const order = await dbGet(
       `SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, deliveryAddress, deliveryLat, deliveryLng, etaMinutes, acceptedAt, rejectedReason, customerName, customerPhone, invoiceNumber, paymentStatus
-       FROM orders WHERE id = ?`,
-      [req.params.id]
+       FROM orders WHERE id = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     if (!order) return res.status(404).json({ error: 'Order not found.' });
+    const tenant = await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]);
+    const details = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'address', 'phone', 'logo']);
     const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [order.id]);
     const driver = await dbGet('SELECT driverName, lat, lng, updatedAt FROM driver_locations WHERE orderId = ?', [order.id]);
-    res.json({ ...order, items, driver: driver || null });
+    res.set('Cache-Control', 'no-store').json({
+      ...order,
+      tenantId,
+      storeName: details.restaurantName || details.businessName || tenant?.name || 'Restaurant',
+      storeAddress: details.address || '',
+      storePhone: details.phone || '',
+      storeLogo: details.logo || null,
+      items,
+      driver: driver || null
+    });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

@@ -4,6 +4,8 @@ import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
+import { getActiveTenant } from '../utils/tenant.js';
+import { Store, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/LocationPicker.jsx';
 
 const ORDER_TYPES = [
@@ -19,7 +21,7 @@ const LOCAL_PAYMENTS = [
   { id: 'lankaqr', label: 'LankaQR / mobile wallet', icon: '📱', description: 'Coming soon', disabled: true }
 ];
 
-export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
+export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, store, canOrder, refreshStore }) {
   const { items, subtotal, clearCart, setCartOpen, addItem, rates } = useCart();
   const { customer, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
@@ -113,41 +115,39 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         .catch(() => {});
     }
 
-    // Load store delivery & prep time settings
-    apiFetch('/public/menu')
-      .then(data => {
-        if (data) {
-          setDeliveryFee(data.deliveryFee || 0);
-          setMinimumOrder(data.minimumOrder || 0);
-          if (data.prepTime) setStorePrepTime(data.prepTime);
-        }
-      })
-      .catch(() => {});
+    // Store settings are loaded from the live, tenant-verified storefront.
   }, [customer]);
 
-  // Load real smart cart upsell recommendations from active menu
+  // No recommendations from closed, offline or wrong-tenant stores.
   const [realRecommendations, setRealRecommendations] = useState([]);
+  const cartIds = items.map(item => item.id).join('|');
   useEffect(() => {
-    apiFetch('/public/menu')
-      .then(data => {
-        const allItems = data?.items || [];
-        const cartIds = items.map(ci => ci.id);
-        const candidates = allItems.filter(itm => itm.isAvailable !== 0 && !cartIds.includes(itm.id));
+    let cancelled = false;
+    if (!canOrder || !store?.tenantId) { setRealRecommendations([]); return; }
+    setRealRecommendations([]);
+    apiFetch('/public/menu', { cache: 'no-store' }).then(data => {
+      if (cancelled) return;
+      if (data?.offlineSnapshot || data?.tenantId !== store.tenantId || data.storeOpen !== true) {
+        setRealRecommendations([]); return;
+      }
+      const inCart = new Set(items.map(item => item.id));
+      const candidates = (data.items || []).filter(item =>
+        item.isAvailable !== 0 && item.isAvailable !== false &&
+        (item.stock == null || Number(item.stock) > 0) &&
+        !inCart.has(item.id) && !(item.modifiers || []).some(option => option.isRequired)
+      );
+      const isSide = item => /drink|beverage|dessert|side|grill/i.test(String(item.category || ''));
+      candidates.sort((x,y) => Number(isSide(y)) - Number(isSide(x)));
+      setRealRecommendations(candidates.slice(0, 4));
+    }).catch(() => { if (!cancelled) setRealRecommendations([]); });
+    return () => { cancelled = true; };
+  }, [canOrder, store?.tenantId, cartIds]);
 
-        candidates.sort((a, b) => {
-          const catA = String(a.category || '').toLowerCase();
-          const catB = String(b.category || '').toLowerCase();
-          const isDrinkSideA = catA.includes('drink') || catA.includes('side') || catA.includes('beverage') || catA.includes('dessert') || catA.includes('grill');
-          const isDrinkSideB = catB.includes('drink') || catB.includes('side') || catB.includes('beverage') || catB.includes('dessert') || catB.includes('grill');
-          if (isDrinkSideA && !isDrinkSideB) return -1;
-          if (!isDrinkSideA && isDrinkSideB) return 1;
-          return 0;
-        });
-
-        setRealRecommendations(candidates.slice(0, 4));
-      })
-      .catch(() => {});
-  }, [items]);
+  useEffect(() => {
+    setDeliveryFee(Number(store?.deliveryFee || 0));
+    setMinimumOrder(Number(store?.minimumOrder || 0));
+    if (store?.prepTime) setStorePrepTime(store.prepTime);
+  }, [store?.tenantId, store?.deliveryFee, store?.minimumOrder, store?.prepTime]);
 
   // ── Dynamic delivery fee calculation when location is picked ──
   useEffect(() => {
@@ -265,6 +265,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   };
 
   const executeOrderPlacement = async () => {
+    if (!getActiveTenant() || !(await refreshStore())) {
+      toast('This restaurant is not accepting online orders. Your cart is saved.', 'error');
+      return;
+    }
     if(isScheduled && (!scheduledTimeVal||scheduleLoading||scheduleError)){toast('Choose an available scheduled time before ordering.','error');return;}
     setLoading(true);
     try {
@@ -365,6 +369,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     e.preventDefault();
     if(typeof navigator!=='undefined' && navigator.onLine===false){toast('You are offline. Your cart is saved on this device; reconnect before placing an order. No order was submitted.','warning');return;}
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
+    if (!canOrder) { toast('Restaurant availability cannot be confirmed. Your cart is saved.', 'warning'); return; }
     if (appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) { toast('Your cart changed. Please apply the promotion again.', 'warning'); return; }
     if ((paymentMethod === 'payhere' && !rates.payhereEnabled) || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
     if (!name.trim()) { toast('Please enter your name.', 'error'); return; }
@@ -512,6 +517,21 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
   return (
     <div className="checkout-view fade-in" style={{ padding: '16px 12px', paddingBottom: 'calc(var(--bottom-bar) + var(--sa-bottom) + 96px)' }}>
+      <section className="customer-checkout-restaurant" aria-label="Restaurant fulfilling your order">
+        <div className="customer-checkout-restaurant-icon"><Store size={24}/></div>
+        <div className="customer-checkout-restaurant-details">
+          <small>ORDERING FROM</small><strong>{store?.name || 'Select a restaurant'}</strong>
+          {store?.address && <span>{store.address}</span>}
+          <span className={canOrder ? 'customer-store-open' : 'customer-store-closed'}>
+            {canOrder ? '● Accepting online orders' : store?.status === 'closed' ? '● Online orders paused' : '● Availability not confirmed'}
+          </span>
+        </div>
+        <button className="customer-change-store" type="button" onClick={() => onNavigate('restaurants')}>Change</button>
+      </section>
+      {!canOrder && <div className="customer-checkout-closed-notice" role="alert">
+        <AlertCircle size={20}/>
+        <span>{store?.status === 'closed' ? 'This restaurant is currently closed. You can keep your saved cart, but cannot place an order.' : 'Select an open restaurant or reconnect to confirm availability.'}</span>
+      </div>}
       {pendingCheckout&&<section aria-label="Previous checkout" className="glass" style={{padding:16,marginBottom:16}}>
         <strong>Previous checkout</strong>
         <p>Your last checkout may already be saved. Check its order before placing another.</p>
@@ -760,20 +780,22 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         </div>
 
         {/* Real Smart Upsell & Cross-Sell Suggestions */}
-        {realRecommendations.length > 0 && (
+        {canOrder && realRecommendations.length > 0 && (
           <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
             <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>🥤</span> Complete Your Meal (Smart Suggestions)
+              <span>🥤</span> Add something extra
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
-              Frequently paired with your current cart items:
+              Available dishes from {store?.name || 'this restaurant'}:
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
               {realRecommendations.map(up => (
                 <div key={up.id} style={{ padding: 10, background: 'rgba(0,0,0,0.02)', borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ fontSize: '1.5rem' }}>{up.emoji || '🍽️'}</div>
+                    <div className="customer-smart-item-media">
+                       {up.imageUrl ? <img src={up.imageUrl} alt={up.name} loading="lazy"/> : <span aria-hidden="true">{up.emoji || '🍽️'}</span>}
+                     </div>
                     <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{up.name}</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 800, marginTop: 2 }}>LKR {Number(up.price || 0).toFixed(2)}</div>
                     {up.allergens && (
@@ -785,6 +807,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                     className="btn btn-outline"
                     style={{ marginTop: 8, padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, borderRadius: 8, width: '100%', cursor: 'pointer' }}
                     onClick={() => {
+                      if (!canOrder) return;
                       addItem(up);
                       toast && toast(`Added ${up.name} to your order! ➕`, 'success');
                     }}
@@ -1033,6 +1056,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
         {/* Bill Summary */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 20, border: '1px solid var(--border-color)', fontSize: '0.88rem' }}>
+          <div className="customer-bill-merchant"><span>RESTAURANT BILL</span>
+            <strong>{store?.name || 'Restaurant not selected'}</strong>
+            {store?.address && <small>{store.address}</small>}
+          </div>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>{t.billSummary}</h3>
           
           {orderType === 'delivery' && subtotal < minimumOrder && (
@@ -1121,6 +1148,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.05rem', borderTop: '1px solid var(--border-color)', paddingTop: 8, marginTop: 4 }}>
               <span>{t.totalPayable}</span><span style={{ color: 'var(--brand)' }}>Rs. {total.toFixed(2)}</span>
             </div>
+            <div className="customer-bill-brand">Powered by <strong>GastroFlow</strong> · Developed by <strong>RS Technologies</strong></div>
           </div>
         </div>
 
@@ -1131,7 +1159,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           <button
             type="submit"
             className="btn btn-brand"
-            disabled={loading || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
+            disabled={loading || !canOrder || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
             {loading ? `⏳ ${t.processing}` : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}
