@@ -232,42 +232,93 @@ export function cleanupThermalPrint() {
 }
 
 
+
 /**
- * Prevent blank customer bills when the receipt has not mounted yet.
- * Keep its print CSS active until the browser finishes the print dialog.
+ * Print a POS receipt in its own document. Printing the main POS window
+ * makes Edge/Chrome apply conflicting hide/show CSS and yields blank POS-80 pages.
  */
-let finishActiveReceiptPrint = null;
-export function printRenderedReceipt(paperSetting = '80mm') {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return false;
-  const root = document.getElementById('receipt-print-root');
-  const receipt = root?.querySelector('.receipt-print-area');
-  const billText = receipt?.textContent?.replace(/\s+/g, ' ').trim() || '';
-  if (!receipt || billText.length < 24) {
-    console.error('[GastroFlow] Printing cancelled: the receipt has no rendered bill content.');
-    return false;
-  }
-  if (finishActiveReceiptPrint) finishActiveReceiptPrint();
+export function buildStandaloneReceiptDocument(receiptMarkup, paperSetting='80mm') {
   const paper=resolvePrinterPaperSize(paperSetting);
-  document.body.classList.toggle('print-58mm', paper === '58mm');
-  document.body.classList.add('printing-receipt');
-  prepareThermalPrint(receipt, paper);
-  let timer;
-  const finish=()=>{
-    window.removeEventListener('afterprint',finish);
-    if(timer)clearTimeout(timer);
-    document.body.classList.remove('print-58mm','printing-receipt');
-    cleanupThermalPrint();
-    if(finishActiveReceiptPrint===finish)finishActiveReceiptPrint=null;
-  };
-  finishActiveReceiptPrint=finish;
-  window.addEventListener('afterprint',finish,{once:true});
-  try {
-    timer=setTimeout(finish,30000);
-    window.print();
-    return true;
-  } catch(e) {
-    finish();
-    console.error('[GastroFlow] Receipt printing failed',e);
+  const a4=paper==='a4';
+  const roll=a4?'A4 portrait':paper==='58mm'?'58mm':'80mm';
+  const width=a4?'190mm':paper==='58mm'?'52mm':'76mm';
+  const font=a4?13:paper==='58mm'?11:12;
+  const css=[
+    '@page{size:'+(a4?'A4 portrait':roll+' 180mm')+';margin:0}',
+    '*{box-sizing:border-box}',
+    'html,body{margin:0!important;padding:0!important;background:white!important;color:black!important;font-family:Arial,Helvetica,sans-serif!important;height:auto!important;overflow:visible!important}',
+    '.receipt-print-area{display:block!important;visibility:visible!important;opacity:1!important;position:static!important;transform:none!important;float:none!important;width:'+width+'!important;max-width:'+width+'!important;margin:0 auto!important;padding:'+(a4?'10mm':'2mm 1mm 8mm')+'!important;color:black!important;background:white!important;font-size:'+font+'px!important;line-height:1.35!important;overflow:visible!important}',
+    '.receipt-print-area *{visibility:visible!important;opacity:1!important;color:black!important;-webkit-text-fill-color:black!important;text-shadow:none!important;box-shadow:none!important}',
+    '.receipt-center{text-align:center}.receipt-divider{border-top:1px dashed #000;margin:5px 0}',
+    '.receipt-row{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 0;break-inside:avoid}',
+    '.receipt-row span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}.receipt-row span:last-child{text-align:right;white-space:nowrap}',
+    '.receipt-totals{font-size:1.15em;font-weight:800}',
+    '.receipt-logo{display:block;max-width:70px;max-height:70px;object-fit:contain;margin:0 auto 6px}',
+    'p{margin:3px 0!important}h3{margin:3px 0!important}img{max-width:100%;height:auto}',
+    '@media print{html,body{overflow:visible!important}.receipt-print-area{break-inside:auto!important}}'
+  ].join('');
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>GastroFlow POS Bill</title><style>'+css+'</style></head><body>'+receiptMarkup+'</body></html>';
+}
+let activePrintFrame=null;
+export function printRenderedReceipt(paperSetting='80mm',options={}) {
+  if(typeof document==='undefined'||typeof window==='undefined')return false;
+  const receipt=document.getElementById('receipt-print-root')?.querySelector('.receipt-print-area');
+  const text=receipt?.textContent?.replace(/\s+/g,' ').trim()||'';
+  if(!receipt||text.length<24||!receipt.outerHTML){
+    console.error('[GastroFlow] Blank bill prevented: receipt has not rendered');
     return false;
   }
+  const html=buildStandaloneReceiptDocument(receipt.outerHTML,paperSetting);
+  let popup=null;
+  if(options.userInitiated){
+    try{popup=window.open('','_blank','width=480,height=740');}catch(_){}
+  }
+  if(popup){
+    popup.document.open();popup.document.write(html);popup.document.close();
+    const show=async()=>{
+      try{
+        await popup.document.fonts?.ready;
+        await Promise.all([...popup.document.images].map(img=>img.complete?null:new Promise(resolve=>{
+          img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});setTimeout(resolve,1500);
+        })));
+        if(!popup.closed){popup.focus();popup.print();}
+      }catch(error){console.error('[GastroFlow] Bill print preview failed',error);}
+    };
+    setTimeout(show,180);
+    return true;
+  }
+  // An off-screen but layout-enabled iframe prints reliably on Edge when
+  // popup blocking would otherwise prevent auto-print after payment.
+  if(activePrintFrame?.parentNode)activePrintFrame.parentNode.removeChild(activePrintFrame);
+  const frame=document.createElement('iframe');
+  frame.title='GastroFlow POS receipt';
+  frame.setAttribute('aria-hidden','true');
+  frame.style.cssText='position:fixed;left:0;top:0;width:80mm;height:150mm;border:0;opacity:0;pointer-events:none;z-index:-1';
+  document.body.appendChild(frame);
+  activePrintFrame=frame;
+  let launched=false;
+  const finish=()=>{
+    if(activePrintFrame===frame)activePrintFrame=null;
+    if(frame.parentNode)frame.parentNode.removeChild(frame);
+  };
+  frame.onload=async()=>{
+    if(launched)return;
+    launched=true;
+    try{
+      const doc=frame.contentDocument;
+      await doc?.fonts?.ready;
+      await Promise.all([...(doc?.images||[])].map(img=>img.complete?null:new Promise(resolve=>{
+        img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});setTimeout(resolve,1500);
+      })));
+      if(!doc?.body?.textContent?.trim())throw Error('Print frame is empty');
+      const win=frame.contentWindow;
+      if(!win)throw Error('Browser print frame unavailable');
+      win.addEventListener('afterprint',()=>setTimeout(finish,1500),{once:true});
+      win.focus();
+      win.print();
+      setTimeout(finish,30000);
+    }catch(error){console.error('[GastroFlow] Bill print failed',error);finish();}
+  };
+  frame.srcdoc=html;
+  return true;
 }
