@@ -531,7 +531,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       {!canOrder && <div className="customer-checkout-closed-notice" role="alert">
         <AlertCircle size={20}/>
         <span>{store?.status === 'closed' ? 'This restaurant is currently closed. You can keep your saved cart, but cannot place an order.' : 'Select an open restaurant or reconnect to confirm availability.'}</span>
-      </div>
+      </div>}
       {pendingCheckout&&<section aria-label="Previous checkout" className="glass" style={{padding:16,marginBottom:16}}>
         <strong>Previous checkout</strong>
         <p>Your last checkout may already be saved. Check its order before placing another.</p>
