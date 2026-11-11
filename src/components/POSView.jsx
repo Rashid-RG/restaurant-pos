@@ -1679,9 +1679,7 @@ export default function POSView() {
                   className="receipt-logo"
                   style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block', objectFit: 'contain' }}
                 />
-              ) : (
-                <div className="receipt-brand-mark">GF</div>
-              )}
+              ) : null}
               <h3 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
                 {settings?.restaurantName || settings?.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
               </h3>
@@ -1778,8 +1776,14 @@ export default function POSView() {
                   return null;
                 }
               })()}
-              <p className="receipt-thank-you">THANK YOU • COME AGAIN!</p>
-              <p className="receipt-powered-by">Powered by GastroFlow POS · Developed by RS Technologies</p>
+              <div className="receipt-gratitude">
+                <div className="receipt-thank-you">Thank You!</div>
+                <div className="receipt-visit-again">— Visit Again —</div>
+              </div>
+              <div className="receipt-platform-credit">
+                <div className="receipt-powered-by">Powered by <strong>GastroFlow POS</strong></div>
+                <div className="receipt-developed-by">Developed by RS Technologies</div>
+              </div>
             </div>
           </div>
         );
