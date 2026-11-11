@@ -1513,8 +1513,7 @@ button {
   /* When printing receipts or tickets via portal:
      Hide #root completely so that the entire React app takes 0 space.
      This guarantees NO second blank page on thermal receipt printers! */
-  body.printing-receipt #root,
-  body:has(#receipt-print-root:not(:empty)) #root {
+  body.printing-receipt:has(#receipt-print-root .receipt-print-area) #root {
     display: none !important;
     visibility: hidden !important;
     height: 0 !important;
@@ -1524,8 +1523,7 @@ button {
     overflow: hidden !important;
   }
 
-  body.printing-receipt #receipt-print-root,
-  body:has(#receipt-print-root:not(:empty)) #receipt-print-root {
+  body.printing-receipt:has(#receipt-print-root .receipt-print-area) #receipt-print-root {
     display: block !important;
     visibility: visible !important;
     position: static !important;
@@ -1537,10 +1535,28 @@ button {
     min-height: 0 !important;
   }
 
-  body.printing-receipt #receipt-print-root *,
-  body:has(#receipt-print-root:not(:empty)) #receipt-print-root * {
+  body.printing-receipt #receipt-print-root,
+  body.printing-receipt #receipt-print-root * {
     visibility: visible !important;
     color: #000000 !important;
+  }
+
+
+  /* Prevent off-screen empty print roots from capturing the print page. */
+  body:not(.printing-receipt) #receipt-print-root { display: none !important; }
+  body.printing-receipt #receipt-print-root .receipt-print-area {
+    display: block !important;
+    position: static !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    overflow: visible !important;
+    break-inside: auto !important;
+  }
+  body.printing-receipt #receipt-print-root .receipt-print-area,
+  body.printing-receipt #receipt-print-root .receipt-print-area * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
   }
 
   /* Fallback for non-portal prints (e.g. Sales Report, Floor Plan QR) */
@@ -1560,8 +1576,7 @@ button {
   body:not(.printing-receipt) .z-report-print-area *,
   body:not(.printing-receipt) .receipt-print-area,
   body:not(.printing-receipt) .receipt-print-area * {
-    visibility: visible !important;
-    color: #000000 !important;
+    visibility: hidden !important;
   }
 
   .sales-report-print-area {
@@ -1615,7 +1630,7 @@ button {
     page-break-inside: avoid !important;
     break-after: avoid !important;
     break-inside: avoid !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     height: auto !important;
   }
   .receipt-print-area.paper-58mm {
