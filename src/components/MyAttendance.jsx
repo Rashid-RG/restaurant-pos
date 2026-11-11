@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlarmClock, ArrowRight, CalendarDays, CheckCircle2, Clock3, LogIn, LogOut, RefreshCw, ShieldCheck, Timer, UserRound } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
-import { dateAtRestaurant, formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
+import { dateAtRestaurant, formatRestaurantTime, restaurantTimeZone, restaurantDayBounds } from '../utils/restaurant-time';
 import './my-attendance.css';
 
 async function timeclock(path, options = {}) {
@@ -55,9 +55,17 @@ export default function MyAttendance() {
   const clockStart = Number(status?.session?.clockIn || 0);
   const elapsed = clockedIn && clockStart ? readableDuration(now - clockStart) : '00m';
   const today = dateAtRestaurant(now, zone);
-  const todayRows = useMemo(() => history.filter(row => dateAtRestaurant(row.clockIn, zone) === today), [history, today, zone]);
-  const completedMinutes = todayRows.reduce((total,row) =>
-    total + (row.clockOut && row.clockOut > row.clockIn ? Math.max(0, Number(row.durationMinutes) || Math.round((row.clockOut - row.clockIn)/60000)) : 0),0);
+  const [todayStart, todayEnd] = useMemo(() => restaurantDayBounds(today, zone), [today, zone]);
+  const todayRows = useMemo(() => history.filter(row =>
+    Number(row.clockIn) < todayEnd && (row.clockOut == null || Number(row.clockOut) > todayStart)
+  ), [history, todayStart, todayEnd]);
+  // Count only the portion of each completed shift inside this restaurant's current calendar day.
+  const completedMinutes = Math.round(todayRows.reduce((total,row) => {
+    const start = Number(row.clockIn);
+    const end = Number(row.clockOut);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || !end || end <= start) return total;
+    return total + Math.max(0, Math.min(end,todayEnd) - Math.max(start,todayStart));
+  }, 0) / 60000);
 
   const submit = async () => {
     if (busy || loading || !status) return;
