@@ -19,7 +19,11 @@ export function CustomerAuthProvider({ children }) {
         if (data) setCustomer(data);
         else localStorage.removeItem(TOKEN_KEY);
       })
-      .catch(() => localStorage.removeItem(TOKEN_KEY))
+      .catch((error) => {
+        // A connection failure is not evidence of an expired session.
+        // Preserve the credential so the user can retry when back online.
+        if (error?.status === 401) localStorage.removeItem(TOKEN_KEY);
+      })
       .finally(() => setLoading(false));
   }, []);
 
