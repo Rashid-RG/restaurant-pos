@@ -726,7 +726,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                 setScheduledTimeVal(null);
               }}
             >
-              🚀 Order ASAP
+              🚀 {t('scheduleNow')}
             </button>
             <button 
               type="button" 
@@ -736,23 +736,23 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                 setIsScheduled(true);
               }}
             >
-              📅 Schedule Later
+              📅 {t('scheduleLater')}
             </button>
           </div>
 
           {isScheduled && (
             <div className="form-group" style={{ marginTop: 12 }}>
-              <p role="status" style={{fontSize:'.8rem',color:'var(--text-muted)'}}>{scheduleLoading?'Loading available kitchen slots…':scheduleError || (scheduleAvailability.length ? 'Times are confirmed at checkout; fully booked slots are hidden.' : 'No scheduled times available. Choose Order ASAP or retry.')}</p>
-              <label>Choose Delivery / Pickup Time</label>
+              <p role="status" style={{fontSize:'.8rem',color:'var(--text-muted)'}}>{scheduleLoading?t('scheduleLoading'):scheduleError || (scheduleAvailability.length ? t('scheduleConfirm') : t('scheduleFull'))}</p>
+              <label>{t('chooseSchedule')}</label>
               <select 
                 className="form-control"
                 value={scheduledTimeVal || ''}
                 onChange={e => setScheduledTimeVal(parseInt(e.target.value, 10))}
                 style={{ fontWeight: 600 }}
               >
-                {!scheduledTimeVal && <option value="">Choose an available time</option>}
+                {!scheduledTimeVal && <option value="">{t('chooseSchedule')}</option>}
                 {scheduleAvailability.map(slot => (
-                  <option key={slot.timestamp} value={slot.timestamp}>{new Date(slot.timestamp).toLocaleString()} · {slot.available} spots left</option>
+                  <option key={slot.timestamp} value={slot.timestamp}>{new Date(slot.timestamp).toLocaleString()} · {t('spotsLeft',{count:slot.available})}</option>
                 ))}
               </select>
             </div>
@@ -904,7 +904,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
         {/* Payment Methods */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Payment Method</h3>
+          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>{t('paymentMethod')}</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
             {LOCAL_PAYMENTS.map(p => (
               <label 
@@ -921,7 +921,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                   style={{ width: 18, height: 18, accentColor: 'var(--brand)' }}
                 />
                 <span style={{ fontSize: '1.25rem' }}>{p.icon}</span>
-                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.id === 'payhere' && rates.payhereEnabled ? 'Secure card payment via PayHere' : p.description}</small></span>
+                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.id==='cash'?t('cashPaymentLabel'):p.id==='bank_transfer'?t('manualBankLabel'):p.id==='payhere'&&!rates.payhereEnabled?t('cardUnavailable'):p.id==='lankaqr'?t('lankaQrSoon'):p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.id==='cash'?t('cashPaymentHelp'):p.id==='bank_transfer'?t('manualBankHelp'):p.id==='payhere'&&rates.payhereEnabled?'Secure card payment via PayHere':p.description}</small></span>
               </label>
             ))}
           </div>
@@ -1125,7 +1125,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         </div>
 
         <div className="customer-offline-checkout-note" role="status">
-          <strong>Offline-safe checkout</strong> · Your cart stays on this device if the connection drops. Orders are only sent when connected, and interrupted submissions can be recovered safely.
+          <strong>{t('offlineSafe')}</strong> · {t('offlineSafeHelp')}
         </div>
         <div className="sticky-bar">
           <button
