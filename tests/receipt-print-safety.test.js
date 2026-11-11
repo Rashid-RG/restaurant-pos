@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import {printRenderedReceipt,buildStandaloneReceiptDocument,fitStandaloneReceiptPage,resolvePrinterPaperSize} from '../src/utils/printer.js';
 
@@ -96,5 +97,29 @@ describe('Windows thermal printer regressions',()=>{
     };
     expect(fitStandaloneReceiptPage(doc,'80mm')).toBe(true);
     expect(page.textContent).toContain('80mm 300mm');
+  });
+});
+
+describe('Shift close and manager report printing',()=>{
+  it('prints Z-report without changing the whole POS print mode',()=>{
+    const source=readFileSync(new URL('../src/components/POSView.jsx', import.meta.url),'utf8');
+    const start=source.indexOf('🖨️ Print Z-Report');
+    expect(start).toBeGreaterThan(0);
+    const preceding=source.slice(start-600,start);
+    expect(preceding).toContain("printSelectedReceipt('#z-report-print'");
+    expect(preceding).not.toContain('window.print()');
+    expect(preceding).not.toContain("classList.add('printing-receipt')");
+  });
+  it('prints X-report in isolation and warns before opening the A4 audit print dialog',()=>{
+    const source=readFileSync(new URL('../src/components/Dashboard.jsx',import.meta.url),'utf8');
+    expect(source).toContain('id="x-report-print"');
+    expect(source).toContain("printSelectedReceipt('#x-report-print'");
+    expect(source).toContain('Sales Audit is an A4 report');
+    expect(source).not.toContain('onClick={() => window.print()}>🖨️ Print X-Report');
+  });
+  it('never includes report print controls in standalone receipt output',()=>{
+    vi.stubGlobal('window',{localStorage:{getItem:()=>null}});
+    const html=buildStandaloneReceiptDocument('<div class="receipt-print-area">Shift report<button>Print</button></div>','80mm');
+    expect(html).toContain('.receipt-print-area button,.receipt-print-area [data-print-exclude]{display:none!important}');
   });
 });
