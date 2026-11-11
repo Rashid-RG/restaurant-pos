@@ -8,6 +8,7 @@ import Toast, { useToast } from './components/Toast.jsx';
 import MenuView from './views/MenuView.jsx';
 import MarketplaceMenu from './views/MarketplaceMenu.jsx';
 import CartCheckoutView from './views/CartCheckoutView.jsx';
+import { useStorefront } from './hooks/useStorefront.js';
 import OrderTrackingView from './views/OrderTrackingView.jsx';
 import ProfileView from './views/ProfileView.jsx';
 import RestaurantsView from './views/RestaurantsView.jsx';
@@ -39,7 +40,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-function CartSheet({ onCheckout }) {
+function CartSheet({ onCheckout, store, canOrder }) {
   const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems, rates } = useCart();
   // Use the same formula as CartCheckoutView so the cart sidebar and checkout
   // page show a consistent total. Previously CartSheet used subtotal * 1.10
@@ -55,7 +56,9 @@ function CartSheet({ onCheckout }) {
       <div className={`cart-sheet ${cartOpen ? 'open' : ''}`} role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="cart-sheet-handle" />
         <div className="cart-sheet-header">
-          <h2>🛒 Cart · {totalItems} items</h2>
+          <div><h2>🛒 Cart · {totalItems} items</h2>
+            <p className="customer-cart-store-label">Order from: <strong>{store.name || 'Select a restaurant'}</strong></p>
+          </div>
           <button aria-label="Close cart" className="cart-close-btn" onClick={() => setCartOpen(false)}>✕</button>
         </div>
         <div className="cart-body">
@@ -97,6 +100,7 @@ function CartSheet({ onCheckout }) {
         </div>
         {items.length > 0 && (
           <div className="cart-footer">
+            {!canOrder && <p role="status" className="customer-cart-closed-message">{store.status === 'closed' ? 'This restaurant is closed for online orders. Your cart is saved.' : 'Store availability is not confirmed. Select an open restaurant or reconnect.'}</p>}
             <div className="cart-summary-row"><span>Subtotal</span><span>Rs. {subtotal.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Service charge ({rates.serviceChargeRate}%)</span><span>Rs. {serviceCharge.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Tax ({rates.taxRate}%)</span><span>Rs. {tax.toFixed(2)}</span></div>
@@ -104,7 +108,8 @@ function CartSheet({ onCheckout }) {
             <button
               className="btn btn-brand"
               style={{ marginTop: 12 }}
-              onClick={() => { setCartOpen(false); onCheckout && onCheckout(); }}
+              disabled={!canOrder}
+              onClick={() => { if (!canOrder) return; setCartOpen(false); onCheckout && onCheckout(); }}
             >
               Go to Checkout · Rs. {total.toFixed(2)}
             </button>
@@ -219,6 +224,7 @@ function InnerApp({ switchRestaurant }) {
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
   const { items, totalItems, setCartOpen } = useCart();
+  const { store, canOrder, refreshStore } = useStorefront();
   const { messages, toast } = useToast();
   const { t, lang, setLang, languages } = useLang();
 
@@ -389,7 +395,7 @@ function InnerApp({ switchRestaurant }) {
           switchRestaurant(rest.id);
         }} />}
         {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
-        {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
+        {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
         {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
@@ -464,7 +470,7 @@ function InnerApp({ switchRestaurant }) {
       <GastroAiConcierge onNavigate={navigate} cartItems={items} />
 
       {/* Cart Sheet */}
-      <CartSheet onCheckout={() => navigate('checkout')} />
+      <CartSheet onCheckout={() => navigate('checkout')} store={store} canOrder={canOrder} />
 
       {/* Bottom Navigation */}
       <nav className="bottom-nav" aria-label="Customer app navigation">
