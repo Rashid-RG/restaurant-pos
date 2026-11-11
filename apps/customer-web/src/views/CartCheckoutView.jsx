@@ -363,6 +363,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
+    if(typeof navigator!=='undefined' && navigator.onLine===false){toast('You are offline. Your cart is saved on this device; reconnect before placing an order. No order was submitted.','warning');return;}
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
     if (appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) { toast('Your cart changed. Please apply the promotion again.', 'warning'); return; }
     if ((paymentMethod === 'payhere' && !rates.payhereEnabled) || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
@@ -1123,11 +1124,14 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           </div>
         </div>
 
+        <div className="customer-offline-checkout-note" role="status">
+          <strong>Offline-safe checkout</strong> · Your cart stays on this device if the connection drops. Orders are only sent when connected, and interrupted submissions can be recovered safely.
+        </div>
         <div className="sticky-bar">
           <button
             type="submit"
             className="btn btn-brand"
-            disabled={loading || (orderType === 'delivery' && subtotal < minimumOrder)}
+            disabled={loading || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
             {loading ? `⏳ ${t.processing}` : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}
