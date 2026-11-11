@@ -12,6 +12,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
   const [menus, setMenus] = useState({});
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [menusLoaded, setMenusLoaded] = useState(0);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
 
@@ -22,6 +23,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
       setLoading(true);
       setError('');
       setMenus({});
+      setMenusLoaded(0);
       try {
         const discovered = await apiFetch('/public/restaurants');
         if (cancelled) return;
@@ -41,6 +43,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
             return { id: store.id, data };
           }));
           if (cancelled) return;
+          setMenusLoaded(count => count + batch.length);
           setMenus(previous => {
             const next = { ...previous };
             for (const result of results) {
@@ -87,7 +90,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
     </section>
 
     {error && <div className="marketplace-error" role="alert">{error}<button type="button" onClick={() => setRefresh(n => n + 1)}><RefreshCw size={16}/> Retry</button></div>}
-    {loading && <p className="marketplace-loading" role="status">Loading menus from available restaurants…</p>}
+    {loading && <p className="marketplace-loading" role="status">Loading menus from available restaurants… {menusLoaded}/{stores.length}</p>}
     {!loading && !error && stores.length === 0 && <div className="marketplace-empty"><Store size={34}/><h2>No stores accepting online orders</h2><p>Please check again later or browse the Stores tab.</p></div>}
     {!loading && !error && stores.length > 0 && visibleItems.length === 0 && <div className="marketplace-empty"><Search size={32}/><h2>No matching dishes found</h2><p>Try another search or select a restaurant in Stores.</p></div>}
 
