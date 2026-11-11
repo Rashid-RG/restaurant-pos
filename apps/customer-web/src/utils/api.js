@@ -51,7 +51,9 @@ export async function apiFetch(endpoint, options = {}) {
     const msg = typeof data?.error === 'string'
       ? data.error
       : (data?.message || `Error ${res.status}`);
-    throw new Error(msg);
+    const error = new Error(msg);
+    error.status = res.status;
+    throw error;
   }
 
   if (data?.orderId && data?.trackingToken) localStorage.setItem(`gastroflow_order_access_${data.orderId}`, data.trackingToken);
