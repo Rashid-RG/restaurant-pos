@@ -492,3 +492,16 @@
  .customer-premium .auth-hero-intro{padding:22px 20px 4px}
 }
 @media(prefers-reduced-motion:reduce){.customer-premium .auth-art-rider{animation:none!important}}
+
+/* Actual illustrated graphics, not emoji substitutes or mockup screenshots. */
+.customer-premium .auth-hero-image{display:block!important;height:185px!important;min-height:185px!important;overflow:hidden;padding:0!important;background:#075e40!important}
+.customer-premium .auth-hero-image img{display:block;width:100%;height:100%;object-fit:cover;object-position:center center}
+.customer-premium .uber-hero-header{position:relative;isolation:isolate;min-height:180px;overflow:hidden}
+.customer-premium .uber-hero-header > :not(.tracking-food-art){position:relative;z-index:1}
+.customer-premium .tracking-food-art{position:absolute;right:-5px;bottom:-8px;width:clamp(125px,32%,230px);height:auto;max-height:175px;object-fit:contain;border-radius:28px;opacity:.92;pointer-events:none;z-index:0}
+.customer-premium .uber-hero-header .uber-hero-title,.customer-premium .uber-hero-header .uber-hero-subtitle{max-width:73%}
+@media(max-width:600px){
+ .customer-premium .auth-hero-image{height:145px!important;min-height:145px!important}
+ .customer-premium .tracking-food-art{width:130px;opacity:.4}
+ .customer-premium .uber-hero-header .uber-hero-title,.customer-premium .uber-hero-header .uber-hero-subtitle{max-width:100%;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+}
