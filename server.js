@@ -4368,7 +4368,7 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
    let quote=null;if(lat!=null&&configuredLocation)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
    stores.push({id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true',isDeliverable:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
   }
-  res.json(stores);
+  res.set('Cache-Control', 'no-store').json(stores);
  }catch(error){res.status(500).json({error:errMsg(error)});}
 });
 
@@ -5260,7 +5260,7 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
     }
     res.set('Cache-Control', 'no-store');
-    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
+    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
     res.json({
       tenantId,
       name: s.businessName || s.restaurantName || tenant.name,
@@ -5275,8 +5275,8 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       deliveryFee: Number(s.deliveryFee || 0),
       minimumOrder: Number(s.minimumOrder || 0),
       timeZone: (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: s.timeZone || 'Asia/Colombo' }).resolvedOptions().timeZone; } catch { return 'Asia/Colombo'; } })(),
-      lat: s.restaurantLat ? Number(s.restaurantLat) : null,
-      lng: s.restaurantLng ? Number(s.restaurantLng) : null,
+      lat: (s.storeLat || s.restaurantLat) ? Number(s.storeLat || s.restaurantLat) : null,
+      lng: (s.storeLng || s.restaurantLng) ? Number(s.storeLng || s.restaurantLng) : null,
       vapidPublicKey: pushConfigured() ? process.env.VAPID_PUBLIC_KEY : null
     });
   } catch (err) {
