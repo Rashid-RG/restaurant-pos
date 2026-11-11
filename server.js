@@ -12,6 +12,7 @@ import { createTrackingGuard, makeTrackingAccess } from './lib/order-tracking.js
 import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
 import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
 import { initExpensesTable, createExpensesRouter } from './routes/expenses.js';
+import { initStaffPayroll, createStaffPayrollRouter } from './routes/staff-payroll.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
 import express from 'express';
@@ -1288,6 +1289,7 @@ async function initTables() {
     await initPlatformOperations(dbRun);
     await initSaasBilling(dbRun);
     await initExpensesTable(dbRun);
+    await initStaffPayroll(dbRun);
     await seedDatabase();
     // A singleton records platform ownership independently of restaurant roles.
     await dbRun(`CREATE TABLE IF NOT EXISTS platform_ownership (
@@ -1844,6 +1846,7 @@ app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,req
 app.use('/api', createPlatformOperations({dbGet,dbAll,dbRun,authenticateToken,requirePlatformAdmin}));
 app.use('/api', createSupportRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolvePublicTenant,notifyPOS,rateLimiter:publicApiLimiter}));
 app.use('/api', createExpensesRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,broadcastEvent}));
+app.use('/api', createStaffPayrollRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
 
 // Reject writes to an ID owned by another restaurant before any upsert can replace it.
 for (const table of ['categories', 'menu_items', 'tables', 'customers']) {
@@ -2119,6 +2122,17 @@ app.get('/api/timeclock/status', authenticateToken, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
+});
+
+// Staff can view only their own recent attendance, scoped through authenticated user and tenant.
+app.get('/api/timeclock/mine', authenticateToken, async (req, res) => {
+  try {
+    const rows = await dbAll(`SELECT t.id,t.clockIn,t.clockOut,t.durationMinutes
+      FROM timeclock_entries t JOIN users u ON u.id=t.userId
+      WHERE t.userId=? AND u.tenant_id=?
+      ORDER BY t.clockIn DESC LIMIT 30`, [req.user.id,req.tenantId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({error:errMsg(err)}); }
 });
 
 // Get All Shift Entries (Owner / Manager)
