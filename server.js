@@ -4614,12 +4614,18 @@ app.get('/api/public/schedule/slots', publicApiLimiter, async(req,res)=>{
     const capacity=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
     const now=Date.now();
     const start=now+prep*60000;
-    const slots=[];
-    for(const when of slotsFrom(start,48)){
-      const booked=await dbGet("SELECT COUNT(*) AS count FROM orders WHERE tenant_id=? AND source='online' AND orderType=? AND scheduledTime=? AND status NOT IN ('cancelled','rejected','refunded')",[tenantId,type,when]);
-      slots.push({timestamp:when,available:Math.max(0,capacity-Number(booked?.count||0)),full:Number(booked?.count||0)>=capacity});
-    }
-    res.set('Cache-Control','no-store').json({slots,capacity,prepMinutes:prep,limitDays:7});
+    const futureSlots=slotsFrom(start,192); // 48 hours, 15-minute steps
+    const booked=await dbAll(`SELECT scheduledTime,COUNT(*) AS count FROM orders
+      WHERE tenant_id=? AND source='online' AND orderType=?
+        AND scheduledTime>=? AND scheduledTime<?
+        AND status NOT IN ('cancelled','rejected','refunded')
+      GROUP BY scheduledTime`,[tenantId,type,futureSlots[0],futureSlots[futureSlots.length-1]+SLOT_MS]);
+    const counts=new Map(booked.map(row=>[Number(row.scheduledTime),Number(row.count)]));
+    const slots=futureSlots.map(when=>{
+      const reserved=counts.get(when)||0;
+      return {timestamp:when,available:Math.max(0,capacity-reserved),full:reserved>=capacity};
+    });
+    res.set('Cache-Control','no-store').json({slots,capacity,prepMinutes:prep,limitDays:2});
   } catch(e){res.status(500).json({error:'Could not load scheduled times.'});}
 });
 
