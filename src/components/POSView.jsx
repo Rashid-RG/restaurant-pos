@@ -60,6 +60,7 @@ export default function POSView() {
     cart,
     addToCart,
     updateCartQuantity,
+    updateCartUnitPrice,
     updateCartNotes,
     removeFromCart,
     clearCart,
@@ -112,6 +113,9 @@ export default function POSView() {
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showCustomizerModal, setShowCustomizerModal] = useState(false);
+  const [customPriceLine, setCustomPriceLine] = useState(null);
+  const [customPriceValue, setCustomPriceValue] = useState('');
+  const [customPriceError, setCustomPriceError] = useState('');
 
   // Cash In / Cash Out (Paid-Out) Modal state
   const [showCashMoveModal, setShowCashMoveModal] = useState(false);
@@ -190,6 +194,21 @@ export default function POSView() {
   },[printReceiptOrder]);
 
   const currencySymbol = settings.currencySymbol || 'Rs.';
+  const openCustomPrice = (lineIndex, line) => {
+    if (!['owner', 'manager'].includes(currentUser?.role)) return;
+    setCustomPriceLine(lineIndex);
+    setCustomPriceValue(String(Number(line.unitPrice ?? line.price)));
+    setCustomPriceError('');
+  };
+  const saveCustomPrice = (event) => {
+    event.preventDefault();
+    const amount = Number(customPriceValue);
+    try {
+      updateCartUnitPrice(customPriceLine, amount);
+      setCustomPriceLine(null);
+      showToast('Custom price applied to this bill only. Menu prices are unchanged.', 'success');
+    } catch(error) { setCustomPriceError(error.message || 'Invalid custom price.'); }
+  };
 
   // Filter items
   const filteredItems = menuItems.filter((item) => {
@@ -767,7 +786,11 @@ export default function POSView() {
               <div className="cart-item" key={index}>
                 <div className="cart-item-desc">
                   <h4>{item.name}</h4>
-                  <span className="cart-item-price">{currencySymbol}{item.price.toFixed(2)}</span>
+                  <span className="cart-item-price">{currencySymbol}{Number(item.unitPrice ?? item.price).toFixed(2)} each</span>
+                  {item.customUnitPrice != null && <small style={{display:'block',color:'var(--text-muted)',fontSize:11}}>Menu price: {currencySymbol}{Number(item.menuPrice ?? item.price).toFixed(2)} · Custom for this bill</small>}
+                  {['owner', 'manager'].includes(currentUser?.role) && <button type="button" className="btn btn-secondary" style={{fontSize:11,minHeight:30,padding:'4px 9px',marginTop:6}}
+                    aria-label={`Edit price for ${item.name}`}
+                    onClick={() => openCustomPrice(index, item)}>✎ {item.customUnitPrice != null ? 'Edit price' : 'Custom price'}</button>}
                   {item.notes && <div className="cart-item-notes">📝 {item.notes}</div>}
                 </div>
                 <div className="cart-item-controls">
@@ -776,7 +799,7 @@ export default function POSView() {
                     <div className="qty-val">{item.quantity}</div>
                     <button className="qty-btn" onClick={() => updateCartQuantity(index, item.quantity + 1)}>＋</button>
                   </div>
-                  <span className="cart-item-total">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                  <span className="cart-item-total">{currencySymbol}{(Number(item.unitPrice ?? item.price) * item.quantity).toFixed(2)}</span>
                   <button 
                     className="cart-item-remove" 
                     onClick={() => updateCartQuantity(index, 0)}
@@ -878,6 +901,33 @@ export default function POSView() {
           </div>
         </div>
       </div>
+
+      {/* One-time owner/manager price, never edits the menu catalog. */}
+      {customPriceLine != null && cart[customPriceLine] && (
+        <div className="modal-overlay" role="presentation">
+          <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="pos-custom-price-title" style={{maxWidth:420}}>
+            <div className="modal-header">
+              <h2 id="pos-custom-price-title">Custom item price</h2>
+              <button type="button" className="modal-close" aria-label="Close custom price" onClick={()=>setCustomPriceLine(null)}>×</button>
+            </div>
+            <p style={{fontWeight:700,margin:'0 0 6px'}}>{cart[customPriceLine].name}</p>
+            <p style={{color:'var(--text-muted)',fontSize:13,margin:'0 0 16px'}}>Standard menu price: {currencySymbol}{Number(menuItems.find(i=>i.id===cart[customPriceLine].id)?.price ?? cart[customPriceLine].menuPrice ?? cart[customPriceLine].price).toFixed(2)}. Only this bill will change.</p>
+            <form onSubmit={saveCustomPrice}>
+              <label htmlFor="pos-one-off-price" style={{display:'block',fontWeight:700,marginBottom:7}}>Charge per item ({currencySymbol})</label>
+              <input id="pos-one-off-price" className="form-input" type="number" min="0.01" max="10000000" step="0.01" required autoFocus
+                value={customPriceValue} onChange={e=>setCustomPriceValue(e.target.value)} />
+              {customPriceError && <p role="alert" style={{color:'var(--color-danger)',fontSize:13}}>{customPriceError}</p>}
+              <div style={{display:'flex',gap:8,marginTop:16,flexWrap:'wrap'}}>
+                <button type="submit" className="btn btn-primary" style={{flex:1}}>Apply to this bill</button>
+                {cart[customPriceLine].customUnitPrice != null && <button type="button" className="btn btn-secondary" onClick={()=>{
+                  try { updateCartUnitPrice(customPriceLine,null);setCustomPriceLine(null); } catch(e){setCustomPriceError(e.message);}
+                }}>Restore menu price</button>}
+                <button type="button" className="btn btn-secondary" onClick={()=>setCustomPriceLine(null)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 3. MODALS BLOCK */}
 
