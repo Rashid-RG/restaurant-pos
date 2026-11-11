@@ -80,4 +80,26 @@ describe('Public customer payment availability and promotional safety',()=>{
     expect(response.status).toBe(503);
   });
 
+  it('lists real available scheduling slots with bounded per-slot capacity',async()=>{
+    const result=await request(app).get('/api/public/schedule/slots?type=takeaway').set('X-Tenant-Id',tenant);
+    expect(result.status,JSON.stringify(result.body)).toBe(200);
+    expect(result.body.capacity).toBeGreaterThan(0);
+    expect(result.body.slots.length).toBeGreaterThan(0);
+    expect(result.body.slots.every(s=>Number.isSafeInteger(s.timestamp)&&s.timestamp%(15*60000)===0&&typeof s.available==='number')).toBe(true);
+  });
+  it('rejects invalid order schedule before insertion',async()=>{
+    const response=await request(app).post('/api/public/orders').set('X-Tenant-Id',tenant)
+      .set('Idempotency-Key',crypto.randomUUID())
+      .send({items:[{menuItemId:'customer_safety_meal',quantity:1}],orderType:'takeaway',
+        customerName:'Scheduled Test',customerPhone:'0771234567',paymentMethod:'cash',scheduledTime:Date.now()+4*60000});
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/slot|soon|time/i);
+  });
+  it('does not offer push subscriptions without tracking authorization',async()=>{
+    const response=await request(app).post('/api/public/orders/unknown/push-subscription')
+      .set('X-Tenant-Id',tenant)
+      .send({subscription:{endpoint:'https://push.example.test/endpoint',keys:{p256dh:'a',auth:'b'}}});
+    expect([401,403,404]).toContain(response.status);
+  });
+
 });
