@@ -60,6 +60,16 @@ describe('Public customer payment availability and promotional safety',()=>{
     expect(result.status).toBe(200);
     expect(result.body.paymentMethod).toBe('bank_transfer');
     expect(result.body.paymentStatus).not.toBe('paid');
+    const managerToken=jwt.sign({id:'customer_safety_owner',tenant_id:tenant,role:'owner'},process.env.JWT_SECRET);
+    const confirm=await request(app).post('/api/manual-payments/'+order.body.orderId)
+      .set('Authorization','Bearer '+managerToken)
+      .send({requestId:crypto.randomUUID().replaceAll('-',''),method:'bank',
+        amount:result.body.total,confirmed:true,reference:'test-bank-'+crypto.randomUUID()});
+    expect(confirm.status,JSON.stringify(confirm.body)).toBe(200);
+    const settled=await request(app).get('/api/public/orders/'+order.body.orderId)
+      .set('X-Tenant-Id',tenant).set('X-Order-Tracking',order.body.trackingToken);
+    expect(settled.status).toBe(200);
+    expect(settled.body.paymentStatus).toBe('paid');
   });
   it('blocks the online card option while temporarily unavailable',async()=>{
     const response=await request(app).post('/api/public/orders')
