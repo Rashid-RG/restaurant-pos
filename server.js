@@ -1620,10 +1620,7 @@ async function seedDatabase(tenantId) {
         }
       }
 
-      // Purge old hardcoded test items from database so store owners have a clean slate
-      try {
-        await dbRun("DELETE FROM menu_items WHERE id LIKE 'tenant_kb2c_itm_%'");
-      } catch (_) {}
+      // Preserve all legacy menu records. Never delete tenant data on server startup.
     } catch (e) {
       console.error('Error seeding advanced metadata:', e.message);
     }
@@ -1674,16 +1671,7 @@ async function seedKb2cStore() {
       }
     }
 
-    // 1. Purge deleted tenant twinbbq records from Neon DB
-    try {
-      await dbRun("DELETE FROM menu_items WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM categories WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM orders WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM customers WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM customer_accounts WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM tenants WHERE LOWER(id) LIKE '%twinbbq%' OR LOWER(name) LIKE '%twinbbq%' OR LOWER(subdomain) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM users WHERE LOWER(tenant_id) LIKE '%twinbbq%' OR LOWER(username) LIKE '%twinbbq%'");
-    } catch (_) {}
+    // Never purge legacy restaurant records during boot. Explicit, audited owner action is required.
 
     // 2. Automatically unify all legacy kb2c records under tenant_kb2c
     try {
