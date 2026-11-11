@@ -335,6 +335,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         </div>
       ) : (
         <>
+          {order.paymentMethod === 'bank_transfer' && order.paymentStatus !== 'paid' && (
+            <section role="status" className="form-section" style={{border:'1px solid #a2c5ae',background:'#eef8f1',padding:18,borderRadius:16,marginBottom:16,color:'#203c2b'}}>
+              <strong style={{display:'block',fontSize:'1rem',marginBottom:8}}>🏦 Bank transfer — awaiting verification</strong>
+              <p style={{fontSize:'.85rem',lineHeight:1.6,margin:0}}>Your order was received, but payment is <strong>not confirmed</strong>. Contact the restaurant for the correct bank account details before sending money. A manager will verify the transfer using the bank transaction reference. Do not send a second payment until the restaurant confirms the status.</p>
+            </section>
+          )}
           {/* UBER EATS HERO LIVE BANNER */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
