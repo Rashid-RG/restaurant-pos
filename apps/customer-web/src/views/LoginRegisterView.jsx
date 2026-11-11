@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, EyeOff, ShieldCheck, UtensilsCrossed, Bike, ShoppingBag, MapPin } from 'lucide-react';
+import { Eye, EyeOff, ShieldCheck, UtensilsCrossed, Bike, ShoppingBag, MapPin, LockKeyhole, Smartphone, ArrowRight, UserRoundPlus, ArrowLeft } from 'lucide-react';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
@@ -206,17 +206,18 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
   }[tab];
 
   return (
-    <div className="auth-page fade-in" style={{ padding: '24px 16px' }}>
-      <div className="auth-logo auth-brand-hero" style={{ textAlign: 'center', marginBottom: 24 }}>
+    <div className="auth-page fade-in auth-reference-page" style={{ padding: '24px 16px' }}>
+      <div className="auth-logo auth-brand-hero auth-reference-hero" style={{ textAlign: 'center', marginBottom: 24 }}>
         <div className="auth-hero-brand"><div className="auth-brand-symbol"><UtensilsCrossed size={25} strokeWidth={2.2}/></div><div><h1>GastroFlow</h1><span>FOOD · ORDER · TRACK</span></div></div>
         <div className="auth-hero-art auth-hero-image" aria-hidden="true">
           <img src={`${import.meta.env.BASE_URL}login-delivery-scene.svg`} alt="" decoding="async" />
         </div>
-        <div className="auth-hero-intro"><h2>{tab === 'register' ? 'Join GastroFlow' : tab === 'login' ? 'Welcome Back!' : 'Welcome to GastroFlow'}</h2><p>{subtitle}</p><span className="auth-secure-note"><ShieldCheck size={14}/> Secure customer ordering</span></div>
+        <div className="auth-hero-intro"><h2>{tab === 'register' ? 'Join GastroFlow' : tab === 'login' ? <>Welcome Back <span aria-hidden="true">👋</span></> : 'Welcome to GastroFlow'}</h2><p>{tab === 'login' ? 'Log in to your GastroFlow account and order your favorite meals.' : subtitle}</p><span className="auth-secure-note"><ShieldCheck size={14}/> Secure customer ordering</span></div>
       </div>
 
+      {tab !== 'login' && tab !== 'register' && <button type="button" className="auth-reference-back" onClick={() => setTab('login')}><ArrowLeft size={17}/> Back to login</button>}
       {(tab === 'login' || tab === 'register') && (
-        <div className="auth-tabs" style={{ display: 'flex', marginBottom: 20 }}>
+        <div className="auth-tabs auth-reference-tabs" style={{ display: 'flex', marginBottom: 20 }}>
           <button className={`auth-tab ${tab === 'login' ? 'active' : ''}`} style={{ flex: 1 }} onClick={() => setTab('login')}>{t('signIn') || 'Sign In'}</button>
           <button className={`auth-tab ${tab === 'register' ? 'active' : ''}`} style={{ flex: 1 }} onClick={() => setTab('register')}>{t('createAccount') || 'Create Account'}</button>
         </div>
@@ -229,16 +230,19 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
       )}
 
       {tab === 'login' && (
-        <form onSubmit={handleLogin} noValidate>
+        <form onSubmit={handleLogin} noValidate className="auth-reference-login-form">
           <div className="form-group">
-            <label>Phone Number</label>
-            <input className="form-control" type="text" inputMode="tel" required placeholder="e.g. 0771234567"
-              value={loginPhone} onChange={e => setLoginPhone(e.target.value)} />
+            <label htmlFor="gastro-login-phone">Phone number</label>
+            <div className="auth-reference-field"><Smartphone size={21} aria-hidden="true"/>
+              <input id="gastro-login-phone" className="form-control" type="tel" autoComplete="tel" inputMode="tel" required placeholder="Phone number · 0771234567"
+                value={loginPhone} onChange={e => setLoginPhone(e.target.value)} />
+            </div>
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
-            <label>Password</label>
-            <div style={{ position: 'relative' }}>
-              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="••••••••"
+            <label htmlFor="gastro-login-password">Password</label>
+            <div className="auth-reference-field auth-reference-password">
+              <LockKeyhole size={21} aria-hidden="true"/>
+              <input id="gastro-login-password" className="form-control" type={showPassword ? "text" : "password"} required autoComplete="current-password" placeholder="Password"
                 value={loginPassword} onChange={e => setLoginPassword(e.target.value)} style={{ paddingRight: 40 }} />
               <button
                 type="button"
@@ -261,20 +265,21 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
               </button>
             </div>
           </div>
-          <div style={{ marginTop: 8, textAlign: 'right' }}>
+          <div className="auth-reference-forgot" style={{ marginTop: 8, textAlign: 'right' }}>
+            <span className="auth-reference-security"><ShieldCheck size={15}/> Secure sign in</span>
             <button type="button" className="link-btn" onClick={() => setTab('forgot')}
               style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}>
               Forgot password?
             </button>
           </div>
           <div style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-brand" disabled={loading} style={{ width: '100%', padding: 12 }}>
-              {loading ? t('loading') : t('signIn')}
+            <button type="submit" className="btn btn-brand auth-reference-submit" disabled={loading} style={{ width: '100%', padding: 12 }}>
+              <span>{loading ? t('loading') : 'Log in'}</span><ArrowRight size={21} aria-hidden="true"/>
             </button>
           </div>
 
           {/* Quick OTP Login Option */}
-          <div style={{ marginTop: 20, textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+          <div className="auth-reference-alternate" style={{ marginTop: 20, textAlign: 'center', borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 10 }}>Or sign in without a password:</div>
             <button
               type="button"
@@ -300,6 +305,12 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
           </div>
         </form>
       )}
+
+      {tab === 'login' && <button type="button" className="auth-reference-register" onClick={() => setTab('register')}>
+        <UserRoundPlus size={25} aria-hidden="true"/>
+        <span><small>Create a new account</small><strong>Register with GastroFlow</strong></span>
+        <ArrowRight size={22} aria-hidden="true"/>
+      </button>}
 
       {tab === 'otp_login' && (
         <div>
