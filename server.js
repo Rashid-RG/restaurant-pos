@@ -5151,7 +5151,7 @@ app.post('/api/public/feedback', publicApiLimiter, (req,res,next)=>{req.params.i
 app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
-    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder']);
+    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
     res.json({
       name: s.businessName || s.restaurantName || 'GastroFlow',
       address: s.address || '',
@@ -5164,6 +5164,7 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       },
       deliveryFee: Number(s.deliveryFee || 0),
       minimumOrder: Number(s.minimumOrder || 0),
+      timeZone: (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: s.timeZone || 'Asia/Colombo' }).resolvedOptions().timeZone; } catch { return 'Asia/Colombo'; } })(),
       lat: s.restaurantLat ? Number(s.restaurantLat) : null,
       lng: s.restaurantLng ? Number(s.restaurantLng) : null,
       vapidPublicKey: 'BEl62iUYgUivxIkv69yViEuiBIa1-Zpe5-93Aae7lUab6l3e5Jq9l14X_2-Wd5x-J8f90X26m5V0X9Z8m5V0X9Z'
