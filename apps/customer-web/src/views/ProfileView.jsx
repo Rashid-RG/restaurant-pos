@@ -24,8 +24,6 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
   const [addresses, setAddresses] = useState([]);
   const [cards, setCards] = useState([]);
   const [newAddress, setNewAddress] = useState('');
-  const [newCardNum, setNewCardNum] = useState('');
-  const [newCardExpiry, setNewCardExpiry] = useState('');
 
   useEffect(() => {
     if (customer) {
@@ -96,35 +94,6 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
       setNewAddress('');
       toast('Address saved successfully! ✓', 'success');
       fetchAddresses();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  };
-
-  const handleAddCard = async (e) => {
-    e.preventDefault();
-    if (!newCardNum.trim()) return;
-    const cleanNum = newCardNum.replace(/\s+/g, '');
-    if (cleanNum.length < 12) {
-      toast('Please enter a valid card number.', 'error');
-      return;
-    }
-    const lastFour = cleanNum.slice(-4);
-    const cardType = cleanNum.startsWith('4') ? 'Visa' : cleanNum.startsWith('5') ? 'Mastercard' : 'Amex';
-    try {
-      await apiFetch('/customer/cards', {
-        method: 'POST',
-        body: JSON.stringify({
-          cardToken: `tok_${Date.now()}`,
-          cardType,
-          lastFour,
-          expiry: newCardExpiry.trim() || '12/28'
-        })
-      });
-      setNewCardNum('');
-      setNewCardExpiry('');
-      toast('Card saved successfully! ✓', 'success');
-      fetchCards();
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -300,27 +269,11 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
         </form>
       </div>
 
-      {/* Saved Cards list */}
-      <div className="profile-card" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, border: '1px solid var(--border-color)', marginBottom: 16 }}>
-        <h3 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: 12 }}>💳 {t.savedCards}</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-          {cards.length === 0 ? (
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No saved payment cards.</p>
-          ) : (
-            cards.map(c => (
-              <div key={c.id} style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.01)', borderRadius: 8, fontSize: '0.82rem', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>💳 {c.cardType} ending in {c.lastFour}</span>
-                <span style={{ color: 'var(--text-muted)' }}>Exp: {c.expiry}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <form onSubmit={handleAddCard} style={{ display: 'flex', gap: 8 }}>
-          <input className="form-control" type="text" inputMode="numeric" autoComplete="cc-number" placeholder="Card number..." value={newCardNum} onChange={e => setNewCardNum(e.target.value)} />
-          <input className="form-control" style={{ width: '80px' }} placeholder="MM/YY" value={newCardExpiry} onChange={e => setNewCardExpiry(e.target.value)} />
-          <button className="btn btn-brand" type="submit" style={{ width: 'auto', padding: '0 16px' }}>Save</button>
-        </form>
-      </div>
+      {/* Gateway-tokenized cards can be enabled after certified provider integration. */}
+      <section className="profile-card" aria-label="Card payments" style={{background:'var(--bg-card)',padding:20,borderRadius:16,border:'1px solid var(--border-color)',marginBottom:16}}>
+        <h3 style={{fontSize:'1rem',fontWeight:800,marginBottom:8}}>💳 Card payment</h3>
+        <p style={{fontSize:'.85rem',color:'var(--text-muted)',lineHeight:1.55}}>Card payments and saved cards are not available at the moment. For safety, GastroFlow does not collect card numbers here. Please choose cash or manual bank transfer at checkout.</p>
+      </section>
 
       {/* Order History */}
       <div className="profile-card" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, border: '1px solid var(--border-color)', marginBottom: 16 }}>
