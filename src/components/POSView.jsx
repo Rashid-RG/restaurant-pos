@@ -1781,7 +1781,7 @@ export default function POSView() {
                 <div className="receipt-visit-again">— Visit Again —</div>
               </div>
               <div className="receipt-platform-credit">
-                <div className="receipt-powered-by">Powered by <strong>GastroFlow POS</strong></div>
+                <div className="receipt-powered-by">Powered by <strong>GastroFlow</strong></div>
                 <div className="receipt-developed-by">Developed by RS Technologies</div>
               </div>
             </div>
