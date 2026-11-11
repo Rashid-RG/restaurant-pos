@@ -4387,7 +4387,8 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
       { key: 'taxRate', value: '10' },
       { key: 'serviceChargeRate', value: '10' },
       { key: 'address', value: address || 'Colombo, Sri Lanka' },
-      { key: 'phone', value: cleanPhone || '+94 77 123 4567' }
+      { key: 'phone', value: cleanPhone || '+94 77 123 4567' },
+      { key: 'storeOpen', value: 'false' }
     ];
     for (const set of defaultSettings) {
       await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId, set.key, set.value]);
@@ -4490,6 +4491,10 @@ app.get('/api/menu', authenticateToken, async (req, res) => {
 app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
+    if ((await getTenantMeta(tenantId)).status !== 'active' || !(await dbGet('SELECT id FROM tenants WHERE id=?', [tenantId]))) {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
+    res.set('Cache-Control', 'no-store');
     const categories = await dbAll(
       `SELECT id, name, emoji FROM categories WHERE tenant_id = ? ORDER BY name`,
       [tenantId]
@@ -4518,11 +4523,11 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
 
     res.json({
       tenantId,
-      restaurantName: st.restaurantName || st.businessName || 'GastroFlow Bistro',
-      storePhone: st.phone || '0752237947',
+      restaurantName: st.restaurantName || st.businessName || (await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]))?.name || 'Restaurant',
+      storePhone: st.phone || '',
       address: st.address || 'Sri Lanka',
       logo: st.logo || null,
-      storeOpen: st.storeOpen !== undefined ? st.storeOpen === 'true' : true,
+      storeOpen: st.storeOpen === 'true',
       defaultPrepTime: parseInt(st.defaultPrepTime || 20, 10),
       deliveryFee: parseFloat(st.deliveryFee || 0),
       minimumOrder: parseFloat(st.minimumOrder || 0),
@@ -4681,6 +4686,9 @@ const createPublicOrder = async (req, res) => {
   try {
     const cleanPhone = customerPhone.replace(/[\s-]/g, '');
     const tenantId = await resolvePublicTenant(req);
+    if (!(await dbGet('SELECT id FROM tenants WHERE id=?',[tenantId])) || (await getTenantMeta(tenantId)).status !== 'active') {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
 
     let customerAccountId = null;
     let isAlreadyVerified = false;
@@ -4772,7 +4780,7 @@ const createPublicOrder = async (req, res) => {
       const concurrentReplay=await findRecoveredOrder({dbGet,tenantId,identity});
       if(concurrentReplay){await dbRun('COMMIT');return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(concurrentReplay),trackingToken:makeTrackingAccess(concurrentReplay.id,tenantId)});}
 
-      if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')==='false')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
+      if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')!=='true')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
       const limit=checkLimit((await getTenantMeta(tenantId)).plan,'orders',await countTenantOrdersThisMonth(tenantId));if(!limit.allowed)throw Error('Restaurant order capacity reached.');
       if(requestedSchedule.scheduled){
         const limit=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
@@ -4935,6 +4943,7 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res._tenantId = await resolvePublicTenant(req);
+  if (!(await dbGet("SELECT id FROM tenants WHERE id=? AND status='active'",[res._tenantId])) || (await getTenantMeta(res._tenantId)).status !== 'active') return res.end();
   req.trackingTenant=res._tenantId;
   keepStreamAlive(req,res);
   publicSSESubscribers.add(res);
@@ -4943,8 +4952,9 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   try {
     const s = await getSettingsMap(res._tenantId, ['storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
     res.write(`data: ${JSON.stringify({
+      tenantId: res._tenantId,
       type: 'store_init',
-      storeOpen: (s.storeOpen ?? 'true') === 'true',
+      storeOpen: s.storeOpen === 'true',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
@@ -5231,12 +5241,18 @@ app.post('/api/public/feedback', publicApiLimiter, (req,res,next)=>{req.params.i
 app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
+    const tenant = await dbGet('SELECT id,name FROM tenants WHERE id=?',[tenantId]);
+    if (!tenant || (await getTenantMeta(tenantId)).status !== 'active') {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
+    res.set('Cache-Control', 'no-store');
     const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
     res.json({
-      name: s.businessName || s.restaurantName || 'GastroFlow',
+      tenantId,
+      name: s.businessName || s.restaurantName || tenant.name,
       address: s.address || '',
       phone: s.phone || '',
-      storeOpen: (s.storeOpen ?? 'true') === 'true',
+      storeOpen: s.storeOpen === 'true',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
