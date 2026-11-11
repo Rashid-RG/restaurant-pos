@@ -460,14 +460,14 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           {/* First-Class Contact & Conduct Action Buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, margin: '12px 0' }}>
             <a
-              href={`tel:${order?.storePhone || '0760130922'}`}
+              href={order?.storePhone || storeInfo?.phone ? `tel:${order?.storePhone || storeInfo.phone}` : undefined}
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, textDecoration: 'none', padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700 }}
             >
               📞 Call Store
             </a>
             <a
-              href={`https://wa.me/94760130922?text=${encodeURIComponent(`Hi GastroFlow, inquiry about Order #${order?.id}`)}`}
+              href={order?.storePhone || storeInfo?.phone ? `https://wa.me/${String(order?.storePhone || storeInfo.phone).replace(/[^\d]/g,'').replace(/^0/, '94')}?text=${encodeURIComponent(`Hi, inquiry about GastroFlow Order #${order?.id}`)}` : undefined}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-secondary"
@@ -480,7 +480,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               className="btn btn-secondary"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700, background: '#128C7E', color: '#fff', border: 'none' }}
               onClick={() => {
-                const msg = `🧾 *GastroFlow Invoice #${order?.invoiceNumber || order?.id.slice(-4).toUpperCase()}*\nCustomer: ${order?.customerName || 'Customer'}\nTotal: LKR ${(order?.total || 0).toFixed(2)}\nTrack: ${window.location.href}`;
+                const msg = `🧾 *${order?.storeName || storeInfo?.name || 'Restaurant'} — GastroFlow Invoice #${order?.invoiceNumber || order?.id.slice(-4).toUpperCase()}*\nCustomer: ${order?.customerName || 'Customer'}\nTotal: LKR ${Number(order?.total || 0).toFixed(2)}\nPowered by GastroFlow · Developed by RS Technologies\nTrack: ${window.location.href}`;
                 if (navigator.share) {
                   navigator.share({ title: 'GastroFlow Invoice', text: msg, url: window.location.href }).catch(() => {});
                 } else {
@@ -548,8 +548,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             </div>
           )}
 
-          {/* Detailed Order Card */}
-          <div className="tracking-card" style={{ marginTop: 12 }}>
+          {/* The receipt identifies the restaurant that owns the order. */}
+          <div className="tracking-card customer-order-receipt" style={{ marginTop: 12 }}>
+            <div className="customer-receipt-brand"><strong>{order.storeName || storeInfo?.name || 'Restaurant'}</strong><small>{order.storeAddress || storeInfo?.address || ''}</small>{(order.storePhone || storeInfo?.phone) && <small>Tel: {order.storePhone || storeInfo.phone}</small>}</div>
             <div className="flex-between" style={{ marginBottom: 8 }}>
               <div>
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Order Reference</div>
@@ -647,9 +648,11 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
             <div className="flex-between" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border-color)', fontWeight: 800, fontSize: '1rem' }}>
               <span>{tr.totalAmount}</span>
-              <span style={{ color: 'var(--brand)' }}>Rs. {order.total?.toFixed(0)}</span>
+              <span style={{ color: 'var(--brand)' }}>Rs. {Number(order.total || 0).toFixed(2)}</span>
             </div>
 
+            <div className="customer-receipt-powered">Powered by <strong>GastroFlow</strong><span>Developed by RS Technologies</span></div>
+            <button type="button" className="customer-print-receipt" onClick={() => window.print()}>🧾 Print / Save receipt</button>
             {canCancel && (
               <button
                 className="btn btn-outline"
