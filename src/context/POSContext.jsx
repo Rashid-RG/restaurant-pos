@@ -746,7 +746,8 @@ export const POSProvider = ({ children }) => {
         (c) =>
           c.id === item.id &&
           c.notes === notes &&
-          JSON.stringify(c.modifiers) === JSON.stringify(modifiers)
+          JSON.stringify(c.modifiers) === JSON.stringify(modifiers) &&
+          c.customUnitPrice == null
       );
 
       if (existingIndex > -1) {
@@ -773,6 +774,25 @@ export const POSProvider = ({ children }) => {
         idx === cartItemIndex ? { ...item, quantity: newQuantity } : item
       )
     );
+  };
+
+  const updateCartUnitPrice = (cartItemIndex, price) => {
+    if (!['owner', 'manager'].includes(currentUser?.role)) throw new Error('Only an owner or manager can set a custom price.');
+    // Null restores the original catalog price for this line without editing the menu.
+    if (price !== null && (typeof price !== 'number' || !Number.isFinite(price) || price <= 0 ||
+      price > 10000000 || Math.abs(Math.round(price * 100) - price * 100) > 1e-6)) {
+      throw new Error('Enter a positive price with no more than two decimal places.');
+    }
+    setCart(previous => previous.map((line, index) => {
+      if (index !== cartItemIndex) return line;
+      const baseItem = menuItems.find(item => item.id === line.id);
+      const basePrice = Number(baseItem?.price ?? line.menuPrice ?? line.price);
+      const modifiersTotal = (line.modifiers || line.selectedModifiers || []).reduce((sum, mod) => sum + Number(mod.priceDelta || 0), 0);
+      const normalUnitPrice = Math.round((basePrice + modifiersTotal) * 100) / 100;
+      const custom = price === null ? null : price;
+      return { ...line, menuPrice: basePrice, unitPrice: custom ?? normalUnitPrice,
+        ...(custom === null ? { customUnitPrice: null } : { customUnitPrice: custom }) };
+    }));
   };
 
   const updateCartNotes = (cartItemIndex, notes) => {
@@ -863,7 +883,11 @@ export const POSProvider = ({ children }) => {
       customerPhone: selectedCustomer ? selectedCustomer.phone : (extraOrderData.customerPhone || null),
       deliveryAddress: extraOrderData.deliveryAddress || (selectedCustomer ? selectedCustomer.address : null),
       deliveryFee: extraOrderData.deliveryFee || 0,
-      items: cart.map(item => ({ id: item.id, quantity: item.quantity, notes: item.notes || '', selectedModifiers: item.modifiers || item.selectedModifiers || [] })),
+      items: cart.map(item => ({
+        id: item.id, quantity: item.quantity, notes: item.notes || '',
+        selectedModifiers: item.modifiers || item.selectedModifiers || [],
+        ...(item.customUnitPrice != null ? { customUnitPrice: item.customUnitPrice } : {})
+      })),
       discountType,
       discountValue,
       status: isHold ? 'hold' : 'pending',
@@ -1110,6 +1134,7 @@ export const POSProvider = ({ children }) => {
         cart,
         addToCart,
         updateCartQuantity,
+        updateCartUnitPrice,
         updateCartNotes,
         removeFromCart,
         clearCart,
