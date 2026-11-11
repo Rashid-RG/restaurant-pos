@@ -1,6 +1,6 @@
 import { CookingIcon } from '../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined, ContactRound, AlarmClock } from 'lucide-react';
+import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined, ContactRound, AlarmClock, Banknote } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
 import { ConnectionStatus } from '../../shared/ui/Resilience.jsx';
 
@@ -13,6 +13,7 @@ export const workspaceDestinations = [
   { id: 'inventory', name: 'Inventory', description: 'Menu, stock and ingredients', icon: Package, management: true },
   { id: 'sold-items', name: 'Sold Items', description: 'Items sold, quantities and gross item sales', icon: ChartNoAxesCombined, management: true },
   { id: 'my-attendance', name: 'My Attendance', description: 'Clock in or out and see your shifts', icon: AlarmClock },
+  { id: 'cash-drawer', name: 'Cash Drawer', description: 'Opening cash, shift closing and daily cash balancing', icon: Banknote },
   { id: 'staff-management', name: 'Staff & Payroll', description: 'Employee management, attendance and salaries', icon: ContactRound, management: true },
   { id: 'expenses', name: 'Expenses', description: 'Daily restaurant expenses & costs', icon: Receipt, management: true },
   { id: 'customers', name: 'Customers', description: 'Customer relationships and loyalty', icon: Users },
