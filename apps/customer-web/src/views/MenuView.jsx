@@ -186,7 +186,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
     let disposed=false;
     const refreshMenu=async()=>{
       const data=await apiFetch('/public/menu');if(disposed)return;
-      setRates({taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0)});
+      setRates(prev=>({...prev,taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0),payhereEnabled:data.payhereEnabled===true}));
       setMenu(prev=>({...prev,...data,categories:data.categories||[],items:data.items||[],storeOpen:data.storeOpen!==false}));
     };
     const handleMessage = (e) => {
@@ -479,9 +479,18 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
   const currentModifiersCost = selectedModifiers.reduce((acc, m) => acc + m.priceDelta, 0);
   const singleItemPrice = customizerItem ? customizerItem.price + currentModifiersCost : 0;
   const totalCustomizerPrice = singleItemPrice * customizerQty;
+  const requiredMissing = customizerItem ? Object.entries(groupedModifiers).some(([group, mods]) =>
+    mods.some(m=>Number(m.isRequired)===1) && !selectedModifiers.some(m=>m.groupName===group)
+  ) : false;
+  useEffect(()=>{
+    if(!showCustomizerModal)return;
+    const onKey=e=>{if(e.key==='Escape')setShowCustomizerModal(false)};
+    window.addEventListener('keydown',onKey);
+    return ()=>window.removeEventListener('keydown',onKey);
+  },[showCustomizerModal]);
 
   return (
-    <div className="fade-in" style={{ paddingBottom: '100px' }}>
+    <div className="fade-in customer-menu-view" style={{ paddingBottom: '100px' }}>
       {liveState!=='live'&&<p role="status" style={{padding:'10px 16px',fontSize:'0.85rem',color:'var(--text-muted)'}}>{liveState==='offline'?'Updates are temporarily unavailable. Check your connection; we will retry.':liveState==='polling'?'Live connection unavailable — refreshing the menu every 15 seconds.':'Connecting to live menu updates…'}</p>}
       
       {/* Store Closed Banner */}
@@ -831,14 +840,14 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
       {/* Customized Item Modifier Selection Modal */}
       {showCustomizerModal && customizerItem && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div className="glass device-dialog" role="dialog" aria-modal="true" aria-label="Customize item" style={{ width: '100%', maxWidth: 480, background: 'var(--bg-card)', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90dvh', overflowY: 'auto' }}>
+          <div className="glass device-dialog customer-customizer" role="dialog" aria-modal="true" aria-label="Customize item" style={{ width: '100%', maxWidth: 520, background: 'var(--bg-card)', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '92dvh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>{t.customizerTitle}</h3>
               <button style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-1)' }} aria-label="Close item customizer" onClick={() => setShowCustomizerModal(false)}>✕</button>
             </div>
 
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>
+              {customizerItem.imageUrl ? <img className="customer-customizer-image" src={customizerItem.imageUrl} alt={customizerItem.name} onError={e=>{e.currentTarget.style.display='none'}} /> : <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>}
               <h4 style={{ margin: '8px 0 4px', fontSize: '1.05rem', fontWeight: 700 }}>{customizerItem.name}</h4>
               <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>{customizerItem.description}</p>
             </div>
@@ -888,7 +897,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
               <div className="qty-control" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <button className="dec" aria-label="Decrease quantity" onClick={() => setCustomizerQty(prev => Math.max(1, prev - 1))}>−</button>
                 <span className="qty" style={{ fontWeight: 700 }}>{customizerQty}</span>
-                <button className="inc" aria-label="Increase quantity" onClick={() => setCustomizerQty(prev => prev + 1)}>+</button>
+                <button className="inc" aria-label="Increase quantity" onClick={() => setCustomizerQty(prev => Math.min(100,prev + 1))}>+</button>
               </div>
             </div>
 
@@ -909,9 +918,10 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
             <button 
               className="btn btn-brand" 
               style={{ width: '100%', padding: '12px' }}
+              disabled={requiredMissing || menu.storeOpen===false}
               onClick={() => handleAddToCart(customizerItem, customizerQty, selectedModifiers, customizerNotes)}
             >
-              {t.addToCart} · Rs. {totalCustomizerPrice.toFixed(0)}
+              {requiredMissing ? 'Choose required options' : t.addToCart} · Rs. {totalCustomizerPrice.toFixed(0)}
             </button>
           </div>
         </div>
