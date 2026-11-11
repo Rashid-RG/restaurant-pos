@@ -5528,12 +5528,19 @@ async function sendOrderConfirmation(order) {
 app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ error: 'email is required.' });
+  if (!isEmailConfigured() && !isSmsConfigured()) return res.status(503).json({
+    error:'Password recovery messaging is temporarily unavailable. Contact GastroFlow support.',
+    code:'RECOVERY_PROVIDER_UNAVAILABLE'
+  });
   try {
     const acct = await dbGet('SELECT id,email,phone FROM customer_accounts WHERE email=? AND tenant_id=?', [String(email).trim().toLowerCase(),await resolvePublicTenant(req)]);
     // Always respond the same way — no account enumeration.
     if (acct) {
       const { token, code } = await createPasswordReset('customer', acct.id);
-      const link = `${customerAppUrl()}/?reset=${token}`;
+      const resetLink = new URL(customerAppUrl());
+      resetLink.searchParams.set('tenant', await resolvePublicTenant(req));
+      resetLink.searchParams.set('reset', token);
+      const link = resetLink.toString();
       const business = await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro');
       const resetHtml = buildPasswordResetEmail({
         userType: 'customer',
