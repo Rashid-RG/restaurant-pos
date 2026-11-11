@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Sparkles, X, Bot, Mic, Send, Volume2, CircleHelp, Utensils, PackageCheck } from 'lucide-react';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
@@ -12,7 +13,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     {
       id: 'welcome',
       sender: 'ai',
-      text: "👋 **Hello & Welcome to GastroFlow!**\n\nI am **GastroAssist ✨**, your 24/7 dining companion and support assistant.\n\nHow can I help you today?",
+      text: "👋 **Hello & Welcome to GastroFlow!**\n\nI am **GastroMate AI**, your food discovery and order support companion.\n\nHow can I help you today?",
       suggestions: ['🍽️ Recommend Popular Meals', '🔍 Check Order Status', '🎧 Contact Human Support', '💡 Budget Combos']
     }
   ]);
@@ -182,9 +183,9 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: JSON.stringify({
-          subject: `GastroAI Assistant Request: ${subjectText.slice(0, 50)}...`,
+          subject: `GastroMate AI Request: ${subjectText.slice(0, 50)}...`,
           category: 'General Support',
-          message: `[Submitted via GastroAI Assistant]\nCustomer: ${name} (${contactInfo})\n\nIssue Details: ${subjectText}`,
+          message: `[Submitted via GastroMate AI]\nCustomer: ${name} (${contactInfo})\n\nIssue Details: ${subjectText}`,
           contact: contactInfo
         })
       });
@@ -203,10 +204,10 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   return (
     <>
       {/* ✨ Floating GastroAssist Widget Button */}
-      <div className="gastro-ai-launcher">
+      <div className="gastro-ai-launcher gastro-mate-launcher">
         {!isOpen && (
           <div
-            className="gastro-ai-pill"
+            className="gastro-ai-pill gastro-mate-pill"
             onClick={() => setIsOpen(true)}
             style={{
               background: 'var(--bg-card, #1e293b)',
@@ -223,24 +224,24 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
               gap: 6
             }}
           >
-            <span style={{ color: '#ff6b35' }}>✨</span>
-            <span className="gastro-ai-pill-text">Ask GastroAssist</span>
+            <Sparkles size={17} color="#17744c"/>
+            <span className="gastro-ai-pill-text">Ask GastroMate</span>
           </div>
         )}
 
         <button
           onClick={() => setIsOpen(!isOpen)}
-          aria-label="Toggle GastroAssist Concierge"
-          className="gastro-ai-btn"
+          aria-label={isOpen ? 'Close GastroMate AI' : 'Open GastroMate AI'}
+          className="gastro-ai-btn gastro-mate-trigger"
           style={{
             position: 'relative',
             width: 48,
             height: 48,
             borderRadius: '50%',
-            background: 'linear-gradient(135deg, #ff6b35 0%, #8b5cf6 50%, #d946ef 100%)',
+            background: 'linear-gradient(135deg, #0d714c, #21885b)',
             color: '#ffffff',
             border: '2px solid rgba(255,255,255,0.85)',
-            boxShadow: '0 8px 24px rgba(139, 92, 246, 0.45), 0 0 16px rgba(255, 107, 53, 0.3)',
+            boxShadow: '0 9px 26px rgba(20, 115, 73, .26)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
@@ -272,13 +273,13 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         </button>
       </div>
 
-      {/* 💬 GastroAssist Concierge Drawer Modal */}
+      {/* 💬 GastroMate AI Drawer Modal */}
       {isOpen && (
-        <div className="gastro-ai-modal">
+        <div className="gastro-ai-modal gastro-mate-modal" role="dialog" aria-modal="true" aria-label="GastroMate AI assistant">
           {/* Header */}
           <div
             style={{
-              background: 'linear-gradient(135deg, #ff6b35 0%, #6366f1 100%)',
+              background: 'linear-gradient(120deg, #086242, #167d55)',
               color: '#ffffff',
               padding: '14px 16px',
               display: 'flex',
@@ -288,15 +289,15 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ fontSize: '1.5rem', background: 'rgba(255,255,255,0.2)', padding: '6px 8px', borderRadius: 14 }}>
-                🤖
+                <Bot size={22}/>
               </div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1rem', letterSpacing: '-0.2px' }}>
-                  GastroAssist ✨
+                  GastroMate AI
                 </div>
                 <div style={{ fontSize: '0.72rem', opacity: 0.95, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} />
-                  24/7 Intelligent Dining & Support Concierge
+                  Food suggestions · Order help · Support
                 </div>
               </div>
             </div>
@@ -304,7 +305,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
               onClick={() => setIsOpen(false)}
               style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%', fontSize: '1rem', cursor: 'pointer' }}
             >
-              ✕
+              <X size={18}/>
             </button>
           </div>
 
@@ -316,8 +317,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                 style={{
                   alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
                   maxWidth: '85%',
-                  background: msg.sender === 'user' ? '#ff6b35' : 'var(--surface-1, rgba(255,255,255,0.06))',
-                  color: msg.sender === 'user' ? '#ffffff' : 'var(--text-1, #f8fafc)',
+                  background: msg.sender === 'user' ? '#146f4c' : '#f4f8f2',
+                  color: msg.sender === 'user' ? '#ffffff' : '#1a4030',
                   padding: '10px 14px',
                   borderRadius: 16,
                   fontSize: '0.85rem',
@@ -332,7 +333,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                   <button
                     onClick={() => speakText(msg.text)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', opacity: 0.7, marginTop: 4 }}
-                    title="Read Aloud"
+                    title="Read response aloud" aria-label="Read response aloud"
                   >
                     🔊 Read Aloud
                   </button>
@@ -360,7 +361,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                             setIsOpen(false);
                             onNavigate && onNavigate('menu');
                           }}
-                          style={{ background: '#ff6b35', color: '#fff', border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
+                          style={{ background: '#176e4d', color: '#fff', border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
                         >
                           View
                         </button>
@@ -468,7 +469,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             onSubmit={(e) => { e.preventDefault(); sendMessage(input); }}
             style={{
               padding: 10,
-              background: 'var(--bg-main, #0f172a)',
+              background: '#ffffff',
               borderTop: '1px solid var(--border-color, #334155)',
               display: 'flex',
               gap: 6
@@ -489,19 +490,19 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                 alignItems: 'center',
                 justifyContent: 'center'
               }}
-              title="Voice Mic Input"
+              title="Speak your question" aria-label="Speak your question"
             >
-              🎤
+              <Mic size={19}/>
             </button>
             <input
               type="text"
-              placeholder="Ask GastroAI anything..."
+              placeholder="Ask about food, orders or help…"
               value={input}
               onChange={e => setInput(e.target.value)}
               style={{
                 flex: 1,
-                background: 'var(--surface-1, rgba(255,255,255,0.06))',
-                color: 'var(--text-1, #ffffff)',
+                background: '#ffffff',
+                color: '#173f2a',
                 border: '1px solid var(--border-color, #334155)',
                 borderRadius: 12,
                 padding: '0 12px',
@@ -510,9 +511,9 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             />
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() || typing}
               style={{
-                background: '#ff6b35',
+                background: '#176e4d',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: 12,
@@ -520,10 +521,10 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                 fontWeight: 800,
                 fontSize: '0.82rem',
                 cursor: input.trim() ? 'pointer' : 'default',
-                opacity: input.trim() ? 1 : 0.5
+                opacity: input.trim() && !typing ? 1 : 0.5
               }}
             >
-              Send
+              <Send size={19}/><span className="sr-only">Send question</span>
             </button>
           </form>
         </div>
