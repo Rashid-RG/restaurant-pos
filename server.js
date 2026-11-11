@@ -19,6 +19,7 @@ import { amountInCents, validateManualTender, staffReceipt } from './lib/tenders
 import { validateDeliveryProof } from './lib/delivery-proof.js';
 import { reconcileOfflineSales } from './lib/offline-sales.js';
 import { createLibsqlStore } from './lib/libsql-store.js';
+import { restaurantTimeZone, dateAtRestaurant, restaurantDayBounds } from './src/utils/restaurant-time.js';
 import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.js';
 import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
@@ -1619,10 +1620,7 @@ async function seedDatabase(tenantId) {
         }
       }
 
-      // Purge old hardcoded test items from database so store owners have a clean slate
-      try {
-        await dbRun("DELETE FROM menu_items WHERE id LIKE 'tenant_kb2c_itm_%'");
-      } catch (_) {}
+      // Preserve all legacy menu records. Never delete tenant data on server startup.
     } catch (e) {
       console.error('Error seeding advanced metadata:', e.message);
     }
@@ -1673,16 +1671,7 @@ async function seedKb2cStore() {
       }
     }
 
-    // 1. Purge deleted tenant twinbbq records from Neon DB
-    try {
-      await dbRun("DELETE FROM menu_items WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM categories WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM orders WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM customers WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM customer_accounts WHERE LOWER(tenant_id) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM tenants WHERE LOWER(id) LIKE '%twinbbq%' OR LOWER(name) LIKE '%twinbbq%' OR LOWER(subdomain) LIKE '%twinbbq%'");
-      await dbRun("DELETE FROM users WHERE LOWER(tenant_id) LIKE '%twinbbq%' OR LOWER(username) LIKE '%twinbbq%'");
-    } catch (_) {}
+    // Never purge legacy restaurant records during boot. Explicit, audited owner action is required.
 
     // 2. Automatically unify all legacy kb2c records under tenant_kb2c
     try {
@@ -2342,6 +2331,16 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
   const body = req.body || {};
   try {
     const tenantId = req.tenantId || 'default_tenant';
+
+    // Validate tenant-local time zone before persisting either update form.
+    const requestedZone = body.key === 'timeZone' ? body.value : body.timeZone;
+    if (requestedZone !== undefined) {
+      if (typeof requestedZone !== 'string' || requestedZone.length > 100) {
+        return res.status(400).json({ error: 'Invalid restaurant time zone.' });
+      }
+      try { new Intl.DateTimeFormat('en-US', { timeZone: requestedZone }); }
+      catch { return res.status(400).json({ error: 'Invalid restaurant time zone.' }); }
+    }
 
     // 1. Single setting update: { key, value }
     if (body.key !== undefined) {
@@ -4909,10 +4908,12 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
       [t]
     );
     const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
-    const colomboNow = new Date(Date.now() + 330 * 60000);
-    const dayStart = Date.UTC(colomboNow.getUTCFullYear(), colomboNow.getUTCMonth(), colomboNow.getUTCDate()) - 330 * 60000;
+    const zoneSetting = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [t, 'timeZone']);
+    const timeZone = restaurantTimeZone({ timeZone: zoneSetting?.value });
+    const today = dateAtRestaurant(new Date(), timeZone);
+    const [dayStart, dayEnd] = restaurantDayBounds(today, timeZone);
     const cash = await dbGet("SELECT COALESCE(SUM(total),0) AS amount FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' AND paymentMethod IN ('cash','cod') AND COALESCE(cashCollected,0) = 0", [t, driverId]);
-    res.json({ assigned: assigned || [], unassigned: unassigned || [], completed, summary: { completedToday: completed.filter(order => Number(order.timestamp) >= dayStart).length, cashToHandover: cash?.amount || 0 } });
+    res.json({ assigned: assigned || [], unassigned: unassigned || [], completed, timeZone, summary: { completedToday: completed.filter(order => Number(order.timestamp) >= dayStart && Number(order.timestamp) < dayEnd).length, cashToHandover: cash?.amount || 0 } });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -5141,7 +5142,7 @@ app.post('/api/public/feedback', publicApiLimiter, (req,res,next)=>{req.params.i
 app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
-    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder']);
+    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
     res.json({
       name: s.businessName || s.restaurantName || 'GastroFlow',
       address: s.address || '',
@@ -5154,6 +5155,7 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       },
       deliveryFee: Number(s.deliveryFee || 0),
       minimumOrder: Number(s.minimumOrder || 0),
+      timeZone: (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: s.timeZone || 'Asia/Colombo' }).resolvedOptions().timeZone; } catch { return 'Asia/Colombo'; } })(),
       lat: s.restaurantLat ? Number(s.restaurantLat) : null,
       lng: s.restaurantLng ? Number(s.restaurantLng) : null,
       vapidPublicKey: 'BEl62iUYgUivxIkv69yViEuiBIa1-Zpe5-93Aae7lUab6l3e5Jq9l14X_2-Wd5x-J8f90X26m5V0X9Z8m5V0X9Z'
@@ -5753,6 +5755,9 @@ app.post('/api/print/receipt', async (req, res) => {
 
     const items = await dbAll('SELECT menuItemId, name, price, quantity FROM order_items WHERE orderId = ?', [order.id]);
     const businessName = await getSetting(req.tenantId, 'restaurantName', 'GastroFlow Bistro');
+    const receiptTimeZone = restaurantTimeZone({ timeZone: await getSetting(req.tenantId, 'timeZone', 'Asia/Colombo') });
+    const receiptCurrency = await getSetting(req.tenantId, 'currencySymbol', 'LKR');
+    const configuredCutterFeed = await getSetting(req.tenantId, 'printerCutterFeedLines', 3);
 
     const buffer = buildEscPosReceipt({
       restaurantName: businessName,
@@ -5768,6 +5773,9 @@ app.post('/api/print/receipt', async (req, res) => {
       total: order.total,
       paymentMethod: order.paymentMethod || 'cash',
       timestamp: order.timestamp,
+      timeZone: receiptTimeZone,
+      currencySymbol: receiptCurrency,
+      cutterFeedLines: configuredCutterFeed,
       paperWidth
     });
 

@@ -3,6 +3,10 @@ import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
 import { testPrintReceipt } from '../utils/printer';
+import { restaurantTimeZone, validTimeZone } from '../utils/restaurant-time';
+
+const COMMON_TIME_ZONES = ['Asia/Colombo', 'Asia/Qatar', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'America/New_York'];
+const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedValuesOf?.('timeZone') || [])])].sort();
 
 export default function Settings() {
   const {
@@ -32,6 +36,7 @@ export default function Settings() {
   // Business config states
   const [bizName, setBizName] = useState(settings.businessName || settings.restaurantName || '');
   const [currency, setCurrency] = useState(settings.currencySymbol || 'Rs.');
+  const [timeZone, setTimeZone] = useState(restaurantTimeZone(settings));
   const [tax, setTax] = useState(settings.taxRate ?? '0');
   const [serviceCharge, setServiceCharge] = useState(settings.serviceChargeRate ?? '0');
   const [address, setAddress] = useState(settings.address || '');
@@ -45,6 +50,7 @@ export default function Settings() {
     if (!initializedRef.current && Object.keys(settings || {}).length > 0) {
       setBizName(settings.businessName || settings.restaurantName || '');
       setCurrency(settings.currencySymbol || 'Rs.');
+      setTimeZone(restaurantTimeZone(settings));
       setTax(settings.taxRate ?? '0');
       setServiceCharge(settings.serviceChargeRate ?? '0');
       setAddress(settings.address || '');
@@ -331,7 +337,9 @@ export default function Settings() {
   const handleSaveBusiness = async (e) => {
     e.preventDefault();
     try {
+      if (!validTimeZone(timeZone)) throw new Error('Select a valid restaurant time zone.');
       const payload = {
+        timeZone,
         businessName: bizName,
         restaurantName: bizName,
         currencySymbol: currency,
@@ -672,6 +680,15 @@ export default function Settings() {
                       onChange={(e) => setBizName(e.target.value)}
                       required
                     />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="restaurant-time-zone">Restaurant Time Zone</label>
+                    <select id="restaurant-time-zone" className="form-input" value={timeZone} onChange={e => setTimeZone(e.target.value)}>
+                      {!TIME_ZONE_OPTIONS.includes(timeZone) && <option value={timeZone}>{timeZone}</option>}
+                      {TIME_ZONE_OPTIONS.map(zone => <option key={zone} value={zone}>{zone.replaceAll('_', ' ')}</option>)}
+                    </select>
+                    <small>Restaurant-local sales dates and report periods use this time zone. Existing transaction timestamps are not changed.</small>
                   </div>
 
                   <div className="form-row" style={{ display: 'flex', gap: '16px' }}>

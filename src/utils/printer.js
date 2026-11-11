@@ -1,3 +1,4 @@
+import { formatRestaurantTime, restaurantTimeZone } from './restaurant-time';
 /**
  * GastroFlow Smart Printer & Paper Size Resolver
  * Auto-detects connected printer type and adjusts receipt dimensions:
@@ -74,7 +75,7 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
           <p style="margin: 2px 0; font-size: 11px;">Profile: ${paper.toUpperCase()} (${paperWidth})</p>
         </div>
         <div class="divider"></div>
-        <div class="row"><span>Date & Time:</span><span>${new Date().toLocaleString()}</span></div>
+        <div class="row"><span>Date & Time:</span><span>${formatRestaurantTime(new Date(), restaurantTimeZone(settings))}</span></div>
         <div class="row"><span>Paper Setting:</span><span class="bold">${paper.toUpperCase()}</span></div>
         <div class="row"><span>Device Width:</span><span>${window.innerWidth}px</span></div>
         <div class="divider"></div>
@@ -89,6 +90,13 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
         </div>
         <script>
           window.onload = function() {
+            // Measure the actual test slip: avoid 110mm fixed-length blank tails.
+            if ('${paper}' !== 'a4') {
+              var height = Math.min(600, Math.max(35, Math.ceil(document.body.scrollHeight / 3.7795) + 5));
+              var compactPage = document.createElement('style');
+              compactPage.textContent = '@page { size: ${rollWidth} ' + height + 'mm !important; margin: 0 !important; }';
+              document.head.appendChild(compactPage);
+            }
             window.print();
             setTimeout(function() { window.close(); }, 800);
           };

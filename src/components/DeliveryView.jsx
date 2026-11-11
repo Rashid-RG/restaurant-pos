@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
+import { restaurantTimeZone } from '../utils/restaurant-time';
 
 export default function DeliveryView() {
-  const { orders, showToast } = usePOS();
+  const { orders, showToast, settings } = usePOS();
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState({});
@@ -15,9 +16,9 @@ export default function DeliveryView() {
 
   const deliveryOrders = orders.filter(o => o.diningType === 'delivery' || o.diningType === 'takeaway' || o.source === 'online');
 
-  // ── Rush-hour detection (12-14h & 19-21h Sri Lanka time) ──
+  // ── Rush-hour detection in this restaurant's local time ──
   const checkRushHour = () => {
-    const h = new Date().getHours();
+    const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: restaurantTimeZone(settings), hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
     return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
   };
   const rushHour = checkRushHour();

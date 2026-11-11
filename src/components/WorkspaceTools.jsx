@@ -1,6 +1,6 @@
 import { CookingIcon } from '../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt } from 'lucide-react';
+import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
 import { ConnectionStatus } from '../../shared/ui/Resilience.jsx';
 
@@ -11,6 +11,7 @@ export const workspaceDestinations = [
   { id: 'kds', name: 'Kitchen', description: 'Prepare and complete orders', icon: CookingIcon },
   { id: 'delivery', name: 'Dispatch', description: 'Assign and track deliveries', icon: Truck },
   { id: 'inventory', name: 'Inventory', description: 'Menu, stock and ingredients', icon: Package, management: true },
+  { id: 'sold-items', name: 'Sold Items', description: 'Items sold, quantities and gross item sales', icon: ChartNoAxesCombined, management: true },
   { id: 'expenses', name: 'Expenses', description: 'Daily restaurant expenses & costs', icon: Receipt, management: true },
   { id: 'customers', name: 'Customers', description: 'Customer relationships and loyalty', icon: Users },
   { id: 'tickets', name: 'Support', description: 'Customer conversations', icon: LifeBuoy },

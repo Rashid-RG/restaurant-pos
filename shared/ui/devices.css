@@ -44,3 +44,28 @@ textarea { resize: vertical; }
     padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
   }
 }
+
+/* Shared usability polish for POS, customer ordering and driver workspaces. */
+:where(button, a, input, select, textarea, [role="button"]):focus-visible {
+  outline: 3px solid var(--color-primary, #6366f1);
+  outline-offset: 3px;
+}
+:where(button, a, input, select, textarea)[disabled],
+:where(button, a, input, select, textarea)[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+:where(.view-body, .driver-content, .customer-content) {
+  scroll-padding-block: 16px;
+}
+:where(.data-table-container, .table-responsive, .sold-items-table-wrap) {
+  scrollbar-gutter: stable;
+}
+:where(table) { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) {
+  :where(*, *::before, *::after) {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

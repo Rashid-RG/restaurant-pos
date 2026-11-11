@@ -41,13 +41,14 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 const STORE_LAT = 6.9271;
 const STORE_LNG = 79.8612;
 
-function isRushHour() {
-  const h = new Date().getHours();
+function isRushHour(timeZone = 'Asia/Colombo') {
+  const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
   return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
 }
 
 export default function App() {
   const [driver, setDriver] = useState(JSON.parse(localStorage.getItem(DRIVER_KEY) || 'null'));
+  const [restaurantTimeZone, setRestaurantTimeZone] = useState('Asia/Colombo');
   const [activeOrders, setActiveOrders] = useState([]);
   const [history, setHistory] = useState([]);
   const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
@@ -188,6 +189,7 @@ export default function App() {
       setActiveOrders(newAssigned);
       setHistory(data.completed || []);
       setSummary(data.summary || { completedToday: 0, cashToHandover: 0 });
+      if (data.timeZone) setRestaurantTimeZone(data.timeZone);
       setAvailableOrders(newUnassigned);
     } catch (err) {
       if (/token/i.test(err.message)) { handleLogout(); showToast('Session expired — please sign in again', 'warning'); }
@@ -420,7 +422,7 @@ export default function App() {
                               🗺️ {dropKm} km drop
                             </span>
                           )}
-                          {isRushHour() && (
+                          {isRushHour(restaurantTimeZone) && (
                             <span style={{ background: '#f59e0b22', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.68rem', fontWeight: 700 }}>⏰ Peak</span>
                           )}
                         </div>

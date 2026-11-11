@@ -11,6 +11,7 @@ import {
   Utensils,
 } from "lucide-react";
 import { usePOS } from "../context/POSContext";
+import { dateAtRestaurant, formatRestaurantTime, restaurantTimeZone } from "../utils/restaurant-time";
 import "./inventory-operations.css";
 
 async function api(path, body) {
@@ -470,7 +471,7 @@ export default function InventoryOperations({
                       <strong>{row.supplierName}</strong>
                       <span>
                         {row.reference || "#" + row.id.slice(0, 8)} ·{" "}
-                        {new Date(row.createdAt).toLocaleDateString()}
+                        {dateAtRestaurant(row.createdAt, restaurantTimeZone(settings))}
                       </span>
                       <span className="stock-status">
                         {row.status.replaceAll("_", " ")}
@@ -645,7 +646,7 @@ export default function InventoryOperations({
                     }}
                   >
                     <strong>Count #{row.id.slice(0, 8)}</strong>
-                    <span>{new Date(row.createdAt).toLocaleString()}</span>
+                    <span>{formatRestaurantTime(row.createdAt, restaurantTimeZone(settings))}</span>
                     <span>{row.status}</span>
                   </button>
                 ))}
@@ -802,7 +803,7 @@ export default function InventoryOperations({
                           {money(result.costCents)}
                         </strong>
                         <small>
-                          {new Date(row.createdAt).toLocaleString()}
+                          {formatRestaurantTime(row.createdAt, restaurantTimeZone(settings))}
                         </small>
                       </article>
                     );
@@ -976,7 +977,7 @@ export default function InventoryOperations({
                   <tbody>
                     {data.movements.map((row) => (
                       <tr key={row.id}>
-                        <td>{new Date(row.createdAt).toLocaleString()}</td>
+                        <td>{formatRestaurantTime(row.createdAt, restaurantTimeZone(settings))}</td>
                         <td>{row.resourceName}</td>
                         <td>
                           {row.delta > 0 ? "+" : ""}
@@ -1005,7 +1006,7 @@ export default function InventoryOperations({
                   <tbody>
                     {data.activity.map((row) => (
                       <tr key={row.id}>
-                        <td>{new Date(row.createdAt).toLocaleString()}</td>
+                        <td>{formatRestaurantTime(row.createdAt, restaurantTimeZone(settings))}</td>
                         <td>{row.kind.replaceAll("_", " ")}</td>
                         <td>{row.reason}</td>
                         <td>{row.actorId}</td>

@@ -4,10 +4,12 @@ import {
   Search, X, Eye, FileText, CheckCircle2, ShieldCheck, Utensils
 } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
+import { restaurantTimeZone, dateAtRestaurant, formatRestaurantTime, shiftCalendarDate } from '../utils/restaurant-time';
 
 export default function Dashboard() {
   const { orders, tables, menuItems, settings, refundOrder, showToast, currentUser } = usePOS();
   const canvasRef = useRef(null);
+  const timeZone = restaurantTimeZone(settings);
 
   // Shop details
   const shopName = settings?.businessName || settings?.restaurantName || 'KB2C';
@@ -16,11 +18,9 @@ export default function Dashboard() {
   // ─── Date Filter States ──────────────────────────────────────────────────
   // 'today' | 'yesterday' | 'date' | 'range' | 'week' | 'month' | 'all'
   const [filterMode, setFilterMode] = useState('today');
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(() => dateAtRestaurant(new Date(), restaurantTimeZone(settings)));
   const [startDate, setStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().slice(0, 10);
+    return shiftCalendarDate(dateAtRestaurant(new Date(), restaurantTimeZone(settings)), -7);
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
 
@@ -70,13 +70,7 @@ export default function Dashboard() {
     return isNaN(num) ? new Date(val) : new Date(num);
   };
 
-  const toLocalDateIso = (val) => {
-    const d = safeDate(val);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
+  const toLocalDateIso = (val) => dateAtRestaurant(safeDate(val), timeZone);
 
   const formatCurrency = (amount) => {
     const symbol = settings?.currencySymbol || 'Rs.';
@@ -85,9 +79,7 @@ export default function Dashboard() {
 
   // Change single date navigator (< Prev / Next >)
   const shiftSingleDate = (days) => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().slice(0, 10));
+    setSelectedDate(shiftCalendarDate(selectedDate, days));
     setFilterMode('date');
   };
 
@@ -99,17 +91,11 @@ export default function Dashboard() {
   } = useMemo(() => {
     const todayIso = toLocalDateIso(new Date());
     
-    const yest = new Date();
-    yest.setDate(yest.getDate() - 1);
-    const yesterdayIso = toLocalDateIso(yest);
+    const yesterdayIso = shiftCalendarDate(todayIso, -1);
 
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekAgoIso = toLocalDateIso(weekAgo);
+    const weekAgoIso = shiftCalendarDate(todayIso, -7);
 
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    const monthStartIso = toLocalDateIso(monthStart);
+    const monthStartIso = todayIso.slice(0, 7) + '-01';
 
     let desc = "Today's Sales";
     if (filterMode === 'yesterday') desc = `Yesterday's Sales (${yesterdayIso})`;
@@ -191,7 +177,7 @@ export default function Dashboard() {
       takeawayOrders: takeaway,
       deliveryOrders: delivery
     };
-  }, [orders, tables, filterMode, selectedDate, startDate, endDate, filterDining, filterPayment, searchTerm]);
+  }, [orders, tables, filterMode, selectedDate, startDate, endDate, filterDining, filterPayment, searchTerm, timeZone]);
 
   // General live indicators
   const activeOrdersCount = orders.filter((o) => ['pending', 'preparing', 'ready', 'hold'].includes(o.status)).length;
@@ -216,16 +202,14 @@ export default function Dashboard() {
     ctx.scale(dpr, dpr);
 
     const daysData = [];
-    const todayVal = new Date();
+    const todayDate = dateAtRestaurant(new Date(), timeZone);
     
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(todayVal.getDate() - i);
-      const dateStr = d.toDateString();
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dateStr = shiftCalendarDate(todayDate, -i);
+      const dayName = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }).format(new Date(dateStr + 'T12:00:00Z'));
       
       const daySales = orders
-        .filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid') && safeDate(o.paymentTimestamp || o.timestamp).toDateString() === dateStr)
+        .filter((o) => (o.paymentStatus === 'paid' || o.status === 'paid') && toLocalDateIso(o.paymentTimestamp || o.timestamp) === dateStr)
         .reduce((sum, o) => sum + o.total, 0);
 
       daysData.push({ day: dayName, total: daySales });
@@ -312,7 +296,7 @@ export default function Dashboard() {
       ctx.textAlign = 'center';
       ctx.fillText(p.label, p.x, paddingTop + chartHeight + 20);
     });
-  }, [orders, settings]);
+  }, [orders, settings, timeZone]);
 
   // Top items in the filtered period
   const topItems = useMemo(() => {
@@ -406,7 +390,7 @@ export default function Dashboard() {
     const headers = ['Invoice / Order ID', 'Date & Time', 'Dining Mode', 'Table', 'Customer', 'Payment Mode', 'Subtotal', 'Tax', 'Discount', 'Tip', 'Total'];
     const rows = filteredOrders.map(o => [
       o.invoiceNumber || o.id,
-      safeDate(o.paymentTimestamp || o.timestamp).toLocaleString(),
+      formatRestaurantTime(safeDate(o.paymentTimestamp || o.timestamp), timeZone),
       o.diningType || o.orderType || 'dine-in',
       o.tableId ? (tables.find(t => t.id === o.tableId)?.number || o.tableId) : 'N/A',
       `"${(o.customerName || 'Walk-in').replace(/"/g, '""')}"`,
@@ -518,7 +502,7 @@ export default function Dashboard() {
               Period: <span style={{ color: '#24664f' }}>{filterDescription}</span>
             </div>
             <div style={{ fontSize: '10px', color: '#9ca3af' }}>
-              Generated: {new Date().toLocaleString()} by {currentUser?.username || 'Authorized Staff'}
+              Generated: {formatRestaurantTime(new Date(), timeZone)} by {currentUser?.username || 'Authorized Staff'}
             </div>
           </div>
         </div>
@@ -697,7 +681,7 @@ export default function Dashboard() {
                       {sale.invoiceNumber ? `INV-${sale.invoiceNumber}` : `#${sale.id.slice(-6)}`}
                     </td>
                     <td style={{ padding: '6px 8px' }}>
-                      <div>{safeDate(sale.paymentTimestamp || sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                      <div>{new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit' }).format(safeDate(sale.paymentTimestamp || sale.timestamp))}</div>
                       <div style={{ color: '#9ca3af', fontSize: '9px' }}>{toLocalDateIso(sale.paymentTimestamp || sale.timestamp)}</div>
                     </td>
                     <td style={{ padding: '6px 8px', textTransform: 'capitalize' }}>
@@ -765,7 +749,7 @@ export default function Dashboard() {
             </div>
             <div style={{ borderBottom: '1px solid #111827', width: '85%' }}></div>
             <div style={{ fontSize: '10px', color: '#374151', marginTop: '4px' }}>
-              Date Stamp: {new Date().toLocaleDateString()}
+              Date Stamp: {toLocalDateIso(new Date())}
             </div>
           </div>
         </div>
@@ -924,7 +908,7 @@ export default function Dashboard() {
                 className="btn btn-outline"
                 style={{ padding: '6px 12px', fontSize: '12px' }}
                 onClick={() => {
-                  setSelectedDate(new Date().toISOString().slice(0, 10));
+                  setSelectedDate(dateAtRestaurant(new Date(), timeZone));
                   setFilterMode('today');
                 }}
               >
@@ -1184,7 +1168,7 @@ export default function Dashboard() {
                         </td>
                         <td>
                           <div style={{ fontSize: '13px', fontWeight: '600' }}>
-                            {safeDate(sale.paymentTimestamp || sale.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit' }).format(safeDate(sale.paymentTimestamp || sale.timestamp))}
                           </div>
                           <small style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
                             {toLocalDateIso(sale.paymentTimestamp || sale.timestamp)}
@@ -1283,7 +1267,7 @@ export default function Dashboard() {
                     {timeclockLogs.map(tc => (
                       <tr key={tc.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '8px 4px', fontWeight: 600 }}>👤 {tc.username}</td>
-                        <td style={{ padding: '8px 4px' }}>{new Date(tc.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                        <td style={{ padding: '8px 4px' }}>{new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit' }).format(new Date(tc.clockIn))}</td>
                         <td style={{ padding: '8px 4px' }}>
                           {tc.clockOut ? (
                             <span className="badge badge-success">{tc.durationMinutes}m</span>
@@ -1316,7 +1300,7 @@ export default function Dashboard() {
                     </div>
                     <p style={{ margin: 0, color: 'var(--text-main)', fontStyle: 'italic' }}>"{fb.comment || 'Good food and service!'}"</p>
                     <small style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                      {new Date(fb.createdAt).toLocaleDateString()}
+                      {toLocalDateIso(fb.createdAt)}
                     </small>
                   </div>
                 ))}
@@ -1412,8 +1396,8 @@ export default function Dashboard() {
                   <div style={{ fontSize: '11px', color: '#64748b' }}>Tel: {settings?.phone || '0712237947'}</div>
                   <div style={{ borderBottom: '1px dashed #94a3b8', margin: '8px 0' }} />
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                    <span>Date: {safeDate(viewingReceipt.paymentTimestamp || viewingReceipt.timestamp).toLocaleDateString()}</span>
-                    <span>Time: {safeDate(viewingReceipt.paymentTimestamp || viewingReceipt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span>Date: {toLocalDateIso(viewingReceipt.paymentTimestamp || viewingReceipt.timestamp)}</span>
+                    <span>Time: {new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit' }).format(safeDate(viewingReceipt.paymentTimestamp || viewingReceipt.timestamp))}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
                     <span>Type: {(viewingReceipt.diningType || viewingReceipt.orderType || 'dine-in').toUpperCase()}</span>

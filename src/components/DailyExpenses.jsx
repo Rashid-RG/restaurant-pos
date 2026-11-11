@@ -6,6 +6,7 @@ import {
   Tag, Settings2, FolderPlus, Building2, FileText
 } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
+import { dateAtRestaurant, formatRestaurantTime, restaurantTimeZone, shiftCalendarDate } from '../utils/restaurant-time';
 
 const DEFAULT_CATEGORIES = [
   { id: 'cat_meat_chicken', name: 'Meat, Chicken & Poultry', icon: '🍗', color: '#ef4444' },
@@ -30,8 +31,9 @@ const EMOJI_OPTIONS = ['🍗', '🥩', '🍔', '🥬', '🥕', '🐟', '🧀', '
 const COLOR_OPTIONS = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#06b6d4', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#64748b'];
 
 export default function DailyExpenses() {
-  const { showToast, currencySymbol } = usePOS();
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const { showToast, currencySymbol, settings } = usePOS();
+  const timeZone = restaurantTimeZone(settings);
+  const [selectedDate, setSelectedDate] = useState(() => dateAtRestaurant(new Date(), restaurantTimeZone(settings)));
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
@@ -121,9 +123,7 @@ export default function DailyExpenses() {
   }, [selectedDate]);
 
   const changeDateByDays = (days) => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().slice(0, 10));
+    setSelectedDate(shiftCalendarDate(selectedDate, days));
   };
 
   const handleCreateCategory = async (e) => {
@@ -254,7 +254,7 @@ export default function DailyExpenses() {
       `"${(e.receiptNumber || '').replace(/"/g, '""')}"`,
       `"${(e.notes || '').replace(/"/g, '""')}"`,
       e.createdBy,
-      new Date(e.createdAt).toLocaleString()
+      formatRestaurantTime(e.createdAt, timeZone)
     ]);
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
@@ -357,7 +357,7 @@ export default function DailyExpenses() {
           <button
             className="btn btn-outline"
             style={{ padding: '6px 12px', height: 'auto', fontSize: '12px', fontWeight: 600 }}
-            onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
+            onClick={() => setSelectedDate(dateAtRestaurant(new Date(), timeZone))}
           >
             Today
           </button>

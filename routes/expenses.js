@@ -1,5 +1,6 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import { dateAtRestaurant, restaurantDayBounds, restaurantTimeZone } from '../src/utils/restaurant-time.js';
 
 export const DEFAULT_EXPENSE_CATEGORIES = [
   { id: 'cat_meat_chicken', name: 'Meat, Chicken & Poultry', icon: '🍗', color: '#ef4444' },
@@ -61,6 +62,11 @@ export async function initExpensesTable(dbRun) {
 
 export function createExpensesRouter({ dbGet, dbAll, dbRun, authenticateToken, requireRole, broadcastEvent }) {
   const router = express.Router();
+  const tenantTimeZone = async tenantId => {
+    const row = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [tenantId, 'timeZone']);
+    return restaurantTimeZone({ timeZone: row?.value });
+  };
+
 
   // All expense endpoints require authenticated staff
   router.use('/expenses', authenticateToken);
@@ -179,7 +185,7 @@ export function createExpensesRouter({ dbGet, dbAll, dbRun, authenticateToken, r
   router.get('/expenses', async (req, res, next) => {
     try {
       const tenantId = req.tenantId || 'default_tenant';
-      const today = new Date().toISOString().slice(0, 10);
+      const today = dateAtRestaurant(new Date(), await tenantTimeZone(tenantId));
       const { date, month, from, to } = req.query;
 
       let sql = 'SELECT * FROM daily_expenses WHERE tenant_id = ?';
@@ -211,7 +217,8 @@ export function createExpensesRouter({ dbGet, dbAll, dbRun, authenticateToken, r
   router.get('/expenses/summary', async (req, res, next) => {
     try {
       const tenantId = req.tenantId || 'default_tenant';
-      const targetDate = req.query.date || new Date().toISOString().slice(0, 10);
+      const timeZone = await tenantTimeZone(tenantId);
+      const targetDate = req.query.date || dateAtRestaurant(new Date(), timeZone);
       const targetMonth = targetDate.slice(0, 7);
 
       // 1. Total expenses for selected date
@@ -223,9 +230,8 @@ export function createExpensesRouter({ dbGet, dbAll, dbRun, authenticateToken, r
       const expenseCount = Number(dayExpenseRow?.count || 0);
 
       // 2. Total sales for selected date (orders with payment confirmed or completed)
-      // Timestamp range for that date in local ISO time (00:00:00 to 23:59:59.999)
-      const dayStart = new Date(`${targetDate}T00:00:00.000Z`).getTime();
-      const dayEnd = dayStart + 86400000;
+      // Query the actual restaurant calendar day, not the UTC calendar day.
+      const [dayStart, dayEnd] = restaurantDayBounds(targetDate, timeZone);
 
       const salesRow = await dbGet(
         `SELECT COALESCE(SUM(total), 0) AS totalSales, COUNT(*) AS orderCount
@@ -294,7 +300,7 @@ export function createExpensesRouter({ dbGet, dbAll, dbRun, authenticateToken, r
       }
 
       const cleanCategory = category.trim();
-      const expenseDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : new Date().toISOString().slice(0, 10);
+      const expenseDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : dateAtRestaurant(new Date(), await tenantTimeZone(tenantId));
       const id = `exp_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
       const method = ['cash', 'bank', 'petty_cash', 'card'].includes(paymentMethod) ? paymentMethod : 'cash';
       const cleanNotes = notes ? String(notes).trim().slice(0, 500) : '';

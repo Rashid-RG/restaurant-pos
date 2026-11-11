@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePOS } from "../context/POSContext";
 import { prepareThermalPrint, cleanupThermalPrint } from "../utils/printer";
+import { formatRestaurantTime, restaurantTimeZone } from "../utils/restaurant-time";
 import { AnimatedFeatureIcon } from "../../shared/ui/AnimatedFeatureIcon.jsx";
 import { LayoutGrid, Columns, Maximize2, Minimize2, Clock, CheckCircle2, Flame } from "lucide-react";
 import "./service-workflows.css";
@@ -352,7 +353,7 @@ export default function KDSView() {
           </p>
           <small role="status">
             {lastSync
-              ? "Last synchronized " + new Date(lastSync).toLocaleTimeString()
+              ? "Last synchronized " + formatRestaurantTime(lastSync, restaurantTimeZone(settings))
               : "Connecting…"}{" "}
             · refreshes every 10 seconds
           </small>
@@ -554,7 +555,7 @@ export default function KDSView() {
                 : ""}
             </p>
             <p>
-              Copy requested {new Date(printTicket.printedAt).toLocaleString()}
+              Copy requested {formatRestaurantTime(printTicket.printedAt, restaurantTimeZone(settings))}
             </p>
             {printTicket.visibleLines.map((l) => (
               <section key={l.id}>

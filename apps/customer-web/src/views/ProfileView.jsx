@@ -4,12 +4,15 @@ import { useLang } from '../context/LanguageContext.jsx';
 import { useCart } from '../context/CartContext.jsx';
 import LoginRegisterView from './LoginRegisterView.jsx';
 import { apiFetch } from '../utils/api.js';
+import { dateAtRestaurant } from '../../../../src/utils/restaurant-time.js';
 
 export default function ProfileView({ toast, resetToken, onResetHandled }) {
   const { customer, logout, refreshProfile, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
   const { addItem, setCartOpen } = useCart();
   const [orders, setOrders] = useState([]);
+  const [restaurantZone, setRestaurantZone] = useState('Asia/Colombo');
+  useEffect(() => { apiFetch('/public/store-info').then(info => setRestaurantZone(info?.timeZone || 'Asia/Colombo')).catch(() => {}); }, []);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [name, setName] = useState('');
@@ -341,7 +344,7 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
               </div>
               <div className="flex-between" style={{ fontSize: '0.82rem' }}>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {new Date(order.timestamp).toLocaleDateString()} · {order.orderType || order.diningType}
+                  {dateAtRestaurant(order.timestamp, restaurantZone)} · {order.orderType || order.diningType}
                 </span>
                 <span style={{ fontWeight: 800, color: 'var(--brand)' }}>Rs. {order.total?.toFixed(0)}</span>
               </div>
