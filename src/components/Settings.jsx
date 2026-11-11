@@ -5,6 +5,9 @@ import { usePOS } from '../context/POSContext';
 import { testPrintReceipt } from '../utils/printer';
 import { restaurantTimeZone, validTimeZone } from '../utils/restaurant-time';
 
+const COMMON_TIME_ZONES = ['Asia/Colombo', 'Asia/Qatar', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'America/New_York'];
+const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedValuesOf?.('timeZone') || [])])].sort();
+
 export default function Settings() {
   const {
     currentUser,
@@ -682,13 +685,8 @@ export default function Settings() {
                   <div className="form-group">
                     <label htmlFor="restaurant-time-zone">Restaurant Time Zone</label>
                     <select id="restaurant-time-zone" className="form-input" value={timeZone} onChange={e => setTimeZone(e.target.value)}>
-                      <option value="Asia/Colombo">Sri Lanka — Colombo (UTC+05:30)</option>
-                      <option value="Asia/Qatar">Qatar — Doha (UTC+03:00)</option>
-                      <option value="Asia/Dubai">UAE — Dubai (UTC+04:00)</option>
-                      <option value="Asia/Riyadh">Saudi Arabia — Riyadh (UTC+03:00)</option>
-                      <option value="Asia/Kolkata">India — Kolkata (UTC+05:30)</option>
-                      <option value="Europe/London">United Kingdom — London</option>
-                      <option value="America/New_York">United States — New York</option>
+                      {!TIME_ZONE_OPTIONS.includes(timeZone) && <option value={timeZone}>{timeZone}</option>}
+                      {TIME_ZONE_OPTIONS.map(zone => <option key={zone} value={zone}>{zone.replaceAll('_', ' ')}</option>)}
                     </select>
                     <small>Restaurant-local sales dates and report periods use this time zone. Existing transaction timestamps are not changed.</small>
                   </div>
