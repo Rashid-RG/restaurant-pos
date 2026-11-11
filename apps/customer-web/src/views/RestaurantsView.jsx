@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { MapPin, Search, SlidersHorizontal, Store, ArrowUpRight, RefreshCw, Star, Clock3, Bike, CheckCircle2, AlertCircle, Navigation, ShoppingBag, MapPinned } from 'lucide-react';
+import { MapPin, Search, SlidersHorizontal, Store, ArrowUpRight, RefreshCw, Star, Clock3, Bike, CheckCircle2, AlertCircle, Navigation, ShoppingBag, MapPinned, Sparkles } from 'lucide-react';
 import L from 'leaflet';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
