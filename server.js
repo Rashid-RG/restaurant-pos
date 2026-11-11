@@ -4510,7 +4510,7 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
       currencySymbol: st.currencySymbol || 'Rs.',
       taxRate: Number(st.taxRate || 0),
       serviceChargeRate: Number(st.serviceChargeRate || 0),
-      payhereEnabled: process.env.PAYHERE_ENABLED !== 'false',
+      payhereEnabled: process.env.CUSTOMER_CARD_PAYMENTS_ENABLED === 'true' && process.env.PAYHERE_ENABLED !== 'false',
       categories,
       items: itemsWithModifiers
     });
@@ -4608,7 +4608,7 @@ const createPublicOrder = async (req, res) => {
 
 
   const type = diningType || orderType || 'takeaway';
-  if(!['takeaway','dine-in','delivery'].includes(type)||paymentMethod&&!['cash','cod','payhere','online_pending'].includes(paymentMethod))return res.status(400).json({error:'Choose a valid order and payment method.'});
+  if(!['takeaway','dine-in','delivery'].includes(type)||paymentMethod&&!['cash','cod','bank_transfer','payhere','online_pending'].includes(paymentMethod))return res.status(400).json({error:'Choose a valid order and payment method.'});
   if(deliveryLat!=null&&(!Number.isFinite(deliveryLat)||deliveryLat < -90||deliveryLat > 90)||deliveryLng!=null&&(!Number.isFinite(deliveryLng)||deliveryLng < -180||deliveryLng > 180))return res.status(400).json({error:'Invalid delivery coordinates.'});
   if (type === 'delivery') {
     if (!deliveryAddress || !isValidAddress(deliveryAddress)) {
@@ -4639,7 +4639,8 @@ const createPublicOrder = async (req, res) => {
     const replay=await findRecoveredOrder({dbGet,tenantId,identity});
     if(replay)return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(replay),trackingToken:makeTrackingAccess(replay.id,tenantId)});
 
-  if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
+  if (process.env.CUSTOMER_CARD_PAYMENTS_ENABLED !== 'true' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Card / PayHere is not available at the moment. Select cash or manual bank transfer.' });
+    if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
     // SaaS enforcement: block suspended tenants + monthly order-volume cap.
     const meta = await getTenantMeta(tenantId);
     if (meta.status === 'suspended') {
