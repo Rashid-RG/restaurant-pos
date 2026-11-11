@@ -195,3 +195,11 @@
 .customer-auth-route .auth-reference-browse{position:absolute;right:12px;top:6px;z-index:7;display:flex;align-items:center;gap:5px;background:#ffffffed;color:#0a6947;border:1px solid #ffffff8c;border-radius:20px;padding:6px 10px;font-size:11px;font-weight:750;cursor:pointer}
 .customer-auth-route .auth-reference-browse:focus-visible{outline:3px solid #ffb468;outline-offset:3px}
 @media(min-width:700px){.customer-auth-route .auth-reference-browse{top:14px;right:17px}}
+
+.customer-auth-route .auth-reference-login-form .auth-reference-alternate{display:none!important}
+.customer-auth-route .auth-reference-otp-link{
+ display:block;margin:8px auto 0!important;border:0;background:transparent;color:#146c48;
+ font-size:12px;font-weight:750;text-decoration:underline;text-underline-offset:3px;
+ cursor:pointer;min-height:38px;max-width:calc(100% - 40px);
+}
+.customer-auth-route .auth-reference-otp-link:focus-visible{outline:3px solid #4db57a;outline-offset:3px}
