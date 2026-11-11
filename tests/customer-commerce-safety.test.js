@@ -48,4 +48,26 @@ describe('Public customer payment availability and promotional safety',()=>{
       .send({code:'WELCOME10',items:[]});
     expect(empty.status).toBe(400);
   });
+  it('records a bank transfer order as unpaid until verified by staff',async()=>{
+    const order=await request(app).post('/api/public/orders')
+      .set('X-Tenant-Id',tenant).set('Idempotency-Key',crypto.randomUUID())
+      .send({items:[{menuItemId:'customer_safety_meal',quantity:1}],
+        orderType:'takeaway',customerName:'Checkout Tester',
+        customerPhone:'0771234567',paymentMethod:'bank_transfer'});
+    expect(order.status,JSON.stringify(order.body)).toBe(200);
+    const result=await request(app).get('/api/public/orders/'+order.body.orderId)
+      .set('X-Tenant-Id',tenant).set('X-Order-Tracking',order.body.trackingToken);
+    expect(result.status).toBe(200);
+    expect(result.body.paymentMethod).toBe('bank_transfer');
+    expect(result.body.paymentStatus).not.toBe('paid');
+  });
+  it('blocks the online card option while temporarily unavailable',async()=>{
+    const response=await request(app).post('/api/public/orders')
+      .set('X-Tenant-Id',tenant).set('Idempotency-Key',crypto.randomUUID())
+      .send({items:[{menuItemId:'customer_safety_meal',quantity:1}],
+        orderType:'takeaway',customerName:'Checkout Tester',
+        customerPhone:'0771234567',paymentMethod:'online_pending'});
+    expect(response.status).toBe(503);
+  });
+
 });
