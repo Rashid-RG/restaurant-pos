@@ -15,7 +15,7 @@ const STATUS_STEPS = [
 function statusIndex(status) {
   if (!status) return 0;
   const s = status.toLowerCase();
-  if (s === 'paid' || s === 'delivered' || s === 'completed' || s === 'served') return 3;
+  if (s === 'delivered' || s === 'completed' || s === 'served') return 3;
   if (s === 'ready' || s === 'out_for_delivery') return 2;
   if (s === 'preparing' || s === 'in progress') return 1;
   return 0;
@@ -41,6 +41,10 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [cancelling, setCancelling] = useState(false);
   const [storeInfo, setStoreInfo] = useState(null);   // { lat, lng, name, ... }
   const [driverLoc, setDriverLoc] = useState(null);    // live { lat, lng, driverName }
+  const [driverLastSeen,setDriverLastSeen]=useState(null);
+  const [pushBusy,setPushBusy]=useState(false);
+  const [pushEnabled,setPushEnabled]=useState(false);
+  const [lastUpdate,setLastUpdate]=useState(null);
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
   const [dynamicETA, setDynamicETA] = useState(null);
@@ -74,7 +78,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   useEffect(() => {
     if (!order || !order.id) return;
     const s = (order.status || '').toLowerCase();
-    if (s === 'completed' || s === 'delivered' || s === 'paid' || s === 'cancelled') return;
+    if (s === 'completed' || s === 'delivered' || s === 'cancelled') return;
 
     const fetchDispatch = () => {
       apiFetch(`/public/orders/${order.id}/dispatch-status`)
@@ -165,7 +169,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     }
     orderRef.current = data;
     setOrder(data);
-    if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
+    setLastUpdate(Date.now());
+    if (data.driver && typeof data.driver.lat === 'number') {setDriverLoc(data.driver);setDriverLastSeen(Date.now());}
   };
 
   const fetchOrder = async (id) => {
@@ -195,7 +200,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if (!order || !order.id) return;
 
     const status = (order.status || '').toLowerCase();
-    if (status === 'paid' || status === 'delivered' || status === 'completed' || status === 'cancelled') return;
+    if (status === 'delivered' || status === 'completed' || status === 'cancelled') return;
 
     // SSE Stream setup
     let es;
@@ -207,7 +212,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         try {
           const msg = JSON.parse(e.data);
           if (msg && msg.type === 'driver_location') {
-            setDriverLoc({ lat: msg.lat, lng: msg.lng, driverName: msg.driverName });
+            if(Number.isFinite(Number(msg.lat))&&Number.isFinite(Number(msg.lng))){setDriverLoc({ lat:Number(msg.lat), lng:Number(msg.lng), driverName: msg.driverName });setDriverLastSeen(Date.now());}
           } else if (msg && msg.id) {
             applyOrderUpdate(msg);
           }
@@ -220,26 +225,6 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       if (orderRef.current?.id) fetchOrder(orderRef.current.id);
     }, 5000);
 
-    // Web Push Notification Registration
-    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-      Notification.requestPermission().then(permission => {
-        if (permission === 'granted' && 'serviceWorker' in navigator) {
-          navigator.serviceWorker.ready.then(reg => {
-            if (storeInfo?.vapidPublicKey) {
-              reg.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: storeInfo.vapidPublicKey
-              }).then(sub => {
-                apiFetch('/public/push/subscribe', {
-                  method: 'POST',
-                  body: JSON.stringify({ orderId: order.id, subscription: sub })
-                }).catch(() => {});
-              }).catch(() => {});
-            }
-          });
-        }
-      });
-    }
 
     return () => {
       clearInterval(interval);
@@ -247,10 +232,29 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     };
   }, [order?.id, order?.status]);
 
+  // Customer opt-in: permission must never be requested during page load.
+  const enableNotifications=async()=>{
+    if(!order?.id || !storeInfo?.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))return;
+    setPushBusy(true);
+    try {
+      const permission=await Notification.requestPermission();
+      if(permission!=='granted')throw new Error(t('notificationDenied') || 'Notifications were not allowed.');
+      const reg=await navigator.serviceWorker.ready;
+      const base64=storeInfo.vapidPublicKey.replace(/-/g,'+').replace(/_/g,'/');
+      const raw=atob(base64.padEnd(Math.ceil(base64.length/4)*4,'='));
+      const bytes=Uint8Array.from(raw,ch=>ch.charCodeAt(0));
+      const sub=await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:bytes});
+      await apiFetch('/public/orders/'+encodeURIComponent(order.id)+'/push-subscription',{method:'POST',body:JSON.stringify({subscription:sub.toJSON()})});
+      setPushEnabled(true);
+      toast(t('notificationsEnabled') || 'Order notifications enabled.','success');
+    }catch(e){toast(e.message||'Could not enable browser notifications. Live tracking remains available.','warning')}
+    finally{setPushBusy(false)}
+  };
+
   // Calculate dynamic ETA countdown
   useEffect(() => {
     if (!order) return;
-    if (order.status === 'cancelled' || order.status === 'paid' || order.status === 'completed') {
+    if (order.status === 'cancelled' || order.status === 'delivered' || order.status === 'completed') {
       setRemainingMins(null);
       return;
     }
@@ -341,6 +345,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               <p style={{fontSize:'.85rem',lineHeight:1.6,margin:0}}>Your order was received, but payment is <strong>not confirmed</strong>. Contact the restaurant for the correct bank account details before sending money. A manager will verify the transfer using the bank transaction reference. Do not send a second payment until the restaurant confirms the status.</p>
             </section>
           )}
+          <div className="customer-tracking-tools">
+            <div className="customer-tracking-freshness"><strong>{t('orderUpdates') || 'Order updates'}</strong><small>{lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : (t('connecting') || 'Connecting…')}</small></div>
+            {storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
+              <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
+            {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
+          </div>
           {/* UBER EATS HERO LIVE BANNER */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
@@ -361,7 +371,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 <div>
                   <div className="uber-status-badge live">🔴 Live Tracking ({isDineIn ? '🍽️ Dine-In' : isTakeaway ? '🛍️ Takeaway' : '🛵 Delivery'})</div>
                   <h1 className="uber-hero-title">
-                    {dynamicETA ? `⏱️ ~${dynamicETA.estimatedMinutes} mins` : remainingMins ? `~${remainingMins} mins` : 'Estimated ~15 mins'}
+                    {dynamicETA?.estimatedMinutes != null ? `⏱️ ~${dynamicETA.estimatedMinutes} mins` : remainingMins != null ? `~${remainingMins} mins` : (t('etaPending') || 'ETA updating…')}
                   </h1>
                   {dynamicETA && (
                     <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 4 }}>
@@ -406,7 +416,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                   driver={driverLoc}
                 />
                 <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                  {driverLoc ? '🛵 Driver live' : '📡 Live tracking'}
+                  {driverLoc && driverLastSeen && Date.now()-driverLastSeen < 90000 ? '🛵 Driver GPS updating' : (t('driverLocationPending') || 'Driver location pending')}
                 </div>
               </div>
             )}
