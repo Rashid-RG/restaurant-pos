@@ -507,6 +507,9 @@ export const POSProvider = ({ children }) => {
 
     setTenantLock(null);
     setCurrentUser(data.user);
+    // Only the uniquely designated platform owner starts in platform administration.
+    // Restaurant owner and staff login behavior is unchanged.
+    if (data.user?.isPlatformAdmin === true) setActiveTab('platform');
   };
 
   const logout = () => {
