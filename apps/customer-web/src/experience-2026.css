@@ -505,3 +505,115 @@
  .customer-premium .tracking-food-art{width:130px;opacity:.4}
  .customer-premium .uber-hero-header .uber-hero-title,.customer-premium .uber-hero-header .uber-hero-subtitle{max-width:100%;text-shadow:0 1px 2px rgba(0,0,0,.18)}
 }
+
+/* Reference-led illustrated customer experience: hero imagery and
+   delivery geography behind real controls. No text baked into assets. */
+.customer-premium{--gastro-city:url('/customer/city-food-background.svg');--gastro-route:url('/customer/delivery-route-background.svg')}
+.customer-premium .auth-page{
+  position:relative;
+  isolation:isolate;
+  padding-bottom:clamp(100px,25vw,155px)!important;
+  background:#fff!important;
+  box-shadow:0 23px 65px rgba(15,81,49,.12)!important;
+  border-color:#d9ebdd!important;
+}
+.customer-premium .auth-page::after{
+  content:"";position:absolute;bottom:0;left:0;right:0;height:clamp(100px,20vw,150px);
+  z-index:-1;background-image:var(--gastro-city);
+  background-position:center bottom;background-repeat:no-repeat;background-size:cover;
+  opacity:.98;pointer-events:none;
+}
+.customer-premium .auth-page .auth-hero-image{height:clamp(150px,22vw,205px)!important}
+.customer-premium .auth-page .auth-hero-image img{object-position:50% 52%}
+.customer-premium .auth-page .auth-hero-intro{padding-top:25px}
+.customer-premium .auth-page :is(.btn-brand,[type="submit"]){
+  background:linear-gradient(125deg,#08774a,#065e40)!important;
+  color:#fff!important;
+  box-shadow:0 9px 21px rgba(7,116,68,.17);
+}
+.customer-premium .auth-page .auth-tabs{border-radius:14px!important;margin-top:5px}
+.customer-premium .auth-page .form-control{background:#fdfefd!important}
+.customer-premium .auth-page .form-group{position:relative}
+/* Marketplace: airy city backdrop instead of a plain gradient. */
+.customer-premium .marketplace-hero,
+.customer-premium .hero-banner{
+  background-image:linear-gradient(90deg,rgba(245,252,243,.96) 0%,rgba(242,250,241,.91) 52%,rgba(240,248,232,.58) 100%),var(--gastro-city)!important;
+  background-size:cover!important;
+  background-position:center 65%!important;
+  border:1px solid #d4e6d7!important;
+  box-shadow:0 14px 40px rgba(20,83,50,.07)!important;
+}
+.customer-premium .marketplace-item{
+  border-radius:22px!important;box-shadow:0 11px 34px rgba(20,77,42,.1)!important;
+}
+.customer-premium .marketplace-item-image img{height:100%;object-fit:cover}
+.customer-premium .marketplace-search{border-radius:16px!important}
+.customer-premium .restaurants-view{
+  position:relative;isolation:isolate;
+}
+.customer-premium .restaurants-view::before{
+  content:"";z-index:-1;position:absolute;top:0;left:0;right:0;
+  height:300px;opacity:.26;
+  background:url('/customer/city-food-background.svg') center bottom/cover no-repeat;
+  pointer-events:none;
+}
+/* Checkout: picturesque but restrained so payment details remain legible. */
+.customer-premium .checkout-view{position:relative;isolation:isolate}
+.customer-premium .checkout-view::before{
+  content:"";position:absolute;z-index:-1;left:0;right:0;top:0;height:250px;
+  background:linear-gradient(180deg,rgba(245,251,244,.62),rgba(255,255,255,0)),url('/customer/city-food-background.svg') center center/cover no-repeat;
+  opacity:.42;pointer-events:none;border-radius:24px
+}
+.customer-premium .checkout-view .form-section{background:#fffefdf7!important}
+/* Live tracking: visible route drawing behind status card and verified
+   map remains the live position source rather than the decorative artwork. */
+.customer-premium .tracking-page{position:relative;isolation:isolate}
+.customer-premium .tracking-page::before{
+  content:"";position:absolute;z-index:-1;top:0;left:0;right:0;height:320px;
+  background:url('/customer/delivery-route-background.svg') center top/cover no-repeat;
+  opacity:.38;pointer-events:none;border-radius:25px
+}
+.customer-premium .uber-hero-card{
+  background:#fff!important;box-shadow:0 16px 42px rgba(17,70,41,.14)!important;
+  border:1px solid #cee6d2!important;overflow:hidden
+}
+.customer-premium .uber-hero-header{
+  background-image:linear-gradient(105deg,rgba(7,92,61,.97),rgba(18,121,78,.92)),url('/customer/delivery-route-background.svg')!important;
+  background-size:cover!important;background-position:center!important
+}
+.customer-premium .uber-hero-header .tracking-food-art{
+  box-shadow:0 8px 30px rgba(0,0,0,.1);border-radius:24px
+}
+.customer-premium .tracking-card{box-shadow:0 10px 32px rgba(19,71,41,.07)!important}
+.customer-premium .tracking-page .customer-delivery-map .tm-map{
+  box-shadow:0 8px 22px rgba(18,69,42,.09)
+}
+/* Account and support: gentle scenic background, not fake interface imagery. */
+.customer-premium .profile-page,
+.customer-premium .support-page,
+.customer-premium .customer-support-page{
+  background-image:linear-gradient(180deg,rgba(248,252,247,.88),rgba(247,250,246,1) 300px),url('/customer/city-food-background.svg');
+  background-size:auto,100% auto;
+  background-repeat:no-repeat;
+  background-position:top center;
+  border-radius:20px
+}
+.customer-premium .profile-page .profile-avatar{
+  border:4px solid white;box-shadow:0 10px 35px rgba(12,86,47,.23)
+}
+.customer-premium .bottom-nav{background:rgba(255,255,255,.975)!important;box-shadow:0 -10px 32px rgba(19,70,40,.12)!important}
+@media(max-width:600px){
+ .customer-premium .auth-page{padding-bottom:115px!important}
+ .customer-premium .auth-page::after{height:125px}
+ .customer-premium .auth-page .auth-hero-image{height:160px!important}
+ .customer-premium .marketplace-hero,.customer-premium .hero-banner{
+  background-image:linear-gradient(90deg,rgba(246,251,244,.96),rgba(244,250,240,.85)),var(--gastro-city)!important
+ }
+ .customer-premium .uber-hero-header .tracking-food-art{opacity:.3;box-shadow:none}
+ .customer-premium .tracking-page::before{opacity:.21}
+ .customer-premium .checkout-view::before{opacity:.28}
+}
+@media(prefers-reduced-motion:reduce){
+ .customer-premium .auth-page::after,
+ .customer-premium .tracking-page::before{animation:none!important}
+}
