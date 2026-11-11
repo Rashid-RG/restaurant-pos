@@ -1418,7 +1418,7 @@ export default function POSView() {
                 className="btn btn-secondary" 
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                 onClick={() => {
-                  if(!printRenderedReceipt(settings?.printerPaperWidth || '80mm')){
+                  if(!printRenderedReceipt(settings?.printerPaperWidth || '80mm', { userInitiated: true })){
                     showToast('Cannot print: receipt content is missing. Reopen this paid bill and retry.','error');
                   }
                 }}
