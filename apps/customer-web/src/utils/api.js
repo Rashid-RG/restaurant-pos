@@ -20,6 +20,17 @@ export async function apiFetch(endpoint, options = {}) {
   const trackingAccess = trackedOrder && localStorage.getItem(`gastroflow_order_access_${trackedOrder}`);
   const customerTokenKey = 'gastroflow_customer_token:' + encodeURIComponent(activeTenant || 'default_tenant');
   const customerToken = localStorage.getItem(customerTokenKey);
+  const cachePublicMenu=cleanPath==='/api/public/menu' && (!options.method || options.method==='GET');
+  const cacheKey='gastroflow_public_menu_snapshot:'+encodeURIComponent(activeTenant||'default_tenant');
+  const offlineMenu=()=>{
+    if(!cachePublicMenu)return null;
+    try{
+      const saved=JSON.parse(localStorage.getItem(cacheKey)||'null');
+      if(saved?.data?.tenantId===(activeTenant||'default_tenant') && Date.now()-saved.storedAt<24*3600000)
+        return {...saved.data,offlineSnapshot:true,storeOpen:false};
+    }catch{}
+    return null;
+  };
   let res;
   try {
     res = await fetch(absoluteUrl, {
@@ -34,6 +45,8 @@ export async function apiFetch(endpoint, options = {}) {
       }
     });
   } catch (err) {
+    const saved=offlineMenu();
+    if(saved)return saved;
     throw new Error('Connection timeout or network error. Please check internet connection.');
   }
 
@@ -56,6 +69,14 @@ export async function apiFetch(endpoint, options = {}) {
     throw new Error(msg);
   }
 
+  // Cache only a public, tenant-scoped menu snapshot for read-only offline browsing.
+  // Never cache customer account, payment, private order or authentication responses.
+  if(cachePublicMenu && data?.tenantId===(activeTenant||'default_tenant')){
+    try{
+      const encoded=JSON.stringify({storedAt:Date.now(),data});
+      if(encoded.length<350000)localStorage.setItem(cacheKey,encoded);
+    }catch{}
+  }
   if (data?.orderId && data?.trackingToken) localStorage.setItem(`gastroflow_order_access_${data.orderId}`, data.trackingToken);
   return data;
 }
