@@ -19,6 +19,7 @@ import { amountInCents, validateManualTender, staffReceipt } from './lib/tenders
 import { validateDeliveryProof } from './lib/delivery-proof.js';
 import { reconcileOfflineSales } from './lib/offline-sales.js';
 import { createLibsqlStore } from './lib/libsql-store.js';
+import { restaurantTimeZone, dateAtRestaurant, restaurantDayBounds } from './src/utils/restaurant-time.js';
 import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.js';
 import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
@@ -4919,10 +4920,12 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
       [t]
     );
     const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
-    const colomboNow = new Date(Date.now() + 330 * 60000);
-    const dayStart = Date.UTC(colomboNow.getUTCFullYear(), colomboNow.getUTCMonth(), colomboNow.getUTCDate()) - 330 * 60000;
+    const zoneSetting = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [t, 'timeZone']);
+    const timeZone = restaurantTimeZone({ timeZone: zoneSetting?.value });
+    const today = dateAtRestaurant(new Date(), timeZone);
+    const [dayStart, dayEnd] = restaurantDayBounds(today, timeZone);
     const cash = await dbGet("SELECT COALESCE(SUM(total),0) AS amount FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' AND paymentMethod IN ('cash','cod') AND COALESCE(cashCollected,0) = 0", [t, driverId]);
-    res.json({ assigned: assigned || [], unassigned: unassigned || [], completed, summary: { completedToday: completed.filter(order => Number(order.timestamp) >= dayStart).length, cashToHandover: cash?.amount || 0 } });
+    res.json({ assigned: assigned || [], unassigned: unassigned || [], completed, timeZone, summary: { completedToday: completed.filter(order => Number(order.timestamp) >= dayStart && Number(order.timestamp) < dayEnd).length, cashToHandover: cash?.amount || 0 } });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
