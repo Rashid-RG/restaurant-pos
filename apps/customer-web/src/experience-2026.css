@@ -452,3 +452,43 @@
     animation:none!important
   }
 }
+
+/* Branded, illustrated customer sign-in hero matching GastroFlow visual identity. */
+.customer-premium .auth-page{padding-top:0!important;overflow:hidden}
+.customer-premium .auth-brand-hero{margin:0 -34px 22px!important;text-align:left!important}
+.customer-premium .auth-hero-brand{
+  min-height:100px;display:flex;align-items:center;justify-content:center;gap:13px;
+  background:linear-gradient(135deg,#075b3c,#087847);color:white;padding:25px 22px 10px
+}
+.customer-premium .auth-hero-brand .auth-brand-symbol{margin:0;width:52px;height:52px;background:#ed713e;box-shadow:0 5px 18px rgba(0,0,0,.12)}
+.customer-premium .auth-hero-brand h1{margin:0!important;color:white!important;font-size:29px!important;line-height:1.05}
+.customer-premium .auth-hero-brand span{display:block;letter-spacing:.23em;font-size:10px;margin-top:6px;color:#d7f9df;font-weight:750}
+.customer-premium .auth-hero-art{
+  min-height:145px;padding:20px 28px 27px;display:flex;align-items:center;justify-content:center;
+  gap:11px;background:linear-gradient(145deg,#087847,#086039 55%,#064e34);color:#def7dd
+}
+.customer-premium .auth-art-bag,.customer-premium .auth-art-rider{
+  width:63px;height:63px;border-radius:18px;display:grid;place-items:center;
+  background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.23);
+  box-shadow:0 9px 22px rgba(0,0,0,.09)
+}
+.customer-premium .auth-art-meal{font-size:53px;filter:drop-shadow(0 10px 12px rgba(0,0,0,.13))}
+.customer-premium .auth-art-route{display:flex;align-items:center;gap:3px;color:#b8f4cd;font-size:13px}
+.customer-premium .auth-art-route span{letter-spacing:2px}
+.customer-premium .auth-art-rider{animation:gf-ride-gentle 3.2s ease-in-out infinite}
+@keyframes gf-ride-gentle{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.customer-premium .auth-hero-intro{background:#fff;padding:24px 34px 4px}
+.customer-premium .auth-hero-intro h2{color:#0c5136;font-size:26px;letter-spacing:-.04em;margin:0 0 6px;font-weight:850}
+.customer-premium .auth-hero-intro p{margin:0!important;font-size:13px;color:#6b7a70}
+.customer-premium .auth-hero-intro .auth-secure-note{margin:12px 0 0}
+@media(max-width:580px){
+ .customer-premium .auth-brand-hero{margin:0 -16px 18px!important}
+ .customer-premium .auth-hero-brand{padding:20px 15px 10px;min-height:90px}
+ .customer-premium .auth-hero-brand h1{font-size:24px!important}
+ .customer-premium .auth-hero-art{min-height:115px;padding:15px 8px;gap:6px}
+ .customer-premium .auth-art-bag,.customer-premium .auth-art-rider{width:48px;height:48px}
+ .customer-premium .auth-art-route span{letter-spacing:0}
+ .customer-premium .auth-art-meal{font-size:39px}
+ .customer-premium .auth-hero-intro{padding:22px 20px 4px}
+}
+@media(prefers-reduced-motion:reduce){.customer-premium .auth-art-rider{animation:none!important}}
