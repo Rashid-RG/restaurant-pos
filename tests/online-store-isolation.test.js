@@ -14,6 +14,7 @@ const { app, dbReady, dbRun, dbGet } = await import('../server.js');
 
 const tenantA = 'tenant_online_test_A';
 const tenantB = 'tenant_online_test_B';
+let orderAccessA = null;
 const token = (owner, tenantId) => jwt.sign({ id: owner, role: 'owner', tenant_id: tenantId }, process.env.JWT_SECRET);
 const auth = (owner, tenantId) => ({ Authorization: `Bearer ${token(owner, tenantId)}` });
 const storeState = async tenantId => request(app).get('/api/public/menu').query({ tenantId });
@@ -73,6 +74,8 @@ describe('Online storefront SaaS tenant isolation', () => {
   it('A accepts its own real customer orders while B stays closed', async () => {
     const a = await checkout(tenantA, 'qa_store_item_A');
     expect(a.status, a.text).toBe(201);
+    orderAccessA = a.body.trackingToken;
+    expect(orderAccessA).toBeTruthy();
     expect((await dbGet('SELECT tenant_id FROM orders WHERE id=?',[a.body.orderId])).tenant_id).toBe(tenantA);
     const b = await checkout(tenantB, 'qa_store_item_B');
     expect(b.status, b.text).toBe(409);
@@ -83,13 +86,13 @@ describe('Online storefront SaaS tenant isolation', () => {
     const row = await dbGet('SELECT id FROM orders WHERE tenant_id=? ORDER BY timestamp DESC LIMIT 1', [tenantA]);
     expect(row?.id).toBeTruthy();
     const own = await request(app).get('/api/public/orders/' + encodeURIComponent(row.id))
-      .query({tenantId: tenantA});
+      .query({tenantId: tenantA}).set('X-Order-Tracking', orderAccessA);
     expect(own.status, own.text).toBe(200);
     expect(own.body.tenantId).toBe(tenantA);
     expect(own.body.storeName).toBe('QA Online Store A');
     expect(own.body.items[0].name).toBe('Tenant A food');
     const other = await request(app).get('/api/public/orders/' + encodeURIComponent(row.id))
-      .query({tenantId: tenantB});
+      .query({tenantId: tenantB}).set('X-Order-Tracking', orderAccessA);
     expect(other.status).toBe(404);
     expect(other.body.items).toBeUndefined();
   });
