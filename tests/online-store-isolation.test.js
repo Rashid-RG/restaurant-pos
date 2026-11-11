@@ -79,6 +79,21 @@ describe('Online storefront SaaS tenant isolation', () => {
     expect((await dbGet('SELECT COUNT(*) AS count FROM orders WHERE tenant_id=?',[tenantB])).count).toBe(0);
   });
 
+  it('customer receipts name the correct tenant and cannot read another tenant order', async () => {
+    const row = await dbGet('SELECT id FROM orders WHERE tenant_id=? ORDER BY timestamp DESC LIMIT 1', [tenantA]);
+    expect(row?.id).toBeTruthy();
+    const own = await request(app).get('/api/public/orders/' + encodeURIComponent(row.id))
+      .query({tenantId: tenantA});
+    expect(own.status, own.text).toBe(200);
+    expect(own.body.tenantId).toBe(tenantA);
+    expect(own.body.storeName).toBe('QA Online Store A');
+    expect(own.body.items[0].name).toBe('Tenant A food');
+    const other = await request(app).get('/api/public/orders/' + encodeURIComponent(row.id))
+      .query({tenantId: tenantB});
+    expect(other.status).toBe(404);
+    expect(other.body.items).toBeUndefined();
+  });
+
   it('fails closed on forged menu items and missing tenant IDs', async () => {
     expect((await checkout(tenantA, 'qa_store_item_B')).status).toBeGreaterThanOrEqual(400);
     const unknown = await storeState('tenant_unknown_online_store');
