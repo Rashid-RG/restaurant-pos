@@ -2343,6 +2343,16 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
   try {
     const tenantId = req.tenantId || 'default_tenant';
 
+    // Validate tenant-local time zone before persisting either update form.
+    const requestedZone = body.key === 'timeZone' ? body.value : body.timeZone;
+    if (requestedZone !== undefined) {
+      if (typeof requestedZone !== 'string' || requestedZone.length > 100) {
+        return res.status(400).json({ error: 'Invalid restaurant time zone.' });
+      }
+      try { new Intl.DateTimeFormat('en-US', { timeZone: requestedZone }); }
+      catch { return res.status(400).json({ error: 'Invalid restaurant time zone.' }); }
+    }
+
     // 1. Single setting update: { key, value }
     if (body.key !== undefined) {
       await setSetting(tenantId, body.key, body.value);
