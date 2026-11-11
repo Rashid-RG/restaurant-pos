@@ -1653,6 +1653,13 @@ button {
     font-size: 17px !important;
   }
   .receipt-center { text-align: center; }
+  /* Thermal-safe thank-you and system branding; shop branding remains in the header. */
+  .receipt-gratitude { border-top: 1px solid #000; margin-top: 3mm; padding: 2mm 0 3mm; }
+  .receipt-thank-you { font-family: Georgia, 'Times New Roman', serif; font-size: 25px; line-height: 1.15; font-style: italic; font-weight: 800; }
+  .receipt-visit-again { margin-top: 1.5mm; font-size: 12px; font-weight: 700; }
+  .receipt-platform-credit { border-top: 1px dashed #000; padding-top: 2mm; margin-top: 1mm; font-size: 10px; text-align: center; }
+  .receipt-developed-by { margin-top: 1mm; font-size: 9px; }
+  .receipt-print-area.paper-58mm .receipt-thank-you { font-size: 20px; }
   .receipt-divider { border-top: 1px dashed #000; margin: 4px 0; }
   .receipt-row { display: flex; justify-content: space-between; gap: 4px; padding: 1.5px 0; }
   .receipt-totals { font-weight: 800; font-size: 14px; }
