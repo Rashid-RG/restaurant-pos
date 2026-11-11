@@ -6,7 +6,7 @@ import { apiFetch } from '../utils/api.js';
 
 const PHONE_RE = /^(?:\+94|0)7\d{8}$/;
 
-export default function LoginRegisterView({ onSuccess, toast = () => {}, resetToken = null, onResetHandled }) {
+export default function LoginRegisterView({ onSuccess, onBack, toast = () => {}, resetToken = null, onResetHandled }) {
   const { t, dict } = useLang();
   // tab: 'login' | 'register' | 'forgot' | 'reset'
   const [tab, setTab] = useState(resetToken ? 'reset' : 'login');
@@ -207,6 +207,7 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
 
   return (
     <div className="auth-page fade-in auth-reference-page" style={{ padding: '24px 16px' }}>
+      {onBack && <button className="auth-reference-browse" type="button" onClick={onBack}><ArrowLeft size={15}/> Browse stores</button>}
       <div className="auth-logo auth-brand-hero auth-reference-hero" style={{ textAlign: 'center', marginBottom: 24 }}>
         <div className="auth-hero-brand"><div className="auth-brand-symbol"><UtensilsCrossed size={25} strokeWidth={2.2}/></div><div><h1>GastroFlow</h1><span>FOOD · ORDER · TRACK</span></div></div>
         <div className="auth-hero-art auth-hero-image" aria-hidden="true">
