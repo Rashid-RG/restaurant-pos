@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePOS } from '../context/POSContext';
 import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint } from '../utils/printer';
+import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
 
 export function getFoodImageForItem(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
@@ -1548,7 +1549,7 @@ export default function POSView() {
               }}>
                 <div style={{ marginBottom: '16px', fontSize: '13px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px' }}>
                   <div>Cashier: <strong>{activeShift?.username}</strong></div>
-                  <div>Started: <strong>{activeShift ? new Date(activeShift.startTime).toLocaleTimeString() : ''}</strong></div>
+                  <div>Started: <strong>{activeShift ? formatRestaurantTime(activeShift.startTime, restaurantTimeZone(settings), { timeStyle: 'short' }) : ''}</strong></div>
                   <div>Starting Float: <strong>{currencySymbol}{activeShift?.startFloat.toFixed(2)}</strong></div>
                 </div>
 
@@ -1589,8 +1590,8 @@ export default function POSView() {
                   </div>
                   <div>Shift ID: #{shiftReport.shift.id.slice(-6)}</div>
                   <div>Cashier: {shiftReport.shift.username}</div>
-                  <div>Opened: {new Date(shiftReport.shift.startTime).toLocaleString()}</div>
-                  <div>Closed: {new Date(shiftReport.shift.endTime).toLocaleString()}</div>
+                  <div>Opened: {formatRestaurantTime(shiftReport.shift.startTime, restaurantTimeZone(settings))}</div>
+                  <div>Closed: {formatRestaurantTime(shiftReport.shift.endTime, restaurantTimeZone(settings))}</div>
                   <hr style={{ borderStyle: 'dashed' }} />
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>Starting Float:</span>
@@ -1689,7 +1690,7 @@ export default function POSView() {
               {settings?.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
             </div>
             <div className="receipt-divider"></div>
-            <p>Date: {new Date(printReceiptOrder.timestamp || Date.now()).toLocaleString()}</p>
+            <p>Date: {formatRestaurantTime(printReceiptOrder.timestamp || Date.now(), restaurantTimeZone(settings))}</p>
             {printReceiptOrder.invoiceNumber != null && (
               <p><strong style={{ fontSize: '13px' }}>INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</strong></p>
             )}
@@ -1900,7 +1901,7 @@ export default function POSView() {
                           Order #{order.id.slice(-4).toUpperCase()} — {tbl ? `Table ${tbl.number}` : order.diningType}
                         </div>
                         <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                          {order.items?.length || 0} items · {new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {order.items?.length || 0} items · {formatRestaurantTime(order.timestamp, restaurantTimeZone(settings), { timeStyle: 'short' })}
                         </div>
                       </div>
                       <button
