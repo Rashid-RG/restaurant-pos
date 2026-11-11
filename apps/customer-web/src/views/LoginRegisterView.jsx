@@ -116,8 +116,11 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
     try {
       await register(regName, regEmail.trim(), regPhone, regPassword, codeVal);
       onSuccess && onSuccess();
+      return true;
     } catch (err) {
       setError(err.message);
+      return false;
+    } finally {
       setLoading(false);
     }
   };
@@ -127,6 +130,20 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
     setOtpBusy(true);
     try {
       const codeVal = enteredOtp.trim();
+      // Registration consumes its one-time code inside the registration endpoint.
+      // Calling /otp/verify first would consume the code, causing registration to fail.
+      if (tab === 'register') {
+        if (!/^\d{6}$/.test(codeVal)) {
+          setError('Enter the six-digit verification code.');
+          return;
+        }
+        const registered = await doRegister(codeVal);
+        if (registered) {
+          setShowOtpModal(false);
+          setEnteredOtp('');
+        }
+        return;
+      }
       const r = await loginWithOtp(dest, codeVal);
       if (r.loggedIn) {
         setShowOtpModal(false);
@@ -138,13 +155,9 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
         setOtpVerified(true);
         setShowOtpModal(false);
         setEnteredOtp('');
-        if (tab === 'register') {
-          await doRegister(codeVal);
-        } else {
-          toast('OTP verified! Complete your profile below.', 'info');
-          setRegPhone(dest);
-          setTab('register');
-        }
+        toast('OTP verified! Complete your profile below.', 'info');
+        setRegPhone(dest);
+        setTab('register');
       } else {
         toast('Invalid verification code. Please try again.', 'error');
       }
