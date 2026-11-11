@@ -35,6 +35,23 @@ function CompensationEditor({ person, onSave, busy, currency }) {
   </form>;
 }
 
+function ProfileEditor({person, onSave, busy}) {
+  const profile=person.profile || {};
+  const [fullName,setFullName]=useState(profile.fullName || '');
+  const [jobTitle,setJobTitle]=useState(profile.jobTitle || '');
+  const [department,setDepartment]=useState(profile.department || '');
+  const [phone,setPhone]=useState(profile.phone || '');
+  const [employmentDate,setEmploymentDate]=useState(profile.employmentDate || '');
+  return <form className="staff-editor" onSubmit={e=>{e.preventDefault();onSave({fullName,jobTitle,department,phone,employmentDate});}}>
+    <label>Full name<input maxLength="120" value={fullName} onChange={e=>setFullName(e.target.value)}/></label>
+    <label>Job title<input maxLength="100" placeholder="e.g. Chef, Cashier, Supervisor" value={jobTitle} onChange={e=>setJobTitle(e.target.value)}/></label>
+    <label>Department<input maxLength="100" placeholder="e.g. Kitchen, Front of house" value={department} onChange={e=>setDepartment(e.target.value)}/></label>
+    <label>Contact phone<input maxLength="40" value={phone} onChange={e=>setPhone(e.target.value)}/></label>
+    <label>Employment start date<input type="date" value={employmentDate} onChange={e=>setEmploymentDate(e.target.value)}/></label>
+    <button className="btn btn-primary" disabled={busy}><Save size={16}/> Save employee profile</button>
+  </form>;
+}
+
 export default function StaffManagement() {
   const { currentUser, settings, showToast } = usePOS();
   const timeZone = restaurantTimeZone(settings);
@@ -44,6 +61,7 @@ export default function StaffManagement() {
   const [data, setData] = useState({ staff: [], activeClockIns: [] });
   const [attendance, setAttendance] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [editSection, setEditSection] = useState('salary');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -67,6 +85,14 @@ export default function StaffManagement() {
       await payrollApi('/compensation/' + encodeURIComponent(person.userId), {method:'PUT',body:JSON.stringify(configuration)});
       showToast('Pay settings saved for ' + person.username, 'success');
       setSelected(null); await refresh();
+    } catch(e) {showToast(e.message,'error');} finally {setBusy(false);}
+  };
+  const changeProfile = async (person,profile) => {
+    setBusy(true);
+    try {
+      await payrollApi('/profile/'+encodeURIComponent(person.userId),{method:'PUT',body:JSON.stringify(profile)});
+      showToast('Employee profile saved.','success');
+      setSelected(null);await refresh();
     } catch(e) {showToast(e.message,'error');} finally {setBusy(false);}
   };
   const createDraft = async person => {
@@ -116,9 +142,9 @@ export default function StaffManagement() {
       {tab==='team' && <section className="staff-panel">
         <div className="staff-panel-header"><div><h2>Employees</h2><p>Linked to your existing staff login accounts. To create new logins, use Settings → Team.</p></div><label className="staff-find"><Search size={17}/><input aria-label="Search staff" placeholder="Search employees" value={search} onChange={e=>setSearch(e.target.value)}/></label></div>
         <div className="staff-grid">{people.map(person=><article key={person.userId} className="staff-person">
-          <div className="staff-person-top"><span className="staff-avatar">{person.username.slice(0,2).toUpperCase()}</span><div><strong>{person.username}</strong><small>{person.role}</small></div></div>
+          <div className="staff-person-top"><span className="staff-avatar">{person.username.slice(0,2).toUpperCase()}</span><div><strong>{person.profile?.fullName || person.username}</strong><small>{person.profile?.jobTitle || person.role}</small></div></div>
           <dl><div><dt>Pay type</dt><dd>{person.configured ? person.payType : 'Not set'}</dd></div><div><dt>Attendance hours</dt><dd>{person.hours}h</dd></div><div><dt>Estimated pay</dt><dd>{person.configured?money(person.totalPay):'—'}</dd></div></dl>
-          <button className="btn btn-secondary" onClick={()=>setSelected(person.userId)}>Manage salary</button>
+          <div className="staff-person-actions"><button className="btn btn-secondary" onClick={()=>{setEditSection("profile");setSelected(person.userId);}}>Edit profile</button><button className="btn btn-secondary" onClick={()=>{setEditSection("salary");setSelected(person.userId);}}>Manage salary</button></div>
         </article>)}</div>
         {!people.length && <p className="staff-placeholder">No staff accounts found.</p>}
       </section>}
@@ -133,11 +159,11 @@ export default function StaffManagement() {
         <div className="staff-table-scroll"><table className="staff-table"><thead><tr><th>Employee</th><th>Hours</th><th>Base pay</th><th>Allowance</th><th>Deductions</th><th>Estimated total</th><th>Status</th><th>Action</th></tr></thead><tbody>{(data.staff||[]).map(person=><tr key={person.userId}>
           <td><strong>{person.username}</strong></td><td>{person.hours}</td><td>{person.configured?money(person.record?.basicPay??person.basicPay):'—'}</td><td>{person.configured?money(person.record?.allowance??person.allowance):'—'}</td><td>{person.configured?money(person.record?.deduction??person.deduction):'—'}</td><td><strong>{person.configured?money(person.record?.totalPay??person.totalPay):'—'}</strong></td>
           <td><span className={'staff-status '+(person.record?.status||'unset')}>{recordStatus(person.record)}</span></td>
-          <td>{person.record?.status==='paid' ? <span className="staff-paid">Recorded</span> : person.record?.status==='draft' ? (currentUser.role==='owner'?<button className="btn btn-secondary" disabled={busy} onClick={()=>markPaid(person)}>Mark paid</button>:<span>Awaiting owner</span>) : person.configured ? <button className="btn btn-primary" disabled={busy} onClick={()=>createDraft(person)}><FilePlus size={15}/> Create draft</button> : <button className="btn btn-secondary" onClick={()=>{setSelected(person.userId);setTab('team');}}>Set salary</button>}</td>
+          <td>{person.record?.status==='paid' ? <span className="staff-paid">Recorded</span> : person.record?.status==='draft' ? (currentUser.role==='owner'?<button className="btn btn-secondary" disabled={busy} onClick={()=>markPaid(person)}>Mark paid</button>:<span>Awaiting owner</span>) : person.configured ? <button className="btn btn-primary" disabled={busy} onClick={()=>createDraft(person)}><FilePlus size={15}/> Create draft</button> : <button className="btn btn-secondary" onClick={()=>{setEditSection('salary');setSelected(person.userId);setTab('team');}}>Set salary</button>}</td>
         </tr>)}</tbody></table>{!data.staff.length&&<p className="staff-placeholder">No staff accounts available.</p>}</div>
         <p className="staff-disclaimer">GastroFlow only records the payroll calculation and payment acknowledgment; it does not send money, withhold tax, or file government payroll returns.</p>
       </section>}
     </>}
-    {selectedPerson && <div className="staff-overlay" onClick={()=>setSelected(null)} role="presentation"><section className="staff-dialog" role="dialog" aria-modal="true" aria-label="Edit compensation" onClick={e=>e.stopPropagation()}><header><div><h2>{selectedPerson.username}</h2><p>Configure hourly or monthly compensation</p></div><button aria-label="Close" onClick={()=>setSelected(null)}>✕</button></header><CompensationEditor key={selectedPerson.userId} person={selectedPerson} currency={currency} onSave={c=>changePay(selectedPerson,c)} busy={busy}/><p className="staff-disclaimer">Changing pay settings does not update saved payroll records.</p></section></div>}
+    {selectedPerson && <div className="staff-overlay" onClick={()=>setSelected(null)} role="presentation"><section className="staff-dialog" role="dialog" aria-modal="true" aria-label="Edit compensation" onClick={e=>e.stopPropagation()}><header><div><h2>{selectedPerson.profile?.fullName || selectedPerson.username}</h2><p>{editSection === 'salary' ? 'Configure hourly or monthly compensation' : 'Manage this employee profile'}</p></div><button aria-label="Close" onClick={()=>setSelected(null)}>✕</button></header>{editSection === 'salary' ? <CompensationEditor key={selectedPerson.userId} person={selectedPerson} currency={currency} onSave={c=>changePay(selectedPerson,c)} busy={busy}/> : <ProfileEditor key={selectedPerson.userId} person={selectedPerson} onSave={p=>changeProfile(selectedPerson,p)} busy={busy}/>}<p className="staff-disclaimer">Existing staff login accounts, historical attendance and paid payroll records remain unchanged.</p></section></div>}
   </main>;
 }
