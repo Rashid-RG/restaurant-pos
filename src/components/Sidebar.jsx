@@ -33,7 +33,7 @@ export default function Sidebar({ collapsed, onToggle }) {
           {!collapsed && <span><strong>{inPlatform ? 'Open restaurant POS' : 'Open platform admin'}</strong><small style={{display: 'block', fontSize: 11}}>Switch workspace</small></span>}
         </button>
       </div>}
-      {!collapsed && <p className="sidebar-section-label">{inPlatform ? 'PLATFORM OWNER TOOLS' : 'RESTAURANT POS TOOLS'}</p>}
+      {!collapsed && <p className="sidebar-section-label">{platformOwner ? (inPlatform ? 'PLATFORM OWNER TOOLS' : 'RESTAURANT POS TOOLS') : 'WORKSPACE'}</p>}
       <nav className="sidebar-menu">{items.map(item => <button key={item.id} className={`sidebar-item ${activeTab === item.id ? 'active' : ''}`} onClick={() => select(item.id)} title={item.name} aria-current={activeTab === item.id ? 'page' : undefined}><item.icon size={19}/>{!collapsed && <span>{item.name}</span>}</button>)}</nav>
       <div className="sidebar-footer"><button className="sidebar-utility" onClick={clock} title="Clock in or out"><Clock3 size={17}/>{!collapsed && <span>Clock in / out</span>}</button><button className="sidebar-utility" onClick={() => setDarkMode(!darkMode)} aria-label="Toggle color theme">{darkMode ? <Sun size={17}/> : <Moon size={17}/>}{!collapsed && <span>{darkMode ? 'Light appearance' : 'Dark appearance'}</span>}</button><div className="sidebar-account"><span className="account-avatar">{currentUser?.username?.slice(0, 2).toUpperCase()}</span>{!collapsed && <span><strong>{currentUser?.username}</strong><small>{currentUser?.isPlatformAdmin ? 'Platform owner' : currentUser?.role}</small></span>}<button onClick={logout} aria-label="Sign out"><LogOut size={16}/></button></div></div>
     </aside>
