@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { usePOS } from '../context/POSContext';
+import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
 
 export default function Customers() {
   const { customers, saveCustomer, orders, settings } = usePOS();
@@ -295,7 +296,7 @@ export default function Customers() {
                           const t = order.paymentTimestamp || order.timestamp;
                           const n = typeof t === 'number' ? t : Number(t);
                           const d = isNaN(n) ? new Date(t) : new Date(n);
-                          return `${d.toLocaleDateString()} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                          return formatRestaurantTime(d, restaurantTimeZone(settings));
                         })()}
                       </div>
                     </div>
