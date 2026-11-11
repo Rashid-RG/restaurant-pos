@@ -1,3 +1,4 @@
+import { formatRestaurantTime, restaurantTimeZone } from './restaurant-time';
 /**
  * GastroFlow Smart Printer & Paper Size Resolver
  * Auto-detects connected printer type and adjusts receipt dimensions:
@@ -74,7 +75,7 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
           <p style="margin: 2px 0; font-size: 11px;">Profile: ${paper.toUpperCase()} (${paperWidth})</p>
         </div>
         <div class="divider"></div>
-        <div class="row"><span>Date & Time:</span><span>${new Date().toLocaleString()}</span></div>
+        <div class="row"><span>Date & Time:</span><span>${formatRestaurantTime(new Date(), restaurantTimeZone(settings))}</span></div>
         <div class="row"><span>Paper Setting:</span><span class="bold">${paper.toUpperCase()}</span></div>
         <div class="row"><span>Device Width:</span><span>${window.innerWidth}px</span></div>
         <div class="divider"></div>
