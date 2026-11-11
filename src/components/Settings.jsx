@@ -31,7 +31,11 @@ export default function Settings() {
   const isMasterSuperAdmin = currentUser?.isPlatformAdmin === true;
 
   // Settings sub-tab selection: 'business' | 'menu' | 'database'
-  const [subTab, setSubTab] = useState('business');
+  const [subTab, setSubTab] = useState(()=>{
+    const requested=sessionStorage.getItem('gastroflow_settings_tab');
+    sessionStorage.removeItem('gastroflow_settings_tab');
+    return ['online','business','menu','database','users'].includes(requested)?requested:'business';
+  });
 
   // Business config states
   const [bizName, setBizName] = useState(settings.businessName || settings.restaurantName || '');
