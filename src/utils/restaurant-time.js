@@ -46,7 +46,7 @@ export function shiftCalendarDate(day, offset) {
  * Each midnight is resolved independently to support 23/25-hour DST days.
  */
 export function restaurantDayBounds(day, timeZone) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day) || !Number.isFinite(Date.parse(day + 'T00:00:00Z')) ||
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(Date.parse(day + 'T00:00:00Z')) ||
       new Date(day + 'T00:00:00Z').toISOString().slice(0, 10) !== day) {
     throw new RangeError('Invalid calendar date');
   }
