@@ -13,8 +13,10 @@ const ORDER_TYPES = [
 ];
 
 const LOCAL_PAYMENTS = [
-  { id: 'cash', label: 'Cash on Delivery / Pay at Counter', icon: '💵' },
-  { id: 'payhere', label: 'PayHere (Card / eZ Cash / Bank)', icon: '💳' }
+  { id: 'cash', label: 'Pay with cash', icon: '💵', description: 'Cash on delivery, at the counter or at your table.' },
+  { id: 'bank_transfer', label: 'Manual bank transfer (LKR)', icon: '🏦', description: 'Place the order unpaid. Contact the restaurant for bank details; a manager must verify the transfer.' },
+  { id: 'payhere', label: 'Card / PayHere', icon: '💳', description: 'Not available at the moment', disabled: true },
+  { id: 'lankaqr', label: 'LankaQR / mobile wallet', icon: '📱', description: 'Coming soon', disabled: true }
 ];
 
 export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
@@ -275,7 +277,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           promoCode: appliedPromo?.code || null,
           scheduledTime: isScheduled ? scheduledTimeVal : null,
           tip: tipAmount,
-          paymentMethod: paymentMethod === 'payhere' ? 'online_pending' : 'cash'
+          paymentMethod: paymentMethod === 'payhere' ? 'online_pending' : paymentMethod === 'bank_transfer' ? 'bank_transfer' : 'cash'
         };
       const attempt=checkoutIntent(payload);setPendingCheckout(attempt);
       const data=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':attempt.key},body:JSON.stringify({...attempt.payload,customerToken:token||null})});
@@ -337,7 +339,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       } else {
         finishRecovery();clearCart();
         setCartOpen(false);
-        toast('Order placed successfully! 🎉', 'success');
+        toast(paymentMethod === 'bank_transfer' ? 'Order placed, awaiting bank transfer verification. Contact the restaurant for confirmed payment details.' : 'Order placed successfully! 🎉', paymentMethod === 'bank_transfer' ? 'info' : 'success');
         onOrderPlaced && onOrderPlaced(data.orderId);
       }
     } catch (err) {
@@ -351,6 +353,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
+    if (paymentMethod === 'payhere' || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
     if (!name.trim()) { toast('Please enter your name.', 'error'); return; }
     if (!phone.trim()) { toast('Please enter your phone number.', 'error'); return; }
 
@@ -890,20 +893,22 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Payment Method</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            {LOCAL_PAYMENTS.filter(p => p.id !== 'payhere' || rates.payhereEnabled === true).map(p => (
+            {LOCAL_PAYMENTS.map(p => (
               <label 
-                key={p.id} 
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(0,0,0,0.02)', borderRadius: 8, cursor: 'pointer' }}
+                key={p.id}
+                aria-disabled={p.disabled || (p.id === 'payhere' && !rates.payhereEnabled)}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface-2, #f7f7f2)', borderRadius: 12, cursor: p.disabled || (p.id === 'payhere' && !rates.payhereEnabled) ? 'not-allowed' : 'pointer', opacity: p.disabled || (p.id === 'payhere' && !rates.payhereEnabled) ? 0.67 : 1, border: paymentMethod === p.id ? '2px solid var(--brand)' : '1px solid var(--border-color)' }}
               >
                 <input 
                   type="radio" 
                   name="payment" 
                   checked={paymentMethod === p.id}
+                  disabled={p.disabled || (p.id === 'payhere' && !rates.payhereEnabled)}
                   onChange={() => setPaymentMethod(p.id)}
                   style={{ width: 18, height: 18, accentColor: 'var(--brand)' }}
                 />
                 <span style={{ fontSize: '1.25rem' }}>{p.icon}</span>
-                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{p.label}</span>
+                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.description}</small></span>
               </label>
             ))}
           </div>
