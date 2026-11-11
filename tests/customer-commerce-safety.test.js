@@ -1,5 +1,6 @@
 import {describe,it,expect,beforeAll} from 'vitest';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +29,8 @@ beforeAll(async()=>{
   const id='customer_safety_test';
   await dbRun('INSERT OR IGNORE INTO tenants(id,name,subdomain,ownerEmail,plan,status,createdAt) VALUES(?,?,?,?,?,?,?)',
     [id,'Customer safety test',id,'customer-safety@test.invalid','basic','active',Date.now()]);
+  await dbRun('INSERT OR IGNORE INTO menu_items(id,name,price,cost,category,stock,isAvailable,tenant_id) VALUES(?,?,?,?,?,?,?,?)', ['customer_safety_meal','Test rice meal',900,300,'Mains',100,1,'customer_safety_test']);
+  await dbRun('INSERT OR IGNORE INTO users(id,username,passwordHash,role,tenant_id) VALUES(?,?,?,?,?)', ['customer_safety_owner','customer_safety_owner','testhash','owner','customer_safety_test']);
 },30000);
 
 describe('Public customer payment availability and promotional safety',()=>{
