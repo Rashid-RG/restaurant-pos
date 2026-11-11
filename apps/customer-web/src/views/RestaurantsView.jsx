@@ -625,8 +625,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
             <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 14, padding: 14, marginBottom: 20 }}>
               <p style={{ margin: 0, fontSize: '0.86rem', color: '#fef3c7', lineHeight: 1.5 }}>
-                Your current location is <strong>{nearestStore.distanceKm} km</strong> away from our nearest branch (<strong>{nearestStore.name}</strong>).
-                Our maximum delivery radius is <strong>15 km</strong>.
+                {Number.isFinite(Number(nearestStore.distanceKm)) && nearestStore.distanceKm !== null
+                  ? <>Your selected location is <strong>{nearestStore.distanceKm} km</strong> from <strong>{nearestStore.name}</strong>. </>
+                  : <>We could not verify the distance from your selected location to <strong>{nearestStore.name}</strong>. </>}
+                {Number.isFinite(Number(nearestStore.maxDeliveryRadiusKm)) && nearestStore.maxDeliveryRadiusKm > 0
+                  ? <>The delivery radius is <strong>{nearestStore.maxDeliveryRadiusKm} km</strong>.</>
+                  : <>Select a precise address pin to check delivery availability.</>}
               </p>
             </div>
 
