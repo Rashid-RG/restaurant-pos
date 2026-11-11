@@ -1797,6 +1797,9 @@ const requirePlatformAdmin = (req, res, next) => {
 
 // Middleware: Authenticate Customer JWT Token
 // BUG-002 fix: removed hardcoded fallback secret
+const customerSessionVersion = account => crypto.createHmac('sha256', process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET)
+  .update(String(account.passwordHash || '')).digest('hex').slice(0, 24);
+
 const authenticateCustomer = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -1811,7 +1814,8 @@ const authenticateCustomer = (req, res, next) => {
       return res.status(403).json({ error: 'Invalid or expired customer token.' });
     }
     try{
-      const account=await dbGet('SELECT id,name,tenant_id FROM customer_accounts WHERE id=?',[decoded.id]);
+      const account=await dbGet('SELECT id,name,tenant_id,passwordHash FROM customer_accounts WHERE id=?',[decoded.id]);
+      if (!account || decoded.sessionVersion !== customerSessionVersion(account)) return res.status(403).json({error:'Customer session expired. Please sign in again.'});
       if(!account)return res.status(403).json({error:'Customer account is unavailable.'});
       const requested=req.headers['x-tenant-id']||req.query.tenant;
       if(requested&&requested!==account.tenant_id)return res.status(403).json({error:'Customer account belongs to another restaurant.'});
@@ -2755,51 +2759,29 @@ export function normalizeOtpDestination(dest) {
 
 // BUG-011 fix: OTP codes stored HASHED in the memory map (same as DB path).
 // Comparing hash(input) vs stored hash prevents plaintext exposure in process dumps / logs.
-function verifyOTP(destination, code) {
-  if (!destination || !code) return false;
-  const cleanDest = normalizeOtpDestination(destination);
-  const codeHash = hashCode(String(code).trim());
-
-  let entries = otpStore.get(cleanDest);
-  if (!entries) return false;
-  if (!Array.isArray(entries)) entries = [entries]; // backward compatibility check
-
-  const validIndex = entries.findIndex(e => e.expiresAt >= Date.now() && e.codeHash === codeHash);
-  if (validIndex !== -1) {
-    entries.splice(validIndex, 1); // Consume single-use code
-    otpStore.set(cleanDest, entries);
-    return true;
-  }
-  return false;
+// Purpose-bound, single-use OTP in shared storage (not process-local memory).
+async function verifyOTPAsync(destination, code, purpose) {
+  if (!destination || !/^\\d{6}$/.test(String(code)) || !['login','phone_verify'].includes(purpose)) return false;
+  const normalized = normalizeOtpDestination(destination);
+  const alt = normalized.startsWith('+94') ? '0' + normalized.slice(3) : normalized;
+  const row = await dbGet(
+    `SELECT id FROM otp_codes WHERE (LOWER(destination)=? OR destination=?)
+      AND purpose=? AND codeHash=? AND expiresAt>? AND consumedAt IS NULL
+      AND COALESCE(attempts,0)<5 ORDER BY createdAt DESC LIMIT 1`,
+    [normalized, alt, purpose, hashCode(String(code)), Date.now()]
+  );
+  if (!row) return false;
+  const updated = await dbRun('UPDATE otp_codes SET consumedAt=? WHERE id=? AND consumedAt IS NULL', [Date.now(), row.id]);
+  return updated?.changes === undefined ? true : updated.changes === 1;
 }
 
-async function verifyOTPAsync(destination, code) {
-  if (!destination || !code) return false;
-  if (verifyOTP(destination, code)) return true;
-
-  try {
-    const cleanDest = normalizeOtpDestination(destination);
-    const cleanPhoneAlt = cleanDest.startsWith('+94') ? '0' + cleanDest.slice(3) : cleanDest;
-    const codeHash = hashCode(String(code).trim());
-
-    const dbOtp = await dbGet(
-      `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ? OR destination = ?) AND codeHash = ? AND expiresAt >= ?`,
-      [cleanDest, cleanDest, cleanPhoneAlt, codeHash, Date.now()]
-    );
-    if (dbOtp) {
-      await dbRun('DELETE FROM otp_codes WHERE id = ?', [dbOtp.id]);
-      return true;
-    }
-  } catch (e) {}
-
-  return false;
-}
 
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
 // BUG-008 fix: use the stricter otpLimiter (3 sends / 10 min) instead of the general publicApiLimiter
 app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) => {
   try {
     const { channel, destination, phone, email, purpose = 'phone_verify' } = req.body || {};
+    if (!['login','phone_verify'].includes(purpose)) return res.status(400).json({ error: 'Invalid verification purpose.' });
     const target = destination || email || phone;
     if (!target || !String(target).trim()) {
       return res.status(400).json({ error: 'Email address or phone number is required.' });
@@ -2815,21 +2797,17 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
     // Enforcement: Only registered users can request a login OTP
     if (purpose === 'login') {
       const existingAccount = await dbGet(
-        `SELECT id FROM customer_accounts WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, cleanDest]
+        `SELECT id FROM customer_accounts WHERE tenant_id=? AND (LOWER(phone)=? OR LOWER(email)=? OR phone=?)`,
+        [await resolvePublicTenant(req), cleanDest, cleanDest, cleanDest]
       );
-      const existingCustomer = existingAccount || await dbGet(
-        `SELECT id FROM customers WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, cleanDest]
-      );
-      if (!existingCustomer) {
+      if (!existingAccount) {
         return res.status(404).json({
           error: 'No registered account found with this phone or email. Please register your account first.'
         });
       }
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = String(crypto.randomInt(100000, 1000000));
     const expiresAt = Date.now() + 10 * 60 * 1000;
 
     // Clean up expired codes only (keep active valid codes so re-sends don't invalidate codes in transit)
@@ -2863,7 +2841,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
       try {
         const sendPromise = sendEmail({
           to: cleanDest,
-          subject: `Your ${storeName} verification code: ${code}`,
+          subject: `Your ${storeName} verification code`,
           html,
           text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
         });
@@ -2872,7 +2850,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 
         if (sendRes && sendRes.success) {
           emailSent = true;
-          console.log(`[OTP EMAIL SUCCESS] Delivered to ${cleanDest} | Code: ${code}`);
+          console.log('[OTP EMAIL SUCCESS] Verification email submitted.');
         } else {
           emailError = sendRes?.error || (sendRes?.timeout ? 'Connection timeout' : 'SMTP send failed');
           console.warn(`[OTP EMAIL WARNING] Failed sending to ${cleanDest}:`, emailError);
@@ -2931,21 +2909,21 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
     const isEmail = target.includes('@');
     const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
 
-    const isValid = await verifyOTPAsync(cleanDest, code);
+    const isValid = await verifyOTPAsync(cleanDest, code, 'login');
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid or expired verification code.' });
     }
 
     // Check if account already exists
     const customer = await dbGet(
-      'SELECT * FROM customer_accounts WHERE email = ? OR phone = ?',
-      [cleanDest, cleanDest]
+      'SELECT * FROM customer_accounts WHERE tenant_id=? AND (LOWER(email)=? OR phone=?)',
+      [await resolvePublicTenant(req), cleanDest, cleanDest]
     );
 
     if (customer) {
       const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
       const token = jwt.sign(
-        { id: customer.id, phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
+        { id: customer.id, tenantId: customer.tenant_id, sessionVersion: customerSessionVersion(customer), phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
         secret,
         { expiresIn: '7d' }
       );
@@ -2964,7 +2942,7 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
       });
     }
 
-    return res.json({ verified: true, loggedIn: false, destination: cleanDest });
+    return res.status(404).json({ error: 'No customer account for this restaurant. Please register.' });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -2990,7 +2968,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
   // Verify OTP (allow either phone or email verification)
-  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode)));
+  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode, 'phone_verify')) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode, 'phone_verify')));
   if (!isOtpValid) {
     return res.status(400).json({ error: 'Invalid or expired verification code.' });
   }
@@ -3043,7 +3021,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
-      { id, phone: cleanPhone, name: name.trim(), type: 'customer' },
+      { id, tenantId, sessionVersion: customerSessionVersion({passwordHash}), phone: normPhone || cleanPhone, name: name.trim(), type: 'customer' },
       secret,
       { expiresIn: '7d' }
     );
@@ -3065,7 +3043,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 });
 
 // POST /api/customer/auth/login
-app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
+app.post('/api/customer/auth/login', authLimiter, async (req, res) => {
   const { phone, password } = req.body;
   if (!phone || !password) {
     return res.status(400).json({ error: 'Phone number and password are required.' });
@@ -3074,7 +3052,9 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
   const cleanPhone = phone.replace(/[\s-]/g, '');
 
   try {
-    const customer = await dbGet('SELECT * FROM customer_accounts WHERE phone = ?', [cleanPhone]);
+    const tenantId = await resolvePublicTenant(req);
+    const customer = await dbGet('SELECT * FROM customer_accounts WHERE tenant_id=? AND (phone=? OR phone=?)',
+      [tenantId, normalizeLkPhone(cleanPhone), cleanPhone]);
     if (!customer) {
       return res.status(401).json({ error: 'Invalid phone number or password.' });
     }
@@ -3084,7 +3064,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
     }
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
-      { id: customer.id, phone: customer.phone, name: customer.name, type: 'customer' },
+      { id: customer.id, tenantId: customer.tenant_id, sessionVersion: customerSessionVersion(customer), phone: customer.phone, name: customer.name, type: 'customer' },
       secret,
       { expiresIn: '7d' }
     );
