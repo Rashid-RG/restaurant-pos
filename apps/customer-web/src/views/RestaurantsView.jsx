@@ -339,6 +339,23 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     fetchRestaurants(activeCoords);
   }, []);
 
+  // Keep public store-open statuses current when another tab or owner POS
+  // toggles availability. Browsing does not require GPS permission.
+  useEffect(() => {
+    const reload = () => {
+      if (document.visibilityState !== 'visible') return;
+      let lastCoords = null;
+      try {
+        const saved = JSON.parse(localStorage.getItem('gastroflow_user_coords') || 'null');
+        if (saved && Number.isFinite(saved.lat) && Number.isFinite(saved.lng)) lastCoords = saved;
+      } catch (_) {}
+      fetchRestaurants(lastCoords);
+    };
+    const interval = window.setInterval(reload, 45000);
+    window.addEventListener('focus', reload);
+    return () => { window.clearInterval(interval); window.removeEventListener('focus', reload); };
+  }, []);
+
   const [sortBy, setSortBy] = useState('recommendation');
 
   // Strict deduplication helper
