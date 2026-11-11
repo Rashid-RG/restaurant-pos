@@ -54,7 +54,7 @@ describe('Public customer payment availability and promotional safety',()=>{
       .send({items:[{menuItemId:'customer_safety_meal',quantity:1}],
         orderType:'takeaway',customerName:'Checkout Tester',
         customerPhone:'0771234567',paymentMethod:'bank_transfer'});
-    expect(order.status,JSON.stringify(order.body)).toBe(200);
+    expect(order.status,JSON.stringify(order.body)).toBe(201);
     const result=await request(app).get('/api/public/orders/'+order.body.orderId)
       .set('X-Tenant-Id',tenant).set('X-Order-Tracking',order.body.trackingToken);
     expect(result.status).toBe(200);
