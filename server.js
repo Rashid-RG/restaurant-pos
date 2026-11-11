@@ -2353,7 +2353,14 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
 app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const body = req.body || {};
   try {
-    const tenantId = req.tenantId || 'default_tenant';
+    const tenantId = req.tenantId;
+    // Tenant identity is derived only from the authenticated staff session.
+    if (!tenantId || (body.expectedTenantId && String(body.expectedTenantId) !== tenantId)) {
+      return res.status(409).json({ error: 'Restaurant session mismatch. Reload your workspace and sign in again.', code: 'TENANT_MISMATCH' });
+    }
+    if (body.key === 'storeOpen' && !['true', 'false'].includes(String(body.value))) {
+      return res.status(400).json({ error: 'Invalid online store status.' });
+    }
 
     // Validate tenant-local time zone before persisting either update form.
     const requestedZone = body.key === 'timeZone' ? body.value : body.timeZone;
@@ -2369,12 +2376,17 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
     if (body.key !== undefined) {
       await setSetting(tenantId, body.key, body.value);
       notifyPublicStore({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
+      if (body.key === 'storeOpen') notifyPublicStore({ type: 'store_update', storeOpen: body.value === 'true' }, tenantId);
       notifyPOS({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
-      return res.json({ success: true, key: body.key, value: body.value });
+      return res.set('Cache-Control', 'no-store').json({ success: true, tenantId, key: body.key, value: body.value });
     }
 
     // 2. Bulk settings update: { businessName, address, phone, logoUrl, ... }
-    const settingsEntries = Object.entries(body).filter(([k]) => k !== 'tenant_id' && k !== 'id');
+    const settingsEntries = Object.entries(body).filter(([k]) => !['tenant_id','tenantId','id','expectedTenantId'].includes(k));
+    const requestedStoreStatus = settingsEntries.find(([k]) => k === 'storeOpen');
+    if (requestedStoreStatus && !['true','false'].includes(String(requestedStoreStatus[1]))) {
+      return res.status(400).json({ error: 'Invalid online store status.' });
+    }
     if (settingsEntries.length === 0) {
       return res.status(400).json({ error: 'No settings provided.' });
     }
@@ -2382,10 +2394,11 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
     for (const [k, v] of settingsEntries) {
       await setSetting(tenantId, k, v);
       notifyPublicStore({ type: 'settings_updated', key: k, value: v }, tenantId);
+      if (k === 'storeOpen') notifyPublicStore({ type: 'store_update', storeOpen: v === 'true' }, tenantId);
       notifyPOS({ type: 'settings_updated', key: k, value: v }, tenantId);
     }
 
-    res.json({ success: true, count: settingsEntries.length });
+    res.set('Cache-Control', 'no-store').json({ success: true, tenantId, count: settingsEntries.length });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
