@@ -2124,6 +2124,17 @@ app.get('/api/timeclock/status', authenticateToken, async (req, res) => {
   }
 });
 
+// Staff can view only their own recent attendance, scoped through authenticated user and tenant.
+app.get('/api/timeclock/mine', authenticateToken, async (req, res) => {
+  try {
+    const rows = await dbAll(`SELECT t.id,t.clockIn,t.clockOut,t.durationMinutes
+      FROM timeclock_entries t JOIN users u ON u.id=t.userId
+      WHERE t.userId=? AND u.tenant_id=?
+      ORDER BY t.clockIn DESC LIMIT 30`, [req.user.id,req.tenantId]);
+    res.json(rows);
+  } catch (err) { res.status(500).json({error:errMsg(err)}); }
+});
+
 // Get All Shift Entries (Owner / Manager)
 app.get('/api/timeclock/entries', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
