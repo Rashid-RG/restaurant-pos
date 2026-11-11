@@ -23,7 +23,7 @@ import Login from './components/Login';
 import StoreStatusScreen from './components/StoreStatusScreen';
 
 function AppContent() {
-  const { activeTab, loading, currentUser, tenantLock, setTenantLock, logout, platformBroadcast, setPlatformBroadcast } = usePOS();
+  const { activeTab, loading, sessionChecking, currentUser, tenantLock, setTenantLock, logout, platformBroadcast, setPlatformBroadcast } = usePOS();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // If the store is suspended or deleted, display full-screen status view immediately
@@ -50,6 +50,10 @@ function AppContent() {
         }}
       />
     );
+  }
+
+  if (sessionChecking) {
+    return <div className="loader-container" role="status" aria-live="polite"><div className="spinner"></div><p>Restoring your saved session...</p></div>;
   }
 
   if (!currentUser) {
