@@ -2,7 +2,7 @@ import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePOS } from '../context/POSContext';
-import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt } from '../utils/printer';
+import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt, printSelectedReceipt } from '../utils/printer';
 import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
 
 export function getFoodImageForItem(item) {
@@ -1675,13 +1675,11 @@ export default function POSView() {
 
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => {
-                    document.body.classList.add('printing-receipt');
-                    prepareThermalPrint('#z-report-print', settings?.printerPaperWidth || '80mm');
-                    window.print();
-                    setTimeout(() => {
-                      document.body.classList.remove('printing-receipt');
-                      cleanupThermalPrint();
-                    }, 1200);
+                    // A Z-Report is a standalone receipt, never print the entire POS window.
+                    // The previous global print mode could generate blank or oversized pages.
+                    if (!printSelectedReceipt('#z-report-print', settings?.printerPaperWidth || '80mm')) {
+                      showToast('Z-Report is not ready for printing. Please reopen the report and try again.', 'error');
+                    }
                   }}>
                     🖨️ Print Z-Report
                   </button>

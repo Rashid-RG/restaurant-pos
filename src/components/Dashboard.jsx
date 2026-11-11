@@ -319,6 +319,9 @@ export default function Dashboard() {
 
   // ─── PDF Print via Clean Popup Window (bypasses viewport/overflow constraints) ───
   const handlePrintPdf = () => {
+    // The audit is an A4 document, NOT a thermal receipt. Sending it to a
+    // POS-58/POS-80 can feed multiple long pages of blank thermal paper.
+    if (!window.confirm('Sales Audit is an A4 report. Choose an A4 printer or “Save as PDF” in the print dialog. Do NOT select your thermal receipt printer. Continue?')) return;
     const printArea = document.getElementById('sales-audit-report-printable');
     const content = printArea ? printArea.innerHTML : '<p>Report not available</p>';
 
@@ -1508,7 +1511,7 @@ export default function Dashboard() {
                 const totalTax = todayOrders.reduce((acc, o) => acc + (o.tax || 0), 0);
 
                 return (
-                  <div style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div id="x-report-print" style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div style={{ background: 'var(--bg-surface)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mid-Shift Sales Snapshot</div>
                       <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-primary)', marginTop: '4px' }}>{formatCurrency(todayRev)}</div>
@@ -1537,7 +1540,11 @@ export default function Dashboard() {
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                      <button className="btn btn-secondary" onClick={() => window.print()}>🖨️ Print X-Report</button>
+                      <button className="btn btn-secondary" onClick={() => {
+                        if (!printSelectedReceipt('#x-report-print', settings?.printerPaperWidth || '80mm')) {
+                          showToast('X-Report has not rendered. Reopen it and retry printing.', 'error');
+                        }
+                      }}>🖨️ Print X-Report</button>
                       <button className="btn btn-primary" onClick={() => setShowXReportModal(false)}>Close</button>
                     </div>
                   </div>
