@@ -1,38 +1,41 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {printRenderedReceipt} from '../src/utils/printer.js';
+import {printRenderedReceipt,buildStandaloneReceiptDocument} from '../src/utils/printer.js';
 
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 
-describe('Production receipt print safety',()=>{
-  it('refuses to print an unrendered or empty bill',()=>{
+describe('POS-80 receipt print isolation',()=>{
+  it('will not print if a customer bill is missing or has not rendered',()=>{
     const printer=vi.fn();
     vi.stubGlobal('window',{print:printer});
     vi.stubGlobal('document',{getElementById:()=>null});
     expect(printRenderedReceipt()).toBe(false);
     expect(printer).not.toHaveBeenCalled();
   });
-  it('prints a populated bill and restores CSS on afterprint',()=>{
-    const printer=vi.fn(),handlers=new Map();
-    const classes=new Set();
-    const doc={
-      body:{classList:{
-        toggle:(name,on)=>on?classes.add(name):classes.delete(name),
-        add:name=>classes.add(name),
-        remove:(...names)=>names.forEach(name=>classes.delete(name))
-      }},
-      head:{appendChild:vi.fn()},
-      createElement:()=>({id:'',innerHTML:''}),
-      getElementById:id=>id==='receipt-print-root'
-        ? {querySelector:()=>({textContent:'Test restaurant | Rice x2 | Total Rs. 1500 | Paid',offsetHeight:275,scrollHeight:275})}
-        : null
-    };
-    vi.stubGlobal('document',doc);
+  it('generates standalone Edge document without app hide/print CSS',()=>{
     vi.stubGlobal('localStorage',{getItem:()=>null});
-    vi.stubGlobal('window',{print:printer,addEventListener:(key,fn)=>handlers.set(key,fn),removeEventListener:(key)=>handlers.delete(key)});
-    expect(printRenderedReceipt('80mm')).toBe(true);
-    expect(printer).toHaveBeenCalledOnce();
-    expect(classes.has('printing-receipt')).toBe(true);
-    handlers.get('afterprint')();
-    expect(classes.has('printing-receipt')).toBe(false);
+    const html=buildStandaloneReceiptDocument('<div class="receipt-print-area">Rice x2 &amp; Cash Rs. 1500</div>','80mm');
+    expect(html).toContain('GastroFlow POS Bill');
+    expect(html).toContain('@page{size:80mm 180mm');
+    expect(html).toContain('Rice x2 &amp; Cash Rs. 1500');
+    expect(html).not.toContain('body:not(.printing-receipt)');
+    expect(html).not.toContain('body:has(');
+    expect(html).toContain('visibility:visible!important');
+  });
+  it('prints a populated manual POS bill from a separate window rather than the app',async()=>{
+    vi.useFakeTimers();
+    const print=vi.fn(),parentPrint=vi.fn();
+    const popupDoc={open:vi.fn(),write:vi.fn(),close:vi.fn(),images:[],fonts:{ready:Promise.resolve()}};
+    const popup={document:popupDoc,focus:vi.fn(),print,closed:false};
+    vi.stubGlobal('localStorage',{getItem:()=>null});
+    vi.stubGlobal('window',{open:vi.fn(()=>popup),print:parentPrint});
+    vi.stubGlobal('document',{getElementById:id=>id==='receipt-print-root'
+      ? {querySelector:()=>({textContent:'Shop | Fried rice x2 | Paid Rs. 1500',
+          outerHTML:'<div class="receipt-print-area">Shop | Fried rice x2 | Paid Rs. 1500</div>'})}
+      : null});
+    expect(printRenderedReceipt('80mm',{userInitiated:true})).toBe(true);
+    expect(popupDoc.write).toHaveBeenCalledOnce();
+    expect(parentPrint).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(print).toHaveBeenCalledOnce();
   });
 });
