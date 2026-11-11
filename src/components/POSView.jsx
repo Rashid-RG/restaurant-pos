@@ -2,7 +2,7 @@ import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePOS } from '../context/POSContext';
-import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint } from '../utils/printer';
+import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt } from '../utils/printer';
 import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
 
 export function getFoodImageForItem(item) {
@@ -177,28 +177,17 @@ export default function POSView() {
   const [printReceiptOrder, setPrintReceiptOrder] = useState(null);
   const [lastPaidOrder, setLastPaidOrder] = useState(null);
 
-  // Auto-print receipt only when a new payment is completed.
-  // autoPrintRef.current is set to true in handlePaymentComplete and false on
-  // manual reprints (“Last Bill” button), preventing the double-print bug.
+  // Print only after the paid receipt has been committed to React's print portal.
   useEffect(() => {
-    if (printReceiptOrder && autoPrintRef.current) {
-      autoPrintRef.current = false;
-      const is58mm = settings.printerPaperWidth === '58mm';
-      if (is58mm) document.body.classList.add('print-58mm');
-      else document.body.classList.remove('print-58mm');
-      document.body.classList.add('printing-receipt');
-      const timer = setTimeout(() => {
-        prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
-        window.print();
-        setTimeout(() => {
-          document.body.classList.remove('print-58mm');
-          document.body.classList.remove('printing-receipt');
-          cleanupThermalPrint();
-        }, 1200);
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [printReceiptOrder]);
+    if (!printReceiptOrder || !autoPrintRef.current) return;
+    autoPrintRef.current=false;
+    const timer=setTimeout(() => {
+      if (!printRenderedReceipt(settings?.printerPaperWidth || '80mm')) {
+        showToast('The bill was not ready to print. Open Last Bill and try Print Receipt again.','error');
+      }
+    },500);
+    return ()=>clearTimeout(timer);
+  },[printReceiptOrder]);
 
   const currencySymbol = settings.currencySymbol || 'Rs.';
 
@@ -1429,17 +1418,9 @@ export default function POSView() {
                 className="btn btn-secondary" 
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                 onClick={() => {
-                  const is58mm = settings?.printerPaperWidth === '58mm';
-                  if (is58mm) document.body.classList.add('print-58mm');
-                  else document.body.classList.remove('print-58mm');
-                  document.body.classList.add('printing-receipt');
-                  prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
-                  window.print();
-                  setTimeout(() => {
-                    document.body.classList.remove('print-58mm');
-                    document.body.classList.remove('printing-receipt');
-                    cleanupThermalPrint();
-                  }, 1200);
+                  if(!printRenderedReceipt(settings?.printerPaperWidth || '80mm')){
+                    showToast('Cannot print: receipt content is missing. Reopen this paid bill and retry.','error');
+                  }
                 }}
               >
                 🖨️ Print Receipt
