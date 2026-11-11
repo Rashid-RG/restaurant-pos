@@ -8,8 +8,15 @@ import { formatRestaurantTime, restaurantTimeZone } from './restaurant-time';
  */
 
 export function resolvePrinterPaperSize(settingValue) {
-  const localPref = typeof window !== 'undefined' ? localStorage.getItem('gastroflow_printer_paper') : null;
-  const choice = localPref || settingValue || 'auto';
+  // An explicit restaurant setting must win over an old browser preference.
+  // A stale preference (including 'a4') used to silently force long/blank rolls.
+  let localPref = null;
+  if (typeof window !== 'undefined') {
+    try { localPref = window.localStorage?.getItem('gastroflow_printer_paper'); } catch (_) {}
+  }
+  const choice = settingValue && settingValue !== 'auto'
+    ? settingValue
+    : (localPref && localPref !== 'auto' ? localPref : 'auto');
 
   if (choice === '58mm' || choice === '80mm' || choice === 'a4') {
     return choice;
@@ -282,7 +289,8 @@ export function fitStandaloneReceiptPage(doc, paperSetting = '80mm') {
   if (paper === 'a4') return true;
   const width = paper === '58mm' ? 58 : 80;
   // Ensure all dimensions are measured with actual receipt wrapping after fonts load.
-  const px = Math.max(receipt.scrollHeight, receipt.getBoundingClientRect().height);
+  const rectHeight = typeof receipt.getBoundingClientRect === 'function' ? receipt.getBoundingClientRect().height : 0;
+  const px = Math.max(receipt.scrollHeight || 0, rectHeight || 0);
   if (!Number.isFinite(px) || px <= 0) return false;
   const mm = Math.max(35, Math.ceil(px * 25.4 / 96) + 5);
   let style = doc.getElementById('receipt-content-page-size');
@@ -291,9 +299,9 @@ export function fitStandaloneReceiptPage(doc, paperSetting = '80mm') {
     style.id = 'receipt-content-page-size';
     doc.head.appendChild(style);
   }
-  // A length longer than the printer supports should paginate, not request an
-  // enormous single page. Receipts below 600 mm use exactly one fitted page.
-  style.textContent = '@page { size: ' + width + 'mm ' + Math.min(mm, 600) + 'mm !important; margin: 0 !important; }';
+  // Limit one thermal page to 300mm. For large orders, let the browser
+  // paginate rather than requesting a single exceptionally long paper feed.
+  style.textContent = '@page { size: ' + width + 'mm ' + Math.min(mm, 300) + 'mm !important; margin: 0 !important; }';
   return true;
 }
 let activePrintFrame=null;
@@ -332,7 +340,6 @@ export function printRenderedReceipt(paperSetting='80mm',options={}) {
   frame.title='GastroFlow POS receipt';
   frame.setAttribute('aria-hidden','true');
   frame.style.cssText='position:fixed;left:0;top:0;width:80mm;height:150mm;border:0;opacity:0;pointer-events:none;z-index:-1';
-  document.body.appendChild(frame);
   activePrintFrame=frame;
   let launched=false;
   const finish=()=>{
@@ -357,7 +364,10 @@ export function printRenderedReceipt(paperSetting='80mm',options={}) {
       setTimeout(finish,30000);
     }catch(error){console.error('[GastroFlow] Bill print failed',error);finish();}
   };
+  // Configure srcdoc and its load handler *before* insertion. Otherwise the
+  // initial about:blank iframe load can win the race and print a blank frame.
   frame.srcdoc=html;
+  document.body.appendChild(frame);
   return true;
 }
 
