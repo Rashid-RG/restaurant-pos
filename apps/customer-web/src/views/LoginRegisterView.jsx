@@ -75,7 +75,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
     const cleanPhone = regPhone.replace(/[\s-]/g, '');
     if (!PHONE_RE.test(cleanPhone)) { setError('Please enter a valid Sri Lankan mobile number (e.g. 0771234567).'); return; }
     if (regPassword !== regConfirm) { setError('Passwords do not match.'); return; }
-    if (regPassword.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (regPassword.length < 10) { setError('Use a password of at least 10 characters.'); return; }
 
     // Verification via selected OTP channel (Email or SMS)
     if (!otpVerified) {
@@ -94,12 +94,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           body: JSON.stringify({ channel: isEmailChannel ? 'email' : 'sms', destination: dest, purpose: 'phone_verify' })
         });
         setActiveOtpDestination(dest);
-        if (r.otpCode) {
-          setEnteredOtp(r.otpCode);
-          toast(`Verification code: ${r.otpCode} (Auto-filled)`, 'success', 8000);
-        } else {
-          toast(`Code sent to ${dest}.`, 'info', 8000);
-        }
+        toast(`If delivery succeeds, enter the code sent to ${dest}.`, 'info', 8000);
         setShowOtpModal(true);
       } catch (err) {
         setError(err.message || 'Could not send verification code.');
@@ -124,30 +119,29 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   };
 
   const verifyOtp = async () => {
-    const dest = activeOtpDestination || (tab === 'otp_login' ? loginPhone.trim() : regPhone.replace(/[\s-]/g, ''));
+    const dest = activeOtpDestination || loginPhone.trim();
+    const codeVal = enteredOtp.trim();
+    if (!/^\\d{6}$/.test(codeVal)) {
+      toast('Enter the six-digit verification code.', 'warning');
+      return;
+    }
     setOtpBusy(true);
     try {
-      const codeVal = enteredOtp.trim();
-      const r = await loginWithOtp(dest, codeVal);
-      if (r.loggedIn) {
+      if (tab === 'register') {
+        // Registration consumes the code at /customer/auth/register.
+        // Calling /otp/verify first would consume it prematurely and fail signup.
+        await doRegister(codeVal);
         setShowOtpModal(false);
         setEnteredOtp('');
-        toast('ℹ️ Account Already Exists — Logged into your existing account!', 'info', 6000);
+        return;
+      }
+      const result = await loginWithOtp(dest, codeVal);
+      if (result.loggedIn && result.token) {
+        setShowOtpModal(false);
+        setEnteredOtp('');
         onSuccess && onSuccess();
-      } else if (r.verified) {
-
-        setOtpVerified(true);
-        setShowOtpModal(false);
-        setEnteredOtp('');
-        if (tab === 'register') {
-          await doRegister(codeVal);
-        } else {
-          toast('OTP verified! Complete your profile below.', 'info');
-          setRegPhone(dest);
-          setTab('register');
-        }
       } else {
-        toast('Invalid verification code. Please try again.', 'error');
+        toast('No account found for this restaurant. Please register.', 'warning');
       }
     } catch (err) {
       toast(err.message || 'Verification failed.', 'error');
@@ -178,7 +172,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const handleReset = async (e) => {
     e.preventDefault();
     setError('');
-    if (resetPassword.length < 6) { setError('New password must be at least 6 characters.'); return; }
+    if (resetPassword.length < 10) { setError('New password must be at least 10 characters.'); return; }
     setLoading(true);
     try {
       const body = resetTokenVal
@@ -344,12 +338,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
                   body: JSON.stringify({ channel, destination: dest, purpose: 'login' })
                 });
                 setActiveOtpDestination(dest);
-                if (r.otpCode) {
-                  setEnteredOtp(r.otpCode);
-                  toast(`Verification code: ${r.otpCode} (Auto-filled)`, 'success', 8000);
-                } else {
-                  toast(`Verification code sent to ${dest}!`, 'info');
-                }
+                toast(`If delivery succeeds, enter the code sent to ${dest}.`, 'info');
                 setShowOtpModal(true);
               } catch (err) {
                 if (err.message && (err.message.includes('No registered account') || err.message.includes('register your account') || err.message.includes('not found'))) {
@@ -410,7 +399,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Password</label>
             <div style={{ position: 'relative' }}>
-              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Minimum 6 characters" value={regPassword} onChange={e => setRegPassword(e.target.value)} style={{ paddingRight: 40 }} />
+              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Minimum 10 characters" value={regPassword} onChange={e => setRegPassword(e.target.value)} style={{ paddingRight: 40 }} />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -545,7 +534,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           )}
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>New Password</label>
-            <input className="form-control" type="password" required placeholder="Minimum 6 characters" value={resetPassword} onChange={e => setResetPassword(e.target.value)} />
+            <input className="form-control" type="password" required placeholder="Minimum 10 characters" value={resetPassword} onChange={e => setResetPassword(e.target.value)} />
           </div>
           <div style={{ marginTop: 16 }}>
             <button type="submit" className="btn btn-brand" disabled={loading} style={{ width: '100%', padding: 12 }}>
