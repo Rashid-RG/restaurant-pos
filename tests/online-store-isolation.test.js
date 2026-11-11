@@ -72,7 +72,7 @@ describe('Online storefront SaaS tenant isolation', () => {
 
   it('A accepts its own real customer orders while B stays closed', async () => {
     const a = await checkout(tenantA, 'qa_store_item_A');
-    expect(a.status, a.text).toBe(200);
+    expect(a.status, a.text).toBe(201);
     expect((await dbGet('SELECT tenant_id FROM orders WHERE id=?',[a.body.orderId])).tenant_id).toBe(tenantA);
     const b = await checkout(tenantB, 'qa_store_item_B');
     expect(b.status, b.text).toBe(409);
