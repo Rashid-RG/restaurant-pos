@@ -27,6 +27,7 @@ describe('Production receipt print safety',()=>{
         : null
     };
     vi.stubGlobal('document',doc);
+    vi.stubGlobal('localStorage',{getItem:()=>null});
     vi.stubGlobal('window',{print:printer,addEventListener:(key,fn)=>handlers.set(key,fn),removeEventListener:(key)=>handlers.delete(key)});
     expect(printRenderedReceipt('80mm')).toBe(true);
     expect(printer).toHaveBeenCalledOnce();
