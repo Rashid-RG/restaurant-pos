@@ -1,0 +1,76 @@
+/* GastroFlow Customer motion and icon system — lightweight, transform/opacity only.
+   Shipped after existing styles, so menu, checkout, tracking and account look cohesive. */
+:root{--brand:#195f48;--brand-dark:#104734;--brand-light:#e5f3e9;--brand-gradient:linear-gradient(135deg,#174b3a 0%,#257b54 100%);--surface-1:#fff;--surface-2:#f7f8f3;--bg-card:#fff;--text-1:#1b3027;--text-muted:#65786d;--border-color:#dde8dd}
+@keyframes gf-appear{from{opacity:0;transform:translate3d(0,12px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+@keyframes gf-rise{from{opacity:0;transform:translate3d(0,20px,0) scale(.985)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
+@keyframes gf-draw{from{transform:scaleX(.92);opacity:.65}to{transform:scaleX(1);opacity:1}}
+@keyframes gf-status{0%,100%{box-shadow:0 0 0 0 rgba(25,95,72,.22)}55%{box-shadow:0 0 0 7px rgba(25,95,72,0)}}
+.customer-premium{width:100%;max-width:1280px!important;min-height:100dvh;background:#f7f8f3;overflow-x:clip;color:#1b3027}
+.customer-premium .top-header{background:rgba(247,248,243,.96)!important;backdrop-filter:blur(18px);border-bottom:1px solid #dce8dc;z-index:90;min-height:70px}
+.customer-premium .top-header .header-actions{gap:8px}
+.customer-premium .top-header .icon-btn{border:1px solid #dce8dc!important;background:#fff!important;color:#195f48!important;transition:transform .18s ease,box-shadow .18s ease}
+.customer-premium .top-header .icon-btn:active{transform:scale(.94)}
+.customer-premium .top-header .header-home .restaurant-name{font-weight:800;letter-spacing:-.04em}
+.customer-premium .main-content{min-width:0}
+.customer-premium .main-content > :not(footer){animation:gf-appear .36s cubic-bezier(.2,.75,.2,1) both}
+.customer-premium .bottom-nav{background:rgba(255,255,255,.97)!important;border-top:1px solid #dce8dc;box-shadow:0 -8px 30px rgba(22,55,35,.055);padding-bottom:max(6px,env(safe-area-inset-bottom,0px))}
+.customer-premium .bottom-nav .nav-item{position:relative;min-height:56px;color:#62766a;transition:color .2s ease,transform .2s ease}
+.customer-premium .bottom-nav .nav-item .nav-icon{transition:transform .22s cubic-bezier(.2,.9,.3,1.3)}
+.customer-premium .bottom-nav .nav-item.active{color:#195f48!important}
+.customer-premium .bottom-nav .nav-item.active .nav-icon{transform:translateY(-3px) scale(1.12)}
+.customer-premium .bottom-nav .nav-item:active .nav-icon{transform:scale(.9)}
+.customer-premium .bottom-nav .nav-item.active::before{content:"";position:absolute;top:0;left:calc(50% - 16px);height:3px;width:32px;border-radius:0 0 8px 8px;background:#195f48;animation:gf-draw .2s ease-out}
+.customer-premium button:focus-visible,.customer-premium a:focus-visible,.customer-premium [role=button]:focus-visible,.customer-premium input:focus-visible,.customer-premium select:focus-visible,.customer-premium textarea:focus-visible{outline:3px solid #438b65!important;outline-offset:3px}
+.customer-premium button,.customer-premium [role=button]{touch-action:manipulation}
+.customer-premium button:disabled{cursor:not-allowed;opacity:.64}
+.customer-premium .btn-brand{border-radius:12px!important;background:#195f48!important;border-color:#195f48!important;color:#fff!important;min-height:46px;font-weight:750;transition:transform .18s ease,background .18s ease,box-shadow .18s ease}
+.customer-premium .btn-brand:active:not(:disabled){transform:scale(.98)}
+.customer-premium .btn-brand:hover:not(:disabled){background:#104734!important;box-shadow:0 8px 19px rgba(25,95,72,.14)}
+.customer-premium .glass,.customer-premium .form-section,.customer-premium .profile-card{border-radius:18px!important;border:1px solid #e0e8dd!important;box-shadow:0 8px 26px rgba(25,64,37,.045)}
+.customer-premium .menu-card{background:#fff;border:1px solid #e0e9dc!important;border-radius:18px!important;overflow:hidden;box-shadow:0 5px 19px rgba(25,64,37,.045)!important;transition:transform .22s ease,box-shadow .22s ease}
+.customer-premium .menu-card:hover{transform:translateY(-3px);box-shadow:0 15px 29px rgba(25,64,37,.11)!important}
+.customer-premium .menu-card-emoji img{transition:transform .36s ease;object-position:center}
+.customer-premium .menu-card:hover .menu-card-emoji img{transform:scale(1.055)}
+.customer-premium .menu-card .add-btn{min-width:42px;min-height:42px;border-radius:13px;background:#195f48!important;color:white!important;transition:transform .18s ease,background .18s ease}
+.customer-premium .menu-card .add-btn:active{transform:scale(.86)}
+.customer-premium .favorite-toggle{min-width:44px;min-height:44px;transition:transform .2s ease}
+.customer-premium .favorite-toggle:active{transform:scale(.84)}
+.customer-premium .hero-banner{background:linear-gradient(120deg,#e7f0e4,#faf6ed)!important;border-radius:22px!important}
+.customer-premium .hero-banner h1{color:#1b6046!important;letter-spacing:-.045em}
+.customer-premium .customer-menu-view .menu-card{animation:gf-rise .38s cubic-bezier(.2,.8,.3,1) both}
+.customer-premium .customer-menu-view .menu-card:nth-child(2n){animation-delay:45ms}
+.customer-premium .customer-menu-view .menu-card:nth-child(3n){animation-delay:80ms}
+.restaurants-view{max-width:1120px!important}
+.restaurants-location-row{gap:10px}
+.restaurants-location-button{border:0;background:transparent;text-align:left;color:#1b3027;max-width:100%;border-radius:12px;padding:7px;cursor:pointer}
+.restaurants-location-button:hover{background:#e8f0e5}
+.restaurants-context-label{background:#e6f2e9;color:#185a40;border-radius:99px;font-size:.78rem;font-weight:750;padding:8px 12px;white-space:nowrap}
+.restaurants-location-dialog{box-shadow:0 24px 70px rgba(11,35,19,.22)}
+.restaurants-location-dialog input{background:white!important;color:#193629!important}
+.restaurants-result-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.restaurants-result-grid>[role=button]{min-width:0;transition:transform .22s ease,box-shadow .22s ease;animation:gf-rise .4s ease-out both}
+.restaurants-result-grid>[role=button]:nth-child(2n){animation-delay:50ms}
+.restaurants-result-grid>[role=button]:hover{transform:translateY(-3px);box-shadow:0 15px 31px rgba(21,51,32,.1)!important}
+.customer-premium .checkout-view .form-section{background:#fff!important;border:1px solid #e1eade!important;padding:clamp(16px,3vw,22px)!important}
+.customer-premium .checkout-view .form-control{background:white!important;border:1px solid #cddcce!important;min-height:44px}
+.customer-premium .checkout-view .sticky-bar{background:rgba(255,255,255,.97)!important;backdrop-filter:blur(14px);border-radius:14px}
+.customer-premium .customer-customizer{background:white!important;box-shadow:0 -16px 45px rgba(0,0,0,.18);animation:gf-rise .24s ease-out both}
+.customer-customizer-image{display:block;width:100%;height:180px;object-fit:cover;border-radius:14px;margin-bottom:12px}
+.customer-premium .customer-customizer .qty-control button{min-width:44px;min-height:44px}
+.customer-premium .profile-avatar{animation:gf-appear .45s ease-out both}
+.customer-premium .profile-page .form-section,.customer-premium .auth-page{animation:gf-appear .35s ease-out both}
+.customer-premium .uber-progress-bar-fill{transform-origin:left;transition:width .65s cubic-bezier(.2,.7,.2,1)}
+.customer-premium .uber-hero-title{letter-spacing:-.045em}
+.customer-premium .uber-hero-banner,.customer-premium .uber-hero{animation:gf-appear .35s ease-out both}
+.customer-premium .badge,.customer-premium .status-badge{transition:background .18s ease,color .18s ease}
+.customer-error-screen{min-height:80dvh;display:grid;place-items:center;padding:24px}
+.customer-error-panel{max-width:440px;background:white;border:1px solid #dce7dc;border-radius:22px;padding:clamp(20px,5vw,36px);text-align:center;box-shadow:0 20px 60px rgba(18,62,35,.07)}
+.customer-error-panel h1{font-size:1.7rem;color:#1b3027}
+.customer-error-panel p{color:#65786d;line-height:1.6}
+.customer-error-symbol{margin:0 auto 18px;width:62px;height:62px;display:grid;place-items:center;border-radius:50%;background:#fff3e5;color:#99601e;font-size:2rem;font-weight:800}
+.customer-error-panel button{display:block;width:100%;margin:20px 0 12px}
+.customer-error-panel a{display:inline-block;color:#195f48;font-weight:700}
+@media(max-width:920px){.restaurants-result-grid{grid-template-columns:1fr}.customer-premium .menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:600px){.restaurants-location-row{align-items:flex-start!important;flex-wrap:wrap}.restaurants-context-label{white-space:normal}.customer-premium .menu-card:hover,.restaurants-result-grid>[role=button]:hover{transform:none}.customer-premium .menu-card-emoji{height:150px!important}.customer-premium .menu-card-body{padding:11px!important}.customer-premium .menu-grid{gap:10px!important}.customer-premium .checkout-view{padding-inline:12px!important}.customer-premium .bottom-nav .nav-item{font-size:.72rem}}
+@media(max-width:390px){.customer-premium .menu-card-emoji{height:130px!important}.customer-premium .menu-card-name{font-size:.85rem!important}}
+@media(prefers-reduced-motion:reduce){.customer-premium *,.customer-premium *::before,.customer-premium *::after,.restaurants-view *,.restaurants-view *::before,.restaurants-view *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;transform:none!important}}
