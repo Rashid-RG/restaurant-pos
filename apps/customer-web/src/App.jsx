@@ -391,7 +391,7 @@ function InnerApp({ switchRestaurant }) {
         {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
-        {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
+        {view === 'account' && <ProfileView toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
         {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
 
