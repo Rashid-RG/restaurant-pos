@@ -96,3 +96,10 @@
  .customer-premium .customer-order-receipt button,
  .customer-premium .customer-order-receipt a{display:none!important}
 }
+
+.customer-premium .customer-smart-item-media{
+  width:100%;height:84px;background:linear-gradient(130deg,#e9f5e7,#f8faf2);
+  border-radius:12px;display:grid;place-items:center;overflow:hidden
+}
+.customer-premium .customer-smart-item-media img{width:100%;height:100%;object-fit:cover}
+.customer-premium .customer-smart-item-media span{font-size:31px}
