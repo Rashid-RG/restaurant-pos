@@ -675,7 +675,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                   const done = i < curStep;
                   const active = i === curStep;
                   const labels = isDelivery
-                    ? ['Order received', 'Preparing your food', 'Ready / Out for delivery', 'Delivered']
+                    ? ['Order received', 'Preparing your food', order.status === 'out_for_delivery' ? 'Out for delivery' : 'Ready for delivery', 'Delivered']
                     : isDineIn
                       ? ['Order received', 'Kitchen preparing', 'Ready to serve', 'Served']
                       : ['Order received', 'Preparing your food', 'Ready for pickup', 'Collected'];
@@ -684,10 +684,18 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     : isDineIn
                       ? ['Restaurant reviewing your order', 'Your chef is preparing the meal', 'Food is ready for your table', 'Enjoy your meal']
                       : ['Restaurant reviewing your order', 'Your meal is being prepared', 'Collect at the restaurant counter', 'Pickup completed'];
+                  // Animate only the live stage. Never imply a rider is moving
+                  // until the backend explicitly reports out_for_delivery.
+                  const iconKind = i === 0 ? 'order'
+                    : i === 1 ? 'cooking'
+                    : i === 2 ? (isDelivery
+                      ? (order.status === 'out_for_delivery' ? 'delivery' : 'ready')
+                      : isDineIn ? 'served' : 'pickup')
+                    : 'success';
                   return (
                     <div key={step.id} className={`status-step ${done ? 'done' : active ? 'active' : ''}`} aria-current={active ? 'step' : undefined}>
                       <div className="step-dot">
-                        {done ? '✓' : <AnimatedFeatureIcon kind={i === 1 ? 'cooking' : i === 2 ? (isDelivery ? 'delivery' : 'ready') : i === 3 ? 'ready' : 'order'} size={32} active={active}/>}
+                        {done ? <AnimatedFeatureIcon kind="success" size={26} active={false}/> : <AnimatedFeatureIcon kind={iconKind} size={30} active={active}/>}
                       </div>
                       <div className="step-info">
                         <h4>{labels[i]} {active ? '· Current' : done ? '· Complete' : ''}</h4>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Eye, EyeOff, ShieldCheck, UtensilsCrossed } from 'lucide-react';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
@@ -207,7 +208,9 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
   return (
     <div className="auth-page fade-in" style={{ padding: '24px 16px' }}>
       <div className="auth-logo" style={{ textAlign: 'center', marginBottom: 24 }}>
-        <h1>🍽️ GastroFlow</h1>
+        <div className="auth-brand-symbol"><UtensilsCrossed size={25} strokeWidth={2.2}/></div>
+        <h1>GastroFlow</h1>
+        <span className="auth-secure-note"><ShieldCheck size={14}/> Secure customer ordering</span>
         <p>{subtitle}</p>
       </div>
 
@@ -253,7 +256,7 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
                 }}
                 title={showPassword ? "Hide password" : "Show password"}
               >
-                {showPassword ? '👁️' : '🙈'}
+                {showPassword ? <EyeOff size={20}/> : <Eye size={20}/>}
               </button>
             </div>
           </div>

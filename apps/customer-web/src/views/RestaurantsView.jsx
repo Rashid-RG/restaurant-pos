@@ -611,7 +611,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       {/* Super Premium Out of Coverage Modal */}
       {showOutOfCoverageModal && nearestStore && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'linear-gradient(145deg, #1f2937 0%, #111827 100%)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 24, padding: 28, maxWidth: 460, width: '100%', color: '#f8fafc', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
+          <div className="customer-coverage-dialog" role="dialog" aria-modal="true" aria-label="Delivery area availability" style={{ background: 'linear-gradient(145deg, #1f2937 0%, #111827 100%)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 24, padding: 28, maxWidth: 460, width: '100%', color: '#f8fafc', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: '2.2rem' }}>📍</span>
@@ -625,8 +625,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
             <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 14, padding: 14, marginBottom: 20 }}>
               <p style={{ margin: 0, fontSize: '0.86rem', color: '#fef3c7', lineHeight: 1.5 }}>
-                Your current location is <strong>{nearestStore.distanceKm} km</strong> away from our nearest branch (<strong>{nearestStore.name}</strong>).
-                Our maximum delivery radius is <strong>15 km</strong>.
+                {Number.isFinite(Number(nearestStore.distanceKm)) && nearestStore.distanceKm !== null
+                  ? <>Your selected location is <strong>{nearestStore.distanceKm} km</strong> from <strong>{nearestStore.name}</strong>. </>
+                  : <>We could not verify the distance from your selected location to <strong>{nearestStore.name}</strong>. </>}
+                {Number.isFinite(Number(nearestStore.maxDeliveryRadiusKm)) && nearestStore.maxDeliveryRadiusKm > 0
+                  ? <>The delivery radius is <strong>{nearestStore.maxDeliveryRadiusKm} km</strong>.</>
+                  : <>Select a precise address pin to check delivery availability.</>}
               </p>
             </div>
 
