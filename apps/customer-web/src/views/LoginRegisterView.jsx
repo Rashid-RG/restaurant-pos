@@ -312,6 +312,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
         <span><small>Create a new account</small><strong>Register with GastroFlow</strong></span>
         <ArrowRight size={22} aria-hidden="true"/>
       </button>}
+      {tab === 'login' && <button type="button" className="auth-reference-otp-link" onClick={() => setTab('otp_login')}>Sign in with a verification code instead</button>}
 
       {tab === 'otp_login' && (
         <div>
