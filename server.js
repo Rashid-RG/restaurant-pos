@@ -4580,10 +4580,10 @@ async function releaseOrderLoyalty(orderId,tenantId){
 
 // Unified Billing Calculation Helper
 // Thin wrapper — delegates to lib/billing.js (injecting the local DB helpers).
-async function resolveAndCalculateBill(items, discountType, discountValue, loyaltyPointsToRedeem, tip = 0, promoCode = null, deliveryFee = 0, tenantId = 'default_tenant') {
+async function resolveAndCalculateBill(items, discountType, discountValue, loyaltyPointsToRedeem, tip = 0, promoCode = null, deliveryFee = 0, tenantId = 'default_tenant', options = {}) {
   return _resolveAndCalculateBill(
     { dbGet, tenantId },
-    items, discountType, discountValue, loyaltyPointsToRedeem, tip, promoCode, deliveryFee
+    items, discountType, discountValue, loyaltyPointsToRedeem, tip, promoCode, deliveryFee, options
   );
 }
 
@@ -5959,7 +5959,7 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
     }
     const oldItems = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [orderId]);
     await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:[],reason:'modify_release',actorId:req.user.id,requireExisting:true});
-    const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, null, existing.deliveryFee || 0, req.tenantId);
+    const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, null, existing.deliveryFee || 0, req.tenantId, { allowStaffPriceOverride: ['owner','manager'].includes(req.user.role) });
     await dbRun(`UPDATE orders SET items=?, subtotal=?, discountType=?, discountValue=?, discount=?, tax=?, serviceCharge=?, total=?, tip=?, roundedAmount=? WHERE id=? AND tenant_id=?`,
       [JSON.stringify(bill.resolvedItems),bill.subtotal,discountType || null,Number(discountValue || 0),bill.totalDiscount,bill.tax,bill.serviceCharge,bill.total,bill.tip,bill.roundedAmount,orderId,req.tenantId]);
     await dbRun('DELETE FROM order_items WHERE orderId = ?', [orderId]);
@@ -5967,6 +5967,9 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
       await dbRun('INSERT INTO order_items (id,orderId,menuItemId,name,price,quantity,notes,tenant_id) VALUES (?,?,?,?,?,?,?,?)', [crypto.randomUUID(),orderId,item.id,item.name,item.unitPrice,item.quantity,item.notes,req.tenantId]);
     }
     await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:bill.resolvedItems,reason:'modify_reserve',actorId:req.user.id,requireExisting:true});
+    for (const item of bill.resolvedItems.filter(line => line.customUnitPrice != null)) {
+      await writeAuditLog(req.user.id, req.user.username, 'pos_custom_price', `Amended order ${orderId}: ${item.name}, menu price ${item.menuPrice}, charged unit price ${item.customUnitPrice}`);
+    }
     await dbRun('COMMIT');
     notifyPOS({ type: 'order_updated', orderId }, req.tenantId);
     res.json({ success: true, orderId, total: bill.total });
@@ -6456,7 +6459,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
       let staffDeliveryFee;
       try { staffDeliveryFee = diningType === 'delivery' ? amountInCents(req.body.deliveryFee || 0, 'Delivery fee') / 100 : 0; }
       catch (error) { return res.status(400).json({ error: error.message }); }
-      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode, staffDeliveryFee, tenantId);
+      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode, staffDeliveryFee, tenantId, { allowStaffPriceOverride: ['owner','manager'].includes(req.user.role) });
 
       // Begin SQLite transaction
       await dbRun('BEGIN TRANSACTION');
@@ -6504,6 +6507,9 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         }
 
         await writeAuditLog(userId, username, 'create_order', `Created order ${id} with total ${bill.total}`);
+        for (const item of bill.resolvedItems.filter(line => line.customUnitPrice != null)) {
+          await writeAuditLog(userId, username, 'pos_custom_price', `Order ${id}: ${item.name}, menu price ${item.menuPrice}, charged unit price ${item.customUnitPrice}`);
+        }
         if (bill.totalDiscount > 0) {
           await writeAuditLog(userId, username, 'apply_discount', `Discount of ${bill.totalDiscount} applied to order ${id}`);
         }
