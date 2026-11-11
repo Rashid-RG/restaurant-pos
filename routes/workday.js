@@ -76,6 +76,11 @@ export function createWorkdayRouter({ dbGet, dbAll, dbRun, authenticateToken, re
       const shifts=await dbAll(`SELECT s.* FROM shifts s JOIN users u ON u.id=s.userId AND u.tenant_id=s.tenant_id
         WHERE s.tenant_id=? AND s.startTime>=? AND s.startTime<? ${manager?'':'AND s.userId=?'}
         ORDER BY s.startTime DESC LIMIT 150`,manager?[req.tenantId,start,end]:[req.tenantId,start,end,req.user.id]);
+      // Sales use the restaurant's selected calendar date; drawer shifts use the date they opened.
+      const sales = await dbGet(`SELECT COUNT(*) AS paidOrders,COALESCE(SUM(total),0) AS paidSales
+        FROM orders WHERE tenant_id=? AND (paymentStatus='paid' OR status='paid')
+        AND COALESCE(paymentTimestamp,timestamp)>=? AND COALESCE(paymentTimestamp,timestamp)<?
+        ${manager?'':'AND cashierId=?'}`,manager?[req.tenantId,start,end]:[req.tenantId,start,end,req.user.id]);
       const entries=[];
       for(const shift of shifts){
         const final=shift.endTime || Date.now();
@@ -100,7 +105,7 @@ export function createWorkdayRouter({ dbGet, dbAll, dbRun, authenticateToken, re
       const totals=entries.reduce((out,row)=>{for(const key of ['opening','cashSales','nonCashReceipts','cashRefunds','cashMovements','expectedCash'])out[key]+=row[key];if(row.actualCash!==null){out.countedCash+=row.actualCash;out.countedShifts++;}return out;},
         {opening:0,cashSales:0,nonCashReceipts:0,cashRefunds:0,cashMovements:0,expectedCash:0,countedCash:0,countedShifts:0});
       for(const k of Object.keys(totals))if(k!=='countedShifts')totals[k]=Math.round(totals[k]*100)/100;
-      res.json({date,timeZone:zone,shifts:entries,totals,
+      res.json({date,timeZone:zone,shifts:entries,totals,paidSales:Number(sales?.paidSales||0),paidOrders:Number(sales?.paidOrders||0),
         note:'Cashier drawer receipts are not total restaurant revenue; unpaid orders and cash collected by delivery drivers are excluded. Closed shift expected amounts use the recorded close-of-shift snapshot.'});
     }catch(e){fail(res,e);}
   });
