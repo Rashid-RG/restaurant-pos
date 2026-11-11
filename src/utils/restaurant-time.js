@@ -40,3 +40,35 @@ export function shiftCalendarDate(day, offset) {
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
 }
+
+/**
+ * UTC milliseconds delimiting a restaurant calendar day [start, end).
+ * Each midnight is resolved independently to support 23/25-hour DST days.
+ */
+export function restaurantDayBounds(day, timeZone) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day) || !Number.isFinite(Date.parse(day + 'T00:00:00Z')) ||
+      new Date(day + 'T00:00:00Z').toISOString().slice(0, 10) !== day) {
+    throw new RangeError('Invalid calendar date');
+  }
+  const zone = validTimeZone(timeZone) ? timeZone : DEFAULT_TIME_ZONE;
+  const midnight = (calendarDay) => {
+    const desired = Date.parse(calendarDay + 'T00:00:00Z');
+    let guess = desired;
+    const formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    });
+    for (let i = 0; i < 4; i++) {
+      const parts = {};
+      for (const p of formatter.formatToParts(guess)) {
+        if (['year','month','day','hour','minute','second'].includes(p.type)) parts[p.type] = Number(p.value);
+      }
+      const shown = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+      const difference = desired - shown;
+      guess += difference;
+      if (difference === 0) break;
+    }
+    return guess;
+  };
+  return [midnight(day), midnight(shiftCalendarDate(day, 1))];
+}
