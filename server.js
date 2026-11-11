@@ -860,6 +860,15 @@ async function initTables() {
       )
     `);
 
+    // New verification challenges are bound to their restaurant. Existing
+    // challenges are deliberately invalidated during migration.
+    try {
+      await dbRun("ALTER TABLE otp_codes ADD COLUMN tenant_id TEXT");
+    } catch (error) {
+      if (!/duplicate column|already exists/i.test(String(error?.message || error))) throw error;
+    }
+    await dbRun('DELETE FROM otp_codes WHERE tenant_id IS NULL');
+
     // 20. Raw Ingredients Table
     await dbRun(`
       CREATE TABLE IF NOT EXISTS ingredients (
@@ -2760,21 +2769,28 @@ export function normalizeOtpDestination(dest) {
 // BUG-011 fix: OTP codes stored HASHED in the memory map (same as DB path).
 // Comparing hash(input) vs stored hash prevents plaintext exposure in process dumps / logs.
 // Purpose-bound, single-use OTP in shared storage (not process-local memory).
-async function verifyOTPAsync(destination, code, purpose) {
-  if (!destination || !/^\\d{6}$/.test(String(code)) || !['login','phone_verify'].includes(purpose)) return false;
+async function verifyOTPAsync(destination, code, purpose, tenantId) {
+  if (!destination || !/^\d{6}$/.test(String(code)) || !['login','phone_verify'].includes(purpose) || !tenantId) return false;
   const normalized = normalizeOtpDestination(destination);
-  const alt = normalized.startsWith('+94') ? '0' + normalized.slice(3) : normalized;
+  const alternate = normalized.startsWith('+94') ? '0' + normalized.slice(3) : normalized;
+  const now = Date.now();
+  // The most recent challenge is authoritative. A wrong guess consumes an
+  // attempt, and an expired/consumed challenge cannot be replayed.
   const row = await dbGet(
-    `SELECT id FROM otp_codes WHERE (LOWER(destination)=? OR destination=?)
-      AND purpose=? AND codeHash=? AND expiresAt>? AND consumedAt IS NULL
-      AND COALESCE(attempts,0)<5 ORDER BY createdAt DESC LIMIT 1`,
-    [normalized, alt, purpose, hashCode(String(code)), Date.now()]
+    `SELECT id,codeHash,attempts FROM otp_codes WHERE tenant_id=? AND
+      (LOWER(destination)=? OR destination=?) AND purpose=?
+      AND expiresAt>? AND consumedAt IS NULL
+      ORDER BY createdAt DESC LIMIT 1`,
+    [tenantId, normalized, alternate, purpose, now]
   );
-  if (!row) return false;
-  const updated = await dbRun('UPDATE otp_codes SET consumedAt=? WHERE id=? AND consumedAt IS NULL', [Date.now(), row.id]);
-  return updated?.changes === undefined ? true : updated.changes === 1;
+  if (!row || Number(row.attempts) >= 5) return false;
+  if (row.codeHash !== hashCode(String(code))) {
+    await dbRun('UPDATE otp_codes SET attempts=COALESCE(attempts,0)+1 WHERE id=? AND consumedAt IS NULL', [row.id]);
+    return false;
+  }
+  const result = await dbRun('UPDATE otp_codes SET consumedAt=? WHERE id=? AND consumedAt IS NULL AND COALESCE(attempts,0)<5', [now,row.id]);
+  return result?.changes === undefined ? true : result.changes === 1;
 }
-
 
 app.get('/api/public/customer-auth-capabilities', publicApiLimiter, (_req, res) =>
   res.set('Cache-Control','no-store').json({ emailOtp: isEmailConfigured(), smsOtp: false, passwordLogin: true })
@@ -2824,22 +2840,19 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
     const code = String(crypto.randomInt(100000, 1000000));
     const expiresAt = Date.now() + 10 * 60 * 1000;
 
-    // Clean up expired codes only (keep active valid codes so re-sends don't invalidate codes in transit)
-    await dbRun('DELETE FROM otp_codes WHERE expiresAt < ?', [Date.now()]);
+    const otpTenantId = await resolvePublicTenant(req);
+    // Each resend replaces earlier codes for the same destination and purpose.
+    await dbRun('DELETE FROM otp_codes WHERE expiresAt<? OR (tenant_id=? AND destination=? AND purpose=?)',
+      [Date.now(),otpTenantId,cleanDest,purpose]);
 
     const id = `otp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await dbRun(
-      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
+      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now(), otpTenantId]
     );
 
-    // BUG-011 fix: store HASH of OTP code in memory (not plaintext)
-    let currentEntries = otpStore.get(cleanDest) || [];
-    if (!Array.isArray(currentEntries)) currentEntries = [currentEntries];
-    currentEntries = currentEntries.filter(e => e.expiresAt > Date.now());
-    currentEntries.push({ codeHash: hashCode(code), expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
-    otpStore.set(cleanDest, currentEntries);
+    // Verification is database-backed; process-local OTP maps are not used.
 
     const tenantId = await resolvePublicTenant(req);
     const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
@@ -2923,7 +2936,7 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
     const isEmail = target.includes('@');
     const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
 
-    const isValid = await verifyOTPAsync(cleanDest, code, 'login');
+    const isValid = await verifyOTPAsync(cleanDest, code, 'login', await resolvePublicTenant(req));
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid or expired verification code.' });
     }
@@ -2982,7 +2995,9 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
   // Verify OTP (allow either phone or email verification)
-  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode, 'phone_verify')) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode, 'phone_verify')));
+  const tenantIdForOtp = await resolvePublicTenant(req);
+  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode, 'phone_verify', tenantIdForOtp)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode, 'phone_verify', tenantIdForOtp)));
+
   if (!isOtpValid) {
     return res.status(400).json({ error: 'Invalid or expired verification code.' });
   }
