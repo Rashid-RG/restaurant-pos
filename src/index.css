@@ -1649,8 +1649,13 @@ button {
   .receipt-money { white-space: nowrap; font-variant-numeric: tabular-nums; }
   .receipt-print-area .receipt-totals { font-weight: 900; font-size: 15px; border-top: 2px solid #000; border-bottom: 2px solid #000; margin: 2mm 0; padding: 2.5mm 0; }
   .receipt-footer { padding-top: 1mm; }
-  .receipt-thank-you { margin-top: 3mm !important; font-weight: 900; font-size: 12px; letter-spacing: .5px; }
-  .receipt-powered-by { font-size: 9px; margin-top: 2mm !important; }
+  .receipt-gratitude { margin-top: 3mm; border-top: 1px solid #000; padding: 2mm 0 3mm; }
+  .receipt-thank-you { font-family: Georgia, 'Times New Roman', serif; font-size: 25px; line-height: 1.15; font-style: italic; font-weight: 800; }
+  .receipt-visit-again { font-size: 12px; font-weight: 700; margin-top: 1.5mm; }
+  .receipt-platform-credit { border-top: 1px dashed #000; margin-top: 1mm; padding-top: 2mm; text-align: center; }
+  .receipt-powered-by { font-size: 10px; }
+  .receipt-developed-by { font-size: 9px; margin-top: 1mm; }
+  .receipt-print-area.paper-58mm .receipt-thank-you { font-size: 20px; }
   .receipt-print-area.paper-58mm .receipt-document-title { letter-spacing: 1px; }
   .receipt-print-area.paper-58mm .receipt-totals { font-size: 13px; }
 
