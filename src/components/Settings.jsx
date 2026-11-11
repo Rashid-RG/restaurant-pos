@@ -652,10 +652,10 @@ export default function Settings() {
               👥 Staff & Users
             </button>
             <button
-              className={`settings-nav-btn ${subTab === 'online' ? 'active' : ''}`}
-              onClick={() => setSubTab('online')}
+              className="settings-nav-btn"
+              onClick={() => setActiveTab('online-store')}
             >
-              🌐 Online Store Settings
+              🌐 Online Store
             </button>
             {currentUser?.role === 'owner' && <button className={`settings-nav-btn ${subTab === 'billing' ? 'active' : ''}`} onClick={() => setSubTab('billing')}>Plan and billing</button>}
             {isMasterSuperAdmin && (
