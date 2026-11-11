@@ -4835,8 +4835,10 @@ const createPublicOrder = async (req, res) => {
       notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total, deliveryDistanceKm, deliveryFee }, tenantId);
 
       // Trigger auto-dispatch engine for delivery orders
-      if (type === 'delivery') {
-        setTimeout(() => autoDispatchDriver(orderId, tenantId), 2000); // 2s delay to let order settle
+      // Future scheduled orders must not dispatch a driver immediately.
+      // The manager accepts the slot and dispatches nearer the promised time.
+      if (type === 'delivery' && !requestedSchedule.scheduled) {
+        setTimeout(() => autoDispatchDriver(orderId, tenantId), 2000);
       }
 
       res.status(201).set('Cache-Control','no-store').json({
