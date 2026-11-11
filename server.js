@@ -3263,11 +3263,21 @@ async function isPeakHour(tenantId = 'default_tenant') {
 // ── Server-authoritative delivery fee calculator ──
 async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0, tenantId = 'default_tenant') {
   const s = await getSettingsMap(tenantId, [
-    'storeLat', 'storeLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
+    'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
     'deliveryMaxRadiusKm', 'deliveryPeakSurcharge', 'deliveryRainSurcharge', 'deliveryFreeThreshold', 'isRainyWeather'
   ]);
-  const storeLat = parseFloat(s.storeLat || 6.9271);
-  const storeLng = parseFloat(s.storeLng || 79.8612);
+  // Never use another restaurant's coordinates as a fallback. Older tenant
+  // profiles may have their own restaurantLat/restaurantLng settings.
+  const rawStoreLat = s.storeLat || s.restaurantLat;
+  const rawStoreLng = s.storeLng || s.restaurantLng;
+  const storeLat = rawStoreLat ? Number(rawStoreLat) : NaN;
+  const storeLng = rawStoreLng ? Number(rawStoreLng) : NaN;
+  if (!Number.isFinite(storeLat) || !Number.isFinite(storeLng) || Math.abs(storeLat) > 90 || Math.abs(storeLng) > 180) {
+    const error = new Error('Delivery location is not configured for this restaurant. Ask the owner to set the store map pin in Online Store settings, or choose pickup.');
+    error.status = 422;
+    error.code = 'STORE_DELIVERY_LOCATION_MISSING';
+    throw error;
+  }
   const baseFee = parseFloat(s.deliveryBaseFee || 99);
   const freeRadius = parseFloat(s.deliveryFreeRadiusKm || 2);
   const perKmRate = parseFloat(s.deliveryPerKmRate || 50);
@@ -3676,7 +3686,7 @@ app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {
     const result = await calculateDeliveryFee(customerLat, customerLng, parseFloat(subtotal || 0), tenantId);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    res.status(err.status || 500).json({ error: errMsg(err), ...(err.code ? { code: err.code } : {}) });
   }
 });
 
@@ -4349,9 +4359,11 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
   if((lat!=null||lng!=null)&&(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lng)||Math.abs(lng)>180))return res.status(400).json({error:'Invalid location.'});
   for(const tenant of tenants){
    if((await getTenantMeta(tenant.id)).status!=='active')continue;
-   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
+   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','restaurantLat','restaurantLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
    const ratings=await dbGet('SELECT AVG(rating) AS rating,COUNT(*) AS count FROM feedbacks WHERE tenant_id=? AND rating BETWEEN 1 AND 5',[tenant.id]);
-   const storeLat=settings.storeLat==null||settings.storeLat===''?null:Number(settings.storeLat),storeLng=settings.storeLng==null||settings.storeLng===''?null:Number(settings.storeLng);
+   const latitude=settings.storeLat || settings.restaurantLat;
+   const longitude=settings.storeLng || settings.restaurantLng;
+   const storeLat=latitude ? Number(latitude) : null,storeLng=longitude ? Number(longitude) : null;
    const configuredLocation=Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
    let quote=null;if(lat!=null&&configuredLocation)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
    stores.push({id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true',isDeliverable:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
@@ -4744,8 +4756,10 @@ const createPublicOrder = async (req, res) => {
         deliveryEtaMinutes = feeResult.etaMinutes;
         deliveryFee = feeResult.totalFee; // will be recalculated after billing for free-threshold check
       } else {
-        // Fallback to flat fee if no GPS coordinates (legacy/manual address entry)
-        deliveryFee = parseFloat((await getSetting(tenantId, 'deliveryBaseFee')) || 99);
+        return res.status(422).json({
+          error: 'Select a precise delivery address pin to verify this restaurant’s delivery area and fee.',
+          code: 'DELIVERY_PIN_REQUIRED'
+        });
       }
     }
 
