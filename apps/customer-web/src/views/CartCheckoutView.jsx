@@ -221,30 +221,26 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     return slots;
   };
 
-  // Apply Promo Code
+  // Promotions are verified and priced by the backend for the selected restaurant.
+  const cartFingerprint = JSON.stringify(items.map(i=>({id:i.id,qty:i.qty,selectedModifiers:i.selectedModifiers||[],notes:i.notes||''})));
+  useEffect(()=>{
+    if(appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) setAppliedPromo(null);
+  },[cartFingerprint,appliedPromo]);
   const handleApplyPromo = async () => {
-    if (!promoCode.trim()) return;
+    const code=promoCode.trim().toUpperCase();
+    if(!code)return;
     try {
-      const code = promoCode.trim().toUpperCase();
-      if (code === 'WELCOME10') {
-        if (subtotal < 1000) {
-          toast('Min spend of Rs. 1000 required for WELCOME10.', 'error');
-          return;
-        }
-        setAppliedPromo({ code, type: 'percent', value: 10 });
-        toast('Promo code WELCOME10 applied! 🎉', 'success');
-      } else if (code === 'FLAT200') {
-        if (subtotal < 1500) {
-          toast('Min spend of Rs. 1500 required for FLAT200.', 'error');
-          return;
-        }
-        setAppliedPromo({ code, type: 'flat', value: 200 });
-        toast('Promo code FLAT200 applied! 🎉', 'success');
-      } else {
-        toast('Invalid or expired promo code.', 'error');
-      }
-    } catch (err) {
-      toast('Failed to apply promo code.', 'error');
+      const result=await apiFetch('/public/promotions/preview',{
+        method:'POST',body:JSON.stringify({
+          code,
+          items:items.map(i=>({menuItemId:i.id,quantity:i.qty,selectedModifiers:i.selectedModifiers||[],notes:i.notes||''}))
+        })
+      });
+      setAppliedPromo({code:result.code,type:'flat',value:Number(result.promoDiscount||0),cartFingerprint});
+      toast('Promotion validated. Final discount is confirmed again at checkout.', 'success');
+    } catch(err) {
+      setAppliedPromo(null);
+      toast(err.message || 'Promotion unavailable.', 'error');
     }
   };
 
@@ -353,6 +349,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
+    if (appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) { toast('Your cart changed. Please apply the promotion again.', 'warning'); return; }
     if (paymentMethod === 'payhere' || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
     if (!name.trim()) { toast('Please enter your name.', 'error'); return; }
     if (!phone.trim()) { toast('Please enter your phone number.', 'error'); return; }
