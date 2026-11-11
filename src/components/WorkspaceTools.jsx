@@ -10,6 +10,7 @@ export const workspaceDestinations = [
   { id: 'floor', name: 'Tables', description: 'Manage your dining room', icon: LayoutGrid },
   { id: 'kds', name: 'Kitchen', description: 'Prepare and complete orders', icon: CookingIcon },
   { id: 'online-orders', name: 'Online Orders', description: 'Review, accept and manage customer online orders', icon: ClipboardList },
+  { id: 'online-store', name: 'Online Store', description: 'Your customer storefront and online business', icon: Store, management: true },
   { id: 'delivery', name: 'Dispatch', description: 'Assign and track deliveries', icon: Truck },
   { id: 'inventory', name: 'Inventory', description: 'Menu, stock and ingredients', icon: Package, management: true },
   { id: 'sold-items', name: 'Sold Items', description: 'Items sold, quantities and gross item sales', icon: ChartNoAxesCombined, management: true },
