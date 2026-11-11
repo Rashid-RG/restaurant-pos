@@ -18,6 +18,8 @@ const usernameA = 'pos_url_staff_a';
 const usernameB = 'pos_url_staff_b';
 const passwordA = 'correct-password-for-a';
 const passwordB = 'correct-password-for-b';
+let loginA;
+let loginB;
 
 beforeAll(async () => {
   await dbReady;
@@ -34,58 +36,55 @@ beforeAll(async () => {
     ['pos_user_a', usernameA, hashA, 'manager', tenantA]);
   await dbRun('INSERT INTO users(id,username,passwordHash,role,tenant_id) VALUES(?,?,?,?,?)',
     ['pos_user_b', usernameB, hashB, 'manager', tenantB]);
+  // Reuse valid sign-ins; the production 5-attempt/IP rate limit is intentional.
+  loginA = await login(usernameA, passwordA, 'pos-link-test-a');
+  loginB = await login(usernameB, passwordB, tenantB);
 }, 30000);
 
 const login = (username, password, expectedTenantId) =>
   request(app).post('/api/auth/login').send({username,password,expectedTenantId});
 
 describe('POS URL restaurant identity isolation', () => {
-  it('lets Shop A staff sign in on their own URL', async () => {
-    const response = await login(usernameA,passwordA,tenantA);
-    expect(response.status, response.text).toBe(200);
-    expect(response.body.user.tenant_id).toBe(tenantA);
-    expect(response.body.token).toBeTruthy();
+  it('allows only matching shop credentials (canonical IDs and aliases)', () => {
+    expect(loginA.status, loginA.text).toBe(200);
+    expect(loginA.body.user.tenant_id).toBe(tenantA);
+    expect(loginA.body.token).toBeTruthy();
+    expect(loginB.status, loginB.text).toBe(200);
+    expect(loginB.body.user.tenant_id).toBe(tenantB);
+    expect(loginB.body.token).toBeTruthy();
   });
 
-  it('rejects Shop B credentials on Shop A unique POS URL', async () => {
+  it('rejects Shop B credentials on Shop A POS URL', async () => {
     const response = await login(usernameB,passwordB,tenantA);
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('TENANT_URL_MISMATCH');
     expect(response.body.token).toBeUndefined();
   });
 
-  it('rejects Shop A credentials on Shop B unique POS URL', async () => {
+  it('rejects Shop A credentials on Shop B POS URL', async () => {
     const response = await login(usernameA,passwordA,tenantB);
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('TENANT_URL_MISMATCH');
+    expect(response.body.token).toBeUndefined();
+  });
+
+  it('rejects unknown restaurant selectors despite valid staff credentials', async () => {
+    const response = await login(usernameA,passwordA,'tenant_nonexistent_pos_link');
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('TENANT_URL_MISMATCH');
   });
 
-  it('supports the correct restaurant subdomain as the URL selector', async () => {
-    const allowed = await login(usernameA,passwordA,'pos-link-test-a');
-    const denied = await login(usernameB,passwordB,'pos-link-test-a');
-    expect(allowed.status, allowed.text).toBe(200);
-    expect(denied.status).toBe(403);
-  });
-
-  it('rejects nonexistent store selectors even with valid credentials', async () => {
-    const response = await login(usernameA,passwordA,'tenant_nonexistent_pos_link');
-    expect(response.status).toBe(403);
-  });
-
-  it('prevents saved Shop B sessions from unlocking Shop A URL', async () => {
-    const signedIn = await login(usernameB,passwordB,tenantB);
-    expect(signedIn.status).toBe(200);
+  it('rejects a saved Shop B session when opened on Shop A URL', async () => {
     const response = await request(app).get('/api/auth/me')
-      .set('Authorization', `Bearer ${signedIn.body.token}`)
+      .set('Authorization', `Bearer ${loginB.body.token}`)
       .set('X-Expected-Tenant-Id', tenantA);
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('TENANT_URL_MISMATCH');
   });
 
-  it('allows a saved staff session only for its own restaurant', async () => {
-    const signedIn = await login(usernameA,passwordA,tenantA);
+  it('accepts saved sessions only for their own canonical shop or alias', async () => {
     const response = await request(app).get('/api/auth/me')
-      .set('Authorization', `Bearer ${signedIn.body.token}`)
+      .set('Authorization', `Bearer ${loginA.body.token}`)
       .set('X-Expected-Tenant-Id', 'pos-link-test-a');
     expect(response.status, response.text).toBe(200);
     expect(response.body.user.tenant_id).toBe(tenantA);
