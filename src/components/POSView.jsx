@@ -1815,8 +1815,14 @@ export default function POSView() {
                   return null;
                 }
               })()}
-              <p style={{ marginTop: '12px', fontWeight: 'bold' }}>Thank You For Dining With Us!</p>
-              <p>System by RS Technologies</p>
+              <div className="receipt-gratitude">
+                <div className="receipt-thank-you">Thank You!</div>
+                <div className="receipt-visit-again">— Visit Again —</div>
+              </div>
+              <div className="receipt-platform-credit">
+                <div>Powered by <strong>GastroFlow</strong></div>
+                <div className="receipt-developed-by">Developed by RS Technologies</div>
+              </div>
             </div>
           </div>
         );
