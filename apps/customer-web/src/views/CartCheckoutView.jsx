@@ -37,6 +37,20 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   // Scheduling states
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledTimeVal, setScheduledTimeVal] = useState(null);
+  const [scheduleAvailability,setScheduleAvailability]=useState([]);
+  const [scheduleLoading,setScheduleLoading]=useState(false);
+  const [scheduleError,setScheduleError]=useState('');
+  useEffect(()=>{
+    if(!isScheduled)return;
+    let cancelled=false;
+    setScheduleLoading(true);
+    setScheduleError('');
+    apiFetch('/public/schedule/slots?type='+encodeURIComponent(orderType))
+      .then(data=>{if(!cancelled){setScheduleAvailability((data.slots||[]).filter(s=>!s.full));setScheduledTimeVal(previous=>(data.slots||[]).some(s=>!s.full&&s.timestamp===previous)?previous:(data.slots||[]).find(s=>!s.full)?.timestamp||null)}})
+      .catch(err=>{if(!cancelled){setScheduleAvailability([]);setScheduledTimeVal(null);setScheduleError(err.message||'Scheduled times are unavailable.')}})
+      .finally(()=>{if(!cancelled)setScheduleLoading(false)});
+    return ()=>{cancelled=true};
+  },[isScheduled,orderType]);
 
   // Delivery & prep time settings from DB
   const [deliveryFee, setDeliveryFee] = useState(0);
@@ -251,6 +265,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   };
 
   const executeOrderPlacement = async () => {
+    if(isScheduled && (!scheduledTimeVal||scheduleLoading||scheduleError)){toast('Choose an available scheduled time before ordering.','error');return;}
     setLoading(true);
     try {
       const token = getToken();
@@ -718,8 +733,6 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
               style={{ flex: 1, padding: 10, fontSize: '0.8rem' }}
               onClick={() => {
                 setIsScheduled(true);
-                const slots = getAvailableTimeSlots();
-                if (slots.length > 0) setScheduledTimeVal(slots[0].timestamp);
               }}
             >
               📅 Schedule Later
@@ -728,6 +741,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
           {isScheduled && (
             <div className="form-group" style={{ marginTop: 12 }}>
+              <p role="status" style={{fontSize:'.8rem',color:'var(--text-muted)'}}>{scheduleLoading?'Loading available kitchen slots…':scheduleError || (scheduleAvailability.length ? 'Times are confirmed at checkout; fully booked slots are hidden.' : 'No scheduled times available. Choose Order ASAP or retry.')}</p>
               <label>Choose Delivery / Pickup Time</label>
               <select 
                 className="form-control"
@@ -735,8 +749,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                 onChange={e => setScheduledTimeVal(parseInt(e.target.value, 10))}
                 style={{ fontWeight: 600 }}
               >
-                {getAvailableTimeSlots().map(slot => (
-                  <option key={slot.timestamp} value={slot.timestamp}>{slot.label}</option>
+                {!scheduledTimeVal && <option value="">Choose an available time</option>}
+                {scheduleAvailability.map(slot => (
+                  <option key={slot.timestamp} value={slot.timestamp}>{new Date(slot.timestamp).toLocaleString()} · {slot.available} spots left</option>
                 ))}
               </select>
             </div>
