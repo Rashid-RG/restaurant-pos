@@ -223,7 +223,7 @@ function InnerApp({ switchRestaurant }) {
   const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
-  const { items, totalItems, setCartOpen } = useCart();
+  const { items, totalItems, setCartOpen, cartOpen } = useCart();
   const { store, canOrder, refreshStore } = useStorefront();
   const { messages, toast } = useToast();
   const { t, lang, setLang, languages } = useLang();
@@ -401,8 +401,8 @@ function InnerApp({ switchRestaurant }) {
         {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
 
-        {/* ── Signature Footer & Gateway Legal Policies ── */}
-        <footer className="customer-page-footer" style={{
+        {/* Keep legal links available without forcing a long footer beneath food cards. */}
+        {(view === 'restaurants' || view === 'legal') && <footer className="customer-page-footer" style={{
           padding: '24px 16px 44px',
           textAlign: 'center',
           borderTop: '1px solid var(--border-color)',
@@ -463,11 +463,23 @@ function InnerApp({ switchRestaurant }) {
           <div style={{ fontSize: '0.68rem', opacity: 0.6, marginTop: 4 }}>
             © {new Date().getFullYear()} RS Technologies. All rights reserved. Registered in Sri Lanka.
           </div>
-        </footer>
+        </footer>}
       </main>
 
       {/* Global 24/7 GastroAI Concierge Assistant */}
       <GastroAiConcierge onNavigate={navigate} cartItems={items} />
+
+      {/* Cart shortcut sits outside the animated menu view, so scrolling
+          cannot move it under the fixed bottom navigation. */}
+      {view === 'store-menu' && totalItems > 0 && !cartOpen && (
+        <div className="customer-fixed-cart-action">
+          <button type="button" onClick={() => setCartOpen(true)} aria-label={`View cart containing ${totalItems} items`}>
+            <ShoppingBag size={19}/>
+            <span>View Cart</span>
+            <strong>{totalItems}</strong>
+          </button>
+        </div>
+      )}
 
       {/* Cart Sheet */}
       <CartSheet onCheckout={() => navigate('checkout')} store={store} canOrder={canOrder} />
