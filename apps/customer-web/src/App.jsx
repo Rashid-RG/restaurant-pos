@@ -13,7 +13,7 @@ import RestaurantsView from './views/RestaurantsView.jsx';
 import LegalPoliciesView from './views/LegalPoliciesView.jsx';
 import SupportView from './views/SupportView.jsx';
 import GastroAiConcierge from './components/GastroAiConcierge.jsx';
-import { setActiveTenant } from './utils/tenant.js';
+import { setActiveTenant, getActiveTenant } from './utils/tenant.js';
 import SystemUpdatePrompt from './components/SystemUpdatePrompt.jsx';
 
 
@@ -206,7 +206,7 @@ function InstallPrompt() {
 }
 
 // ── Inner App (needs context) ────────────────────────────────────────
-function InnerApp() {
+function InnerApp({ switchRestaurant }) {
   const [view, setView] = useState('menu');
   const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [resetToken, setResetToken] = useState(null);
@@ -230,7 +230,7 @@ function InnerApp() {
       toast && toast(`🪑 Seated at Table #${table}! Menu loaded for table order.`, 'success');
     }
     if (tenant) {
-      setActiveTenant(tenant);
+      switchRestaurant(tenant);
     }
 
     if (track) {
@@ -368,8 +368,10 @@ function InnerApp() {
         {view === 'restaurants' && (
           <RestaurantsView
             onSelectRestaurant={(rest) => {
-              if (rest && rest.id) setActiveTenant(rest.id);
-              setView('menu');
+              if (rest && rest.id) {
+                navigate('menu', {tenant:rest.id, group:null, track:null});
+                switchRestaurant(rest.id);
+              }
             }}
             toast={toast}
           />
@@ -482,12 +484,27 @@ function InnerApp() {
 
 // ── Root App ────────────────────────────────────────────────────────
 export default function App() {
+  // Select tenant synchronously before auth/cart child effects load any data.
+  const [tenantId, setTenantId] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('tenant');
+    const selected = fromUrl || getActiveTenant() || 'default_tenant';
+    setActiveTenant(selected);
+    return selected;
+  });
+  const switchRestaurant = (id) => {
+    if (!id || id === tenantId) return;
+    setActiveTenant(id);
+    // Restaurant identity changes require fresh customer identity and cart scopes.
+    localStorage.removeItem('gastroflow_dinein_table');
+    localStorage.removeItem('gastroflow_table_number');
+    setTenantId(id);
+  };
   return (
     <ErrorBoundary>
       <LanguageProvider>
-        <CustomerAuthProvider>
-          <CartProvider>
-            <InnerApp />
+        <CustomerAuthProvider key={tenantId}>
+          <CartProvider key={tenantId} tenantId={tenantId}>
+            <InnerApp switchRestaurant={switchRestaurant} />
           </CartProvider>
         </CustomerAuthProvider>
       </LanguageProvider>
