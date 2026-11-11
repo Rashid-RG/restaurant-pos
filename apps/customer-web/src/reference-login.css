@@ -190,3 +190,8 @@
 @media(prefers-reduced-motion:reduce){
  .customer-auth-route .auth-reference-page *{scroll-behavior:auto!important}
 }
+
+.customer-auth-route #customer-main{padding:0!important;margin:0!important;max-width:none!important;min-height:100dvh!important}
+.customer-auth-route .auth-reference-browse{position:absolute;right:12px;top:6px;z-index:7;display:flex;align-items:center;gap:5px;background:#ffffffed;color:#0a6947;border:1px solid #ffffff8c;border-radius:20px;padding:6px 10px;font-size:11px;font-weight:750;cursor:pointer}
+.customer-auth-route .auth-reference-browse:focus-visible{outline:3px solid #ffb468;outline-offset:3px}
+@media(min-width:700px){.customer-auth-route .auth-reference-browse{top:14px;right:17px}}
