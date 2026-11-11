@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db, seedDatabase } from '../database/db';
+import { isExpiredStaffSession, restoreStaffSession } from '../utils/staff-session';
 
 const DB_VERSION = 1;
 
@@ -30,21 +31,10 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gastroflow_theme') === 'dark');
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('gastroflow_user');
-    const user = saved ? JSON.parse(saved) : null;
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const targetTenant = params.get('tenant') || params.get('tenantId');
-      if (user && targetTenant && user.tenant_id && user.tenant_id !== targetTenant) {
-        // If visiting a store-specific POS URL while logged into another store, clear old session to prompt login
-        localStorage.removeItem('gastroflow_token');
-        localStorage.removeItem('gastroflow_user');
-        return null;
-      }
-    } catch (_) {}
-    return user;
-  });
+  const [currentUser, setCurrentUser] = useState(() => restoreStaffSession(localStorage));
+  const [sessionChecking, setSessionChecking] = useState(() => Boolean(localStorage.getItem('gastroflow_token')));
+  // Do not erase a valid session merely because a bookmarked tenant URL is stale:
+  // use the server-authenticated user as the authority and update the URL after validation.
   const [activeShift, setActiveShift] = useState(null);
   const [tenantLock, setTenantLock] = useState(null); // null | { status: 'suspended' | 'deleted', storeId?: string, storeName?: string, message?: string }
 
@@ -72,17 +62,39 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('gastroflow_auth_error', handleGlobalAuthError);
   }, [currentUser]);
 
-  // Refresh server-owned capabilities for saved sessions after an upgrade.
+  // Restore a saved login before starting shift/status fetches. A network outage or
+  // a 403 permission/billing response cannot delete the local employee session.
   useEffect(() => {
     const token = localStorage.getItem('gastroflow_token');
-    if (!token) return;
+    if (!token) { setSessionChecking(false); return; }
     let cancelled = false;
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then(async response => { if (!response.ok) return; const data = await response.json();
-        if (!cancelled && data.user) { setCurrentUser(data.user); localStorage.setItem('gastroflow_user', JSON.stringify(data.user)); }
-      }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [currentUser?.id]);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (cancelled || localStorage.getItem('gastroflow_token') !== token) return;
+        if (response.ok && data.user) {
+          setCurrentUser(data.user);
+          localStorage.setItem('gastroflow_user', JSON.stringify(data.user));
+          try {
+            const url = new URL(window.location.href);
+            if (data.user.tenant_id && url.searchParams.get('tenant') !== data.user.tenant_id) {
+              url.searchParams.set('tenant', data.user.tenant_id);
+              url.searchParams.delete('tenantId');
+              window.history.replaceState({}, '', url.toString());
+            }
+          } catch (_) {}
+        } else if (isExpiredStaffSession(response.status, data)) {
+          localStorage.removeItem('gastroflow_token');
+          localStorage.removeItem('gastroflow_user');
+          setCurrentUser(null);
+        }
+      })
+      .catch(() => { /* Offline/timeout: keep cached session; retry on next request. */ })
+      .finally(() => { clearTimeout(timeout); if (!cancelled) setSessionChecking(false); });
+    return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
+  }, []);
 
   // Database lists
   const [menuItems, setMenuItems] = useState([]);
@@ -259,9 +271,11 @@ export const POSProvider = ({ children }) => {
         throw new Error(errMessage || 'Store deleted.');
       }
       
-      logout();
-      showToast('Session expired — please sign in again.', 'error');
-      throw new Error(errMessage || 'Session expired. Please sign in again.');
+      if (isExpiredStaffSession(response.status, { error: errMessage, code: errCode })) {
+        logout();
+        showToast('Your session expired — please sign in again.', 'error');
+      }
+      throw new Error(errMessage || 'This action is not available for your account.');
     }
     return response;
   };
@@ -274,8 +288,11 @@ export const POSProvider = ({ children }) => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.status === 401 || response.status === 403) {
-        logout();
-        showToast('Session expired — please sign in again.', 'error');
+        const error = await response.json().catch(() => ({}));
+        if (isExpiredStaffSession(response.status, error) && localStorage.getItem('gastroflow_token') === token) {
+          logout();
+          showToast('Your session expired — please sign in again.', 'error');
+        }
         return;
       }
       if (response.ok) {
@@ -333,6 +350,7 @@ export const POSProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    if (sessionChecking || !currentUser) return;
     loadAllData(true);
     getActiveShift();
 
@@ -420,7 +438,7 @@ export const POSProvider = ({ children }) => {
       clearInterval(interval);
       if (es) es.close();
     };
-  }, [currentUser]);
+  }, [currentUser, sessionChecking]);
 
   const acceptOnlineOrder = async (orderId, etaMinutes = 20) => {
     const res = await fetch(`/api/orders/${orderId}/accept`, {
@@ -506,12 +524,14 @@ export const POSProvider = ({ children }) => {
     }
 
     setTenantLock(null);
+    setSessionChecking(false);
     setCurrentUser(data.user);
   };
 
   const logout = () => {
     localStorage.removeItem('gastroflow_token');
     localStorage.removeItem('gastroflow_user');
+    setSessionChecking(false);
     setCurrentUser(null);
   };
 
@@ -1042,6 +1062,7 @@ export const POSProvider = ({ children }) => {
     <POSContext.Provider
       value={{
         loading,
+        sessionChecking,
         activeTab,
         setActiveTab,
         darkMode,
