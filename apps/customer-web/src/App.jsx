@@ -6,6 +6,7 @@ import { CartProvider, useCart } from './context/CartContext.jsx';
 import { LanguageProvider, useLang } from './context/LanguageContext.jsx';
 import Toast, { useToast } from './components/Toast.jsx';
 import MenuView from './views/MenuView.jsx';
+import MarketplaceMenu from './views/MarketplaceMenu.jsx';
 import CartCheckoutView from './views/CartCheckoutView.jsx';
 import OrderTrackingView from './views/OrderTrackingView.jsx';
 import ProfileView from './views/ProfileView.jsx';
@@ -210,7 +211,10 @@ function InstallPrompt() {
 
 // ── Inner App (needs context) ────────────────────────────────────────
 function InnerApp({ switchRestaurant }) {
-  const [view, setView] = useState('menu');
+  const [view, setView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tenant') ? 'store-menu' : 'menu';
+  });
   const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
@@ -244,14 +248,15 @@ function InnerApp({ switchRestaurant }) {
       setView('account');
     } else if (legal) {
       setView('legal');
-    } else if (viewParam && ['menu', 'restaurants', 'checkout', 'track', 'account', 'support', 'legal'].includes(viewParam)) {
-      setView(viewParam);
+    } else if (viewParam && ['menu', 'store-menu', 'restaurants', 'checkout', 'track', 'account', 'support', 'legal'].includes(viewParam)) {
+      // Existing restaurant-specific share links remain compatible.
+      setView(viewParam === 'menu' && tenant ? 'store-menu' : viewParam);
     }
 
     const handlePopState = () => {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('view') || p.get('page') || 'menu';
-      setView(v);
+      setView(v === 'menu' && p.get('tenant') ? 'store-menu' : v);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -372,14 +377,18 @@ function InnerApp({ switchRestaurant }) {
           <RestaurantsView
             onSelectRestaurant={(rest) => {
               if (rest && rest.id) {
-                navigate('menu', {tenant:rest.id, group:null, track:null});
+                navigate('store-menu', {tenant:rest.id, group:null, track:null});
                 switchRestaurant(rest.id);
               }
             }}
             toast={toast}
           />
         )}
-        {view === 'menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
+        {view === 'menu' && <MarketplaceMenu onChooseStore={rest => {
+          navigate('store-menu', {tenant: rest.id, group: null, track: null});
+          switchRestaurant(rest.id);
+        }} />}
+        {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
@@ -463,7 +472,7 @@ function InnerApp({ switchRestaurant }) {
           <span className="nav-icon"><Store size={21}/></span>
           Stores
         </button>
-        <button className={`nav-item ${view === 'menu' ? 'active' : ''}`} aria-current={view==='menu'?'page':undefined} onClick={() => navigate('menu')}>
+        <button className={`nav-item ${view === 'menu' || view === 'store-menu' ? 'active' : ''}`} aria-current={view==='menu'||view==='store-menu'?'page':undefined} onClick={() => navigate('menu', {tenant: null, group: null})}>
           <span className="nav-icon"><Utensils size={21}/></span>
           {t('navMenu')}
         </button>
