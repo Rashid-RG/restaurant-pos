@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { MapPin, Search, SlidersHorizontal, Store, ArrowUpRight, RefreshCw, Star, Clock3, Bike, CheckCircle2, AlertCircle, Navigation, ShoppingBag, MapPinned, Sparkles } from 'lucide-react';
 import L from 'leaflet';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -33,7 +35,43 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [nearestStore, setNearestStore] = useState(null);
   const [isOutOfCoverage, setIsOutOfCoverage] = useState(false);
   const [showOutOfCoverageModal, setShowOutOfCoverageModal] = useState(false);
+  const [openOnly, setOpenOnly] = useState(false);
+  const [deliveryOnly, setDeliveryOnly] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [dismissedCoverage, setDismissedCoverage] = useState(false);
   const [userAccuracy, setUserAccuracy] = useState(null);
+
+  // Render location dialogs outside scrolling app ancestors and freeze the
+  // underlying page while either dialog is visible (especially important on iOS).
+  useEffect(() => {
+    if (!showLocationModal && !showOutOfCoverageModal) return;
+    const y = window.scrollY;
+    const previous = {
+      position: document.body.style.position,
+      top: document.body.style.top,
+      left: document.body.style.left,
+      right: document.body.style.right,
+      width: document.body.style.width,
+      overflow: document.body.style.overflow,
+      htmlOverflow: document.documentElement.style.overflow
+    };
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${y}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    return () => {
+      Object.assign(document.body.style, {
+        position: previous.position, top: previous.top,
+        left: previous.left, right: previous.right,
+        width: previous.width, overflow: previous.overflow
+      });
+      document.documentElement.style.overflow = previous.htmlOverflow;
+      window.scrollTo(0, y);
+    };
+  }, [showLocationModal, showOutOfCoverageModal]);
 
   const CITY_COORDS = {
     'Colombo 03, Western': { lat: 6.9147, lng: 79.8517 },
@@ -109,18 +147,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
 
 
-  // Auto detect location on load if default
-  useEffect(() => {
-    const saved = localStorage.getItem('gastroflow_delivery_address');
-    if (!saved || saved === 'Detecting Location...') {
-      detectRealGpsLocation();
-    }
-  }, []);
+  // Browsing should never require sharing GPS on initial page load.
+  // Customers can explicitly select a city, precise pin, or GPS location.
 
   const detectRealGpsLocation = () => {
     if (!('geolocation' in navigator)) {
-      setDeliveryLocation('Colombo 03, Western');
-      toast('Geolocation not supported by browser', 'warning');
+      toast('Geolocation not supported. Select a city or address.', 'warning');
       return;
     }
     setIsDetectingGps(true);
@@ -135,14 +167,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           const isInsideSriLanka = lat >= 5.0 && lat <= 10.0 && lng >= 79.0 && lng <= 82.0;
 
           if (!isInsideSriLanka) {
-            console.warn(`[GPS Guard] Coordinates (${lat}, ${lng}) outside local coverage bounds. Defaulting to Colombo 03.`);
-            const defaultCoords = CITY_COORDS['Colombo 03, Western'];
-            setUserCoords(defaultCoords);
-            setUserAccuracy(accuracy);
-            setDeliveryLocation('Colombo 03, Western');
-            localStorage.setItem('gastroflow_delivery_address', 'Colombo 03, Western');
-            processStoreProximity(defaultCoords.lat, defaultCoords.lng);
-            toast('📍 IP/GPS detected outside delivery zone. Defaulted to Colombo 03 pin.', 'info');
+            toast('Location is outside Sri Lanka. Please select a Sri Lankan address.', 'warning');
             return;
           }
 
@@ -167,15 +192,15 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
           processStoreProximity(lat, lng);
         } catch (e) {
-          setDeliveryLocation('Colombo 03, Western');
+          toast('Could not determine the address. Choose your location manually.', 'warning');
         } finally {
           setIsDetectingGps(false);
         }
       },
       (err) => {
         console.warn('Geolocation error:', err);
-        setDeliveryLocation('Colombo 03, Western');
         setIsDetectingGps(false);
+        toast('Location unavailable. Select a city or enter an address.', 'warning');
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
@@ -369,20 +394,18 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     if (!uLat || !uLng || rawStores.length === 0) return;
 
     const uniqueRaw = deduplicateStores(rawStores);
-    // Pre-compute max distance for normalization
-    const distances = uniqueRaw.map(r => Number.isFinite(r.lat)&&Number.isFinite(r.lng)?calculateHaversineKm(uLat,uLng,r.lat,r.lng):999);
-    const maxDist = Math.max(...distances, 1);
+    const distances = uniqueRaw.map(r => Number.isFinite(r.lat) && Number.isFinite(r.lng) ? calculateHaversineKm(uLat,uLng,r.lat,r.lng) : null);
+    const maxDist = Math.max(...distances.filter(Number.isFinite), 1);
 
     const updated = uniqueRaw.map((r, idx) => {
       const dist = distances[idx];
-      const radius = r.deliveryRadiusKm || 15;
-      const inRange = Number.isFinite(r.lat)&&Number.isFinite(r.lng)&&dist <= radius;
+      const radius = Number(r.deliveryRadiusKm) > 0 ? Number(r.deliveryRadiusKm) : 15;
+      const inRange = Number.isFinite(dist) ? dist <= radius : null;
       const fee = r.deliveryFee;
-      const minEta = Math.round(15 + dist * 3);
-      const maxEta = Math.round(25 + dist * 4);
+      // ETA is supplied by the restaurant; never infer a fake driving time.
       const isOpenNow = r.isOpen !== false; // default open unless explicitly closed
       const isNew = r.isNew || false;
-      const recScore = computeRecommendationScore(dist, maxDist, r.rating, r.promoBadge, isOpenNow, r.id, isNew);
+      const recScore = computeRecommendationScore(dist ?? maxDist, maxDist, r.rating, r.promoBadge, isOpenNow, r.id, isNew);
 
       // Fee breakdown for tooltip
       const h = new Date().getHours();
@@ -397,7 +420,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
       return {
         ...r,
-        distanceKm: Number.isFinite(r.lat)&&Number.isFinite(r.lng)?dist:null,
+        distanceKm: Number.isFinite(dist) ? dist : null,
         isDeliverable: inRange,
         deliveryFee: fee,
         feeBreakdown: null,
@@ -410,21 +433,19 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     setRestaurants(updated);
 
     const deliverableStores = updated.filter(s => s.isDeliverable);
-    const sortedByDistance = [...updated].sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
-    const closest = sortedByDistance[0];
-
-    if (closest) {
-      setNearestStore(closest);
-      if (deliverableStores.length === 0) {
-        setIsOutOfCoverage(true);
-        setShowOutOfCoverageModal(true);
-      } else {
-        setIsOutOfCoverage(false);
-      }
-    }
+    const knownStores = updated.filter(store => Number.isFinite(store.distanceKm));
+    const closest = [...knownStores].sort((a, b) => a.distanceKm - b.distanceKm)[0] || null;
+    setNearestStore(closest);
+    const outsideAllKnownZones = knownStores.length > 0 && deliverableStores.length === 0;
+    setIsOutOfCoverage(outsideAllKnownZones);
+    // Non-blocking alert: never automatically open a full-screen modal on load.
+    setShowOutOfCoverageModal(false);
+    setDismissedCoverage(false);
   };
 
   const fetchRestaurants = async (overrideCoords = null) => {
+    setLoading(true);
+    setLoadError('');
     try {
       const coords = overrideCoords || userCoords;
       const q = coords && coords.lat && coords.lng ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
@@ -449,15 +470,18 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             }
           } catch (_) {}
         }
-        if (!resolved) {
-          resolved = CITY_COORDS['Colombo 03, Western'];
+        if (resolved) {
+          setUserCoords(resolved);
+          processStoreProximity(resolved.lat, resolved.lng, storeList);
+        } else {
+          setNearestStore(null);
+          setIsOutOfCoverage(false);
         }
-        setUserCoords(resolved);
-        processStoreProximity(resolved.lat, resolved.lng, storeList);
       }
 
     } catch (err) {
       console.error('Error fetching restaurants:', err);
+      setLoadError('Unable to load restaurants. Check your connection and retry.');
     } finally {
       setLoading(false);
     }
@@ -469,11 +493,16 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         r.name.toLowerCase().includes(search.toLowerCase()) ||
         r.cuisine.toLowerCase().includes(search.toLowerCase());
       const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
-      return matchesSearch && matchesCuisine;
+      const matchesOpen = !openOnly || r.isOpen !== false;
+      const matchesDelivery = !deliveryOnly || r.isDeliverable === true;
+      return matchesSearch && matchesCuisine && matchesOpen && matchesDelivery;
     })
   ).sort((a, b) => {
     if (sortBy === 'fastest') {
-      const getMinTime = s => parseInt(s.deliveryTime || '30', 10);
+      const getMinTime = s => {
+        const match = String(s.deliveryTime || '').match(/\d+/);
+        return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
+      };
       return getMinTime(a) - getMinTime(b);
     }
     if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
@@ -485,25 +514,29 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     return (b.recommendationScore || 0) - (a.recommendationScore || 0);
   });
 
+  const openCount = restaurants.filter(r => r.isOpen !== false).length;
+  const deliverableCount = restaurants.filter(r => r.isOpen !== false && r.isDeliverable === true).length;
+  const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng));
+
   return (
     <div className="restaurants-view" style={{ padding: '16px', maxWidth: 1120, margin: '0 auto', paddingBottom: 96, fontFamily: 'inherit' }}>
       
       {/* Top Location & Banner */}
       <div className="restaurants-location-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <button type="button" className="restaurants-location-button" onClick={() => setShowLocationModal(true)} aria-label="Select delivery location">
+        <button type="button" className="restaurants-location-button stores-modern-location" onClick={() => setShowLocationModal(true)} aria-label="Select delivery location">
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
             {t('deliveringTo') || 'Delivering to'}
           </div>
           <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            📍 {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
+            <MapPin size={17}/> {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
           </div>
         </button>
         <div className="restaurants-context-label">Order from local restaurants</div>
       </div>
 
       {/* Location Picker Modal */}
-      {showLocationModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      {showLocationModal && createPortal(
+        <div className="customer-location-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div className="restaurants-location-dialog" role="dialog" aria-modal="true" aria-label="Select delivery location" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, maxWidth: 440, width: '100%', maxHeight:'calc(100dvh - 32px)', overflowY:'auto', color: 'var(--text-1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 {t('selectDeliveryLocation') || 'Select Delivery Location'}</h3>
@@ -605,22 +638,23 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               ))}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Super Premium Out of Coverage Modal */}
-      {showOutOfCoverageModal && nearestStore && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      {showOutOfCoverageModal && nearestStore && createPortal(
+        <div className="customer-location-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div className="customer-coverage-dialog" role="dialog" aria-modal="true" aria-label="Delivery area availability" style={{ background: 'linear-gradient(145deg, #1f2937 0%, #111827 100%)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 24, padding: 28, maxWidth: 460, width: '100%', color: '#f8fafc', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: '2.2rem' }}>📍</span>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#f59e0b' }}>{t('storeNotAvailableArea') || 'Store Not Available in Area'}</h3>
-                  <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 600 }}>{t('outsideDeliveryZone') || 'Outside 15 km Delivery Zone'}</span>
+                  <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 600 }}>{nearestStore.distanceKm != null ? `Delivery beyond ${nearestStore.deliveryRadiusKm || 15} km zone` : 'Check your delivery address'}</span>
                 </div>
               </div>
-              <button onClick={() => setShowOutOfCoverageModal(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+              <button type="button" aria-label="Close coverage notice" onClick={() => setShowOutOfCoverageModal(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
             </div>
 
             <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 14, padding: 14, marginBottom: 20 }}>
@@ -628,8 +662,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 {Number.isFinite(Number(nearestStore.distanceKm)) && nearestStore.distanceKm !== null
                   ? <>Your selected location is <strong>{nearestStore.distanceKm} km</strong> from <strong>{nearestStore.name}</strong>. </>
                   : <>We could not verify the distance from your selected location to <strong>{nearestStore.name}</strong>. </>}
-                {Number.isFinite(Number(nearestStore.maxDeliveryRadiusKm)) && nearestStore.maxDeliveryRadiusKm > 0
-                  ? <>The delivery radius is <strong>{nearestStore.maxDeliveryRadiusKm} km</strong>.</>
+                {Number.isFinite(Number(nearestStore.deliveryRadiusKm)) && nearestStore.deliveryRadiusKm > 0
+                  ? <>The delivery radius is <strong>{nearestStore.deliveryRadiusKm} km</strong>.</>
                   : <>Select a precise address pin to check delivery availability.</>}
               </p>
             </div>
@@ -650,90 +684,56 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {/* Hero Marketplace Banner Carousel */}
-      <div style={{ background: 'linear-gradient(135deg, #ff6b35 0%, #f97316 50%, #e11d48 100%)', borderRadius: 16, padding: 18, color: '#fff', marginBottom: 20, boxShadow: '0 8px 24px rgba(255,107,53,0.3)', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <span style={{ background: 'rgba(255,255,255,0.25)', padding: '3px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            🎉 UberEats-Style Multi-Store Marketplace
-          </span>
-          <h2 style={{ margin: '8px 0 4px', fontSize: '1.4rem', fontWeight: 900, lineHeight: 1.2 }}>
-            Craving something delicious?
-          </h2>
-          <p style={{ margin: 0, fontSize: '0.82rem', opacity: 0.9 }}>
-            Order from top local Sri Lankan & International restaurants near you!
-          </p>
-        </div>
-        <div style={{ position: 'absolute', right: -10, bottom: -10, fontSize: '5rem', opacity: 0.25, pointerEvents: 'none' }}>
-          🍔
-        </div>
-      </div>
-
-      {/* Nearest Store Proximity Live Badge */}
-      {nearestStore && (
-        <div
-          onClick={() => isOutOfCoverage && setShowOutOfCoverageModal(true)}
-          style={{
-            background: isOutOfCoverage
-              ? 'linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(245,158,11,0.12) 100%)'
-              : 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(5,150,105,0.12) 100%)',
-            border: `1px solid ${isOutOfCoverage ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'}`,
-            padding: '12px 16px',
-            borderRadius: 14,
-            marginBottom: 16,
-            cursor: isOutOfCoverage ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 10
-          }}
-        >
-          <div>
-            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 800, color: isOutOfCoverage ? '#ef4444' : '#10b981' }}>
-              {isOutOfCoverage ? '⚠️ Delivery Coverage Alert' : '🟢 Nearest Branch Found'}
-            </div>
-            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 2 }}>
-              {isOutOfCoverage
-                ? `Nearest store (${nearestStore.name}) is ${nearestStore.distanceKm} km away`
-                : `${nearestStore.name} is ${nearestStore.distanceKm} km away`
-              }
-            </div>
+      <section className="stores-modern-hero" aria-label="Browse restaurants">
+        <div className="stores-hero-copy">
+          <span className="stores-eyebrow"><Sparkles size={14}/> GASTROFLOW MARKETPLACE</span>
+          <h1>Good food, made nearby.</h1>
+          <p>Find something delicious from restaurants on GastroFlow. Explore menus, pickup options and delivery availability.</p>
+          <div className="stores-hero-kpis" aria-label="Restaurant overview">
+            <span><Store size={15}/> {restaurants.length} restaurants</span>
+            <span><CheckCircle2 size={15}/> {openCount} accepting orders</span>
+            {hasPreciseLocation && <span><Bike size={15}/> {deliverableCount} in delivery range</span>}
           </div>
-          {isOutOfCoverage ? (
-            <span style={{ background: '#ef4444', color: '#fff', padding: '6px 12px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 800 }}>
-              Options ➔
-            </span>
-          ) : (
-            <span style={{ background: '#10b98120', color: '#10b981', padding: '4px 10px', borderRadius: 12, fontSize: '0.75rem', fontWeight: 800 }}>
-              ⚡ In Range
-            </span>
-          )}
+        </div>
+        <div className="stores-hero-visual" aria-hidden="true">
+          <div className="stores-hero-food">🍛</div>
+          <span className="stores-hero-pin"><MapPin size={20}/></span>
+        </div>
+      </section>
+
+      {loadError && <div className="stores-error" role="alert"><AlertCircle size={18}/>{loadError}<button type="button" onClick={()=>fetchRestaurants()}><RefreshCw size={15}/> Retry</button></div>}
+
+      {nearestStore && isOutOfCoverage && !dismissedCoverage && (
+        <div className="stores-coverage-inline" role="status">
+          <AlertCircle size={21}/>
+          <div><strong>Delivery not available at this address</strong><span>Explore restaurants for pickup, or choose another delivery pin.</span></div>
+          <button type="button" onClick={()=>{setShowLocationModal(true);setDismissedCoverage(true)}}>Change address</button>
+          <button type="button" className="stores-dismiss" onClick={()=>setDismissedCoverage(true)} aria-label="Dismiss delivery notice">×</button>
         </div>
       )}
 
-      {/* Search Input */}
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem', color: 'var(--text-muted)' }}>🔍</span>
-          <input
-            className="form-control"
-            placeholder="Search restaurants or cuisines (Burgers, Pizza, Rice)..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ paddingLeft: 42, height: 48, borderRadius: 24, fontSize: '16px' }}
-          />
-        </div>
+      <div className="stores-modern-search">
+        <Search size={20}/>
+        <input aria-label="Search restaurants or cuisines" placeholder="Search restaurants, pizza, burgers, rice…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        {search && <button type="button" aria-label="Clear search" onClick={()=>setSearch('')}>×</button>}
+      </div>
+      <div className="stores-quick-filters" aria-label="Availability filters">
+        <button type="button" aria-pressed={openOnly} className={openOnly?'active':''} onClick={()=>setOpenOnly(v=>!v)}><CheckCircle2 size={17}/> Open now</button>
+        <button type="button" aria-pressed={deliveryOnly} className={deliveryOnly?'active':''} disabled={!hasPreciseLocation} title={!hasPreciseLocation?'Select your location first':'Only stores that can deliver to your location'} onClick={()=>setDeliveryOnly(v=>!v)}><Bike size={17}/> Delivers here</button>
+        <button type="button" onClick={()=>setShowLocationModal(true)}><MapPinned size={17}/> Change location</button>
       </div>
 
       {/* UberEats Smart Sort Filter Bar */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
         {[
-          { id: 'recommendation', label: '🎯 Top Picks', desc: 'AI Match' },
-          { id: 'fastest', label: '⚡ Fastest', desc: '< 30 min' },
-          { id: 'rating', label: '⭐ Top Rated', desc: '4.8+' },
-          { id: 'distance', label: '📍 Nearest', desc: 'Proximity' }
+          { id: 'recommendation', label: 'Top picks', desc: 'AI Match' },
+          { id: 'fastest', label: 'Fastest', desc: '< 30 min' },
+          { id: 'rating', label: 'Top rated', desc: '4.8+' },
+          { id: 'distance', label: 'Nearest', desc: 'Proximity' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -744,11 +744,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               fontSize: '0.78rem',
               fontWeight: 800,
               border: sortBy === tab.id ? 'none' : '1px solid var(--border-color)',
-              background: sortBy === tab.id ? 'linear-gradient(135deg, #ff6b35 0%, #d97706 100%)' : 'var(--surface-1)',
+              background: sortBy === tab.id ? '#176f4e' : 'var(--surface-1)',
               color: sortBy === tab.id ? '#fff' : 'var(--text-1)',
               whiteSpace: 'nowrap',
               cursor: 'pointer',
-              boxShadow: sortBy === tab.id ? '0 4px 12px rgba(255,107,53,0.3)' : 'none'
+              boxShadow: sortBy === tab.id ? '0 4px 12px rgba(25,112,74,0.14)' : 'none'
             }}
           >
             {tab.label}
@@ -827,7 +827,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                     {r.ratingCount > 0 ? `⭐ ${r.rating} (${r.ratingCount})` : 'New restaurant'}{r.deliveryTime ? ` · ⏱️ ${r.deliveryTime}` : ''}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
-                    📍 {r.distanceKm ? `${r.distanceKm} km away` : 'Near you'}
+                    📍 {r.distanceKm !== null && r.distanceKm !== undefined ? `${r.distanceKm} km away` : 'Location not set'}
                   </div>
                 </div>
               </div>
@@ -839,10 +839,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       {/* Restaurants List Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
-          {sortBy === 'fastest' ? '⚡ Fastest Outlets Near You' :
+          {sortBy === 'fastest' ? 'Fastest Outlets Near You' :
            sortBy === 'rating' ? '⭐ Highest Rated Restaurants' :
            sortBy === 'distance' ? '📍 Closest Outlets' :
-           `Popular Outlets Near You (${filtered.length})`}
+           `Explore Restaurants (${filtered.length})`}
         </h3>
         <span style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 700 }}>{filtered.length} Unique Outlets</span>
       </div>
@@ -860,7 +860,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Try searching for another dish or cuisine type.</p>
         </div>
       ) : (
-        <div className="restaurants-result-grid" style={{ display: 'grid', gap: 18 }}>
+        <div className="restaurants-result-grid stores-modern-grid" style={{ display: 'grid', gap: 18 }}>
           {filtered.map(r => (
             <div
               key={r.id}
@@ -947,11 +947,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
                 {/* Delivery Stats Bar */}
                 <div style={{ display: 'flex', gap: 10, fontSize: '0.76rem', color: 'var(--text-1)', fontWeight: 600, borderTop: '1px solid var(--border-color)', paddingTop: 10, flexWrap: 'wrap' }}>
-                  <span>⏱️ {r.deliveryTime || '20-30 min'}</span>
+                  <span>⏱️ {r.deliveryTime || 'Confirm at checkout'}</span>
                   <span title={r.feeBreakdown ? `Base: LKR ${r.feeBreakdown.base} + Distance: LKR ${r.feeBreakdown.distFee}${r.feeBreakdown.isRush ? ' × 1.3 (Peak)' : ''}` : ''}>
-                    🚚 LKR {r.deliveryFee || 150}{r.feeBreakdown?.isRush ? ' ⏰' : ''}
+                    🚚 LKR {r.deliveryFee ?? 0}{r.feeBreakdown?.isRush ? ' ⏰' : ''}
                   </span>
-                  <span style={{ color: 'var(--text-muted)' }}>Min: LKR {r.minOrder || 1000}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>Min: LKR {r.minOrder ?? 0}</span>
                 </div>
               </div>
             </div>

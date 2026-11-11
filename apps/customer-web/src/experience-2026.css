@@ -617,3 +617,133 @@
  .customer-premium .auth-page::after,
  .customer-premium .tracking-page::before{animation:none!important}
 }
+
+/* Mobile-first usability repairs: location dialogs never scroll with the page. */
+.customer-location-backdrop{
+ position:fixed!important;inset:0!important;z-index:10001!important;
+ display:flex!important;align-items:center!important;justify-content:center!important;
+ padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;
+ background:rgba(10,29,20,.6)!important;backdrop-filter:blur(9px);
+ overscroll-behavior:contain;overflow:hidden;touch-action:none
+}
+.customer-location-backdrop>.customer-coverage-dialog,
+.customer-location-backdrop>.restaurants-location-dialog{
+ box-sizing:border-box;position:relative;
+ width:min(100%,460px)!important;
+ max-height:calc(100dvh - max(24px,env(safe-area-inset-top)) - max(24px,env(safe-area-inset-bottom)))!important;
+ overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior:contain;
+ -webkit-overflow-scrolling:touch;touch-action:pan-y;
+ border-radius:22px!important;padding:clamp(17px,4vw,25px)!important;
+ box-shadow:0 24px 70px rgba(5,31,16,.2)!important
+}
+.customer-location-backdrop button{min-height:44px}
+.customer-location-backdrop :is(input,select){min-height:46px;font-size:16px!important}
+.customer-premium .customer-coverage-dialog{color:#264c36!important}
+.customer-premium .customer-coverage-dialog h3{font-size:clamp(17px,4vw,22px)!important;line-height:1.2}
+.customer-premium .customer-coverage-dialog button{font-size:13px!important}
+/* Keep essential login actions visible before oversized decorative artwork. */
+@media(max-width:700px){
+ .customer-premium .auth-page{padding:0 16px 22px!important;min-height:0!important;margin:6px auto 25px!important;border-radius:17px!important}
+ .customer-premium .auth-page::after{height:0!important;display:none}
+ .customer-premium .auth-brand-hero{margin:0 -16px 10px!important}
+ .customer-premium .auth-hero-brand{min-height:52px!important;padding:10px 14px 8px!important}
+ .customer-premium .auth-hero-brand .auth-brand-symbol{height:37px!important;width:37px!important;border-radius:12px}
+ .customer-premium .auth-hero-brand h1{font-size:20px!important}
+ .customer-premium .auth-hero-brand span{font-size:8px;letter-spacing:.15em}
+ .customer-premium .auth-page .auth-hero-image{height:79px!important;min-height:79px!important}
+ .customer-premium .auth-page .auth-hero-image img{object-fit:cover;object-position:50% 57%}
+ .customer-premium .auth-hero-intro{padding:12px 17px 3px!important}
+ .customer-premium .auth-hero-intro h2{font-size:21px}
+ .customer-premium .auth-hero-intro p{font-size:12px!important;line-height:1.4}
+ .customer-premium .auth-hero-intro .auth-secure-note{display:none}
+ .customer-premium .auth-page .auth-tabs{margin:0 0 11px!important}
+ .customer-premium .auth-page .auth-tab{min-height:40px;padding:8px!important}
+ .customer-premium .auth-page .form-group{margin-bottom:8px!important}
+ .customer-premium .auth-page .form-group label{margin-bottom:3px}
+ .customer-premium .auth-page .form-control{min-height:43px!important}
+ .customer-premium .auth-page .btn{min-height:43px}
+ .customer-premium .auth-page .text-center.text-muted.mt-16{margin-top:12px!important}
+}
+@media(max-height:730px) and (max-width:700px){
+ .customer-premium .auth-page .auth-hero-image{height:56px!important;min-height:56px!important}
+ .customer-premium .auth-hero-intro{padding:9px 17px 2px!important}
+ .customer-premium .auth-hero-brand{min-height:45px!important}
+}
+/* Stores 2026 home and discovery */
+.customer-premium .stores-modern-hero{
+ display:grid;grid-template-columns:minmax(0,1.5fr) minmax(140px,.65fr);
+ align-items:center;gap:10px;margin:7px 0 17px;padding:clamp(21px,4vw,35px);
+ border:1px solid #d4e8d6;border-radius:24px;
+ background:linear-gradient(110deg,rgba(242,251,238,.96),rgba(230,246,226,.8)),url('/customer/city-food-background.svg') center 70%/cover no-repeat;
+ box-shadow:0 12px 38px rgba(22,83,42,.055);overflow:hidden
+}
+.customer-premium .stores-eyebrow{display:flex;align-items:center;gap:7px;color:#127849;font-size:10px;letter-spacing:.12em;font-weight:850}
+.customer-premium .stores-modern-hero h1{color:#143d2a;letter-spacing:-.045em;line-height:1.13;font-size:clamp(26px,4vw,43px);margin:12px 0 10px}
+.customer-premium .stores-modern-hero p{font-size:13px;color:#5f7666;max-width:550px;line-height:1.6;margin:0}
+.customer-premium .stores-hero-kpis{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.customer-premium .stores-hero-kpis span{display:flex;align-items:center;gap:6px;background:#fff9;border:1px solid #d5e9d9;padding:7px 10px;border-radius:10px;font-size:11px;color:#246948;font-weight:750}
+.customer-premium .stores-hero-visual{display:grid;place-items:center;position:relative;min-height:150px}
+.customer-premium .stores-hero-food{display:grid;place-items:center;width:142px;height:142px;border-radius:50%;background:radial-gradient(circle,#fff,#dbefda);box-shadow:0 19px 32px #1c784116;font-size:77px}
+.customer-premium .stores-hero-pin{position:absolute;right:3px;top:5px;color:#ed6d45;background:white;padding:9px;border-radius:14px;box-shadow:0 9px 20px #1b7b491f}
+.customer-premium .stores-modern-search{height:54px;display:flex;align-items:center;gap:12px;margin:14px 0;background:#fff;border:1px solid #cfe3d3;border-radius:16px;padding:0 15px;color:#258459;box-shadow:0 8px 23px #134e2a09}
+.customer-premium .stores-modern-search:focus-within{border-color:#268351;box-shadow:0 0 0 3px #31a56d20}
+.customer-premium .stores-modern-search input{font:inherit;min-width:0;flex:1;background:transparent;border:0;outline:0;color:#174631;font-size:16px}
+.customer-premium .stores-modern-search button{border:0;background:#eff7ed;color:#206849;border-radius:9px;width:30px;height:30px;font-size:21px;cursor:pointer}
+.customer-premium .stores-quick-filters{display:flex;gap:9px;flex-wrap:wrap;margin:8px 0 16px}
+.customer-premium .stores-quick-filters button{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:750;border:1px solid #d5e7d8;border-radius:50px;background:#fff;padding:9px 13px;color:#346a4b;cursor:pointer;min-height:40px}
+.customer-premium .stores-quick-filters button.active{background:#176e4d;border-color:#176e4d;color:white}
+.customer-premium .stores-quick-filters button:disabled{opacity:.5;cursor:not-allowed}
+.customer-premium .stores-coverage-inline{display:flex;align-items:center;gap:12px;padding:13px;border-radius:15px;border:1px solid #efdab6;background:#fff9ec;color:#885826;margin:12px 0}
+.customer-premium .stores-coverage-inline>div{display:grid;gap:5px;flex:1}
+.customer-premium .stores-coverage-inline strong{font-size:13px}
+.customer-premium .stores-coverage-inline span{font-size:11px;line-height:1.4}
+.customer-premium .stores-coverage-inline button{border:1px solid #e0c496;background:#fff5df;border-radius:10px;color:#805822;font-size:12px;font-weight:750;padding:9px 11px;cursor:pointer}
+.customer-premium .stores-coverage-inline button.stores-dismiss{border:0;background:transparent;padding:3px;font-size:23px}
+.customer-premium .stores-error{display:flex;align-items:center;gap:12px;border:1px solid #fad4c3;background:#fff6ef;padding:13px 15px;border-radius:12px;color:#90502b;font-size:13px;margin:10px 0}
+.customer-premium .stores-error button{margin-left:auto;display:flex;align-items:center;gap:5px;border:1px solid #e8bdaa;border-radius:10px;padding:8px;background:white;color:#915030;cursor:pointer}
+.customer-premium .stores-modern-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.customer-premium .stores-modern-grid>[role="button"]{transition:transform .15s,box-shadow .15s}
+.customer-premium .stores-modern-grid>[role="button"]:hover{transform:translateY(-3px);box-shadow:0 13px 32px #134b2b19!important}
+.customer-premium .stores-modern-grid>[role="button"]>div:first-child{
+ background-image:linear-gradient(115deg,rgba(11,103,65,.25),rgba(238,242,211,.3)),url('/customer/city-food-background.svg')!important;
+ background-size:cover!important;background-position:center!important;
+}
+.customer-premium .stores-modern-location{min-width:0;max-width:100%}
+.customer-premium .stores-modern-location>div:last-child{overflow-wrap:anywhere}
+@media(max-width:720px){
+ .customer-premium .stores-modern-grid{grid-template-columns:1fr}
+ .customer-premium .stores-modern-hero{padding:20px;grid-template-columns:minmax(0,1fr) 90px;border-radius:21px}
+ .customer-premium .stores-hero-visual{min-height:80px}
+ .customer-premium .stores-hero-food{width:82px;height:82px;font-size:46px}
+ .customer-premium .stores-hero-pin{padding:6px;right:-5px;top:-5px}
+ .customer-premium .stores-modern-hero h1{font-size:26px}
+ .customer-premium .stores-hero-kpis{gap:6px}
+ .customer-premium .stores-hero-kpis span{font-size:10px;padding:6px 8px}
+ .customer-premium .stores-coverage-inline{flex-wrap:wrap}
+ .customer-premium .stores-coverage-inline button:not(.stores-dismiss){margin-left:auto}
+}
+@media(max-width:380px){.customer-premium .stores-modern-hero{grid-template-columns:1fr}.customer-premium .stores-hero-visual{display:none}}
+/* GastroMate AI — contemporary lightweight mobile chat. */
+.customer-premium .gastro-mate-launcher{z-index:120!important}
+.customer-premium .gastro-mate-pill{background:#fff!important;color:#18563b!important;border:1px solid #d6e8d9!important;border-radius:28px!important;box-shadow:0 8px 24px #174d2a20!important}
+.customer-premium .gastro-mate-trigger{background:linear-gradient(125deg,#0b714a,#299369)!important;box-shadow:0 9px 27px #0b754a44!important}
+.customer-premium .gastro-mate-modal{
+ z-index:10010!important;overflow:hidden;background:#fff!important;
+ border:1px solid #cde5d2!important;border-radius:24px!important;
+ box-shadow:0 24px 85px #06311d37!important
+}
+.customer-premium .gastro-mate-modal>div:first-child{background:linear-gradient(115deg,#07583d,#187e56)!important;padding:17px!important}
+.customer-premium .gastro-mate-avatar{display:grid;place-items:center;width:43px;height:43px;background:#ffffff2c!important;border-radius:14px!important}
+.customer-premium .gastro-mate-modal>div:nth-child(2){background:linear-gradient(180deg,#f7fbf7,#fff)!important;padding:16px!important}
+.customer-premium .gastro-mate-modal>div:nth-child(2)>div{overflow-wrap:anywhere}
+.customer-premium .gastro-mate-modal>form{background:white!important;box-shadow:0 -5px 20px #0b55300b;padding:12px!important;gap:9px!important}
+.customer-premium .gastro-mate-modal>form input{background:#f8faf7!important;color:#1f432e!important;border:1px solid #d2e5d5!important;min-height:43px!important;font-size:16px!important}
+.customer-premium .gastro-mate-modal>form button{min-width:43px;min-height:43px}
+.customer-premium .gastro-mate-modal>form button[type="submit"]{background:#176d4c!important}
+.customer-premium .gastro-mate-modal button:focus-visible,
+.customer-premium .stores-modern-search button:focus-visible,
+.customer-premium .stores-quick-filters button:focus-visible{outline:3px solid #58ad80;outline-offset:2px}
+@media(max-width:700px){
+ .customer-premium .gastro-mate-modal{border-radius:18px 18px 0 0!important}
+}
+@media(prefers-reduced-motion:reduce){.customer-premium .stores-modern-grid>[role="button"]{transition:none!important}}
