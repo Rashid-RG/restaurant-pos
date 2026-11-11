@@ -1,5 +1,5 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {printRenderedReceipt,buildStandaloneReceiptDocument,fitStandaloneReceiptPage} from '../src/utils/printer.js';
+import {printRenderedReceipt,buildStandaloneReceiptDocument,fitStandaloneReceiptPage,resolvePrinterPaperSize} from '../src/utils/printer.js';
 
 afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals();});
 
@@ -53,5 +53,48 @@ describe('Thermal roll length safety',()=>{
   it('never prepares a blank receipt for printing',()=>{
     const doc={querySelector:()=>({textContent:''}),getElementById:()=>null};
     expect(fitStandaloneReceiptPage(doc,'80mm')).toBe(false);
+  });
+});
+
+describe('Windows thermal printer regressions',()=>{
+  it('honors explicit restaurant 80mm setting even with stale A4 browser preference',()=>{
+    vi.stubGlobal('window',{localStorage:{getItem:()=> 'a4'}});
+    expect(resolvePrinterPaperSize('80mm')).toBe('80mm');
+    expect(resolvePrinterPaperSize('58mm')).toBe('58mm');
+  });
+  it('uses stored preference only for auto-detection mode',()=>{
+    vi.stubGlobal('window',{innerWidth:1200,localStorage:{getItem:()=> '58mm'}});
+    expect(resolvePrinterPaperSize('auto')).toBe('58mm');
+  });
+  it('prepares the receipt iframe before inserting it into the DOM',()=>{
+    const receipt={textContent:'Restaurant | 1 x fried rice | TOTAL Rs. 1,800',outerHTML:'<div class="receipt-print-area">Restaurant | 1 x fried rice | TOTAL Rs. 1,800</div>'};
+    let inserted=false;
+    const frame={
+      style:{cssText:''},setAttribute:vi.fn(),parentNode:null,
+      set onload(fn){this.loadHandler=fn;},get onload(){return this.loadHandler;},
+      set srcdoc(value){this.receiptDocument=value;},get srcdoc(){return this.receiptDocument;}
+    };
+    vi.stubGlobal('window',{localStorage:{getItem:()=>null},innerWidth:1200});
+    vi.stubGlobal('document',{
+      getElementById:()=>({querySelector:()=>receipt}),
+      createElement:()=>frame,
+      body:{appendChild:vi.fn(node=>{
+        expect(node.onload).toBeTypeOf('function');
+        expect(node.srcdoc).toContain('TOTAL Rs. 1,800');
+        inserted=true;
+      })}
+    });
+    expect(printRenderedReceipt('80mm')).toBe(true);
+    expect(inserted).toBe(true);
+  });
+  it('caps exceptional receipt pages at 300mm rather than requesting a long feed',()=>{
+    vi.stubGlobal('window',{localStorage:{getItem:()=>null}});
+    const page={textContent:''};
+    const doc={
+      querySelector:()=>({textContent:'A populated very long order',scrollHeight:4000,getBoundingClientRect:()=>({height:4000})}),
+      getElementById:()=>null,createElement:()=>page,head:{appendChild:vi.fn()}
+    };
+    expect(fitStandaloneReceiptPage(doc,'80mm')).toBe(true);
+    expect(page.textContent).toContain('80mm 300mm');
   });
 });
