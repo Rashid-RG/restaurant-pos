@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
 import { testPrintReceipt } from '../utils/printer';
+import { restaurantTimeZone, validTimeZone } from '../utils/restaurant-time';
 
 export default function Settings() {
   const {
@@ -32,6 +33,7 @@ export default function Settings() {
   // Business config states
   const [bizName, setBizName] = useState(settings.businessName || settings.restaurantName || '');
   const [currency, setCurrency] = useState(settings.currencySymbol || 'Rs.');
+  const [timeZone, setTimeZone] = useState(restaurantTimeZone(settings));
   const [tax, setTax] = useState(settings.taxRate ?? '0');
   const [serviceCharge, setServiceCharge] = useState(settings.serviceChargeRate ?? '0');
   const [address, setAddress] = useState(settings.address || '');
@@ -45,6 +47,7 @@ export default function Settings() {
     if (!initializedRef.current && Object.keys(settings || {}).length > 0) {
       setBizName(settings.businessName || settings.restaurantName || '');
       setCurrency(settings.currencySymbol || 'Rs.');
+      setTimeZone(restaurantTimeZone(settings));
       setTax(settings.taxRate ?? '0');
       setServiceCharge(settings.serviceChargeRate ?? '0');
       setAddress(settings.address || '');
@@ -331,7 +334,9 @@ export default function Settings() {
   const handleSaveBusiness = async (e) => {
     e.preventDefault();
     try {
+      if (!validTimeZone(timeZone)) throw new Error('Select a valid restaurant time zone.');
       const payload = {
+        timeZone,
         businessName: bizName,
         restaurantName: bizName,
         currencySymbol: currency,
@@ -672,6 +677,20 @@ export default function Settings() {
                       onChange={(e) => setBizName(e.target.value)}
                       required
                     />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="restaurant-time-zone">Restaurant Time Zone</label>
+                    <select id="restaurant-time-zone" className="form-input" value={timeZone} onChange={e => setTimeZone(e.target.value)}>
+                      <option value="Asia/Colombo">Sri Lanka — Colombo (UTC+05:30)</option>
+                      <option value="Asia/Qatar">Qatar — Doha (UTC+03:00)</option>
+                      <option value="Asia/Dubai">UAE — Dubai (UTC+04:00)</option>
+                      <option value="Asia/Riyadh">Saudi Arabia — Riyadh (UTC+03:00)</option>
+                      <option value="Asia/Kolkata">India — Kolkata (UTC+05:30)</option>
+                      <option value="Europe/London">United Kingdom — London</option>
+                      <option value="America/New_York">United States — New York</option>
+                    </select>
+                    <small>Restaurant-local sales dates and report periods use this time zone. Existing transaction timestamps are not changed.</small>
                   </div>
 
                   <div className="form-row" style={{ display: 'flex', gap: '16px' }}>
