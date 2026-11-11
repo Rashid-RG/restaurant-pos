@@ -18,6 +18,8 @@ export async function apiFetch(endpoint, options = {}) {
 
   const trackedOrder = cleanPath.match(/^\/api\/public\/orders\/([^/?]+)/)?.[1] || (['/api/public/feedback','/api/payments/payhere/checkout','/api/public/payment/payhere/hash'].includes(cleanPath) && JSON.parse(options.body || '{}').orderId);
   const trackingAccess = trackedOrder && localStorage.getItem(`gastroflow_order_access_${trackedOrder}`);
+  const customerTokenKey = 'gastroflow_customer_token:' + encodeURIComponent(activeTenant || 'default_tenant');
+  const customerToken = localStorage.getItem(customerTokenKey);
   let res;
   try {
     res = await fetch(absoluteUrl, {
@@ -25,8 +27,8 @@ export async function apiFetch(endpoint, options = {}) {
       headers: {
         'Content-Type': 'application/json',
         ...(trackingAccess ? { 'X-Order-Tracking': trackingAccess } : {}),
-        ...(trackedOrder && localStorage.getItem('gastroflow_customer_token') ? { Authorization: `Bearer ${localStorage.getItem('gastroflow_customer_token')}` } : {}),
-        ...(/\/(?:customer|public)\/support\//.test(cleanPath) && localStorage.getItem('gastroflow_customer_token') ? { Authorization: `Bearer ${localStorage.getItem('gastroflow_customer_token')}` } : {}),
+        ...(trackedOrder && customerToken ? { Authorization: `Bearer ${customerToken}` } : {}),
+        ...(/\/(?:customer|public)\/support\//.test(cleanPath) && customerToken ? { Authorization: `Bearer ${customerToken}` } : {}),
         ...(activeTenant ? { 'X-Tenant-Id': activeTenant } : {}),
         ...(options.headers || {})
       }
@@ -45,7 +47,7 @@ export async function apiFetch(endpoint, options = {}) {
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
       if (/token|expired|invalid/i.test(data?.error || data?.message || '')) {
-        localStorage.removeItem('gastroflow_customer_token');
+        localStorage.removeItem(customerTokenKey);
       }
     }
     const msg = typeof data?.error === 'string'
