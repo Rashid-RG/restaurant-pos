@@ -25,7 +25,8 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
-  const [regOtpChannel, setRegOtpChannel] = useState('sms'); // 'sms' | 'email'
+  const [regOtpChannel, setRegOtpChannel] = useState('email');
+  const [authCapabilities,setAuthCapabilities] = useState({ emailOtp:false,smsOtp:false });
 
   // Forgot / reset password
   const [forgotEmail, setForgotEmail] = useState('');
@@ -39,6 +40,15 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpBusy, setOtpBusy] = useState(false);
   const [activeOtpDestination, setActiveOtpDestination] = useState('');
+
+  useEffect(() => {
+    apiFetch('/public/customer-auth-capabilities', { cache:'no-store' })
+      .then(c => {
+        const available={emailOtp:c?.emailOtp===true,smsOtp:c?.smsOtp===true};
+        setAuthCapabilities(available);
+        setRegOtpChannel(available.emailOtp?'email':available.smsOtp?'sms':'email');
+      }).catch(() => setAuthCapabilities({emailOtp:false,smsOtp:false}));
+  }, []);
 
   useEffect(() => {
     setError('');
@@ -77,7 +87,15 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
     if (regPassword !== regConfirm) { setError('Passwords do not match.'); return; }
     if (regPassword.length < 10) { setError('Use a password of at least 10 characters.'); return; }
 
-    // Verification via selected OTP channel (Email or SMS)
+    if (!authCapabilities.emailOtp && !authCapabilities.smsOtp) {
+      setError('Registration verification is unavailable. Contact GastroFlow support.');
+      return;
+    }
+    if (!authCapabilities[regOtpChannel==='email'?'emailOtp':'smsOtp']) {
+      setError('Select an available verification method.');
+      return;
+    }
+    // Registration consumes its code once during account creation.
     if (!otpVerified) {
       setOtpBusy(true);
       const isEmailChannel = regOtpChannel === 'email';
@@ -306,9 +324,9 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
         <span><small>Create a new account</small><strong>Register with GastroFlow</strong></span>
         <ArrowRight size={22} aria-hidden="true"/>
       </button>}
-      {tab === 'login' && <button type="button" className="auth-reference-otp-link" onClick={() => setTab('otp_login')}>Sign in with a verification code instead</button>}
+      {tab === 'login' && (authCapabilities.emailOtp || authCapabilities.smsOtp) && <button type="button" className="auth-reference-otp-link" onClick={() => setTab('otp_login')}>Sign in with a verification code instead</button>}
 
-      {tab === 'otp_login' && (
+      {tab === 'otp_login' && (authCapabilities.emailOtp || authCapabilities.smsOtp) && (
         <div>
           <div className="form-group" style={{ marginBottom: 14 }}>
             <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-1)' }}>Enter Phone Number or Email</label>
@@ -331,6 +349,10 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
               if (!loginPhone.trim()) { setError('Please enter your phone number or email.'); return; }
               const dest = loginPhone.trim();
               const channel = dest.includes('@') ? 'email' : 'sms';
+               if (!authCapabilities[channel==='email'?'emailOtp':'smsOtp']) {
+                 setError('This verification method is not available. Use password sign-in.');
+                 return;
+               }
               setOtpBusy(true);
               try {
                 const r = await apiFetch('/otp/send', {
@@ -448,45 +470,17 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-1)' }}>Verification Method:</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              <button
-                type="button"
-                onClick={() => setRegOtpChannel('sms')}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 10,
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  border: regOtpChannel === 'sms' ? 'none' : '1px solid var(--border-color)',
-                  background: regOtpChannel === 'sms' ? '#ff6b35' : 'var(--surface-1)',
-                  color: regOtpChannel === 'sms' ? '#fff' : 'var(--text-1)',
-                  cursor: 'pointer'
-                }}
-              >
-                📱 Phone SMS OTP
-              </button>
-              <button
-                type="button"
-                onClick={() => setRegOtpChannel('email')}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 10,
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  border: regOtpChannel === 'email' ? 'none' : '1px solid var(--border-color)',
-                  background: regOtpChannel === 'email' ? '#ff6b35' : 'var(--surface-1)',
-                  color: regOtpChannel === 'email' ? '#fff' : 'var(--text-1)',
-                  cursor: 'pointer'
-                }}
-              >
-                📧 Email OTP
-              </button>
+            <div className="customer-auth-methods" style={{display:'flex',gap:8,marginTop:6}}>
+              {authCapabilities.smsOtp && <button type="button" className={`customer-auth-method ${regOtpChannel==='sms'?'selected':''}`}
+                onClick={() => setRegOtpChannel('sms')}>📱 SMS code</button>}
+              {authCapabilities.emailOtp && <button type="button" className={`customer-auth-method ${regOtpChannel==='email'?'selected':''}`}
+                onClick={() => setRegOtpChannel('email')}>✉️ Email code</button>}
+              {!authCapabilities.smsOtp && !authCapabilities.emailOtp &&
+                <p role="status" className="customer-auth-unavailable">Registration is unavailable: no verification provider has been configured.</p>}
             </div>
           </div>
           <div style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy} style={{ width: '100%', padding: 12 }}>
+            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || (!authCapabilities.emailOtp && !authCapabilities.smsOtp)} style={{ width: '100%', padding: 12 }}>
               {loading || otpBusy ? '⏳ Processing…' : `🎉 ${dict.createAccount || 'Create Account'} (${regOtpChannel === 'email' ? 'Email OTP' : 'SMS OTP'})`}
             </button>
           </div>
