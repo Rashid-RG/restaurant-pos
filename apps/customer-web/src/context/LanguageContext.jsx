@@ -1,10 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { TRANSLATIONS, LANGUAGES } from '../i18n/translations.js';
 
 const LanguageContext = createContext(null);
 
 export function LanguageProvider({ children }) {
   const [lang, setLangState] = useState(() => localStorage.getItem('gastroflow_lang') || 'en');
+
+  useEffect(()=>{document.documentElement.lang=LANGUAGES.some(item=>item.code===lang)?lang:'en'},[lang]);
 
   const setLang = useCallback((code) => {
     setLangState(code);
