@@ -12,12 +12,12 @@ export default function Sidebar({ collapsed, onToggle }) {
   const switchWorkspace = () => select(inPlatform ? 'dashboard' : 'platform');
   const select = id => { setActiveTab(id); setMoreOpen(false); };
   return <>
-    <aside className={`sidebar desktop-sidebar ${collapsed ? 'collapsed' : ''}`} aria-label="Staff navigation">
+    <aside className={`sidebar desktop-sidebar ${collapsed ? 'collapsed' : ''} ${platformOwner ? 'platform-owner-sidebar' : ''}`} aria-label="Staff navigation">
       <div className="sidebar-brand"><img src="/pos-logo.svg" alt="" width="38" height="38"/>{!collapsed && <span><strong>gastroflow<span>.</span></strong><small>{inPlatform ? 'PLATFORM ADMINISTRATION' : 'RESTAURANT WORKSPACE'}</small></span>}</div>
       <button className="sidebar-collapse" onClick={onToggle} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>{collapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}</button>
-      {platformOwner && <div style={{padding: collapsed ? '8px 4px' : '10px 12px', borderBottom: '1px solid var(--border-color)'}}>
+      {platformOwner && <div className="platform-workspace-switcher" style={{padding: collapsed ? '8px 4px' : '10px 12px', borderBottom: '1px solid var(--border-color)'}}>
         {!collapsed && <small style={{display: 'block', fontWeight: 700, marginBottom: 8, color: 'var(--text-muted)'}}>PLATFORM OWNER · TWO WORKSPACES</small>}
-        <button type="button" className="sidebar-utility" onClick={switchWorkspace} title={inPlatform ? 'Switch to restaurant POS' : 'Switch to platform administration'} aria-label={inPlatform ? 'Switch to restaurant POS workspace' : 'Switch to platform administration workspace'} style={{width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 8px', border: '1px solid var(--border-color)', borderRadius: 10}}>
+        <button type="button" className="sidebar-utility platform-switch-button" onClick={switchWorkspace} title={inPlatform ? 'Switch to restaurant POS' : 'Switch to platform administration'} aria-label={inPlatform ? 'Switch to restaurant POS workspace' : 'Switch to platform administration workspace'} style={{width: '100%', display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color)', borderRadius: 10}}>
           {inPlatform ? <UtensilsCrossed size={18}/> : <PanelLeftOpen size={18}/>}
           {!collapsed && <span><strong>{inPlatform ? 'Open restaurant POS' : 'Open platform admin'}</strong><small style={{display: 'block', fontSize: 11}}>Switch workspace</small></span>}
         </button>

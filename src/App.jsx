@@ -114,7 +114,7 @@ function AppContent() {
   return (
     <div className="app-container">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div className="workspace">
+      <div className={`workspace ${isMasterOwner && activeTab === 'platform' ? 'platform-owner-workspace' : ''}`}>
         <WorkspaceTools/>
         <ConnectionStatus/>
         {platformBroadcast && (
