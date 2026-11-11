@@ -354,6 +354,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           {/* UBER EATS HERO LIVE BANNER */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
+              {!isCancelled && <img className="tracking-food-art" src={`${import.meta.env.BASE_URL}tracking-food-bowl.svg`} alt="" aria-hidden="true" loading="lazy" />}
               {!isCancelled && <AnimatedFeatureIcon kind={curStep === 1 ? 'cooking' : curStep === 2 ? (isDelivery ? 'delivery' : 'ready') : curStep === 3 ? 'ready' : 'order'} size={72} active={curStep < 3}/>}
               {isCancelled ? (
                 <div>
