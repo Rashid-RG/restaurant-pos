@@ -16,6 +16,7 @@ import SupportTicketsView from './components/SupportTicketsView';
 import DailyExpenses from './components/DailyExpenses';
 import SoldItems from './components/SoldItems';
 import StaffManagement from './components/StaffManagement';
+import MyAttendance from './components/MyAttendance';
 import Login from './components/Login';
 import StoreStatusScreen from './components/StoreStatusScreen';
 
@@ -78,6 +79,8 @@ function AppContent() {
         return <Inventory />;
       case 'sold-items':
         return ['owner', 'manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <SoldItems /> : <Dashboard />;
+      case 'my-attendance':
+        return <MyAttendance />;
       case 'staff-management':
         return ['owner','manager'].includes(currentUser?.role) ? <StaffManagement /> : <Dashboard />;
       case 'expenses':
