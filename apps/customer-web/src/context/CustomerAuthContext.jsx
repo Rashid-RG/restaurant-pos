@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../utils/api.js';
+import { getActiveTenant } from '../utils/tenant.js';
 
 const CustomerAuthContext = createContext(null);
-const TOKEN_KEY = 'gastroflow_customer_token';
+const tokenKey = () => 'gastroflow_customer_token:' + encodeURIComponent(getActiveTenant() || 'default_tenant');
 
 export function CustomerAuthProvider({ children }) {
   const [customer, setCustomer] = useState(null);
@@ -10,16 +11,16 @@ export function CustomerAuthProvider({ children }) {
 
   // Restore session on mount
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = localStorage.getItem(tokenKey());
     if (!token) { setLoading(false); return; }
     apiFetch('/customer/auth/me', {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(data => {
         if (data) setCustomer(data);
-        else localStorage.removeItem(TOKEN_KEY);
+        else localStorage.removeItem(tokenKey());
       })
-      .catch(() => localStorage.removeItem(TOKEN_KEY))
+      .catch(() => localStorage.removeItem(tokenKey()))
       .finally(() => setLoading(false));
   }, []);
 
@@ -28,7 +29,7 @@ export function CustomerAuthProvider({ children }) {
       method: 'POST',
       body: JSON.stringify({ phone, password })
     });
-    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(tokenKey(), data.token);
     setCustomer(data.customer);
     return data.customer;
   }, []);
@@ -38,7 +39,7 @@ export function CustomerAuthProvider({ children }) {
       method: 'POST',
       body: JSON.stringify({ name, email, phone, password, otpCode })
     });
-    localStorage.setItem(TOKEN_KEY, data.token);
+    localStorage.setItem(tokenKey(), data.token);
     setCustomer(data.customer);
     return data.customer;
   }, []);
@@ -49,19 +50,19 @@ export function CustomerAuthProvider({ children }) {
       body: JSON.stringify({ destination, code })
     });
     if (data.loggedIn && data.token) {
-      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(tokenKey(), data.token);
       setCustomer(data.customer);
     }
     return data;
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(tokenKey());
     setCustomer(null);
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    const token = localStorage.getItem(TOKEN_KEY);
+    const token = localStorage.getItem(tokenKey());
     if (!token) return;
     try {
       const data = await apiFetch('/customer/profile', {
@@ -71,7 +72,7 @@ export function CustomerAuthProvider({ children }) {
     } catch {}
   }, []);
 
-  const getToken = () => localStorage.getItem(TOKEN_KEY);
+  const getToken = () => localStorage.getItem(tokenKey());
 
   return (
     <CustomerAuthContext.Provider value={{ customer, loading, login, loginWithOtp, register, logout, refreshProfile, getToken }}>
