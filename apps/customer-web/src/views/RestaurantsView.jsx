@@ -523,12 +523,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       
       {/* Top Location & Banner */}
       <div className="restaurants-location-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <button type="button" className="restaurants-location-button" onClick={() => setShowLocationModal(true)} aria-label="Select delivery location">
+        <button type="button" className="restaurants-location-button stores-modern-location" onClick={() => setShowLocationModal(true)} aria-label="Select delivery location">
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
             {t('deliveringTo') || 'Delivering to'}
           </div>
           <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            📍 {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
+            <MapPin size={17}/> {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
           </div>
         </button>
         <div className="restaurants-context-label">Order from local restaurants</div>
@@ -688,87 +688,52 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         document.body
       )}
 
-      {/* Hero Marketplace Banner Carousel */}
-      <div style={{ background: 'linear-gradient(135deg, #ff6b35 0%, #f97316 50%, #e11d48 100%)', borderRadius: 16, padding: 18, color: '#fff', marginBottom: 20, boxShadow: '0 8px 24px rgba(255,107,53,0.3)', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <span style={{ background: 'rgba(255,255,255,0.25)', padding: '3px 10px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            🎉 UberEats-Style Multi-Store Marketplace
-          </span>
-          <h2 style={{ margin: '8px 0 4px', fontSize: '1.4rem', fontWeight: 900, lineHeight: 1.2 }}>
-            Craving something delicious?
-          </h2>
-          <p style={{ margin: 0, fontSize: '0.82rem', opacity: 0.9 }}>
-            Order from top local Sri Lankan & International restaurants near you!
-          </p>
-        </div>
-        <div style={{ position: 'absolute', right: -10, bottom: -10, fontSize: '5rem', opacity: 0.25, pointerEvents: 'none' }}>
-          🍔
-        </div>
-      </div>
-
-      {/* Nearest Store Proximity Live Badge */}
-      {nearestStore && (
-        <div
-          onClick={() => isOutOfCoverage && setShowOutOfCoverageModal(true)}
-          style={{
-            background: isOutOfCoverage
-              ? 'linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(245,158,11,0.12) 100%)'
-              : 'linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(5,150,105,0.12) 100%)',
-            border: `1px solid ${isOutOfCoverage ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'}`,
-            padding: '12px 16px',
-            borderRadius: 14,
-            marginBottom: 16,
-            cursor: isOutOfCoverage ? 'pointer' : 'default',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 10
-          }}
-        >
-          <div>
-            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 800, color: isOutOfCoverage ? '#ef4444' : '#10b981' }}>
-              {isOutOfCoverage ? '⚠️ Delivery Coverage Alert' : '🟢 Nearest Branch Found'}
-            </div>
-            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 2 }}>
-              {isOutOfCoverage
-                ? `Nearest store (${nearestStore.name}) is ${nearestStore.distanceKm} km away`
-                : `${nearestStore.name} is ${nearestStore.distanceKm} km away`
-              }
-            </div>
+      <section className="stores-modern-hero" aria-label="Browse restaurants">
+        <div className="stores-hero-copy">
+          <span className="stores-eyebrow"><Sparkles size={14}/> GASTROFLOW MARKETPLACE</span>
+          <h1>Good food, made nearby.</h1>
+          <p>Find something delicious from restaurants on GastroFlow. Explore menus, pickup options and delivery availability.</p>
+          <div className="stores-hero-kpis" aria-label="Restaurant overview">
+            <span><Store size={15}/> {restaurants.length} restaurants</span>
+            <span><CheckCircle2 size={15}/> {openCount} accepting orders</span>
+            {hasPreciseLocation && <span><Bike size={15}/> {deliverableCount} in delivery range</span>}
           </div>
-          {isOutOfCoverage ? (
-            <span style={{ background: '#ef4444', color: '#fff', padding: '6px 12px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 800 }}>
-              Options ➔
-            </span>
-          ) : (
-            <span style={{ background: '#10b98120', color: '#10b981', padding: '4px 10px', borderRadius: 12, fontSize: '0.75rem', fontWeight: 800 }}>
-              ⚡ In Range
-            </span>
-          )}
+        </div>
+        <div className="stores-hero-visual" aria-hidden="true">
+          <div className="stores-hero-food">🍛</div>
+          <span className="stores-hero-pin"><MapPin size={20}/></span>
+        </div>
+      </section>
+
+      {loadError && <div className="stores-error" role="alert"><AlertCircle size={18}/>{loadError}<button type="button" onClick={()=>fetchRestaurants()}><RefreshCw size={15}/> Retry</button></div>}
+
+      {nearestStore && isOutOfCoverage && !dismissedCoverage && (
+        <div className="stores-coverage-inline" role="status">
+          <AlertCircle size={21}/>
+          <div><strong>Delivery not available at this address</strong><span>Explore restaurants for pickup, or choose another delivery pin.</span></div>
+          <button type="button" onClick={()=>{setShowLocationModal(true);setDismissedCoverage(true)}}>Change address</button>
+          <button type="button" className="stores-dismiss" onClick={()=>setDismissedCoverage(true)} aria-label="Dismiss delivery notice">×</button>
         </div>
       )}
 
-      {/* Search Input */}
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ position: 'relative' }}>
-          <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: '1.1rem', color: 'var(--text-muted)' }}>🔍</span>
-          <input
-            className="form-control"
-            placeholder="Search restaurants or cuisines (Burgers, Pizza, Rice)..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ paddingLeft: 42, height: 48, borderRadius: 24, fontSize: '16px' }}
-          />
-        </div>
+      <div className="stores-modern-search">
+        <Search size={20}/>
+        <input aria-label="Search restaurants or cuisines" placeholder="Search restaurants, pizza, burgers, rice…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        {search && <button type="button" aria-label="Clear search" onClick={()=>setSearch('')}>×</button>}
+      </div>
+      <div className="stores-quick-filters" aria-label="Availability filters">
+        <button type="button" aria-pressed={openOnly} className={openOnly?'active':''} onClick={()=>setOpenOnly(v=>!v)}><CheckCircle2 size={17}/> Open now</button>
+        <button type="button" aria-pressed={deliveryOnly} className={deliveryOnly?'active':''} disabled={!hasPreciseLocation} title={!hasPreciseLocation?'Select your location first':'Only stores that can deliver to your location'} onClick={()=>setDeliveryOnly(v=>!v)}><Bike size={17}/> Delivers here</button>
+        <button type="button" onClick={()=>setShowLocationModal(true)}><MapPinned size={17}/> Change location</button>
       </div>
 
       {/* UberEats Smart Sort Filter Bar */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
         {[
-          { id: 'recommendation', label: '🎯 Top Picks', desc: 'AI Match' },
-          { id: 'fastest', label: '⚡ Fastest', desc: '< 30 min' },
-          { id: 'rating', label: '⭐ Top Rated', desc: '4.8+' },
-          { id: 'distance', label: '📍 Nearest', desc: 'Proximity' }
+          { id: 'recommendation', label: 'Top picks', desc: 'AI Match' },
+          { id: 'fastest', label: 'Fastest', desc: '< 30 min' },
+          { id: 'rating', label: 'Top rated', desc: '4.8+' },
+          { id: 'distance', label: 'Nearest', desc: 'Proximity' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -779,11 +744,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               fontSize: '0.78rem',
               fontWeight: 800,
               border: sortBy === tab.id ? 'none' : '1px solid var(--border-color)',
-              background: sortBy === tab.id ? 'linear-gradient(135deg, #ff6b35 0%, #d97706 100%)' : 'var(--surface-1)',
+              background: sortBy === tab.id ? '#176f4e' : 'var(--surface-1)',
               color: sortBy === tab.id ? '#fff' : 'var(--text-1)',
               whiteSpace: 'nowrap',
               cursor: 'pointer',
-              boxShadow: sortBy === tab.id ? '0 4px 12px rgba(255,107,53,0.3)' : 'none'
+              boxShadow: sortBy === tab.id ? '0 4px 12px rgba(25,112,74,0.14)' : 'none'
             }}
           >
             {tab.label}
@@ -862,7 +827,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                     {r.ratingCount > 0 ? `⭐ ${r.rating} (${r.ratingCount})` : 'New restaurant'}{r.deliveryTime ? ` · ⏱️ ${r.deliveryTime}` : ''}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
-                    📍 {r.distanceKm ? `${r.distanceKm} km away` : 'Near you'}
+                    📍 {r.distanceKm !== null && r.distanceKm !== undefined ? `${r.distanceKm} km away` : 'Location not set'}
                   </div>
                 </div>
               </div>
@@ -874,10 +839,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       {/* Restaurants List Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
-          {sortBy === 'fastest' ? '⚡ Fastest Outlets Near You' :
+          {sortBy === 'fastest' ? 'Fastest Outlets Near You' :
            sortBy === 'rating' ? '⭐ Highest Rated Restaurants' :
            sortBy === 'distance' ? '📍 Closest Outlets' :
-           `Popular Outlets Near You (${filtered.length})`}
+           `Explore Restaurants (${filtered.length})`}
         </h3>
         <span style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 700 }}>{filtered.length} Unique Outlets</span>
       </div>
@@ -895,7 +860,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Try searching for another dish or cuisine type.</p>
         </div>
       ) : (
-        <div className="restaurants-result-grid" style={{ display: 'grid', gap: 18 }}>
+        <div className="restaurants-result-grid stores-modern-grid" style={{ display: 'grid', gap: 18 }}>
           {filtered.map(r => (
             <div
               key={r.id}
@@ -982,11 +947,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
                 {/* Delivery Stats Bar */}
                 <div style={{ display: 'flex', gap: 10, fontSize: '0.76rem', color: 'var(--text-1)', fontWeight: 600, borderTop: '1px solid var(--border-color)', paddingTop: 10, flexWrap: 'wrap' }}>
-                  <span>⏱️ {r.deliveryTime || '20-30 min'}</span>
+                  <span>⏱️ {r.deliveryTime || 'Confirm at checkout'}</span>
                   <span title={r.feeBreakdown ? `Base: LKR ${r.feeBreakdown.base} + Distance: LKR ${r.feeBreakdown.distFee}${r.feeBreakdown.isRush ? ' × 1.3 (Peak)' : ''}` : ''}>
-                    🚚 LKR {r.deliveryFee || 150}{r.feeBreakdown?.isRush ? ' ⏰' : ''}
+                    🚚 LKR {r.deliveryFee ?? 0}{r.feeBreakdown?.isRush ? ' ⏰' : ''}
                   </span>
-                  <span style={{ color: 'var(--text-muted)' }}>Min: LKR {r.minOrder || 1000}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>Min: LKR {r.minOrder ?? 0}</span>
                 </div>
               </div>
             </div>
