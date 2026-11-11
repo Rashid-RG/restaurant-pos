@@ -256,6 +256,7 @@ export function buildStandaloneReceiptDocument(receiptMarkup, paperSetting='80mm
     'html,body{margin:0!important;padding:0!important;background:white!important;color:black!important;font-family:Arial,Helvetica,sans-serif!important;height:auto!important;overflow:visible!important}',
     '.receipt-print-area{display:block!important;visibility:visible!important;opacity:1!important;position:static!important;transform:none!important;float:none!important;width:'+width+'!important;max-width:'+width+'!important;margin:0 auto!important;padding:'+(a4?'10mm':'2mm 1mm 8mm')+'!important;color:black!important;background:white!important;font-size:'+font+'px!important;line-height:1.35!important;overflow:visible!important}',
     '.receipt-print-area *{visibility:visible!important;opacity:1!important;color:black!important;-webkit-text-fill-color:black!important;text-shadow:none!important;box-shadow:none!important}',
+    '.receipt-print-area button,.receipt-print-area [data-print-exclude]{display:none!important}',
     '.receipt-center{text-align:center}.receipt-divider{border-top:1px dashed #000;margin:8px 0}',
     '.receipt-business-name{font-size:'+(paper==='58mm'?'14':'17')+'px!important;letter-spacing:.25px;line-height:1.15!important;margin:4px 0 5px!important}',
     '.receipt-document-heading{padding:5px 0 4px;font-size:'+(paper==='58mm'?'12':'14')+'px;font-weight:800;letter-spacing:1.3px}',
