@@ -8,7 +8,7 @@ process.env.DATABASE_FILE=path.join(os.tmpdir(),`order-safety-${crypto.randomUUI
 process.env.JWT_SECRET='safety-staff-test';process.env.CUSTOMER_JWT_SECRET='safety-customer-test';
 const {app,dbReady,dbRun,dbGet}=await import('../server.js');
 const staff=(tenant='safe_A',id=tenant+'_owner')=>({Authorization:'Bearer '+jwt.sign({id,role:'owner',tenant_id:tenant},process.env.JWT_SECRET)});
-const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer'},process.env.CUSTOMER_JWT_SECRET)});
+const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer',sessionVersion:crypto.createHmac('sha256',process.env.CUSTOMER_JWT_SECRET).update('fixture').digest('hex').slice(0,24)},process.env.CUSTOMER_JWT_SECRET)});
 const driver=(id='safe_driver',tenant='safe_A')=>({Authorization:'Bearer '+jwt.sign({driverId:id,role:'driver',name:'Forged Name',tenant_id:tenant},process.env.JWT_SECRET)});
 const stock=()=>dbGet("SELECT stock FROM menu_items WHERE id='safe_item'");
 const ingredient=()=>dbGet("SELECT stock FROM ingredients WHERE id='safe_ingredient'");

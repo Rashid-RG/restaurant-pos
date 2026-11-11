@@ -860,6 +860,15 @@ async function initTables() {
       )
     `);
 
+    // New verification challenges are bound to their restaurant. Existing
+    // challenges are deliberately invalidated during migration.
+    try {
+      await dbRun("ALTER TABLE otp_codes ADD COLUMN tenant_id TEXT");
+    } catch (error) {
+      if (!/duplicate column|already exists/i.test(String(error?.message || error))) throw error;
+    }
+    await dbRun('DELETE FROM otp_codes WHERE tenant_id IS NULL');
+
     // 20. Raw Ingredients Table
     await dbRun(`
       CREATE TABLE IF NOT EXISTS ingredients (
@@ -1797,6 +1806,9 @@ const requirePlatformAdmin = (req, res, next) => {
 
 // Middleware: Authenticate Customer JWT Token
 // BUG-002 fix: removed hardcoded fallback secret
+const customerSessionVersion = account => crypto.createHmac('sha256', process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET)
+  .update(String(account.passwordHash || '')).digest('hex').slice(0, 24);
+
 const authenticateCustomer = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -1811,7 +1823,8 @@ const authenticateCustomer = (req, res, next) => {
       return res.status(403).json({ error: 'Invalid or expired customer token.' });
     }
     try{
-      const account=await dbGet('SELECT id,name,tenant_id FROM customer_accounts WHERE id=?',[decoded.id]);
+      const account=await dbGet('SELECT id,name,tenant_id,passwordHash FROM customer_accounts WHERE id=?',[decoded.id]);
+      if (!account || decoded.sessionVersion !== customerSessionVersion(account)) return res.status(403).json({error:'Customer session expired. Please sign in again.'});
       if(!account)return res.status(403).json({error:'Customer account is unavailable.'});
       const requested=req.headers['x-tenant-id']||req.query.tenant;
       if(requested&&requested!==account.tenant_id)return res.status(403).json({error:'Customer account belongs to another restaurant.'});
@@ -2755,51 +2768,40 @@ export function normalizeOtpDestination(dest) {
 
 // BUG-011 fix: OTP codes stored HASHED in the memory map (same as DB path).
 // Comparing hash(input) vs stored hash prevents plaintext exposure in process dumps / logs.
-function verifyOTP(destination, code) {
-  if (!destination || !code) return false;
-  const cleanDest = normalizeOtpDestination(destination);
-  const codeHash = hashCode(String(code).trim());
-
-  let entries = otpStore.get(cleanDest);
-  if (!entries) return false;
-  if (!Array.isArray(entries)) entries = [entries]; // backward compatibility check
-
-  const validIndex = entries.findIndex(e => e.expiresAt >= Date.now() && e.codeHash === codeHash);
-  if (validIndex !== -1) {
-    entries.splice(validIndex, 1); // Consume single-use code
-    otpStore.set(cleanDest, entries);
-    return true;
+// Purpose-bound, single-use OTP in shared storage (not process-local memory).
+async function verifyOTPAsync(destination, code, purpose, tenantId) {
+  if (!destination || !/^\d{6}$/.test(String(code)) || !['login','phone_verify'].includes(purpose) || !tenantId) return false;
+  const normalized = normalizeOtpDestination(destination);
+  const alternate = normalized.startsWith('+94') ? '0' + normalized.slice(3) : normalized;
+  const now = Date.now();
+  // The most recent challenge is authoritative. A wrong guess consumes an
+  // attempt, and an expired/consumed challenge cannot be replayed.
+  const row = await dbGet(
+    `SELECT id,codeHash,attempts FROM otp_codes WHERE tenant_id=? AND
+      (LOWER(destination)=? OR destination=?) AND purpose=?
+      AND expiresAt>? AND consumedAt IS NULL
+      ORDER BY createdAt DESC LIMIT 1`,
+    [tenantId, normalized, alternate, purpose, now]
+  );
+  if (!row || Number(row.attempts) >= 5) return false;
+  if (row.codeHash !== hashCode(String(code))) {
+    await dbRun('UPDATE otp_codes SET attempts=COALESCE(attempts,0)+1 WHERE id=? AND consumedAt IS NULL', [row.id]);
+    return false;
   }
-  return false;
+  const result = await dbRun('UPDATE otp_codes SET consumedAt=? WHERE id=? AND consumedAt IS NULL AND COALESCE(attempts,0)<5', [now,row.id]);
+  return result?.changes === undefined ? true : result.changes === 1;
 }
 
-async function verifyOTPAsync(destination, code) {
-  if (!destination || !code) return false;
-  if (verifyOTP(destination, code)) return true;
-
-  try {
-    const cleanDest = normalizeOtpDestination(destination);
-    const cleanPhoneAlt = cleanDest.startsWith('+94') ? '0' + cleanDest.slice(3) : cleanDest;
-    const codeHash = hashCode(String(code).trim());
-
-    const dbOtp = await dbGet(
-      `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ? OR destination = ?) AND codeHash = ? AND expiresAt >= ?`,
-      [cleanDest, cleanDest, cleanPhoneAlt, codeHash, Date.now()]
-    );
-    if (dbOtp) {
-      await dbRun('DELETE FROM otp_codes WHERE id = ?', [dbOtp.id]);
-      return true;
-    }
-  } catch (e) {}
-
-  return false;
-}
+app.get('/api/public/customer-auth-capabilities', publicApiLimiter, (_req, res) =>
+  res.set('Cache-Control','no-store').json({ emailOtp: isEmailConfigured(), smsOtp: isSmsConfigured(), passwordLogin: true })
+);
 
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
 // BUG-008 fix: use the stricter otpLimiter (3 sends / 10 min) instead of the general publicApiLimiter
 app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) => {
   try {
     const { channel, destination, phone, email, purpose = 'phone_verify' } = req.body || {};
+    if (!['login','phone_verify'].includes(purpose)) return res.status(400).json({ error: 'Invalid verification purpose.' });
     const target = destination || email || phone;
     if (!target || !String(target).trim()) {
       return res.status(400).json({ error: 'Email address or phone number is required.' });
@@ -2807,6 +2809,14 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 
     const isEmail = (channel === 'email') || String(target).includes('@');
     const cleanDest = normalizeOtpDestination(target);
+    if (isEmail && !isEmailConfigured()) return res.status(503).json({
+      error: 'Email verification is not configured. Contact GastroFlow support.',
+      code: 'EMAIL_PROVIDER_UNAVAILABLE'
+    });
+    if (!isEmail && !isSmsConfigured()) return res.status(503).json({
+      error: 'SMS verification is not configured. Choose email verification.',
+      code: 'SMS_PROVIDER_UNAVAILABLE'
+    });
 
     if (!isEmail && !isValidSriLankanPhone(target)) {
       return res.status(400).json({ error: 'A valid Sri Lankan phone number is required (e.g. 0771234567).' });
@@ -2815,39 +2825,32 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
     // Enforcement: Only registered users can request a login OTP
     if (purpose === 'login') {
       const existingAccount = await dbGet(
-        `SELECT id FROM customer_accounts WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, cleanDest]
+        `SELECT id FROM customer_accounts WHERE tenant_id=? AND (LOWER(phone)=? OR LOWER(email)=? OR phone=?)`,
+        [await resolvePublicTenant(req), cleanDest, cleanDest, cleanDest]
       );
-      const existingCustomer = existingAccount || await dbGet(
-        `SELECT id FROM customers WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, cleanDest]
-      );
-      if (!existingCustomer) {
+      if (!existingAccount) {
         return res.status(404).json({
           error: 'No registered account found with this phone or email. Please register your account first.'
         });
       }
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = String(crypto.randomInt(100000, 1000000));
     const expiresAt = Date.now() + 10 * 60 * 1000;
 
-    // Clean up expired codes only (keep active valid codes so re-sends don't invalidate codes in transit)
-    await dbRun('DELETE FROM otp_codes WHERE expiresAt < ?', [Date.now()]);
+    const otpTenantId = await resolvePublicTenant(req);
+    // Each resend replaces earlier codes for the same destination and purpose.
+    await dbRun('DELETE FROM otp_codes WHERE expiresAt<? OR (tenant_id=? AND destination=? AND purpose=?)',
+      [Date.now(),otpTenantId,cleanDest,purpose]);
 
     const id = `otp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await dbRun(
-      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
+      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now(), otpTenantId]
     );
 
-    // BUG-011 fix: store HASH of OTP code in memory (not plaintext)
-    let currentEntries = otpStore.get(cleanDest) || [];
-    if (!Array.isArray(currentEntries)) currentEntries = [currentEntries];
-    currentEntries = currentEntries.filter(e => e.expiresAt > Date.now());
-    currentEntries.push({ codeHash: hashCode(code), expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
-    otpStore.set(cleanDest, currentEntries);
+    // Verification is database-backed; process-local OTP maps are not used.
 
     const tenantId = await resolvePublicTenant(req);
     const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
@@ -2863,7 +2866,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
       try {
         const sendPromise = sendEmail({
           to: cleanDest,
-          subject: `Your ${storeName} verification code: ${code}`,
+          subject: `Your ${storeName} verification code`,
           html,
           text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
         });
@@ -2872,7 +2875,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 
         if (sendRes && sendRes.success) {
           emailSent = true;
-          console.log(`[OTP EMAIL SUCCESS] Delivered to ${cleanDest} | Code: ${code}`);
+          console.log('[OTP EMAIL SUCCESS] Verification email submitted.');
         } else {
           emailError = sendRes?.error || (sendRes?.timeout ? 'Connection timeout' : 'SMTP send failed');
           console.warn(`[OTP EMAIL WARNING] Failed sending to ${cleanDest}:`, emailError);
@@ -2882,6 +2885,10 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
         console.error('[OTP EMAIL EXCEPTION]', e.message);
       }
 
+      if (!emailSent) {
+        await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
+        return res.status(503).json({error:'We could not send the email code. Try again later or choose SMS if available.',code:'EMAIL_DELIVERY_FAILED'});
+      }
       return res.json({
         success: true,
         channel: 'email',
@@ -2895,22 +2902,14 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
     } else {
       const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
 
-      // Fire-and-forget background SMS dispatch
-      sendSms({ to: cleanDest, message: msg }).then(smsRes => {
-        if (!smsRes || smsRes.simulated || !smsRes.success) {
-          console.warn(`[SMS SEND BACKGROUND WARNING] Diagnostic result:`, smsRes);
-        } else {
-          console.log(`[OTP SMS SUCCESS] Delivered to ${cleanDest}`);
-        }
-      }).catch(e => {
-        console.error('[SMS OTP BACKGROUND EXCEPTION]', e.message);
-      });
-
+      const smsRes = await sendSms({ to: cleanDest, message: msg });
+      if (!smsRes?.success) {
+        await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
+        return res.status(503).json({error:'SMS delivery failed. Try email verification or contact support.',code:'SMS_DELIVERY_FAILED'});
+      }
       return res.json({
-        success: true,
-        channel: 'sms',
-        destination: cleanDest,
-        message: `Verification code sent via SMS to ${cleanDest}. Please check your phone.`
+        success:true, channel:'sms', destination:cleanDest,
+        message:'Verification message accepted by the SMS provider. Check your phone.'
       });
     }
   } catch (err) {
@@ -2920,7 +2919,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 });
 
 // POST /api/otp/verify — Verify OTP code and login existing customer or return verification status
-app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
+app.post('/api/otp/verify', otpLimiter, async (req, res) => {
   try {
     const { destination, code, phone, email } = req.body;
     const target = destination || email || phone;
@@ -2931,21 +2930,21 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
     const isEmail = target.includes('@');
     const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
 
-    const isValid = await verifyOTPAsync(cleanDest, code);
+    const isValid = await verifyOTPAsync(cleanDest, code, 'login', await resolvePublicTenant(req));
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid or expired verification code.' });
     }
 
     // Check if account already exists
     const customer = await dbGet(
-      'SELECT * FROM customer_accounts WHERE email = ? OR phone = ?',
-      [cleanDest, cleanDest]
+      'SELECT * FROM customer_accounts WHERE tenant_id=? AND (LOWER(email)=? OR phone=?)',
+      [await resolvePublicTenant(req), cleanDest, cleanDest]
     );
 
     if (customer) {
       const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
       const token = jwt.sign(
-        { id: customer.id, phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
+        { id: customer.id, tenantId: customer.tenant_id, sessionVersion: customerSessionVersion(customer), phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
         secret,
         { expiresIn: '7d' }
       );
@@ -2964,7 +2963,7 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
       });
     }
 
-    return res.json({ verified: true, loggedIn: false, destination: cleanDest });
+    return res.status(404).json({ error: 'No customer account for this restaurant. Please register.' });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -2982,15 +2981,17 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   if (!otpCode) {
     return res.status(400).json({ error: 'Verification code is required.' });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  if (typeof password !== 'string' || password.length < 10 || password.length > 72) {
+    return res.status(400).json({ error: 'Password must contain between 10 and 72 characters.' });
   }
 
   const cleanPhone = phone.replace(/[\s-]/g, '');
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
   // Verify OTP (allow either phone or email verification)
-  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode)));
+  const tenantIdForOtp = await resolvePublicTenant(req);
+  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode, 'phone_verify', tenantIdForOtp)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode, 'phone_verify', tenantIdForOtp)));
+
   if (!isOtpValid) {
     return res.status(400).json({ error: 'Invalid or expired verification code.' });
   }
@@ -3043,7 +3044,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
-      { id, phone: cleanPhone, name: name.trim(), type: 'customer' },
+      { id, tenantId, sessionVersion: customerSessionVersion({passwordHash}), phone: normPhone || cleanPhone, name: name.trim(), type: 'customer' },
       secret,
       { expiresIn: '7d' }
     );
@@ -3065,7 +3066,11 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 });
 
 // POST /api/customer/auth/login
-app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
+const customerLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Try again later.' }
+});
+app.post('/api/customer/auth/login', customerLoginLimiter, async (req, res) => {
   const { phone, password } = req.body;
   if (!phone || !password) {
     return res.status(400).json({ error: 'Phone number and password are required.' });
@@ -3074,7 +3079,9 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
   const cleanPhone = phone.replace(/[\s-]/g, '');
 
   try {
-    const customer = await dbGet('SELECT * FROM customer_accounts WHERE phone = ?', [cleanPhone]);
+    const tenantId = await resolvePublicTenant(req);
+    const customer = await dbGet('SELECT * FROM customer_accounts WHERE tenant_id=? AND (phone=? OR phone=?)',
+      [tenantId, normalizeLkPhone(cleanPhone), cleanPhone]);
     if (!customer) {
       return res.status(401).json({ error: 'Invalid phone number or password.' });
     }
@@ -3084,7 +3091,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
     }
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
-      { id: customer.id, phone: customer.phone, name: customer.name, type: 'customer' },
+      { id: customer.id, tenantId: customer.tenant_id, sessionVersion: customerSessionVersion(customer), phone: customer.phone, name: customer.name, type: 'customer' },
       secret,
       { expiresIn: '7d' }
     );
@@ -3158,22 +3165,32 @@ app.get('/api/customer/profile', authenticateCustomer, async (req, res) => {
 
 // PUT /api/customer/profile
 app.put('/api/customer/profile', authenticateCustomer, async (req, res) => {
-  const { name, phone, password } = req.body;
+  const { name, phone, password, currentPassword } = req.body || {};
   try {
-    if (password) {
-      if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-      const passwordHash = await bcrypt.hash(password, 10);
-      await dbRun('UPDATE customer_accounts SET name = ?, phone = ?, passwordHash = ? WHERE id = ?',
-        [name || req.customer.name, phone || null, passwordHash, req.customer.id]);
-    } else {
-      await dbRun('UPDATE customer_accounts SET name = ?, phone = ? WHERE id = ?',
-        [name || req.customer.name, phone || null, req.customer.id]);
+    const account = await dbGet('SELECT id,name,phone,passwordHash FROM customer_accounts WHERE id=? AND tenant_id=?',
+      [req.customer.id, req.customer.tenant_id]);
+    if (!account) return res.status(404).json({ error: 'Customer account unavailable.' });
+    const safeName = typeof name === 'string' ? name.trim() : account.name;
+    if (!safeName || safeName.length > 120) return res.status(400).json({ error: 'Enter a valid name of up to 120 characters.' });
+    // Phone ownership changes require their own verified change flow.
+    if (phone && normalizeLkPhone(phone) !== normalizeLkPhone(account.phone)) {
+      return res.status(409).json({ error: 'Changing your phone requires verification. Contact support.', code: 'PHONE_VERIFICATION_REQUIRED' });
     }
+    let newHash = null;
+    if (password) {
+      if (typeof password !== 'string' || password.length < 10 || password.length > 72)
+        return res.status(400).json({ error: 'New password must be 10–72 characters.' });
+      if (typeof currentPassword !== 'string' || !(await bcrypt.compare(currentPassword, account.passwordHash)))
+        return res.status(403).json({ error: 'Current password is incorrect.', code: 'CURRENT_PASSWORD_REQUIRED' });
+      newHash = await bcrypt.hash(password, 10);
+    }
+    await dbRun('UPDATE customer_accounts SET name=?,passwordHash=? WHERE id=? AND tenant_id=?',
+      [safeName, newHash || account.passwordHash, account.id, req.customer.tenant_id]);
     const updated = await dbGet(
-      'SELECT id, name, email, phone, loyaltyPoints, totalSpent FROM customer_accounts WHERE id = ?',
-      [req.customer.id]
+      'SELECT id,name,email,phone,phoneVerified,loyaltyPoints,totalSpent FROM customer_accounts WHERE id=? AND tenant_id=?',
+      [account.id, req.customer.tenant_id]
     );
-    res.json(updated);
+    res.set('Cache-Control','no-store').json({ ...updated, reauthenticationRequired: Boolean(newHash) });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -5503,108 +5520,27 @@ async function sendOrderConfirmation(order) {
   }
 }
 
-// ── OTP: verify ──────────────────────────────────────────────────────────────
-app.post('/api/otp/verify', otpLimiter, async (req, res) => {
-  const { channel, destination, code } = req.body || {};
-  if (!code) return res.status(400).json({ error: 'Verification code is required.' });
-
-  try {
-    const cleanCode = String(code).trim();
-    const cleanDest = destination ? String(destination).trim().toLowerCase() : '';
-    const codeHash = hashCode(cleanCode);
-    const now = Date.now();
-
-    // 1. Find active unconsumed code
-    let row = null;
-    if (cleanDest) {
-      const normPhone = normalizeLkPhone(cleanDest);
-      row = await dbGet(
-        `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ? OR destination = ?) AND consumedAt IS NULL AND expiresAt > ? ORDER BY createdAt DESC LIMIT 1`,
-        [cleanDest, cleanDest, normPhone, now]
-      );
-    }
-    if (!row) {
-      row = await dbGet(
-        `SELECT * FROM otp_codes WHERE codeHash = ? AND consumedAt IS NULL AND expiresAt > ? ORDER BY createdAt DESC LIMIT 1`,
-        [codeHash, now]
-      );
-    }
-
-    if (!row) {
-      return res.status(400).json({ verified: false, error: 'No active code found. Please request a new code.' });
-    }
-
-    if (row.attempts >= MAX_OTP_ATTEMPTS) {
-      return res.status(429).json({ verified: false, error: 'Too many attempts. Request a new code.' });
-    }
-
-    if (row.codeHash !== codeHash) {
-      await dbRun('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?', [row.id]);
-      return res.status(400).json({ verified: false, error: 'Incorrect code. Please check and try again.' });
-    }
-
-    // Mark code as consumed
-    await dbRun('UPDATE otp_codes SET consumedAt = ? WHERE id = ?', [now, row.id]);
-
-    const actualDest = row.destination ? row.destination.toLowerCase() : cleanDest;
-    console.log(`[OTP VERIFIED SUCCESS] ID: ${row.id} | Dest: ${actualDest} | Code: ${cleanCode}`);
-
-    // Check if customer exists for 1-tap OTP login in customer_accounts or customers
-    let customer = await dbGet(
-      `SELECT id, name, phone, email, loyaltyPoints as points FROM customer_accounts WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ? OR email = ?`,
-      [actualDest, actualDest, cleanDest, cleanDest]
-    );
-
-    if (!customer) {
-      customer = await dbGet(
-        `SELECT id, name, phone, email, points FROM customers WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ? OR email = ?`,
-        [actualDest, actualDest, cleanDest, cleanDest]
-      );
-    }
-
-    if (!customer) {
-      // Auto-create customer profile on verified OTP
-      const newCustId = `cust_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      const isEmail = actualDest.includes('@');
-      const custName = isEmail ? actualDest.split('@')[0] : 'Customer';
-      const custPhone = isEmail ? '' : actualDest;
-      const custEmail = isEmail ? actualDest : '';
-
-      await dbRun(
-        `INSERT INTO customer_accounts (id, name, phone, email, loyaltyPoints, createdAt, tenant_id) VALUES (?, ?, ?, ?, 0, ?, ?)`,
-        [newCustId, custName, custPhone, custEmail, Date.now(), await resolvePublicTenant(req)]
-      );
-      customer = { id: newCustId, name: custName, phone: custPhone, email: custEmail, points: 0 };
-    }
-
-    const token = jwt.sign(
-      { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, type: 'customer' },
-      process.env.JWT_SECRET || JWT_SECRET,
-      { expiresIn: '30d' }
-    );
-
-    res.json({
-      verified: true,
-      loggedIn: true,
-      token,
-      customer: { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, points: customer.points || 0 }
-    });
-  } catch (err) {
-    console.error('[OTP VERIFY ERROR]', err);
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
+// Customer OTP verification is handled by the purpose-bound /api/otp/verify
+// endpoint defined alongside registration above. The obsolete duplicate
+// handler (which could auto-create unverified accounts) was removed.
 
 // ── Customer: forgot password (request) ──────────────────────────────────────
 app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ error: 'email is required.' });
+  if (!isEmailConfigured() && !isSmsConfigured()) return res.status(503).json({
+    error:'Password recovery messaging is temporarily unavailable. Contact GastroFlow support.',
+    code:'RECOVERY_PROVIDER_UNAVAILABLE'
+  });
   try {
-    const acct = await dbGet('SELECT id, email, phone FROM customer_accounts WHERE email = ?', [String(email).trim().toLowerCase()]);
+    const acct = await dbGet('SELECT id,email,phone FROM customer_accounts WHERE email=? AND tenant_id=?', [String(email).trim().toLowerCase(),await resolvePublicTenant(req)]);
     // Always respond the same way — no account enumeration.
     if (acct) {
       const { token, code } = await createPasswordReset('customer', acct.id);
-      const link = `${customerAppUrl()}/?reset=${token}`;
+      const resetLink = new URL(customerAppUrl());
+      resetLink.searchParams.set('tenant', await resolvePublicTenant(req));
+      resetLink.searchParams.set('reset', token);
+      const link = resetLink.toString();
       const business = await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro');
       const resetHtml = buildPasswordResetEmail({
         userType: 'customer',
@@ -5628,9 +5564,9 @@ app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
 // ── Customer: reset password (confirm) ───────────────────────────────────────
 app.post('/api/customer/auth/reset-password', otpLimiter, async (req, res) => {
   const { token, email, code, newPassword } = req.body || {};
-  if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 10 || newPassword.length > 72) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
   try {
-    const reset = await resolveReset('customer', { token, email, code, lookupByEmail: async (e) => dbGet('SELECT id FROM customer_accounts WHERE email = ?', [String(e).trim().toLowerCase()]) });
+    const reset = await resolveReset('customer', { token, email, code, lookupByEmail: async (e) => dbGet('SELECT id FROM customer_accounts WHERE email = ? AND tenant_id = ?', [String(e).trim().toLowerCase(),await resolvePublicTenant(req)]) });
     if (!reset) return res.status(400).json({ error: 'Invalid or expired reset request.' });
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await dbRun('UPDATE customer_accounts SET passwordHash = ? WHERE id = ?', [passwordHash, reset.userId]);

@@ -25,7 +25,8 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
-  const [regOtpChannel, setRegOtpChannel] = useState('sms'); // 'sms' | 'email'
+  const [regOtpChannel, setRegOtpChannel] = useState('email');
+  const [authCapabilities,setAuthCapabilities] = useState({ emailOtp:false,smsOtp:false });
 
   // Forgot / reset password
   const [forgotEmail, setForgotEmail] = useState('');
@@ -39,6 +40,15 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpBusy, setOtpBusy] = useState(false);
   const [activeOtpDestination, setActiveOtpDestination] = useState('');
+
+  useEffect(() => {
+    apiFetch('/public/customer-auth-capabilities', { cache:'no-store' })
+      .then(c => {
+        const available={emailOtp:c?.emailOtp===true,smsOtp:c?.smsOtp===true};
+        setAuthCapabilities(available);
+        setRegOtpChannel(available.emailOtp?'email':available.smsOtp?'sms':'email');
+      }).catch(() => setAuthCapabilities({emailOtp:false,smsOtp:false}));
+  }, []);
 
   useEffect(() => {
     setError('');
@@ -75,9 +85,17 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
     const cleanPhone = regPhone.replace(/[\s-]/g, '');
     if (!PHONE_RE.test(cleanPhone)) { setError('Please enter a valid Sri Lankan mobile number (e.g. 0771234567).'); return; }
     if (regPassword !== regConfirm) { setError('Passwords do not match.'); return; }
-    if (regPassword.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (regPassword.length < 10) { setError('Use a password of at least 10 characters.'); return; }
 
-    // Verification via selected OTP channel (Email or SMS)
+    if (!authCapabilities.emailOtp && !authCapabilities.smsOtp) {
+      setError('Registration verification is unavailable. Contact GastroFlow support.');
+      return;
+    }
+    if (!authCapabilities[regOtpChannel==='email'?'emailOtp':'smsOtp']) {
+      setError('Select an available verification method.');
+      return;
+    }
+    // Registration consumes its code once during account creation.
     if (!otpVerified) {
       setOtpBusy(true);
       const isEmailChannel = regOtpChannel === 'email';
@@ -94,12 +112,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           body: JSON.stringify({ channel: isEmailChannel ? 'email' : 'sms', destination: dest, purpose: 'phone_verify' })
         });
         setActiveOtpDestination(dest);
-        if (r.otpCode) {
-          setEnteredOtp(r.otpCode);
-          toast(`Verification code: ${r.otpCode} (Auto-filled)`, 'success', 8000);
-        } else {
-          toast(`Code sent to ${dest}.`, 'info', 8000);
-        }
+        toast(`If delivery succeeds, enter the code sent to ${dest}.`, 'info', 8000);
         setShowOtpModal(true);
       } catch (err) {
         setError(err.message || 'Could not send verification code.');
@@ -124,30 +137,29 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   };
 
   const verifyOtp = async () => {
-    const dest = activeOtpDestination || (tab === 'otp_login' ? loginPhone.trim() : regPhone.replace(/[\s-]/g, ''));
+    const dest = activeOtpDestination || loginPhone.trim();
+    const codeVal = enteredOtp.trim();
+    if (!/^\\d{6}$/.test(codeVal)) {
+      toast('Enter the six-digit verification code.', 'warning');
+      return;
+    }
     setOtpBusy(true);
     try {
-      const codeVal = enteredOtp.trim();
-      const r = await loginWithOtp(dest, codeVal);
-      if (r.loggedIn) {
+      if (tab === 'register') {
+        // Registration consumes the code at /customer/auth/register.
+        // Calling /otp/verify first would consume it prematurely and fail signup.
+        await doRegister(codeVal);
         setShowOtpModal(false);
         setEnteredOtp('');
-        toast('ℹ️ Account Already Exists — Logged into your existing account!', 'info', 6000);
+        return;
+      }
+      const result = await loginWithOtp(dest, codeVal);
+      if (result.loggedIn && result.token) {
+        setShowOtpModal(false);
+        setEnteredOtp('');
         onSuccess && onSuccess();
-      } else if (r.verified) {
-
-        setOtpVerified(true);
-        setShowOtpModal(false);
-        setEnteredOtp('');
-        if (tab === 'register') {
-          await doRegister(codeVal);
-        } else {
-          toast('OTP verified! Complete your profile below.', 'info');
-          setRegPhone(dest);
-          setTab('register');
-        }
       } else {
-        toast('Invalid verification code. Please try again.', 'error');
+        toast('No account found for this restaurant. Please register.', 'warning');
       }
     } catch (err) {
       toast(err.message || 'Verification failed.', 'error');
@@ -178,7 +190,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const handleReset = async (e) => {
     e.preventDefault();
     setError('');
-    if (resetPassword.length < 6) { setError('New password must be at least 6 characters.'); return; }
+    if (resetPassword.length < 10) { setError('New password must be at least 10 characters.'); return; }
     setLoading(true);
     try {
       const body = resetTokenVal
@@ -312,9 +324,9 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
         <span><small>Create a new account</small><strong>Register with GastroFlow</strong></span>
         <ArrowRight size={22} aria-hidden="true"/>
       </button>}
-      {tab === 'login' && <button type="button" className="auth-reference-otp-link" onClick={() => setTab('otp_login')}>Sign in with a verification code instead</button>}
+      {tab === 'login' && (authCapabilities.emailOtp || authCapabilities.smsOtp) && <button type="button" className="auth-reference-otp-link" onClick={() => setTab('otp_login')}>Sign in with a verification code instead</button>}
 
-      {tab === 'otp_login' && (
+      {tab === 'otp_login' && (authCapabilities.emailOtp || authCapabilities.smsOtp) && (
         <div>
           <div className="form-group" style={{ marginBottom: 14 }}>
             <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-1)' }}>Enter Phone Number or Email</label>
@@ -337,6 +349,10 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
               if (!loginPhone.trim()) { setError('Please enter your phone number or email.'); return; }
               const dest = loginPhone.trim();
               const channel = dest.includes('@') ? 'email' : 'sms';
+               if (!authCapabilities[channel==='email'?'emailOtp':'smsOtp']) {
+                 setError('This verification method is not available. Use password sign-in.');
+                 return;
+               }
               setOtpBusy(true);
               try {
                 const r = await apiFetch('/otp/send', {
@@ -344,12 +360,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
                   body: JSON.stringify({ channel, destination: dest, purpose: 'login' })
                 });
                 setActiveOtpDestination(dest);
-                if (r.otpCode) {
-                  setEnteredOtp(r.otpCode);
-                  toast(`Verification code: ${r.otpCode} (Auto-filled)`, 'success', 8000);
-                } else {
-                  toast(`Verification code sent to ${dest}!`, 'info');
-                }
+                toast(`If delivery succeeds, enter the code sent to ${dest}.`, 'info');
                 setShowOtpModal(true);
               } catch (err) {
                 if (err.message && (err.message.includes('No registered account') || err.message.includes('register your account') || err.message.includes('not found'))) {
@@ -410,7 +421,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Password</label>
             <div style={{ position: 'relative' }}>
-              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Minimum 6 characters" value={regPassword} onChange={e => setRegPassword(e.target.value)} style={{ paddingRight: 40 }} />
+              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Minimum 10 characters" value={regPassword} onChange={e => setRegPassword(e.target.value)} style={{ paddingRight: 40 }} />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -459,45 +470,17 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-1)' }}>Verification Method:</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              <button
-                type="button"
-                onClick={() => setRegOtpChannel('sms')}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 10,
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  border: regOtpChannel === 'sms' ? 'none' : '1px solid var(--border-color)',
-                  background: regOtpChannel === 'sms' ? '#ff6b35' : 'var(--surface-1)',
-                  color: regOtpChannel === 'sms' ? '#fff' : 'var(--text-1)',
-                  cursor: 'pointer'
-                }}
-              >
-                📱 Phone SMS OTP
-              </button>
-              <button
-                type="button"
-                onClick={() => setRegOtpChannel('email')}
-                style={{
-                  flex: 1,
-                  padding: '8px 12px',
-                  borderRadius: 10,
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  border: regOtpChannel === 'email' ? 'none' : '1px solid var(--border-color)',
-                  background: regOtpChannel === 'email' ? '#ff6b35' : 'var(--surface-1)',
-                  color: regOtpChannel === 'email' ? '#fff' : 'var(--text-1)',
-                  cursor: 'pointer'
-                }}
-              >
-                📧 Email OTP
-              </button>
+            <div className="customer-auth-methods" style={{display:'flex',gap:8,marginTop:6}}>
+              {authCapabilities.smsOtp && <button type="button" className={`customer-auth-method ${regOtpChannel==='sms'?'selected':''}`}
+                onClick={() => setRegOtpChannel('sms')}>📱 SMS code</button>}
+              {authCapabilities.emailOtp && <button type="button" className={`customer-auth-method ${regOtpChannel==='email'?'selected':''}`}
+                onClick={() => setRegOtpChannel('email')}>✉️ Email code</button>}
+              {!authCapabilities.smsOtp && !authCapabilities.emailOtp &&
+                <p role="status" className="customer-auth-unavailable">Registration is unavailable: no verification provider has been configured.</p>}
             </div>
           </div>
           <div style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy} style={{ width: '100%', padding: 12 }}>
+            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || (!authCapabilities.emailOtp && !authCapabilities.smsOtp)} style={{ width: '100%', padding: 12 }}>
               {loading || otpBusy ? '⏳ Processing…' : `🎉 ${dict.createAccount || 'Create Account'} (${regOtpChannel === 'email' ? 'Email OTP' : 'SMS OTP'})`}
             </button>
           </div>
@@ -545,7 +528,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           )}
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>New Password</label>
-            <input className="form-control" type="password" required placeholder="Minimum 6 characters" value={resetPassword} onChange={e => setResetPassword(e.target.value)} />
+            <input className="form-control" type="password" required placeholder="Minimum 10 characters" value={resetPassword} onChange={e => setResetPassword(e.target.value)} />
           </div>
           <div style={{ marginTop: 16 }}>
             <button type="submit" className="btn btn-brand" disabled={loading} style={{ width: '100%', padding: 12 }}>

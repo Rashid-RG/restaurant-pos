@@ -18,6 +18,7 @@ export default function ProfileView({ toast, resetToken, onResetHandled, onBack 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Saved Addresses & Cards states
@@ -67,15 +68,21 @@ export default function ProfileView({ toast, resetToken, onResetHandled, onBack 
     e.preventDefault();
     setSaving(true);
     try {
-      await apiFetch('/customer/profile', {
+      const response = await apiFetch('/customer/profile', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ name, phone, password: password || undefined })
+        body: JSON.stringify({ name, phone, password: password || undefined, currentPassword: password ? currentPassword : undefined })
       });
-      await refreshProfile();
       setEditMode(false);
       setPassword('');
-      toast('Profile updated! ✓', 'success');
+      setCurrentPassword('');
+      if (response.reauthenticationRequired) {
+        logout();
+        toast('Password updated. Sign in again to secure your account.', 'success');
+      } else {
+        await refreshProfile();
+        toast('Profile updated!', 'success');
+      }
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -234,15 +241,21 @@ export default function ProfileView({ toast, resetToken, onResetHandled, onBack 
             </div>
             <div className="form-group" style={{ marginBottom: 10 }}>
               <label>Phone</label>
-              <input className="form-control" type="text" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+              <input className="form-control" type="tel" autoComplete="tel" inputMode="tel" value={phone} readOnly aria-describedby="phone-change-help" />
+              <small id="phone-change-help" style={{color:'var(--text-muted)'}}>Phone changes require ownership verification. Contact support to update this number.</small>
             </div>
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label>New Password <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(leave blank to keep)</span></label>
-              <input className="form-control" type="password" placeholder="Minimum 6 characters"
+              <input className="form-control" type="password" placeholder="At least 10 characters" autoComplete="new-password"
                 value={password} onChange={e => setPassword(e.target.value)} />
             </div>
+            {password && <div className="form-group" style={{ marginBottom: 12 }}>
+              <label>Current password (required to change password)</label>
+              <input className="form-control" type="password" autoComplete="current-password" required
+                value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
+            </div>}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className="btn btn-ghost" onClick={() => setEditMode(false)}>Cancel</button>
+              <button type="button" className="btn btn-ghost" onClick={() => { setEditMode(false); setPassword(''); setCurrentPassword(''); }}>Cancel</button>
               <button type="submit" className="btn btn-brand" disabled={saving}>{saving ? '⏳ Saving…' : 'Save Changes'}</button>
             </div>
           </form>
