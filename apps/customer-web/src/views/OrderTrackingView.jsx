@@ -162,7 +162,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if (typeof items === 'string') {
       try { items = JSON.parse(items); } catch { items = []; }
     }
-    const data = { ...update, items: Array.isArray(items) ? items : [] };
+    const data = { ...orderRef.current, ...update, items: Array.isArray(items) ? items : [] };
     if (orderRef.current?.status && data.status !== orderRef.current.status) {
       playCustomerChime();
       toast(`🔔 Order Status Updated: ${String(data.status).toUpperCase()}`, 'info');
