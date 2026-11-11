@@ -1,6 +1,6 @@
 import { CookingIcon } from '../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined, ContactRound, AlarmClock, Banknote } from 'lucide-react';
+import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined, ContactRound, AlarmClock, Banknote, ClipboardList } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
 import { ConnectionStatus } from '../../shared/ui/Resilience.jsx';
 
@@ -9,6 +9,7 @@ export const workspaceDestinations = [
   { id: 'pos', name: 'New sale', description: 'Open the point of sale', icon: ShoppingBag },
   { id: 'floor', name: 'Tables', description: 'Manage your dining room', icon: LayoutGrid },
   { id: 'kds', name: 'Kitchen', description: 'Prepare and complete orders', icon: CookingIcon },
+  { id: 'online-orders', name: 'Online Orders', description: 'Review, accept and manage customer online orders', icon: ClipboardList },
   { id: 'delivery', name: 'Dispatch', description: 'Assign and track deliveries', icon: Truck },
   { id: 'inventory', name: 'Inventory', description: 'Menu, stock and ingredients', icon: Package, management: true },
   { id: 'sold-items', name: 'Sold Items', description: 'Items sold, quantities and gross item sales', icon: ChartNoAxesCombined, management: true },
