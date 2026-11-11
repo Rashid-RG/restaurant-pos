@@ -2,7 +2,7 @@ name: Verify
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, codex/production-readiness]
 permissions:
   contents: read
 jobs:
