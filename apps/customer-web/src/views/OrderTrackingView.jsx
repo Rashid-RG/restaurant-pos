@@ -674,14 +674,24 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 {STATUS_STEPS.map((step, i) => {
                   const done = i < curStep;
                   const active = i === curStep;
+                  const labels = isDelivery
+                    ? ['Order received', 'Preparing your food', 'Ready / Out for delivery', 'Delivered']
+                    : isDineIn
+                      ? ['Order received', 'Kitchen preparing', 'Ready to serve', 'Served']
+                      : ['Order received', 'Preparing your food', 'Ready for pickup', 'Collected'];
+                  const descriptions = isDelivery
+                    ? ['Restaurant reviewing your order', 'Your meal is being prepared', order.status === 'out_for_delivery' ? 'Rider is on the way' : 'Prepared for delivery', 'Your order is completed']
+                    : isDineIn
+                      ? ['Restaurant reviewing your order', 'Your chef is preparing the meal', 'Food is ready for your table', 'Enjoy your meal']
+                      : ['Restaurant reviewing your order', 'Your meal is being prepared', 'Collect at the restaurant counter', 'Pickup completed'];
                   return (
-                    <div key={step.id} className={`status-step ${done ? 'done' : active ? 'active' : ''}`}>
+                    <div key={step.id} className={`status-step ${done ? 'done' : active ? 'active' : ''}`} aria-current={active ? 'step' : undefined}>
                       <div className="step-dot">
                         {done ? '✓' : <AnimatedFeatureIcon kind={i === 1 ? 'cooking' : i === 2 ? (isDelivery ? 'delivery' : 'ready') : i === 3 ? 'ready' : 'order'} size={32} active={active}/>}
                       </div>
                       <div className="step-info">
-                        <h4>{t(['orderStatusPending','orderStatusPreparing','orderStatusReady','orderStatusCompleted'][i])}</h4>
-                        <p>{(done || active) ? step.desc : 'Waiting…'}</p>
+                        <h4>{labels[i]} {active ? '· Current' : done ? '· Complete' : ''}</h4>
+                        <p>{done || active ? descriptions[i] : 'Upcoming stage'}</p>
                       </div>
                     </div>
                   );
