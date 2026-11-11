@@ -1714,13 +1714,14 @@ export default function POSView() {
               ) : (
                 <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍽️</div>
               )}
-              <h3 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
+              <h3 className="receipt-business-name" style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
                 {settings?.restaurantName || settings?.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
               </h3>
               {settings?.address && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>{settings.address}</p>}
               {settings?.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
             </div>
             <div className="receipt-divider"></div>
+            <div className="receipt-center receipt-document-heading"><strong>{printReceiptOrder.paymentStatus === 'paid' || printReceiptOrder.status === 'paid' ? 'PAYMENT RECEIPT' : 'CUSTOMER BILL'}</strong></div>
             <p>Date: {formatRestaurantTime(printReceiptOrder.timestamp || Date.now(), restaurantTimeZone(settings))}</p>
             {printReceiptOrder.invoiceNumber != null && (
               <p><strong style={{ fontSize: '13px' }}>INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</strong></p>
@@ -1733,12 +1734,20 @@ export default function POSView() {
             {printReceiptOrder.deliveryAddress && <p>Address: {printReceiptOrder.deliveryAddress}</p>}
             <div className="receipt-divider"></div>
             
-            {printReceiptOrder.items?.map((item, idx) => (
-              <div key={idx} className="receipt-row">
-                <span>{item.quantity}x {item.name}</span>
-                <span>{currencySymbol}{((item.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
-              </div>
-            ))}
+            <div className="receipt-items-heading"><span>ITEM · QTY</span><span>AMOUNT</span></div>
+            {printReceiptOrder.items?.map((item, idx) => {
+              const quantity=Number(item.quantity || 1);
+              const price=Number(item.unitPrice ?? item.price ?? 0);
+              return (
+                <div key={idx} className="receipt-item-block">
+                  <div className="receipt-row">
+                    <span>{quantity} × {item.name}</span>
+                    <span>{currencySymbol}{(price*quantity).toFixed(2)}</span>
+                  </div>
+                  <div className="receipt-item-detail">{currencySymbol}{price.toFixed(2)} each{item.customUnitPrice != null ? ' · Special price' : ''}</div>
+                </div>
+              );
+            })}
 
             <div className="receipt-divider"></div>
             <div className="receipt-row">
@@ -1787,7 +1796,7 @@ export default function POSView() {
             {Number(printReceiptOrder.refundedAmount||0)>0&&<><div className="receipt-row"><span>REFUNDED:</span><span>{currencySymbol}{Number(printReceiptOrder.refundedAmount).toFixed(2)}</span></div><div className="receipt-row"><span>NET RETAINED:</span><span>{currencySymbol}{(Number(printReceiptOrder.total)-Number(printReceiptOrder.refundedAmount)).toFixed(2)}</span></div><p>Status: {printReceiptOrder.status}</p></>}
             <div className="receipt-divider"></div>
             <div className="receipt-center">
-              <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
+              <p className="receipt-payment-method">Payment: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
               {(() => {
                 if (!printReceiptOrder.paymentSplit) return null;
                 try {
