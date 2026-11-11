@@ -1,14 +1,15 @@
 import { apiFetch } from '../utils/api.js';
+import {cartStorageKey,parseSavedCart} from '../utils/cart-storage.js';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const CartContext = createContext(null);
-const CART_STORAGE_KEY = 'gastroflow_cart_items';
+// Legacy shared cart is intentionally not imported: its restaurant cannot be verified.
 
-export function CartProvider({ children }) {
+export function CartProvider({ children, tenantId }) {
+  const storageKey = cartStorageKey(tenantId);
   const [items, setItems] = useState(() => {
     try {
-      const saved = localStorage.getItem(CART_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
+      return parseSavedCart(localStorage.getItem(storageKey));
     } catch {
       return [];
     }
@@ -20,11 +21,11 @@ export function CartProvider({ children }) {
   // Sync cart items to localStorage on change
   useEffect(() => {
     try {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      localStorage.setItem(storageKey, JSON.stringify(items));
     } catch (e) {
       console.error('Failed to save cart to localStorage', e);
     }
-  }, [items]);
+  }, [items, storageKey]);
 
   const addItem = useCallback((menuItem, qty = 1, selectedModifiers = [], notes = '') => {
     setItems(prev => {
@@ -64,8 +65,8 @@ export function CartProvider({ children }) {
 
   const clearCart = useCallback(() => {
     setItems([]);
-    localStorage.removeItem(CART_STORAGE_KEY);
-  }, []);
+    localStorage.removeItem(storageKey);
+  }, [storageKey]);
 
   const totalItems = items.reduce((sum, i) => sum + i.qty, 0);
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.qty, 0);
