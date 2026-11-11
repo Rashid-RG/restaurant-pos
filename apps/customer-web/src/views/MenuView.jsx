@@ -138,7 +138,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
           items: data.items || [],
           restaurantName: data.restaurantName || '',
           logo: data.logo || null,
-          storeOpen: data.storeOpen !== undefined ? data.storeOpen : true
+          storeOpen: data.storeOpen === true
         });
         setLoading(false);
       })
@@ -187,7 +187,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
     const refreshMenu=async()=>{
       const data=await apiFetch('/public/menu');if(disposed)return;
       setRates(prev=>({...prev,taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0),payhereEnabled:data.payhereEnabled===true}));
-      setMenu(prev=>({...prev,...data,categories:data.categories||[],items:data.items||[],storeOpen:data.storeOpen!==false}));
+      setMenu(prev=>({...prev,...data,categories:data.categories||[],items:data.items||[],storeOpen:data.storeOpen===true}));
     };
     const handleMessage = (e) => {
       try {
@@ -316,6 +316,9 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
 
   // Open Customizer
   const handleItemAddClick = (item) => {
+    if (menu.storeOpen !== true || menu.offlineSnapshot) {
+      toast('This restaurant is not accepting online orders.', 'warning'); return;
+    }
     if (item.modifiers && item.modifiers.length > 0) {
       setCustomizerItem(item);
       setCustomizerQty(1);
@@ -343,6 +346,9 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
 
   // Add customized item to cart (local or group)
   const handleAddToCart = async (item, qty, modifiers, notes) => {
+    if (menu.storeOpen !== true || menu.offlineSnapshot) {
+      toast('This restaurant is not accepting online orders.', 'warning'); return;
+    }
     if(!groupId)addItem(item, qty, modifiers, notes);
     
     if (groupId && participantName) {
@@ -817,7 +823,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
                           className="add-btn"
                           style={menu.storeOpen === false ? { background: 'var(--text-muted)', cursor: 'not-allowed', opacity: 0.5 } : undefined}
                           onClick={() => menu.storeOpen !== false && handleItemAddClick(item)}
-                          disabled={menu.storeOpen === false}
+                          disabled={menu.storeOpen !== true || menu.offlineSnapshot}
                           aria-label={`Add ${item.name} to cart`}
                         >
                           +
@@ -919,7 +925,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
             <button 
               className="btn btn-brand" 
               style={{ width: '100%', padding: '12px' }}
-              disabled={requiredMissing || menu.storeOpen===false}
+              disabled={requiredMissing || menu.storeOpen!==true || menu.offlineSnapshot}
               onClick={() => handleAddToCart(customizerItem, customizerQty, selectedModifiers, customizerNotes)}
             >
               {requiredMissing ? 'Choose required options' : t.addToCart} · Rs. {totalCustomizerPrice.toFixed(0)}
@@ -975,35 +981,6 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
         </div>
       )}
 
-      {/* Sleek Modern Floating Cart Pill */}
-      {totalItems > 0 && (
-        <div className="floating-cart-pill-wrap" style={{ position: 'fixed', bottom: 76, left: 16, zIndex: 140 }}>
-          <button
-            onClick={() => setCartOpen(true)}
-            style={{
-              background: 'linear-gradient(135deg, #ff6b35 0%, #ff3d00 100%)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: 24,
-              padding: '8px 16px',
-              fontSize: '0.82rem',
-              fontWeight: 800,
-              boxShadow: '0 8px 24px rgba(255, 107, 53, 0.45)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              cursor: 'pointer',
-              transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-            }}
-          >
-            <span>🛒</span>
-            <span>{t.viewCart}</span>
-            <span style={{ background: '#ffffff', color: '#ff6b35', borderRadius: 10, padding: '1px 7px', fontSize: '0.72rem', fontWeight: 900 }}>
-              {totalItems}
-            </span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }
