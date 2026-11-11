@@ -292,7 +292,7 @@ function InnerApp({ switchRestaurant }) {
   };
 
   return (
-    <div className="app-shell customer-premium"><ConnectionStatus/>
+    <div className={`app-shell customer-premium ${view === 'account' && !customer ? 'customer-auth-route' : ''}`}><ConnectionStatus/>
       <Toast messages={messages} />
       <InstallPrompt />
       <SystemUpdatePrompt />
