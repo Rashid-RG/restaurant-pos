@@ -1779,7 +1779,7 @@ export default function POSView() {
                 }
               })()}
               <p className="receipt-thank-you">THANK YOU • COME AGAIN!</p>
-              <p className="receipt-powered-by">Powered by GastroFlow POS</p>
+              <p className="receipt-powered-by">Powered by GastroFlow POS · Developed by RS Technologies</p>
             </div>
           </div>
         );
