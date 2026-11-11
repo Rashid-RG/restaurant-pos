@@ -922,9 +922,15 @@ async function initTables() {
         driverName TEXT,
         lat REAL,
         lng REAL,
-        updatedAt INTEGER
+        updatedAt INTEGER,
+        accuracyMeters REAL
       )
     `);
+    try {
+      await dbRun('ALTER TABLE driver_locations ADD COLUMN accuracyMeters REAL');
+    } catch (error) {
+      if (!/duplicate column|already exists/i.test(String(error?.message || error))) throw error;
+    }
 
     await dbRun(`CREATE TABLE IF NOT EXISTS refund_transactions (
       id TEXT PRIMARY KEY,
@@ -4956,7 +4962,7 @@ app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
       const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [orderId]);
       res.write(`data: ${JSON.stringify({ ...order, items })}\n\n`);
       // Replay the latest driver location so a (re)connecting client sees the pin immediately.
-      const loc = await dbGet('SELECT driverName, lat, lng, updatedAt FROM driver_locations WHERE orderId = ?', [orderId]);
+      const loc = await dbGet('SELECT driverName, lat, lng, updatedAt, accuracyMeters FROM driver_locations WHERE orderId = ?', [orderId]);
       if (loc) res.write(`data: ${JSON.stringify({ type: 'driver_location', ...loc })}\n\n`);
     }
   } catch (e) {}
@@ -5025,7 +5031,7 @@ app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
     const tenant = await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]);
     const details = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'address', 'phone', 'logo']);
     const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [order.id]);
-    const driver = await dbGet('SELECT driverName, lat, lng, updatedAt FROM driver_locations WHERE orderId = ?', [order.id]);
+    const driver = await dbGet('SELECT driverName, lat, lng, updatedAt, accuracyMeters FROM driver_locations WHERE orderId = ?', [order.id]);
     res.set('Cache-Control', 'no-store').json({
       ...order,
       tenantId,
@@ -5175,22 +5181,44 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
 
 // POST /api/public/driver/location — Driver GPS ping (own tenant only)
 app.post('/api/public/driver/location', authenticateDriver, async (req, res) => {
-  const { orderId, lat, lng } = req.body;
+  const { orderId, lat, lng, accuracyMeters, recordedAt } = req.body || {};
   const driverId = req.driver.driverId;
   const driverName = req.driver.name || driverId;
-  const t = req.driver.tenant_id;
-  if (!orderId || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
-    return res.status(400).json({ error: 'Valid orderId, lat, and lng are required.' });
+  const tenantId = req.driver.tenant_id;
+  const now = Date.now();
+  const accuracy = Number(accuracyMeters);
+  const measuredAt = Number(recordedAt);
+  // High-accuracy location is a reported measurement, not a guarantee.
+  if (!orderId || !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+      !Number.isFinite(lng) || lng < -180 || lng > 180 ||
+      !Number.isFinite(accuracy) || accuracy <= 0 || accuracy > 150 ||
+      !Number.isFinite(measuredAt) || measuredAt > now + 10000 || now - measuredAt > 30000) {
+    return res.status(422).json({ error: 'A recent location fix within 150 m accuracy is required.', code: 'GPS_QUALITY_LOW' });
   }
   try {
-    const existing = await dbGet("SELECT tenant_id FROM orders WHERE id = ? AND driverId = ? AND status IN ('ready','out_for_delivery')", [orderId, driverId]);
-    if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
-    await dbRun(
-      'INSERT OR REPLACE INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)',
-      [orderId, driverName, lat, lng, Date.now()]
-    );
-    notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName });
-    res.json({ success: true });
+    const existing = await dbGet("SELECT tenant_id FROM orders WHERE id=? AND driverId=? AND status IN ('ready','out_for_delivery')", [orderId, driverId]);
+    if (!existing || existing.tenant_id !== tenantId) return res.status(404).json({ error: 'Order not found.' });
+    const previous = await dbGet('SELECT lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=?', [orderId]);
+    if (previous && Number(previous.updatedAt) >= measuredAt) {
+      return res.status(409).json({ error: 'An equal or newer location update already exists.', code: 'GPS_FIX_OLD' });
+    }
+    if (previous && Number(previous.updatedAt) > 0) {
+      const pLat = Number(previous.lat) * Math.PI / 180;
+      const latRad = lat * Math.PI / 180;
+      const dLat = latRad - pLat;
+      const dLng = (lng - Number(previous.lng)) * Math.PI / 180;
+      const hav = Math.sin(dLat / 2)**2 + Math.cos(pLat)*Math.cos(latRad)*Math.sin(dLng / 2)**2;
+      const meters = 12742000 * Math.asin(Math.min(1, Math.sqrt(hav)));
+      const seconds = Math.max(1, (measuredAt - Number(previous.updatedAt)) / 1000);
+      const uncertainty = accuracy + (Number(previous.accuracyMeters) || 0);
+      if (meters > uncertainty + 55 * seconds) {
+        return res.status(422).json({ error: 'Location jump is implausible. Waiting for a stable fix.', code: 'GPS_JUMP' });
+      }
+    }
+    await dbRun('INSERT OR REPLACE INTO driver_locations (orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',
+      [orderId, driverName, lat, lng, measuredAt, accuracy]);
+    notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName, updatedAt: measuredAt, accuracyMeters: accuracy });
+    res.set('Cache-Control','no-store').json({ success: true, updatedAt: measuredAt, accuracyMeters: accuracy });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }

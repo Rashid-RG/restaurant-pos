@@ -42,6 +42,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [storeInfo, setStoreInfo] = useState(null);   // { lat, lng, name, ... }
   const [driverLoc, setDriverLoc] = useState(null);    // live { lat, lng, driverName }
   const [driverLastSeen,setDriverLastSeen]=useState(null);
+  const [nowClock,setNowClock]=useState(Date.now());
+  useEffect(() => { const id=window.setInterval(()=>setNowClock(Date.now()),10000); return ()=>window.clearInterval(id); },[]);
   const [pushBusy,setPushBusy]=useState(false);
   const [pushEnabled,setPushEnabled]=useState(false);
   const [lastUpdate,setLastUpdate]=useState(null);
@@ -170,7 +172,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     orderRef.current = data;
     setOrder(data);
     setLastUpdate(Date.now());
-    if (data.driver && typeof data.driver.lat === 'number') {setDriverLoc(data.driver);setDriverLastSeen(Date.now());}
+    if (data.driver && Number.isFinite(Number(data.driver.lat)) && Number.isFinite(Number(data.driver.lng))) {
+      const actualAt=Number(data.driver.updatedAt);
+      if (Number.isFinite(actualAt) && actualAt > 0 && actualAt < Date.now()+10000) {
+        setDriverLoc(data.driver); setDriverLastSeen(actualAt);
+      }
+    }
   };
 
   const fetchOrder = async (id) => {
@@ -212,7 +219,13 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         try {
           const msg = JSON.parse(e.data);
           if (msg && msg.type === 'driver_location') {
-            if(Number.isFinite(Number(msg.lat))&&Number.isFinite(Number(msg.lng))){setDriverLoc({ lat:Number(msg.lat), lng:Number(msg.lng), driverName: msg.driverName });setDriverLastSeen(Date.now());}
+            if(Number.isFinite(Number(msg.lat))&&Number.isFinite(Number(msg.lng))){
+              const fixTime=Number(msg.updatedAt);
+              if (Number.isFinite(fixTime) && fixTime > 0 && fixTime <= Date.now()+10000) {
+                setDriverLoc({ lat:Number(msg.lat), lng:Number(msg.lng), driverName:msg.driverName, accuracyMeters:msg.accuracyMeters, updatedAt:fixTime });
+                setDriverLastSeen(previous=>Math.max(previous||0,fixTime));
+              }
+            }
           } else if (msg && msg.id) {
             applyOrderUpdate(msg);
           }
@@ -393,7 +406,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     ) : (
                       curStep === 0 ? 'Waiting for restaurant confirmation…' :
                       curStep === 1 ? 'Chef is preparing your food fresh in the kitchen 👨‍🍳' :
-                      curStep === 2 ? 'Rider is en route to your delivery address 🛵' :
+                      curStep === 2 ? (order.status === 'out_for_delivery' ? 'Your rider is on the way 🛵' : 'Food is ready and awaiting delivery pickup 🛍️') :
                       'Delivered! Enjoy your meal 🎉'
                     )}
                   </p>
@@ -414,10 +427,10 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 <TrackingMap
                   store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
                   dest={{ lat: order.deliveryLat, lng: order.deliveryLng }}
-                  driver={driverLoc}
+                  driver={driverLastSeen && nowClock - driverLastSeen < 90000 ? driverLoc : null}
                 />
                 <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                  {driverLoc && driverLastSeen && Date.now()-driverLastSeen < 90000 ? '🛵 Driver GPS updating' : (t('driverLocationPending') || 'Driver location pending')}
+                  {driverLoc && driverLastSeen && nowClock-driverLastSeen < 30000 ? `🟢 Rider location active${Number.isFinite(Number(driverLoc.accuracyMeters)) ? ` · ±${Math.round(driverLoc.accuracyMeters)}m` : ''}` : driverLoc && driverLastSeen ? `⚠️ Rider position outdated · ${Math.max(1,Math.floor((nowClock-driverLastSeen)/60000))}m ago` : (t('driverLocationPending') || 'Waiting for rider location')}
                 </div>
               </div>
             )}
