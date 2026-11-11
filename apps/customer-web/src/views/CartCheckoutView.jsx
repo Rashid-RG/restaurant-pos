@@ -15,7 +15,7 @@ const ORDER_TYPES = [
 const LOCAL_PAYMENTS = [
   { id: 'cash', label: 'Pay with cash', icon: '💵', description: 'Cash on delivery, at the counter or at your table.' },
   { id: 'bank_transfer', label: 'Manual bank transfer (LKR)', icon: '🏦', description: 'Place the order unpaid. Contact the restaurant for bank details; a manager must verify the transfer.' },
-  { id: 'payhere', label: 'Card / PayHere', icon: '💳', description: 'Not available at the moment', disabled: true },
+  { id: 'payhere', label: 'Card / PayHere', icon: '💳', description: 'Not available at the moment' },
   { id: 'lankaqr', label: 'LankaQR / mobile wallet', icon: '📱', description: 'Coming soon', disabled: true }
 ];
 
@@ -350,7 +350,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     e.preventDefault();
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
     if (appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) { toast('Your cart changed. Please apply the promotion again.', 'warning'); return; }
-    if (paymentMethod === 'payhere' || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
+    if ((paymentMethod === 'payhere' && !rates.payhereEnabled) || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
     if (!name.trim()) { toast('Please enter your name.', 'error'); return; }
     if (!phone.trim()) { toast('Please enter your phone number.', 'error'); return; }
 
@@ -905,7 +905,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                   style={{ width: 18, height: 18, accentColor: 'var(--brand)' }}
                 />
                 <span style={{ fontSize: '1.25rem' }}>{p.icon}</span>
-                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.description}</small></span>
+                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.id === 'payhere' && rates.payhereEnabled ? 'Secure card payment via PayHere' : p.description}</small></span>
               </label>
             ))}
           </div>
