@@ -78,6 +78,21 @@ export function createStaffPayrollRouter({dbGet, dbAll, dbRun, authenticateToken
     } catch(e) {error(res,e);}
   });
 
+  router.get('/staff-management/attendance', async(req,res) => {
+    try {
+      const {tenantId,timeZone} = await scope(req);
+      const localNow = new Intl.DateTimeFormat('en-GB', {timeZone, year:'numeric',month:'2-digit'}).formatToParts(new Date());
+      const parts = Object.fromEntries(localNow.filter(p=>p.type==='year'||p.type==='month').map(p=>[p.type,p.value]));
+      const month = req.query.month ? monthValue(req.query.month) : parts.year+'-'+parts.month;
+      const {start,end} = payrollPeriod(month,timeZone);
+      const entries = await dbAll(`SELECT e.id,e.userId,u.username,e.clockIn,e.clockOut,e.durationMinutes
+        FROM timeclock_entries e JOIN users u ON e.userId=u.id
+        WHERE u.tenant_id=? AND e.clockIn < ? AND (e.clockOut IS NULL OR e.clockOut > ?)
+        ORDER BY e.clockIn DESC LIMIT 2000`,[tenantId,end,start]);
+      res.json({month,timeZone,entries});
+    } catch(e) {error(res,e);}
+  });
+
   router.put('/staff-management/compensation/:userId', async(req,res) => {
     try {
       const {tenantId} = await scope(req);
