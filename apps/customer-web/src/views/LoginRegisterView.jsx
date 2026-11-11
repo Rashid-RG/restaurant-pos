@@ -209,11 +209,8 @@ export default function LoginRegisterView({ onSuccess, toast = () => {}, resetTo
     <div className="auth-page fade-in" style={{ padding: '24px 16px' }}>
       <div className="auth-logo auth-brand-hero" style={{ textAlign: 'center', marginBottom: 24 }}>
         <div className="auth-hero-brand"><div className="auth-brand-symbol"><UtensilsCrossed size={25} strokeWidth={2.2}/></div><div><h1>GastroFlow</h1><span>FOOD · ORDER · TRACK</span></div></div>
-        <div className="auth-hero-art" aria-hidden="true">
-          <div className="auth-art-bag"><ShoppingBag size={40}/></div>
-          <div className="auth-art-meal">🍲</div>
-          <div className="auth-art-route"><MapPin size={21}/><span>············</span></div>
-          <div className="auth-art-rider"><Bike size={50}/></div>
+        <div className="auth-hero-art auth-hero-image" aria-hidden="true">
+          <img src={`${import.meta.env.BASE_URL}login-delivery-scene.svg`} alt="" decoding="async" />
         </div>
         <div className="auth-hero-intro"><h2>{tab === 'register' ? 'Join GastroFlow' : tab === 'login' ? 'Welcome Back!' : 'Welcome to GastroFlow'}</h2><p>{subtitle}</p><span className="auth-secure-note"><ShieldCheck size={14}/> Secure customer ordering</span></div>
       </div>
