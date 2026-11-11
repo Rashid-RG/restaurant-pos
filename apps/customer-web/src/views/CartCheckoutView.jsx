@@ -783,17 +783,19 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         {canOrder && realRecommendations.length > 0 && (
           <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
             <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>🥤</span> Complete Your Meal (Smart Suggestions)
+              <span>🥤</span> Add something extra
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
-              Frequently paired with your current cart items:
+              Available dishes from {store?.name || 'this restaurant'}:
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
               {realRecommendations.map(up => (
                 <div key={up.id} style={{ padding: 10, background: 'rgba(0,0,0,0.02)', borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ fontSize: '1.5rem' }}>{up.emoji || '🍽️'}</div>
+                    <div className="customer-smart-item-media">
+                       {up.imageUrl ? <img src={up.imageUrl} alt={up.name} loading="lazy"/> : <span aria-hidden="true">{up.emoji || '🍽️'}</span>}
+                     </div>
                     <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{up.name}</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 800, marginTop: 2 }}>LKR {Number(up.price || 0).toFixed(2)}</div>
                     {up.allergens && (
