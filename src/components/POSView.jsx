@@ -1671,7 +1671,7 @@ export default function POSView() {
         const printRoot = typeof document !== 'undefined' ? document.getElementById('receipt-print-root') : null;
         const receiptContent = (
           <div className={`receipt-print-area paper-${resolvePrinterPaperSize(settings?.printerPaperWidth)}`}>
-            <div className="receipt-center">
+            <div className="receipt-center receipt-brand">
               {settings?.logoUrl || settings?.logo || settings?.restaurantLogo ? (
                 <img
                   src={settings?.logoUrl || settings?.logo || settings?.restaurantLogo}
@@ -1680,7 +1680,7 @@ export default function POSView() {
                   style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block', objectFit: 'contain' }}
                 />
               ) : (
-                <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍽️</div>
+                <div className="receipt-brand-mark">GF</div>
               )}
               <h3 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
                 {settings?.restaurantName || settings?.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
@@ -1689,6 +1689,7 @@ export default function POSView() {
               {settings?.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
             </div>
             <div className="receipt-divider"></div>
+            <div className="receipt-document-title">SALES RECEIPT</div>
             <p>Date: {new Date(printReceiptOrder.timestamp || Date.now()).toLocaleString()}</p>
             {printReceiptOrder.invoiceNumber != null && (
               <p><strong style={{ fontSize: '13px' }}>INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</strong></p>
@@ -1700,11 +1701,14 @@ export default function POSView() {
             {printReceiptOrder.customerPhone && <p>Phone: {printReceiptOrder.customerPhone}</p>}
             {printReceiptOrder.deliveryAddress && <p>Address: {printReceiptOrder.deliveryAddress}</p>}
             <div className="receipt-divider"></div>
-            
+            <div className="receipt-items-heading"><span>ITEM / QTY</span><span>AMOUNT</span></div>
             {printReceiptOrder.items?.map((item, idx) => (
-              <div key={idx} className="receipt-row">
-                <span>{item.quantity}x {item.name}</span>
-                <span>{currencySymbol}{((item.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
+              <div key={idx} className="receipt-item">
+                <div className="receipt-row">
+                  <span className="receipt-item-name">{item.name}</span>
+                  <strong className="receipt-money">{currencySymbol}{(Number(item.price || 0) * Number(item.quantity || 1)).toFixed(2)}</strong>
+                </div>
+                <div className="receipt-item-meta">{item.quantity || 1} × {currencySymbol}{Number(item.price || 0).toFixed(2)}</div>
               </div>
             ))}
 
@@ -1748,13 +1752,13 @@ export default function POSView() {
               </div>
             )}
             <div className="receipt-divider"></div>
-            <div className="receipt-row receipt-totals" style={{ fontWeight: 'bold', fontSize: '15px' }}>
-              <span>TOTAL AMOUNT:</span>
+            <div className="receipt-row receipt-totals">
+              <span>GRAND TOTAL</span>
               <span>{currencySymbol}{(printReceiptOrder.total || 0).toFixed(2)}</span>
             </div>
             {Number(printReceiptOrder.refundedAmount||0)>0&&<><div className="receipt-row"><span>REFUNDED:</span><span>{currencySymbol}{Number(printReceiptOrder.refundedAmount).toFixed(2)}</span></div><div className="receipt-row"><span>NET RETAINED:</span><span>{currencySymbol}{(Number(printReceiptOrder.total)-Number(printReceiptOrder.refundedAmount)).toFixed(2)}</span></div><p>Status: {printReceiptOrder.status}</p></>}
             <div className="receipt-divider"></div>
-            <div className="receipt-center">
+            <div className="receipt-center receipt-footer">
               <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
               {(() => {
                 if (!printReceiptOrder.paymentSplit) return null;
@@ -1774,8 +1778,8 @@ export default function POSView() {
                   return null;
                 }
               })()}
-              <p style={{ marginTop: '12px', fontWeight: 'bold' }}>Thank You For Dining With Us!</p>
-              <p>System by RS Technologies</p>
+              <p className="receipt-thank-you">THANK YOU • COME AGAIN!</p>
+              <p className="receipt-powered-by">Powered by GastroFlow POS</p>
             </div>
           </div>
         );
