@@ -1,3 +1,4 @@
+import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
 import {initServiceExceptions,createServiceExceptions} from './routes/service-exceptions.js';
 import {initManualPayments,createManualPayments} from './routes/manual-payments.js';
 import {syncKitchen} from './lib/kitchen.js';
@@ -4596,6 +4597,26 @@ app.post('/api/public/promotions/preview', publicApiLimiter, async(req,res) => {
   }
 });
 
+// Restaurant-specific 15-minute scheduled-order availability.
+// The capacity is checked again inside the order transaction to avoid stale previews.
+app.get('/api/public/schedule/slots', publicApiLimiter, async(req,res)=>{
+  try {
+    const tenantId=await resolvePublicTenant(req);
+    const type=String(req.query.type||'takeaway');
+    if(!['takeaway','delivery','dine-in'].includes(type))return res.status(400).json({error:'Invalid order type.'});
+    const prep=Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30));
+    const capacity=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
+    const now=Date.now();
+    const start=now+prep*60000;
+    const slots=[];
+    for(const when of slotsFrom(start,48)){
+      const booked=await dbGet("SELECT COUNT(*) AS count FROM orders WHERE tenant_id=? AND source='online' AND orderType=? AND scheduledTime=? AND status NOT IN ('cancelled','rejected','refunded')",[tenantId,type,when]);
+      slots.push({timestamp:when,available:Math.max(0,capacity-Number(booked?.count||0)),full:Number(booked?.count||0)>=capacity});
+    }
+    res.set('Cache-Control','no-store').json({slots,capacity,prepMinutes:prep,limitDays:7});
+  } catch(e){res.status(500).json({error:'Could not load scheduled times.'});}
+});
+
 // POST /api/public/orders
 const createPublicOrder = async (req, res) => {
   const {
@@ -4715,6 +4736,8 @@ const createPublicOrder = async (req, res) => {
       return res.status(400).json({ error: `Minimum order for delivery is Rs. ${minimumOrder}. Your subtotal is Rs. ${bill.subtotal}.` });
     }
 
+    const requestedSchedule = scheduledTime == null ? {valid:true,scheduled:false} : validateSchedule(scheduledTime,Date.now(),Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30)));
+    if(!requestedSchedule.valid)return res.status(400).json({error:requestedSchedule.error});
     const orderId = `ord_online_${crypto.randomUUID()}`;
     const resolvedPaymentMethod = paymentMethod || (process.env.PAYHERE_ENABLED==='false'?'cash':'online_pending');
 
@@ -4726,6 +4749,11 @@ const createPublicOrder = async (req, res) => {
 
       if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')==='false')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
       const limit=checkLimit((await getTenantMeta(tenantId)).plan,'orders',await countTenantOrdersThisMonth(tenantId));if(!limit.allowed)throw Error('Restaurant order capacity reached.');
+      if(requestedSchedule.scheduled){
+        const limit=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
+        const row=await dbGet("SELECT COUNT(*) AS count FROM orders WHERE tenant_id=? AND source='online' AND orderType=? AND scheduledTime=? AND status NOT IN ('cancelled','rejected','refunded')",[tenantId,type,requestedSchedule.when]);
+        if(Number(row?.count||0)>=limit)throw Object.assign(Error('This scheduled time is fully booked. Please select another time.'),{status:409});
+      }
       if(req.groupCart){
         const claimed=await dbRun("UPDATE group_carts SET status='checked_out',orderId=?,updatedAt=? WHERE id=? AND tenant_id=? AND status='active' AND items=? AND hostHash=? AND expiresAt>?",[orderId,Date.now(),req.groupCart.id,tenantId,req.groupCart.items,req.groupCart.hostHash,Date.now()]);
         if(claimed.changes!==1){
