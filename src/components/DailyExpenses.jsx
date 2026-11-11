@@ -6,6 +6,7 @@ import {
   Tag, Settings2, FolderPlus, Building2, FileText
 } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
+import './daily-expenses-layout.css';
 import { dateAtRestaurant, formatRestaurantTime, restaurantTimeZone, shiftCalendarDate } from '../utils/restaurant-time';
 
 const DEFAULT_CATEGORIES = [
@@ -284,7 +285,7 @@ export default function DailyExpenses() {
   const curr = currencySymbol || 'Rs.';
 
   return (
-    <div className="main-content" style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto', width: '100%', height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
+    <div className="main-content expenses-page" style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto', width: '100%', height: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
       {/* View Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
         <div>
@@ -373,7 +374,7 @@ export default function DailyExpenses() {
       {/* Financial Health Summary Cards */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))',
         gap: '16px',
         marginBottom: '24px'
       }}>
@@ -480,14 +481,15 @@ export default function DailyExpenses() {
         </div>
       </div>
 
-      {/* Quick Category Filter Pills */}
-      <div style={{
+      {/* Category filters wrap to additional rows instead of disappearing under a scrollbar. */}
+      <div className="expenses-category-filters" aria-label="Filter expenses by category" style={{
         display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
         gap: '8px',
-        overflowX: 'auto',
+        overflowX: 'visible',
         paddingBottom: '12px',
-        marginBottom: '20px',
-        scrollbarWidth: 'thin'
+        marginBottom: '20px'
       }}>
         <button
           onClick={() => setFilterCategory('all')}
