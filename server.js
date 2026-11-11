@@ -4580,6 +4580,22 @@ async function resolveAndCalculateBill(items, discountType, discountValue, loyal
   );
 }
 
+// Validate a customer promotion against the restaurant's current menu and DB pricing.
+// Never accept or return client-invented promotion amounts as authoritative.
+app.post('/api/public/promotions/preview', publicApiLimiter, async(req,res) => {
+  try {
+    const tenantId = await resolvePublicTenant(req);
+    const code = String(req.body?.code || '').trim().toUpperCase();
+    const items = req.body?.items;
+    if(!/^[A-Z0-9_-]{2,40}$/.test(code) || !Array.isArray(items) || items.length < 1 || items.length > 100)
+      return res.status(400).json({error:'Choose a valid promotion code and cart items.'});
+    const bill = await resolveAndCalculateBill(items, null, 0, 0, 0, code, 0, tenantId);
+    return res.json({code, promoDiscount:bill.promoDiscount, subtotal:bill.subtotal, note:'Final payment amount is always calculated by the server at checkout.'});
+  } catch(err) {
+    return res.status(400).json({error:err.message || 'Promotion not available.'});
+  }
+});
+
 // POST /api/public/orders
 const createPublicOrder = async (req, res) => {
   const {
