@@ -1637,7 +1637,23 @@ button {
   .receipt-print-area.paper-a4 .receipt-totals {
     font-size: 17px !important;
   }
+  /* High-contrast monochrome hierarchy for Windows 58/80mm thermal printers. */
   .receipt-center { text-align: center; }
+  .receipt-brand { padding: 2mm 0 1mm; }
+  .receipt-brand-mark { width: 9mm; height: 9mm; border: 1.5px solid #000; border-radius: 50%; font: 800 13px/9mm Arial, sans-serif; margin: 0 auto 2mm; text-align: center; }
+  .receipt-document-title { font-size: 10px; font-weight: 800; letter-spacing: 1.8px; text-align: center; padding: 1mm 0 2mm; }
+  .receipt-items-heading { display: flex; justify-content: space-between; gap: 3mm; font-size: 10px; font-weight: 800; letter-spacing: .4px; padding: 1.5mm 0; border-bottom: 1px solid #000; }
+  .receipt-item { padding: 1.5mm 0; border-bottom: 1px dotted #999; break-inside: avoid; page-break-inside: avoid; }
+  .receipt-item-name { font-weight: 700; overflow-wrap: anywhere; min-width: 0; flex: 1; }
+  .receipt-item-meta { font-size: 10px; padding-top: .5mm; }
+  .receipt-money { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .receipt-print-area .receipt-totals { font-weight: 900; font-size: 15px; border-top: 2px solid #000; border-bottom: 2px solid #000; margin: 2mm 0; padding: 2.5mm 0; }
+  .receipt-footer { padding-top: 1mm; }
+  .receipt-thank-you { margin-top: 3mm !important; font-weight: 900; font-size: 12px; letter-spacing: .5px; }
+  .receipt-powered-by { font-size: 9px; margin-top: 2mm !important; }
+  .receipt-print-area.paper-58mm .receipt-document-title { letter-spacing: 1px; }
+  .receipt-print-area.paper-58mm .receipt-totals { font-size: 13px; }
+
   .receipt-divider { border-top: 1px dashed #000; margin: 4px 0; }
   .receipt-row { display: flex; justify-content: space-between; gap: 4px; padding: 1.5px 0; }
   .receipt-totals { font-weight: 800; font-size: 14px; }
