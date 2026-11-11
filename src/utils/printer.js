@@ -177,13 +177,13 @@ export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
   }
 
   // 96 CSS pixels = 1 inch = 25.4mm  =>  1mm = 3.7795px
-  // Add 3mm safety margin for the tear/cut blade right below the footer
+  // Allow room for delayed fonts and thermal-printer blade. Never truncate the preview.
   let totalHeightMm = measuredPx > 0
-    ? Math.ceil(measuredPx / 3.7795) + 3
-    : (is58mm ? 90 : 100);
+    ? Math.ceil(measuredPx / 3.7795) + 15
+    : (is58mm ? 150 : 180);
 
   // Safety clamps: never less than 35mm, never more than 1500mm
-  if (totalHeightMm < 35) totalHeightMm = 35;
+  if (totalHeightMm < 85) totalHeightMm = 85;
   if (totalHeightMm > 1500) totalHeightMm = 1500;
 
   let styleEl = document.getElementById('dynamic-thermal-page-style');
@@ -201,11 +201,11 @@ export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
     @media print {
       html, body {
         width: ${widthMm}mm !important;
-        height: ${totalHeightMm}mm !important;
-        max-height: ${totalHeightMm}mm !important;
+        height: auto !important;
+        max-height: none !important;
         margin: 0 !important;
         padding: 0 !important;
-        overflow: hidden !important;
+        overflow: visible !important;
       }
       #receipt-print-root, .receipt-print-area, .z-report-print-area {
         width: ${contentWidthMm}mm !important;
@@ -231,3 +231,43 @@ export function cleanupThermalPrint() {
   }
 }
 
+
+/**
+ * Prevent blank customer bills when the receipt has not mounted yet.
+ * Keep its print CSS active until the browser finishes the print dialog.
+ */
+let finishActiveReceiptPrint = null;
+export function printRenderedReceipt(paperSetting = '80mm') {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return false;
+  const root = document.getElementById('receipt-print-root');
+  const receipt = root?.querySelector('.receipt-print-area');
+  const billText = receipt?.textContent?.replace(/\s+/g, ' ').trim() || '';
+  if (!receipt || billText.length < 24) {
+    console.error('[GastroFlow] Printing cancelled: the receipt has no rendered bill content.');
+    return false;
+  }
+  if (finishActiveReceiptPrint) finishActiveReceiptPrint();
+  const paper=resolvePrinterPaperSize(paperSetting);
+  document.body.classList.toggle('print-58mm', paper === '58mm');
+  document.body.classList.add('printing-receipt');
+  prepareThermalPrint(receipt, paper);
+  let timer;
+  const finish=()=>{
+    window.removeEventListener('afterprint',finish);
+    if(timer)clearTimeout(timer);
+    document.body.classList.remove('print-58mm','printing-receipt');
+    cleanupThermalPrint();
+    if(finishActiveReceiptPrint===finish)finishActiveReceiptPrint=null;
+  };
+  finishActiveReceiptPrint=finish;
+  window.addEventListener('afterprint',finish,{once:true});
+  try {
+    timer=setTimeout(finish,30000);
+    window.print();
+    return true;
+  } catch(e) {
+    finish();
+    console.error('[GastroFlow] Receipt printing failed',e);
+    return false;
+  }
+}
