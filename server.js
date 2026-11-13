@@ -1,4 +1,5 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,pushConfigured} from './lib/customer-push.js';
+import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
 import {initServiceExceptions,createServiceExceptions} from './routes/service-exceptions.js';
 import {initManualPayments,createManualPayments} from './routes/manual-payments.js';
@@ -2770,7 +2771,7 @@ export function normalizeOtpDestination(dest) {
 // Comparing hash(input) vs stored hash prevents plaintext exposure in process dumps / logs.
 // Purpose-bound, single-use OTP in shared storage (not process-local memory).
 async function verifyOTPAsync(destination, code, purpose, tenantId) {
-  if (!destination || !/^\d{6}$/.test(String(code)) || !['login','phone_verify'].includes(purpose) || !tenantId) return false;
+  if (!destination || !/^\d{6}$/.test(String(code)) || !isOtpPurpose(purpose) || !tenantId) return false;
   const normalized = normalizeOtpDestination(destination);
   const alternate = normalized.startsWith('+94') ? '0' + normalized.slice(3) : normalized;
   const now = Date.now();
@@ -2801,7 +2802,7 @@ app.get('/api/public/customer-auth-capabilities', publicApiLimiter, (_req, res) 
 app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) => {
   try {
     const { channel, destination, phone, email, purpose = 'phone_verify' } = req.body || {};
-    if (!['login','phone_verify'].includes(purpose)) return res.status(400).json({ error: 'Invalid verification purpose.' });
+    if (!isOtpPurpose(purpose)) return res.status(400).json({ error: 'Invalid verification purpose.' });
     const target = destination || email || phone;
     if (!target || !String(target).trim()) {
       return res.status(400).json({ error: 'Email address or phone number is required.' });
@@ -2921,7 +2922,8 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 // POST /api/otp/verify — Verify OTP code and login existing customer or return verification status
 app.post('/api/otp/verify', otpLimiter, async (req, res) => {
   try {
-    const { destination, code, phone, email } = req.body;
+    const { destination, code, phone, email, purpose = 'login' } = req.body || {};
+    if (!isOtpPurpose(purpose)) return res.status(400).json({ error: 'Invalid verification purpose.' });
     const target = destination || email || phone;
     if (!target || !code) {
       return res.status(400).json({ error: 'Destination and code are required.' });
@@ -2930,9 +2932,15 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
     const isEmail = target.includes('@');
     const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
 
-    const isValid = await verifyOTPAsync(cleanDest, code, 'login', await resolvePublicTenant(req));
+    const isValid = await verifyOTPAsync(cleanDest, code, purpose, await resolvePublicTenant(req));
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid or expired verification code.' });
+    }
+
+    // Checkout confirms contact possession but must not issue an authentication token.
+    if (!canCreateCustomerSession(purpose)) {
+      if (purpose === 'order_verify') return res.set('Cache-Control','no-store').json({ verified: true, purpose: 'order_verify' });
+      return res.status(400).json({ error: 'Use account registration to verify sign-up codes.' });
     }
 
     // Check if account already exists
