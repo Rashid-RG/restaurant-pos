@@ -1,3 +1,7 @@
+import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,pushConfigured} from './lib/customer-push.js';
+import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
+import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
+import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
 import {initServiceExceptions,createServiceExceptions} from './routes/service-exceptions.js';
 import {initManualPayments,createManualPayments} from './routes/manual-payments.js';
 import {syncKitchen} from './lib/kitchen.js';
@@ -5,6 +9,7 @@ import {createKitchenRouter} from './routes/kitchen.js';
 import {initInventoryOperations,createInventoryOperations} from './routes/inventory-operations.js';
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation} from './lib/checkout-recovery.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
+import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
@@ -43,7 +48,8 @@ import {
   buildOrderConfirmationEmail,
   buildOtpEmail,
   buildPasswordResetEmail,
-  buildWelcomeEmail
+  buildWelcomeEmail,
+  buildSignInAlertEmail
 } from './lib/email_templates.js';
 import {
   resolveAndCalculateBill as _resolveAndCalculateBill,
@@ -858,6 +864,21 @@ async function initTables() {
       )
     `);
 
+    // New verification challenges are bound to their restaurant. Existing
+    // challenges are deliberately invalidated during migration.
+    try {
+      await dbRun("ALTER TABLE otp_codes ADD COLUMN tenant_id TEXT");
+    } catch (error) {
+      if (!/duplicate column|already exists/i.test(String(error?.message || error))) throw error;
+    }
+    await dbRun('DELETE FROM otp_codes WHERE tenant_id IS NULL');
+    await dbRun(`CREATE TABLE IF NOT EXISTS order_verification_proofs (
+      id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, destination TEXT NOT NULL,
+      tokenHash TEXT NOT NULL UNIQUE, expiresAt INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL, consumedAt INTEGER
+    )`);
+    await dbRun('CREATE INDEX IF NOT EXISTS order_verification_proofs_lookup ON order_verification_proofs (tenant_id, tokenHash, expiresAt)');
+
     // 20. Raw Ingredients Table
     await dbRun(`
       CREATE TABLE IF NOT EXISTS ingredients (
@@ -920,9 +941,15 @@ async function initTables() {
         driverName TEXT,
         lat REAL,
         lng REAL,
-        updatedAt INTEGER
+        updatedAt INTEGER,
+        accuracyMeters REAL
       )
     `);
+    try {
+      await dbRun('ALTER TABLE driver_locations ADD COLUMN accuracyMeters REAL');
+    } catch (error) {
+      if (!/duplicate column|already exists/i.test(String(error?.message || error))) throw error;
+    }
 
     await dbRun(`CREATE TABLE IF NOT EXISTS refund_transactions (
       id TEXT PRIMARY KEY,
@@ -957,6 +984,8 @@ async function initTables() {
         createdAt INTEGER
       )
     `);
+
+    await initCustomerPush(dbRun);
 
     // 23. Timeclock Entries Table (Staff shift tracking)
     await dbRun(`
@@ -1746,6 +1775,16 @@ const authenticateToken = async (req, res, next) => {
     if (!user || user.tenant_id !== claims.tenant_id || !STAFF_ROLES.includes(user.role)) {
       return res.status(403).json({ error: 'Staff account is no longer authorized.' });
     }
+    const expectedTenant = req.headers['x-expected-tenant-id'];
+    if (expectedTenant) {
+      const selected = await resolvePosLoginTenant(expectedTenant);
+      if (!selected || selected.id !== user.tenant_id) {
+        return res.status(403).json({
+          error: 'This staff account does not belong to the restaurant in this URL.',
+          code: 'TENANT_URL_MISMATCH'
+        });
+      }
+    }
     const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [user.tenant_id]);
     if (!tenant || (tenant.status === 'suspended' && !user.isPlatformAdmin)) {
       return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
@@ -1777,6 +1816,9 @@ const requirePlatformAdmin = (req, res, next) => {
 
 // Middleware: Authenticate Customer JWT Token
 // BUG-002 fix: removed hardcoded fallback secret
+const customerSessionVersion = account => crypto.createHmac('sha256', process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET)
+  .update(String(account.passwordHash || '')).digest('hex').slice(0, 24);
+
 const authenticateCustomer = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -1791,7 +1833,8 @@ const authenticateCustomer = (req, res, next) => {
       return res.status(403).json({ error: 'Invalid or expired customer token.' });
     }
     try{
-      const account=await dbGet('SELECT id,name,tenant_id FROM customer_accounts WHERE id=?',[decoded.id]);
+      const account=await dbGet('SELECT id,name,tenant_id,passwordHash FROM customer_accounts WHERE id=?',[decoded.id]);
+      if (!account || decoded.sessionVersion !== customerSessionVersion(account)) return res.status(403).json({error:'Customer session expired. Please sign in again.'});
       if(!account)return res.status(403).json({error:'Customer account is unavailable.'});
       const requested=req.headers['x-tenant-id']||req.query.tenant;
       if(requested&&requested!==account.tenant_id)return res.status(403).json({error:'Customer account belongs to another restaurant.'});
@@ -1841,7 +1884,9 @@ app.use('/api',createManualPayments({dbGet,dbAll,dbRun,authenticateToken,require
 app.use('/api',createKitchenRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyOrderUpdate}));
 app.use('/api',createInventoryOperations({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyPOS}));
 app.use('/api',createOrderChatRouter({dbGet,dbAll,dbRun,authenticateToken,authenticateCustomer,authenticateDriver,broadcastEvent,rateLimiter:publicApiLimiter}));
-app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
+app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/public/orders/:id/road-route','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
+app.post('/api/public/orders/:id/push-subscription',publicApiLimiter,createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}),
+  createCustomerPushRoutes({dbRun,dbGet,resolvePublicTenant}));
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],(req,res,next)=>{req.params.id=req.body?.orderId;return createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver})(req,res,next);});
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],async(req,res,next)=>{try{if(await dbGet('SELECT id FROM manual_payments WHERE orderId=?',[req.body?.orderId]))return res.status(409).json({error:'This order has recorded manual payments. Contact the restaurant to settle its remaining balance.'});next();}catch(e){next(e);}});
 app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
@@ -1992,11 +2037,21 @@ const writeAuditLog = async (userId, username, action, details) => {
   }
 };
 
+// Resolve the store encoded in the POS URL or login payload to its canonical
+// tenant ID. Only platform administrators using an unscoped platform URL may
+// authenticate without a store selector.
+async function resolvePosLoginTenant(raw) {
+  if (typeof raw !== 'string' || !raw.trim() || raw.length > 200) return null;
+  const requested = raw.trim();
+  const alias = requested === 'kb2c' ? 'tenant_kb2c' : requested;
+  return await dbGet('SELECT id FROM tenants WHERE id = ? OR subdomain = ?', [alias, alias]);
+}
+
 // AUTH ENDPOINTS
 
 // Login
 app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, expectedTenantId } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
@@ -2014,6 +2069,16 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
     }
 
     const userTenantId = user.tenant_id || 'default_tenant';
+    if (expectedTenantId !== undefined) {
+      const requestedTenant = await resolvePosLoginTenant(expectedTenantId);
+      // Never switch the POS URL to match credentials from another store.
+      if (!requestedTenant || requestedTenant.id !== userTenantId) {
+        return res.status(403).json({
+          error: 'These credentials belong to a different restaurant. Use the correct POS store link.',
+          code: 'TENANT_URL_MISMATCH'
+        });
+      }
+    }
     const ownership = await dbGet('SELECT userId FROM platform_ownership WHERE singleton = 1 AND userId = ?', [user.id]);
     const isPlatformAdmin = Boolean(ownership) && user.role === 'owner';
     if (!isPlatformAdmin) {
@@ -2347,7 +2412,14 @@ app.get('/api/settings', authenticateToken, async (req, res) => {
 app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const body = req.body || {};
   try {
-    const tenantId = req.tenantId || 'default_tenant';
+    const tenantId = req.tenantId;
+    // Tenant identity is derived only from the authenticated staff session.
+    if (!tenantId || (body.expectedTenantId && String(body.expectedTenantId) !== tenantId)) {
+      return res.status(409).json({ error: 'Restaurant session mismatch. Reload your workspace and sign in again.', code: 'TENANT_MISMATCH' });
+    }
+    if (body.key === 'storeOpen' && !['true', 'false'].includes(String(body.value))) {
+      return res.status(400).json({ error: 'Invalid online store status.' });
+    }
 
     // Validate tenant-local time zone before persisting either update form.
     const requestedZone = body.key === 'timeZone' ? body.value : body.timeZone;
@@ -2363,12 +2435,17 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
     if (body.key !== undefined) {
       await setSetting(tenantId, body.key, body.value);
       notifyPublicStore({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
+      if (body.key === 'storeOpen') notifyPublicStore({ type: 'store_update', storeOpen: body.value === 'true' }, tenantId);
       notifyPOS({ type: 'settings_updated', key: body.key, value: body.value }, tenantId);
-      return res.json({ success: true, key: body.key, value: body.value });
+      return res.set('Cache-Control', 'no-store').json({ success: true, tenantId, key: body.key, value: body.value });
     }
 
     // 2. Bulk settings update: { businessName, address, phone, logoUrl, ... }
-    const settingsEntries = Object.entries(body).filter(([k]) => k !== 'tenant_id' && k !== 'id');
+    const settingsEntries = Object.entries(body).filter(([k]) => !['tenant_id','tenantId','id','expectedTenantId'].includes(k));
+    const requestedStoreStatus = settingsEntries.find(([k]) => k === 'storeOpen');
+    if (requestedStoreStatus && !['true','false'].includes(String(requestedStoreStatus[1]))) {
+      return res.status(400).json({ error: 'Invalid online store status.' });
+    }
     if (settingsEntries.length === 0) {
       return res.status(400).json({ error: 'No settings provided.' });
     }
@@ -2376,10 +2453,11 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
     for (const [k, v] of settingsEntries) {
       await setSetting(tenantId, k, v);
       notifyPublicStore({ type: 'settings_updated', key: k, value: v }, tenantId);
+      if (k === 'storeOpen') notifyPublicStore({ type: 'store_update', storeOpen: v === 'true' }, tenantId);
       notifyPOS({ type: 'settings_updated', key: k, value: v }, tenantId);
     }
 
-    res.json({ success: true, count: settingsEntries.length });
+    res.set('Cache-Control', 'no-store').json({ success: true, tenantId, count: settingsEntries.length });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -2700,51 +2778,40 @@ export function normalizeOtpDestination(dest) {
 
 // BUG-011 fix: OTP codes stored HASHED in the memory map (same as DB path).
 // Comparing hash(input) vs stored hash prevents plaintext exposure in process dumps / logs.
-function verifyOTP(destination, code) {
-  if (!destination || !code) return false;
-  const cleanDest = normalizeOtpDestination(destination);
-  const codeHash = hashCode(String(code).trim());
-
-  let entries = otpStore.get(cleanDest);
-  if (!entries) return false;
-  if (!Array.isArray(entries)) entries = [entries]; // backward compatibility check
-
-  const validIndex = entries.findIndex(e => e.expiresAt >= Date.now() && e.codeHash === codeHash);
-  if (validIndex !== -1) {
-    entries.splice(validIndex, 1); // Consume single-use code
-    otpStore.set(cleanDest, entries);
-    return true;
+// Purpose-bound, single-use OTP in shared storage (not process-local memory).
+async function verifyOTPAsync(destination, code, purpose, tenantId) {
+  if (!destination || !/^\d{6}$/.test(String(code)) || !isOtpPurpose(purpose) || !tenantId) return false;
+  const normalized = normalizeOtpDestination(destination);
+  const alternate = normalized.startsWith('+94') ? '0' + normalized.slice(3) : normalized;
+  const now = Date.now();
+  // The most recent challenge is authoritative. A wrong guess consumes an
+  // attempt, and an expired/consumed challenge cannot be replayed.
+  const row = await dbGet(
+    `SELECT id,codeHash,attempts FROM otp_codes WHERE tenant_id=? AND
+      (LOWER(destination)=? OR destination=?) AND purpose=?
+      AND expiresAt>? AND consumedAt IS NULL
+      ORDER BY createdAt DESC LIMIT 1`,
+    [tenantId, normalized, alternate, purpose, now]
+  );
+  if (!row || Number(row.attempts) >= 5) return false;
+  if (row.codeHash !== hashCode(String(code))) {
+    await dbRun('UPDATE otp_codes SET attempts=COALESCE(attempts,0)+1 WHERE id=? AND consumedAt IS NULL', [row.id]);
+    return false;
   }
-  return false;
+  const result = await dbRun('UPDATE otp_codes SET consumedAt=? WHERE id=? AND consumedAt IS NULL AND COALESCE(attempts,0)<5', [now,row.id]);
+  return result?.changes === undefined ? true : result.changes === 1;
 }
 
-async function verifyOTPAsync(destination, code) {
-  if (!destination || !code) return false;
-  if (verifyOTP(destination, code)) return true;
-
-  try {
-    const cleanDest = normalizeOtpDestination(destination);
-    const cleanPhoneAlt = cleanDest.startsWith('+94') ? '0' + cleanDest.slice(3) : cleanDest;
-    const codeHash = hashCode(String(code).trim());
-
-    const dbOtp = await dbGet(
-      `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ? OR destination = ?) AND codeHash = ? AND expiresAt >= ?`,
-      [cleanDest, cleanDest, cleanPhoneAlt, codeHash, Date.now()]
-    );
-    if (dbOtp) {
-      await dbRun('DELETE FROM otp_codes WHERE id = ?', [dbOtp.id]);
-      return true;
-    }
-  } catch (e) {}
-
-  return false;
-}
+app.get('/api/public/customer-auth-capabilities', publicApiLimiter, (_req, res) =>
+  res.set('Cache-Control','no-store').json({ emailOtp: isEmailConfigured(), smsOtp: isSmsConfigured(), passwordLogin: true })
+);
 
 // POST /api/otp/send — Unified OTP generation (Email or SMS)
 // BUG-008 fix: use the stricter otpLimiter (3 sends / 10 min) instead of the general publicApiLimiter
 app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) => {
   try {
     const { channel, destination, phone, email, purpose = 'phone_verify' } = req.body || {};
+    if (!isOtpPurpose(purpose)) return res.status(400).json({ error: 'Invalid verification purpose.' });
     const target = destination || email || phone;
     if (!target || !String(target).trim()) {
       return res.status(400).json({ error: 'Email address or phone number is required.' });
@@ -2752,6 +2819,14 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 
     const isEmail = (channel === 'email') || String(target).includes('@');
     const cleanDest = normalizeOtpDestination(target);
+    if (isEmail && !isEmailConfigured()) return res.status(503).json({
+      error: 'Email verification is not configured. Contact GastroFlow support.',
+      code: 'EMAIL_PROVIDER_UNAVAILABLE'
+    });
+    if (!isEmail && !isSmsConfigured()) return res.status(503).json({
+      error: 'SMS verification is not configured. Choose email verification.',
+      code: 'SMS_PROVIDER_UNAVAILABLE'
+    });
 
     if (!isEmail && !isValidSriLankanPhone(target)) {
       return res.status(400).json({ error: 'A valid Sri Lankan phone number is required (e.g. 0771234567).' });
@@ -2760,47 +2835,38 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
     // Enforcement: Only registered users can request a login OTP
     if (purpose === 'login') {
       const existingAccount = await dbGet(
-        `SELECT id FROM customer_accounts WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, cleanDest]
+        `SELECT id FROM customer_accounts WHERE tenant_id=? AND (LOWER(phone)=? OR LOWER(email)=? OR phone=?)`,
+        [await resolvePublicTenant(req), cleanDest, cleanDest, cleanDest]
       );
-      const existingCustomer = existingAccount || await dbGet(
-        `SELECT id FROM customers WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ?`,
-        [cleanDest, cleanDest, cleanDest]
-      );
-      if (!existingCustomer) {
+      if (!existingAccount) {
         return res.status(404).json({
           error: 'No registered account found with this phone or email. Please register your account first.'
         });
       }
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = String(crypto.randomInt(100000, 1000000));
     const expiresAt = Date.now() + 10 * 60 * 1000;
 
-    // Clean up expired codes only (keep active valid codes so re-sends don't invalidate codes in transit)
-    await dbRun('DELETE FROM otp_codes WHERE expiresAt < ?', [Date.now()]);
+    const otpTenantId = await resolvePublicTenant(req);
+    // Each resend replaces earlier codes for the same destination and purpose.
+    await dbRun('DELETE FROM otp_codes WHERE expiresAt<? OR (tenant_id=? AND destination=? AND purpose=?)',
+      [Date.now(),otpTenantId,cleanDest,purpose]);
 
     const id = `otp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await dbRun(
-      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now()]
+      `INSERT INTO otp_codes (id, channel, destination, purpose, codeHash, expiresAt, createdAt, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, isEmail ? 'email' : 'sms', cleanDest, purpose, hashCode(code), expiresAt, Date.now(), otpTenantId]
     );
 
-    // BUG-011 fix: store HASH of OTP code in memory (not plaintext)
-    let currentEntries = otpStore.get(cleanDest) || [];
-    if (!Array.isArray(currentEntries)) currentEntries = [currentEntries];
-    currentEntries = currentEntries.filter(e => e.expiresAt > Date.now());
-    currentEntries.push({ codeHash: hashCode(code), expiresAt, channel: isEmail ? 'email' : 'sms', purpose });
-    otpStore.set(cleanDest, currentEntries);
+    // Verification is database-backed; process-local OTP maps are not used.
 
-    const tenantId = await resolvePublicTenant(req);
-    const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
-
+    // Account verification messages always carry the GastroFlow platform identity.
     let isSimulated = false;
 
     if (isEmail) {
-      const html = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: storeName });
+      const html = buildOtpEmail({ code, purpose, destination: cleanDest });
 
       let emailSent = false;
       let emailError = null;
@@ -2808,16 +2874,16 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
       try {
         const sendPromise = sendEmail({
           to: cleanDest,
-          subject: `Your ${storeName} verification code: ${code}`,
+          subject: 'Your GastroFlow verification code',
           html,
-          text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
+          text: `Your GastroFlow verification code is ${code}. Valid for 10 minutes. Never share this code.`
         });
         const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true, error: 'Email timeout (15s)' }), 15000));
         const sendRes = await Promise.race([sendPromise, timeoutPromise]);
 
         if (sendRes && sendRes.success) {
           emailSent = true;
-          console.log(`[OTP EMAIL SUCCESS] Delivered to ${cleanDest} | Code: ${code}`);
+          console.log('[OTP EMAIL SUCCESS] Verification email submitted.');
         } else {
           emailError = sendRes?.error || (sendRes?.timeout ? 'Connection timeout' : 'SMTP send failed');
           console.warn(`[OTP EMAIL WARNING] Failed sending to ${cleanDest}:`, emailError);
@@ -2827,6 +2893,10 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
         console.error('[OTP EMAIL EXCEPTION]', e.message);
       }
 
+      if (!emailSent) {
+        await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
+        return res.status(503).json({error:'We could not send the email code. Try again later or choose SMS if available.',code:'EMAIL_DELIVERY_FAILED'});
+      }
       return res.json({
         success: true,
         channel: 'email',
@@ -2840,22 +2910,14 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
     } else {
       const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
 
-      // Fire-and-forget background SMS dispatch
-      sendSms({ to: cleanDest, message: msg }).then(smsRes => {
-        if (!smsRes || smsRes.simulated || !smsRes.success) {
-          console.warn(`[SMS SEND BACKGROUND WARNING] Diagnostic result:`, smsRes);
-        } else {
-          console.log(`[OTP SMS SUCCESS] Delivered to ${cleanDest}`);
-        }
-      }).catch(e => {
-        console.error('[SMS OTP BACKGROUND EXCEPTION]', e.message);
-      });
-
+      const smsRes = await sendSms({ to: cleanDest, message: msg });
+      if (!smsRes?.success) {
+        await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
+        return res.status(503).json({error:'SMS delivery failed. Try email verification or contact support.',code:'SMS_DELIVERY_FAILED'});
+      }
       return res.json({
-        success: true,
-        channel: 'sms',
-        destination: cleanDest,
-        message: `Verification code sent via SMS to ${cleanDest}. Please check your phone.`
+        success:true, channel:'sms', destination:cleanDest,
+        message:'Verification message accepted by the SMS provider. Check your phone.'
       });
     }
   } catch (err) {
@@ -2865,9 +2927,10 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 });
 
 // POST /api/otp/verify — Verify OTP code and login existing customer or return verification status
-app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
+app.post('/api/otp/verify', otpLimiter, async (req, res) => {
   try {
-    const { destination, code, phone, email } = req.body;
+    const { destination, code, phone, email, purpose = 'login' } = req.body || {};
+    if (!isOtpPurpose(purpose)) return res.status(400).json({ error: 'Invalid verification purpose.' });
     const target = destination || email || phone;
     if (!target || !code) {
       return res.status(400).json({ error: 'Destination and code are required.' });
@@ -2876,21 +2939,30 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
     const isEmail = target.includes('@');
     const cleanDest = isEmail ? target.toLowerCase().trim() : target.replace(/[\s-]/g, '');
 
-    const isValid = await verifyOTPAsync(cleanDest, code);
+    const isValid = await verifyOTPAsync(cleanDest, code, purpose, await resolvePublicTenant(req));
     if (!isValid) {
       return res.status(400).json({ error: 'Invalid or expired verification code.' });
     }
 
+    // Checkout confirms contact possession but must not issue an authentication token.
+    if (!canCreateCustomerSession(purpose)) {
+      if (purpose === 'order_verify') {
+        const proof = await issueOrderProof({dbRun,tenantId:await resolvePublicTenant(req),destination:cleanDest});
+        return res.set('Cache-Control','no-store').json({verified:true,purpose:'order_verify',...proof});
+      }
+      return res.status(400).json({ error: 'Use account registration to verify sign-up codes.' });
+    }
+
     // Check if account already exists
     const customer = await dbGet(
-      'SELECT * FROM customer_accounts WHERE email = ? OR phone = ?',
-      [cleanDest, cleanDest]
+      'SELECT * FROM customer_accounts WHERE tenant_id=? AND (LOWER(email)=? OR phone=?)',
+      [await resolvePublicTenant(req), cleanDest, cleanDest]
     );
 
     if (customer) {
       const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
       const token = jwt.sign(
-        { id: customer.id, phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
+        { id: customer.id, tenantId: customer.tenant_id, sessionVersion: customerSessionVersion(customer), phone: customer.phone, email: customer.email, name: customer.name, type: 'customer' },
         secret,
         { expiresIn: '7d' }
       );
@@ -2909,7 +2981,7 @@ app.post('/api/otp/verify', publicApiLimiter, async (req, res) => {
       });
     }
 
-    return res.json({ verified: true, loggedIn: false, destination: cleanDest });
+    return res.status(404).json({ error: 'No customer account for this restaurant. Please register.' });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -2927,15 +2999,17 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   if (!otpCode) {
     return res.status(400).json({ error: 'Verification code is required.' });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  if (typeof password !== 'string' || password.length < 10 || password.length > 72) {
+    return res.status(400).json({ error: 'Password must contain between 10 and 72 characters.' });
   }
 
   const cleanPhone = phone.replace(/[\s-]/g, '');
   const cleanEmail = email ? email.toLowerCase().trim() : null;
 
   // Verify OTP (allow either phone or email verification)
-  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode)));
+  const tenantIdForOtp = await resolvePublicTenant(req);
+  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode, 'phone_verify', tenantIdForOtp)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode, 'phone_verify', tenantIdForOtp)));
+
   if (!isOtpValid) {
     return res.status(400).json({ error: 'Invalid or expired verification code.' });
   }
@@ -2988,7 +3062,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
-      { id, phone: cleanPhone, name: name.trim(), type: 'customer' },
+      { id, tenantId, sessionVersion: customerSessionVersion({passwordHash}), phone: normPhone || cleanPhone, name: name.trim(), type: 'customer' },
       secret,
       { expiresIn: '7d' }
     );
@@ -2996,11 +3070,10 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
     // Welcome email — fire-and-forget, never blocks the response
     if (cleanEmail) {
-      const business = (await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro'));
-      const welcomeHtml = buildWelcomeEmail({ name: name.trim(), loginUrl: customerAppUrl(), businessName: business });
+      const welcomeHtml = buildWelcomeEmail({ name: name.trim(), loginUrl: customerAppUrl() });
       sendEmail({
         to: cleanEmail,
-        subject: `Welcome to ${business}! 🎉`,
+        subject: 'Welcome to GastroFlow',
         html: welcomeHtml
       }).catch(e => console.error('[EMAIL] Welcome email failed:', e.message));
     }
@@ -3010,7 +3083,11 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 });
 
 // POST /api/customer/auth/login
-app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
+const customerLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Try again later.' }
+});
+app.post('/api/customer/auth/login', customerLoginLimiter, async (req, res) => {
   const { phone, password } = req.body;
   if (!phone || !password) {
     return res.status(400).json({ error: 'Phone number and password are required.' });
@@ -3019,7 +3096,9 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
   const cleanPhone = phone.replace(/[\s-]/g, '');
 
   try {
-    const customer = await dbGet('SELECT * FROM customer_accounts WHERE phone = ?', [cleanPhone]);
+    const tenantId = await resolvePublicTenant(req);
+    const customer = await dbGet('SELECT * FROM customer_accounts WHERE tenant_id=? AND (phone=? OR phone=?)',
+      [tenantId, normalizeLkPhone(cleanPhone), cleanPhone]);
     if (!customer) {
       return res.status(401).json({ error: 'Invalid phone number or password.' });
     }
@@ -3029,7 +3108,7 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
     }
     const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
     const token = jwt.sign(
-      { id: customer.id, phone: customer.phone, name: customer.name, type: 'customer' },
+      { id: customer.id, tenantId: customer.tenant_id, sessionVersion: customerSessionVersion(customer), phone: customer.phone, name: customer.name, type: 'customer' },
       secret,
       { expiresIn: '7d' }
     );
@@ -3043,29 +3122,12 @@ app.post('/api/customer/auth/login', publicApiLimiter, async (req, res) => {
 
     // Login notification email — fire-and-forget
     if (customer.email) {
-      const business = (await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow'));
       const loginTime = new Date().toLocaleString('en-LK', { timeZone: 'Asia/Colombo', dateStyle: 'medium', timeStyle: 'short' });
+      const html = buildSignInAlertEmail({ name: customer.name, loginTime, appUrl: customerAppUrl() });
       sendEmail({
         to: customer.email,
-        subject: `New sign-in to your ${business} account`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08)">
-            <div style="background:#1a1a2e;padding:24px;text-align:center">
-              <h1 style="color:#ff6b35;margin:0;font-size:22px">🍽️ ${business}</h1>
-            </div>
-            <div style="padding:28px 24px">
-              <h2 style="color:#1a1a2e;margin:0 0 12px">New Sign-In Detected 🔐</h2>
-              <p style="color:#555;line-height:1.6">Hi ${customer.name}, we noticed a new sign-in to your account.</p>
-              <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:20px 0">
-                <p style="margin:0;color:#333"><strong>Time:</strong> ${loginTime} (Sri Lanka)</p>
-                <p style="margin:6px 0 0;color:#333"><strong>Phone:</strong> ${customer.phone}</p>
-              </div>
-              <p style="color:#777;font-size:13px">If this wasn't you, please change your password immediately.</p>
-            </div>
-            <div style="background:#f8f9fa;padding:16px 24px;text-align:center">
-              <p style="color:#999;font-size:12px;margin:0">© ${new Date().getFullYear()} ${business}. All rights reserved.</p>
-            </div>
-          </div>`
+        subject: 'New sign-in to your GastroFlow account',
+        html
       }).catch(e => console.error('[EMAIL] Login notification failed:', e.message));
     }
   } catch (err) {
@@ -3103,22 +3165,32 @@ app.get('/api/customer/profile', authenticateCustomer, async (req, res) => {
 
 // PUT /api/customer/profile
 app.put('/api/customer/profile', authenticateCustomer, async (req, res) => {
-  const { name, phone, password } = req.body;
+  const { name, phone, password, currentPassword } = req.body || {};
   try {
-    if (password) {
-      if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-      const passwordHash = await bcrypt.hash(password, 10);
-      await dbRun('UPDATE customer_accounts SET name = ?, phone = ?, passwordHash = ? WHERE id = ?',
-        [name || req.customer.name, phone || null, passwordHash, req.customer.id]);
-    } else {
-      await dbRun('UPDATE customer_accounts SET name = ?, phone = ? WHERE id = ?',
-        [name || req.customer.name, phone || null, req.customer.id]);
+    const account = await dbGet('SELECT id,name,phone,passwordHash FROM customer_accounts WHERE id=? AND tenant_id=?',
+      [req.customer.id, req.customer.tenant_id]);
+    if (!account) return res.status(404).json({ error: 'Customer account unavailable.' });
+    const safeName = typeof name === 'string' ? name.trim() : account.name;
+    if (!safeName || safeName.length > 120) return res.status(400).json({ error: 'Enter a valid name of up to 120 characters.' });
+    // Phone ownership changes require their own verified change flow.
+    if (phone && normalizeLkPhone(phone) !== normalizeLkPhone(account.phone)) {
+      return res.status(409).json({ error: 'Changing your phone requires verification. Contact support.', code: 'PHONE_VERIFICATION_REQUIRED' });
     }
+    let newHash = null;
+    if (password) {
+      if (typeof password !== 'string' || password.length < 10 || password.length > 72)
+        return res.status(400).json({ error: 'New password must be 10–72 characters.' });
+      if (typeof currentPassword !== 'string' || !(await bcrypt.compare(currentPassword, account.passwordHash)))
+        return res.status(403).json({ error: 'Current password is incorrect.', code: 'CURRENT_PASSWORD_REQUIRED' });
+      newHash = await bcrypt.hash(password, 10);
+    }
+    await dbRun('UPDATE customer_accounts SET name=?,passwordHash=? WHERE id=? AND tenant_id=?',
+      [safeName, newHash || account.passwordHash, account.id, req.customer.tenant_id]);
     const updated = await dbGet(
-      'SELECT id, name, email, phone, loyaltyPoints, totalSpent FROM customer_accounts WHERE id = ?',
-      [req.customer.id]
+      'SELECT id,name,email,phone,phoneVerified,loyaltyPoints,totalSpent FROM customer_accounts WHERE id=? AND tenant_id=?',
+      [account.id, req.customer.tenant_id]
     );
-    res.json(updated);
+    res.set('Cache-Control','no-store').json({ ...updated, reauthenticationRequired: Boolean(newHash) });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -3244,11 +3316,21 @@ async function isPeakHour(tenantId = 'default_tenant') {
 // ── Server-authoritative delivery fee calculator ──
 async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0, tenantId = 'default_tenant') {
   const s = await getSettingsMap(tenantId, [
-    'storeLat', 'storeLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
+    'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
     'deliveryMaxRadiusKm', 'deliveryPeakSurcharge', 'deliveryRainSurcharge', 'deliveryFreeThreshold', 'isRainyWeather'
   ]);
-  const storeLat = parseFloat(s.storeLat || 6.9271);
-  const storeLng = parseFloat(s.storeLng || 79.8612);
+  // Never use another restaurant's coordinates as a fallback. Older tenant
+  // profiles may have their own restaurantLat/restaurantLng settings.
+  const rawStoreLat = s.storeLat || s.restaurantLat;
+  const rawStoreLng = s.storeLng || s.restaurantLng;
+  const storeLat = rawStoreLat ? Number(rawStoreLat) : NaN;
+  const storeLng = rawStoreLng ? Number(rawStoreLng) : NaN;
+  if (!Number.isFinite(storeLat) || !Number.isFinite(storeLng) || Math.abs(storeLat) > 90 || Math.abs(storeLng) > 180) {
+    const error = new Error('Delivery location is not configured for this restaurant. Ask the owner to set the store map pin in Online Store settings, or choose pickup.');
+    error.status = 422;
+    error.code = 'STORE_DELIVERY_LOCATION_MISSING';
+    throw error;
+  }
   const baseFee = parseFloat(s.deliveryBaseFee || 99);
   const freeRadius = parseFloat(s.deliveryFreeRadiusKm || 2);
   const perKmRate = parseFloat(s.deliveryPerKmRate || 50);
@@ -3326,14 +3408,14 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     const dispatchMode = (await getSetting(tenantId, 'driverDispatchMode')) || 'hybrid';
     if (dispatchMode === 'manual') return; // manager handles it
 
-    const order = await dbGet('SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ?', [orderId]);
+    const order = await dbGet("SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ? AND tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId = '')", [orderId,tenantId]);
     if (!order || !order.deliveryLat || !order.deliveryLng) return;
 
     // Get all drivers with recent GPS pings (within last 30 min)
-    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+    const thirtyMinAgo = Date.now() - 5 * 60 * 1000;
     const driverPings = await dbAll(
-      'SELECT orderId, driverName, lat, lng, updatedAt FROM driver_locations WHERE updatedAt > ? GROUP BY driverName ORDER BY updatedAt DESC',
-      [thirtyMinAgo]
+      'SELECT dl.orderId,dl.driverName,dl.lat,dl.lng,dl.updatedAt FROM driver_locations dl JOIN orders o ON o.id=dl.orderId WHERE o.tenant_id=? AND dl.updatedAt>? ORDER BY dl.updatedAt DESC',
+      [tenantId,thirtyMinAgo]
     );
 
     // Get store location for fallback
@@ -3342,7 +3424,8 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     const storeLng = parseFloat(dispatchStore.storeLng || 79.8612);
 
     // Calculate distance from each driver to the STORE (pickup point)
-    const driversWithDistance = driverPings.map(d => ({
+    const seenDrivers=new Set();
+    const driversWithDistance = driverPings.filter(d=>{if(seenDrivers.has(d.driverName))return false;seenDrivers.add(d.driverName);return true;}).map(d => ({
       ...d,
       distToStore: haversineDistanceKm(d.lat, d.lng, storeLat, storeLng)
     }));
@@ -3353,13 +3436,19 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     // Check which drivers are currently NOT on an active delivery
     for (const driver of driversWithDistance) {
       const activeDelivery = await dbGet(
-        "SELECT id FROM orders WHERE driverId = ? AND status IN ('preparing', 'ready', 'out_for_delivery')",
-        [driver.driverName]
+        "SELECT id FROM orders WHERE driverId=? AND tenant_id=? AND status IN ('pending','preparing','ready','picked_up','out_for_delivery','arrived')",
+        [driver.driverName,tenantId]
       );
       if (!activeDelivery) {
         // Auto-assign this driver
-        await dbRun('UPDATE orders SET driverId = ?, dispatchMode = ? WHERE id = ?', [driver.driverName, 'auto', orderId]);
+        const claimed=await dbRun(
+          "UPDATE orders SET driverId=?, dispatchMode=? WHERE id=? AND tenant_id=? AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')",
+          [driver.driverName,'auto',orderId,tenantId]
+        );
+        if(claimed.changes!==1)return;
         notifyPOS({ type: 'driver_auto_assigned', orderId, driverId: driver.driverName, distanceKm: Math.round(driver.distToStore * 10) / 10 }, tenantId);
+        notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+        void sendOrderPush(dbAll,dbRun,orderId,tenantId,'driver_assigned').catch(()=>{});
         console.log(`[Auto-Dispatch] Assigned ${driver.driverName} to order ${orderId} (${driver.distToStore.toFixed(1)} km from store)`);
         return;
       }
@@ -3425,6 +3514,47 @@ export async function calculateOrderETA(orderId, tenantId = 'default_tenant') {
   }
 }
 
+// Configurable road-route lookup for authorized order tracking.
+// When routing is not configured or provider is unavailable, the UI retains
+// its existing honest straight-line proximity indicator (no invented road ETA).
+const roadRouteCache=new Map();
+app.get('/api/public/orders/:id/road-route',publicApiLimiter,async(req,res)=>{
+  res.set('Cache-Control','private, no-store');
+  const origin=routingOrigin();
+  if(!origin)return res.json({available:false,reason:'not_configured'});
+  try{
+    const tenantId=await resolvePublicTenant(req);
+    const order=await dbGet('SELECT id,tenant_id,status,driverId,orderType,diningType,deliveryLat,deliveryLng FROM orders WHERE id=? AND tenant_id=?',[req.params.id,tenantId]);
+    if(!order)return res.status(404).json({error:'Order not found.'});
+    const mode=String(order.orderType||order.diningType||'').toLowerCase();
+    if(mode!=='delivery'||['cancelled','rejected','delivered','completed','refunded'].includes(String(order.status||'').toLowerCase()))return res.json({available:false,reason:'not_active_delivery'});
+    const to={lat:order.deliveryLat,lng:order.deliveryLng};
+    if(!validRoadPoint(to))return res.json({available:false,reason:'no_delivery_pin'});
+    let from=null,startingPoint='restaurant';
+    if(order.driverId&&String(order.status).toLowerCase()==='out_for_delivery'){
+      const latest=await dbGet('SELECT lat,lng,updatedAt FROM driver_locations WHERE orderId=?',[order.id]);
+      if(latest&&Date.now()-Number(latest.updatedAt)>=0&&Date.now()-Number(latest.updatedAt)<90000&&validRoadPoint(latest)){
+        from={lat:latest.lat,lng:latest.lng};startingPoint='rider';
+      }
+    }
+    if(!from){
+      const settings=await getSettingsMap(tenantId,['storeLat','storeLng']);
+      const store={lat:settings.storeLat,lng:settings.storeLng};
+      if(validRoadPoint(store))from=store;
+    }
+    if(!validRoadPoint(from))return res.json({available:false,reason:'no_origin_pin'});
+    const key=order.id+':'+startingPoint+':'+Number(from.lat).toFixed(4)+':'+Number(from.lng).toFixed(4)+':'+Number(to.lat).toFixed(4)+':'+Number(to.lng).toFixed(4);
+    const cached=roadRouteCache.get(key);
+    if(cached&&Date.now()-cached.at<30000)return res.json(cached.data);
+    const route=await fetchRoadRoute({from,to,origin});
+    if(!route)return res.json({available:false,reason:'provider_unavailable'});
+    const data={...route,startingPoint,estimateOnly:true};
+    if(roadRouteCache.size>150)roadRouteCache.clear();
+    roadRouteCache.set(key,{at:Date.now(),data});
+    return res.json(data);
+  }catch(err){return res.json({available:false,reason:'provider_unavailable'});}
+});
+
 // GET /api/public/orders/:id/eta — Dynamic ETA computation
 app.get('/api/public/orders/:id/eta', publicApiLimiter, async (req, res) => {
   try {
@@ -3488,8 +3618,14 @@ app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, 
       dispatchLabel = 'Finding a driver for you…';
       dispatchIcon  = '🔄';
     } else if (s === 'out_for_delivery') {
-      dispatchLabel = `${order.driverId} is on the way! ${distanceToStoreKm !== null ? `(${distanceToStoreKm} km from store)` : ''}`;
-      dispatchIcon  = '🛵';
+      dispatchLabel = `${order.driverId} is on the way to your destination`;
+      dispatchIcon = '🛵';
+    } else if (s === 'picked_up') {
+      dispatchLabel = `${order.driverId} has collected your order`;
+      dispatchIcon = '📦';
+    } else if (s === 'arrived') {
+      dispatchLabel = `${order.driverId} has reported arrival at your destination`;
+      dispatchIcon = '📍';
     } else if (s === 'ready') {
       dispatchLabel = `${order.driverId} assigned — picking up your order`;
       dispatchIcon  = '✅';
@@ -3584,8 +3720,8 @@ app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
   try {
     const driverId = req.driver.driverId;
     const driver = await dbGet(
-      'SELECT id, name, phone, status FROM drivers WHERE id = ?',
-      [driverId]
+      'SELECT id, name, phone, status FROM drivers WHERE id = ? AND tenant_id = ?',
+      [driverId,req.driver.tenant_id]
     );
 
     if (!driver) return res.json({ driver: null, orders: [] });
@@ -3594,9 +3730,10 @@ app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
       `SELECT o.*, dl.lat as driverLat, dl.lng as driverLng
        FROM orders o
        LEFT JOIN driver_locations dl ON o.id = dl.orderId
-       WHERE o.driverId = ? AND o.status IN ('out_for_delivery', 'confirmed', 'preparing', 'ready')
+       WHERE o.driverId = ? AND o.tenant_id = ? AND (o.orderType='delivery' OR o.diningType='delivery')
+         AND o.status IN ('pending','confirmed','preparing','ready','picked_up','out_for_delivery','arrived')
        ORDER BY o.timestamp ASC`,
-      [driver.id]
+      [driver.id,req.driver.tenant_id]
     );
 
     res.json({
@@ -3613,31 +3750,38 @@ app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
 // BUG-003 fix: require staff authentication with manager/owner role
 // Previously this was a fully unauthenticated endpoint allowing anyone to reassign orders
 app.post('/api/public/driver/assign-batch', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
-  try {
-    const { driverId, orderIds } = req.body;
-    if (!driverId || !Array.isArray(orderIds) || orderIds.length === 0) {
-      return res.status(400).json({ error: 'Driver ID and list of order IDs are required.' });
-    }
-    if (orderIds.length > 20) {
-      return res.status(400).json({ error: 'Cannot batch-assign more than 20 orders at once.' });
-    }
-
-    const tenantId = req.tenantId || 'default_tenant';
-    const driver = await dbGet('SELECT * FROM drivers WHERE (id = ? OR phone = ?) AND tenant_id = ?', [driverId, driverId, tenantId]);
-    if (!driver) return res.status(404).json({ error: 'Driver not found.' });
-
-    for (const orderId of orderIds) {
-      // Only assign orders belonging to this tenant
-      await dbRun(
-        "UPDATE orders SET driverId = ?, status = 'out_for_delivery' WHERE id = ? AND tenant_id = ?",
-        [driver.id, orderId, tenantId]
+  const {driverId,orderIds}=req.body||{};
+  if(typeof driverId!=='string'||!driverId.trim()||!Array.isArray(orderIds)||orderIds.length<1||orderIds.length>20||
+     orderIds.some(id=>typeof id!=='string'||!id.trim())||new Set(orderIds).size!==orderIds.length){
+    return res.status(400).json({error:'Choose a driver and 1–20 unique delivery order IDs.'});
+  }
+  const tenantId=req.tenantId;
+  let inTransaction=false;
+  try{
+    const driver=await dbGet('SELECT id,name FROM drivers WHERE (id=? OR phone=?) AND tenant_id=?',[driverId,driverId,tenantId]);
+    if(!driver)return res.status(404).json({error:'Driver not found.'});
+    await dbRun('BEGIN TRANSACTION');inTransaction=true;
+    for(const orderId of orderIds){
+      // Assignment alone must never mark food as collected or on the way.
+      const result=await dbRun(
+        "UPDATE orders SET driverId=? WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')",
+        [driver.id,orderId,tenantId]
       );
-      broadcastEvent('order_updated', { orderId, status: 'out_for_delivery', driverName: driver.name, driverPhone: driver.phone });
+      if(result.changes!==1){
+        await dbRun('ROLLBACK');inTransaction=false;
+        return res.status(409).json({error:'An order is already assigned, unavailable, or not a delivery. Refresh and try again; no batch assignments were saved.'});
+      }
     }
-
-    res.json({ success: true, message: `Batch of ${orderIds.length} orders assigned to driver ${driver.name}!`, orderIds });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    await dbRun('COMMIT');inTransaction=false;
+    for(const orderId of orderIds){
+      notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+      notifyPOS({type:'driver_assigned',orderId,driverId:driver.id},tenantId);
+      void sendOrderPush(dbAll,dbRun,orderId,tenantId,'driver_assigned').catch(()=>{});
+    }
+    res.json({success:true,message:`Assigned ${orderIds.length} delivery orders to ${driver.name}.`,orderIds});
+  }catch(err){
+    if(inTransaction)await dbRun('ROLLBACK').catch(()=>{});
+    res.status(500).json({error:'Could not assign delivery orders. Please retry.'});
   }
 });
 
@@ -3657,7 +3801,7 @@ app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {
     const result = await calculateDeliveryFee(customerLat, customerLng, parseFloat(subtotal || 0), tenantId);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    res.status(err.status || 500).json({ error: errMsg(err), ...(err.code ? { code: err.code } : {}) });
   }
 });
 
@@ -4242,6 +4386,8 @@ app.post('/api/delivery/assign',authenticateToken,requireRole(['owner','manager'
   await writeAuditLog(req.user.id,req.user.username,'assign_driver',`Assigned ${driverId} to ${orderId}`);
   await dbRun('COMMIT');open=false;
   broadcastEvent('order_updated',{orderId,status:order.status,driverId,driverName:driver.name},req.tenantId);
+  notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+  void sendOrderPush(dbAll,dbRun,orderId,req.tenantId,'driver_assigned').catch(()=>{});
   res.json({success:true,message:'Driver assigned.'});
  }catch(error){if(open)await dbRun('ROLLBACK');res.status(500).json({error:errMsg(error)});}
 });
@@ -4330,14 +4476,16 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
   if((lat!=null||lng!=null)&&(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lng)||Math.abs(lng)>180))return res.status(400).json({error:'Invalid location.'});
   for(const tenant of tenants){
    if((await getTenantMeta(tenant.id)).status!=='active')continue;
-   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
+   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','restaurantLat','restaurantLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
    const ratings=await dbGet('SELECT AVG(rating) AS rating,COUNT(*) AS count FROM feedbacks WHERE tenant_id=? AND rating BETWEEN 1 AND 5',[tenant.id]);
-   const storeLat=settings.storeLat==null||settings.storeLat===''?null:Number(settings.storeLat),storeLng=settings.storeLng==null||settings.storeLng===''?null:Number(settings.storeLng);
+   const latitude=settings.storeLat || settings.restaurantLat;
+   const longitude=settings.storeLng || settings.restaurantLng;
+   const storeLat=latitude ? Number(latitude) : null,storeLng=longitude ? Number(longitude) : null;
    const configuredLocation=Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
    let quote=null;if(lat!=null&&configuredLocation)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
    stores.push({id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true',isDeliverable:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
   }
-  res.json(stores);
+  res.set('Cache-Control', 'no-store').json(stores);
  }catch(error){res.status(500).json({error:errMsg(error)});}
 });
 
@@ -4368,7 +4516,8 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
       { key: 'taxRate', value: '10' },
       { key: 'serviceChargeRate', value: '10' },
       { key: 'address', value: address || 'Colombo, Sri Lanka' },
-      { key: 'phone', value: cleanPhone || '+94 77 123 4567' }
+      { key: 'phone', value: cleanPhone || '+94 77 123 4567' },
+      { key: 'storeOpen', value: 'false' }
     ];
     for (const set of defaultSettings) {
       await dbRun('INSERT OR REPLACE INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tenantId, set.key, set.value]);
@@ -4471,6 +4620,10 @@ app.get('/api/menu', authenticateToken, async (req, res) => {
 app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
+    if ((await getTenantMeta(tenantId)).status !== 'active' || !(await dbGet('SELECT id FROM tenants WHERE id=?', [tenantId]))) {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
+    res.set('Cache-Control', 'no-store');
     const categories = await dbAll(
       `SELECT id, name, emoji FROM categories WHERE tenant_id = ? ORDER BY name`,
       [tenantId]
@@ -4499,18 +4652,18 @@ app.get('/api/public/menu', publicApiLimiter, async (req, res) => {
 
     res.json({
       tenantId,
-      restaurantName: st.restaurantName || st.businessName || 'GastroFlow Bistro',
-      storePhone: st.phone || '0752237947',
+      restaurantName: st.restaurantName || st.businessName || (await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]))?.name || 'Restaurant',
+      storePhone: st.phone || '',
       address: st.address || 'Sri Lanka',
       logo: st.logo || null,
-      storeOpen: st.storeOpen !== undefined ? st.storeOpen === 'true' : true,
+      storeOpen: st.storeOpen === 'true',
       defaultPrepTime: parseInt(st.defaultPrepTime || 20, 10),
       deliveryFee: parseFloat(st.deliveryFee || 0),
       minimumOrder: parseFloat(st.minimumOrder || 0),
       currencySymbol: st.currencySymbol || 'Rs.',
       taxRate: Number(st.taxRate || 0),
       serviceChargeRate: Number(st.serviceChargeRate || 0),
-      payhereEnabled: process.env.PAYHERE_ENABLED !== 'false',
+      payhereEnabled: process.env.CUSTOMER_CARD_PAYMENTS_ENABLED === 'true' && process.env.PAYHERE_ENABLED !== 'false',
       categories,
       items: itemsWithModifiers
     });
@@ -4537,6 +4690,7 @@ function notifyPublicStore(eventData, tenantId) {
 }
 
 function notifyOrderUpdate(orderId, orderData) {
+  if (orderData?.tenant_id) void sendOrderPush(dbAll,dbRun,orderId,orderData.tenant_id,orderData.status).catch(()=>{});
   notifyOrderStream(orderId, orderData);
   notifyPOS({ type: 'order_updated', orderId, order: orderData }, orderData?.tenant_id);
 }
@@ -4573,12 +4727,54 @@ async function releaseOrderLoyalty(orderId,tenantId){
 
 // Unified Billing Calculation Helper
 // Thin wrapper — delegates to lib/billing.js (injecting the local DB helpers).
-async function resolveAndCalculateBill(items, discountType, discountValue, loyaltyPointsToRedeem, tip = 0, promoCode = null, deliveryFee = 0, tenantId = 'default_tenant') {
+async function resolveAndCalculateBill(items, discountType, discountValue, loyaltyPointsToRedeem, tip = 0, promoCode = null, deliveryFee = 0, tenantId = 'default_tenant', options = {}) {
   return _resolveAndCalculateBill(
     { dbGet, tenantId },
-    items, discountType, discountValue, loyaltyPointsToRedeem, tip, promoCode, deliveryFee
+    items, discountType, discountValue, loyaltyPointsToRedeem, tip, promoCode, deliveryFee, options
   );
 }
+
+// Validate a customer promotion against the restaurant's current menu and DB pricing.
+// Never accept or return client-invented promotion amounts as authoritative.
+app.post('/api/public/promotions/preview', publicApiLimiter, async(req,res) => {
+  try {
+    const tenantId = await resolvePublicTenant(req);
+    const code = String(req.body?.code || '').trim().toUpperCase();
+    const items = req.body?.items;
+    if(!/^[A-Z0-9_-]{2,40}$/.test(code) || !Array.isArray(items) || items.length < 1 || items.length > 100)
+      return res.status(400).json({error:'Choose a valid promotion code and cart items.'});
+    const bill = await resolveAndCalculateBill(items, null, 0, 0, 0, code, 0, tenantId);
+    return res.json({code, promoDiscount:bill.promoDiscount, subtotal:bill.subtotal, note:'Final payment amount is always calculated by the server at checkout.'});
+  } catch(err) {
+    return res.status(400).json({error:err.message || 'Promotion not available.'});
+  }
+});
+
+// Restaurant-specific 15-minute scheduled-order availability.
+// The capacity is checked again inside the order transaction to avoid stale previews.
+app.get('/api/public/schedule/slots', publicApiLimiter, async(req,res)=>{
+  try {
+    const tenantId=await resolvePublicTenant(req);
+    const type=String(req.query.type||'takeaway');
+    if(!['takeaway','delivery','dine-in'].includes(type))return res.status(400).json({error:'Invalid order type.'});
+    const prep=Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30));
+    const capacity=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
+    const now=Date.now();
+    const start=now+prep*60000;
+    const futureSlots=slotsFrom(start,192); // 48 hours, 15-minute steps
+    const booked=await dbAll(`SELECT scheduledTime,COUNT(*) AS count FROM orders
+      WHERE tenant_id=? AND source='online' AND orderType=?
+        AND scheduledTime>=? AND scheduledTime<?
+        AND status NOT IN ('cancelled','rejected','refunded')
+      GROUP BY scheduledTime`,[tenantId,type,futureSlots[0],futureSlots[futureSlots.length-1]+SLOT_MS]);
+    const counts=new Map(booked.map(row=>[Number(row.scheduledTime),Number(row.count)]));
+    const slots=futureSlots.map(when=>{
+      const reserved=counts.get(when)||0;
+      return {timestamp:when,available:Math.max(0,capacity-reserved),full:reserved>=capacity};
+    });
+    res.set('Cache-Control','no-store').json({slots,capacity,prepMinutes:prep,limitDays:2});
+  } catch(e){res.status(500).json({error:'Could not load scheduled times.'});}
+});
 
 // POST /api/public/orders
 const createPublicOrder = async (req, res) => {
@@ -4586,7 +4782,7 @@ const createPublicOrder = async (req, res) => {
     items, diningType, orderType,
     customerName, customerPhone, customerEmail, deliveryAddress,
     deliveryLat, deliveryLng,
-    customerToken, loyaltyPointsToRedeem, promoCode,
+    customerToken, checkoutProof, loyaltyPointsToRedeem, promoCode,
     scheduledTime, paymentMethod, tip
   } = req.body;
 
@@ -4608,7 +4804,7 @@ const createPublicOrder = async (req, res) => {
 
 
   const type = diningType || orderType || 'takeaway';
-  if(!['takeaway','dine-in','delivery'].includes(type)||paymentMethod&&!['cash','cod','payhere','online_pending'].includes(paymentMethod))return res.status(400).json({error:'Choose a valid order and payment method.'});
+  if(!['takeaway','dine-in','delivery'].includes(type)||paymentMethod&&!['cash','cod','bank_transfer','payhere','online_pending'].includes(paymentMethod))return res.status(400).json({error:'Choose a valid order and payment method.'});
   if(deliveryLat!=null&&(!Number.isFinite(deliveryLat)||deliveryLat < -90||deliveryLat > 90)||deliveryLng!=null&&(!Number.isFinite(deliveryLng)||deliveryLng < -180||deliveryLng > 180))return res.status(400).json({error:'Invalid delivery coordinates.'});
   if (type === 'delivery') {
     if (!deliveryAddress || !isValidAddress(deliveryAddress)) {
@@ -4619,6 +4815,9 @@ const createPublicOrder = async (req, res) => {
   try {
     const cleanPhone = customerPhone.replace(/[\s-]/g, '');
     const tenantId = await resolvePublicTenant(req);
+    if (!(await dbGet('SELECT id FROM tenants WHERE id=?',[tenantId])) || (await getTenantMeta(tenantId)).status !== 'active') {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
 
     let customerAccountId = null;
     let isAlreadyVerified = false;
@@ -4628,9 +4827,10 @@ const createPublicOrder = async (req, res) => {
         const rawToken = customerToken || (req.headers.authorization ? req.headers.authorization.split(' ')[1] : '');
         const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
         const decoded = jwt.verify(rawToken, secret);
-        if (decoded && decoded.id && decoded.type === 'customer' && await dbGet('SELECT id FROM customer_accounts WHERE id=? AND tenant_id=?',[decoded.id,tenantId])) {
+        const account = decoded?.id && decoded.type === 'customer' && decoded.tenantId === tenantId && await dbGet('SELECT id,phone,phoneVerified,passwordHash FROM customer_accounts WHERE id=? AND tenant_id=?',[decoded.id,tenantId]);
+        if (account && decoded.sessionVersion === customerSessionVersion(account)) {
           customerAccountId = decoded.id;
-          isAlreadyVerified = true;
+          isAlreadyVerified = Number(account.phoneVerified) === 1 && normalizeCheckoutContact(account.phone) === normalizeCheckoutContact(cleanPhone);
         }
       } catch (e) { /* ignore invalid tokens */ }
     }
@@ -4639,7 +4839,8 @@ const createPublicOrder = async (req, res) => {
     const replay=await findRecoveredOrder({dbGet,tenantId,identity});
     if(replay)return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(replay),trackingToken:makeTrackingAccess(replay.id,tenantId)});
 
-  if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
+  if (process.env.CUSTOMER_CARD_PAYMENTS_ENABLED !== 'true' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Card / PayHere is not available at the moment. Select cash or manual bank transfer.' });
+    if (process.env.PAYHERE_ENABLED === 'false' && ['payhere', 'online_pending'].includes(paymentMethod)) return res.status(503).json({ error: 'Please choose cash payment. Online payments are unavailable.' });
     // SaaS enforcement: block suspended tenants + monthly order-volume cap.
     const meta = await getTenantMeta(tenantId);
     if (meta.status === 'suspended') {
@@ -4673,8 +4874,10 @@ const createPublicOrder = async (req, res) => {
         deliveryEtaMinutes = feeResult.etaMinutes;
         deliveryFee = feeResult.totalFee; // will be recalculated after billing for free-threshold check
       } else {
-        // Fallback to flat fee if no GPS coordinates (legacy/manual address entry)
-        deliveryFee = parseFloat((await getSetting(tenantId, 'deliveryBaseFee')) || 99);
+        return res.status(422).json({
+          error: 'Select a precise delivery address pin to verify this restaurant’s delivery area and fee.',
+          code: 'DELIVERY_PIN_REQUIRED'
+        });
       }
     }
 
@@ -4698,6 +4901,8 @@ const createPublicOrder = async (req, res) => {
       return res.status(400).json({ error: `Minimum order for delivery is Rs. ${minimumOrder}. Your subtotal is Rs. ${bill.subtotal}.` });
     }
 
+    const requestedSchedule = scheduledTime == null ? {valid:true,scheduled:false} : validateSchedule(scheduledTime,Date.now(),Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30)));
+    if(!requestedSchedule.valid)return res.status(400).json({error:requestedSchedule.error});
     const orderId = `ord_online_${crypto.randomUUID()}`;
     const resolvedPaymentMethod = paymentMethod || (process.env.PAYHERE_ENABLED==='false'?'cash':'online_pending');
 
@@ -4707,8 +4912,16 @@ const createPublicOrder = async (req, res) => {
       const concurrentReplay=await findRecoveredOrder({dbGet,tenantId,identity});
       if(concurrentReplay){await dbRun('COMMIT');return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(concurrentReplay),trackingToken:makeTrackingAccess(concurrentReplay.id,tenantId)});}
 
-      if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')==='false')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
+      if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')!=='true')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
+      if (!isAlreadyVerified && !await consumeOrderProof({dbRun,tenantId,checkoutProof,customerPhone:cleanPhone,customerEmail})) {
+        throw Object.assign(Error('Verify your phone or email before placing this order. Request a new code if needed.'),{status:403,code:'CHECKOUT_OTP_REQUIRED'});
+      }
       const limit=checkLimit((await getTenantMeta(tenantId)).plan,'orders',await countTenantOrdersThisMonth(tenantId));if(!limit.allowed)throw Error('Restaurant order capacity reached.');
+      if(requestedSchedule.scheduled){
+        const limit=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
+        const row=await dbGet("SELECT COUNT(*) AS count FROM orders WHERE tenant_id=? AND source='online' AND orderType=? AND scheduledTime=? AND status NOT IN ('cancelled','rejected','refunded')",[tenantId,type,requestedSchedule.when]);
+        if(Number(row?.count||0)>=limit)throw Object.assign(Error('This scheduled time is fully booked. Please select another time.'),{status:409});
+      }
       if(req.groupCart){
         const claimed=await dbRun("UPDATE group_carts SET status='checked_out',orderId=?,updatedAt=? WHERE id=? AND tenant_id=? AND status='active' AND items=? AND hostHash=? AND expiresAt>?",[orderId,Date.now(),req.groupCart.id,tenantId,req.groupCart.items,req.groupCart.hostHash,Date.now()]);
         if(claimed.changes!==1){
@@ -4784,8 +4997,10 @@ const createPublicOrder = async (req, res) => {
       notifyPOS({ type: 'new_online_order', orderId, customerName, total: bill.total, deliveryDistanceKm, deliveryFee }, tenantId);
 
       // Trigger auto-dispatch engine for delivery orders
-      if (type === 'delivery') {
-        setTimeout(() => autoDispatchDriver(orderId, tenantId), 2000); // 2s delay to let order settle
+      // Future scheduled orders must not dispatch a driver immediately.
+      // The manager accepts the slot and dispatches nearer the promised time.
+      if (type === 'delivery' && !requestedSchedule.scheduled) {
+        setTimeout(() => autoDispatchDriver(orderId, tenantId), 2000);
       }
 
       res.status(201).set('Cache-Control','no-store').json({
@@ -4832,7 +5047,7 @@ app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
       const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [orderId]);
       res.write(`data: ${JSON.stringify({ ...order, items })}\n\n`);
       // Replay the latest driver location so a (re)connecting client sees the pin immediately.
-      const loc = await dbGet('SELECT driverName, lat, lng, updatedAt FROM driver_locations WHERE orderId = ?', [orderId]);
+      const loc = await dbGet('SELECT driverName, lat, lng, updatedAt, accuracyMeters FROM driver_locations WHERE orderId = ?', [orderId]);
       if (loc) res.write(`data: ${JSON.stringify({ type: 'driver_location', ...loc })}\n\n`);
     }
   } catch (e) {}
@@ -4863,6 +5078,7 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res._tenantId = await resolvePublicTenant(req);
+  if (!(await dbGet("SELECT id FROM tenants WHERE id=? AND status='active'",[res._tenantId])) || (await getTenantMeta(res._tenantId)).status !== 'active') return res.end();
   req.trackingTenant=res._tenantId;
   keepStreamAlive(req,res);
   publicSSESubscribers.add(res);
@@ -4871,8 +5087,9 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   try {
     const s = await getSettingsMap(res._tenantId, ['storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
     res.write(`data: ${JSON.stringify({
+      tenantId: res._tenantId,
       type: 'store_init',
-      storeOpen: (s.storeOpen ?? 'true') === 'true',
+      storeOpen: s.storeOpen === 'true',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
@@ -4889,15 +5106,27 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
 // GET /api/public/orders/:id — Get status
 app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenant(req);
     const order = await dbGet(
       `SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, deliveryAddress, deliveryLat, deliveryLng, etaMinutes, acceptedAt, rejectedReason, customerName, customerPhone, invoiceNumber, paymentStatus
-       FROM orders WHERE id = ?`,
-      [req.params.id]
+       FROM orders WHERE id = ? AND tenant_id = ?`,
+      [req.params.id, tenantId]
     );
     if (!order) return res.status(404).json({ error: 'Order not found.' });
+    const tenant = await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]);
+    const details = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'address', 'phone', 'logo']);
     const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [order.id]);
-    const driver = await dbGet('SELECT driverName, lat, lng, updatedAt FROM driver_locations WHERE orderId = ?', [order.id]);
-    res.json({ ...order, items, driver: driver || null });
+    const driver = await dbGet('SELECT driverName, lat, lng, updatedAt, accuracyMeters FROM driver_locations WHERE orderId = ?', [order.id]);
+    res.set('Cache-Control', 'no-store').json({
+      ...order,
+      tenantId,
+      storeName: details.restaurantName || details.businessName || tenant?.name || 'Restaurant',
+      storeAddress: details.address || '',
+      storePhone: details.phone || '',
+      storeLogo: details.logo || null,
+      items,
+      driver: driver || null
+    });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -4948,6 +5177,8 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
     const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
     if (claimed.changes !== 1) return res.status(409).json({ error: 'This delivery has already been assigned or closed.' });
     notifyPOS({ type: 'driver_assigned', orderId, driverId }, t);
+    notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+    void sendOrderPush(dbAll,dbRun,orderId,t,'driver_assigned').catch(()=>{});
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -5037,22 +5268,44 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
 
 // POST /api/public/driver/location — Driver GPS ping (own tenant only)
 app.post('/api/public/driver/location', authenticateDriver, async (req, res) => {
-  const { orderId, lat, lng } = req.body;
+  const { orderId, lat, lng, accuracyMeters, recordedAt } = req.body || {};
   const driverId = req.driver.driverId;
   const driverName = req.driver.name || driverId;
-  const t = req.driver.tenant_id;
-  if (!orderId || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
-    return res.status(400).json({ error: 'Valid orderId, lat, and lng are required.' });
+  const tenantId = req.driver.tenant_id;
+  const now = Date.now();
+  const accuracy = Number(accuracyMeters);
+  const measuredAt = Number(recordedAt);
+  // High-accuracy location is a reported measurement, not a guarantee.
+  if (!orderId || !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+      !Number.isFinite(lng) || lng < -180 || lng > 180 ||
+      !Number.isFinite(accuracy) || accuracy <= 0 || accuracy > 150 ||
+      !Number.isFinite(measuredAt) || measuredAt > now + 10000 || now - measuredAt > 30000) {
+    return res.status(422).json({ error: 'A recent location fix within 150 m accuracy is required.', code: 'GPS_QUALITY_LOW' });
   }
   try {
-    const existing = await dbGet("SELECT tenant_id FROM orders WHERE id = ? AND driverId = ? AND status IN ('ready','out_for_delivery')", [orderId, driverId]);
-    if (!existing || existing.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
-    await dbRun(
-      'INSERT OR REPLACE INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)',
-      [orderId, driverName, lat, lng, Date.now()]
-    );
-    notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName });
-    res.json({ success: true });
+    const existing = await dbGet("SELECT tenant_id FROM orders WHERE id=? AND driverId=? AND status IN ('ready','picked_up','out_for_delivery','arrived')", [orderId, driverId]);
+    if (!existing || existing.tenant_id !== tenantId) return res.status(404).json({ error: 'Order not found.' });
+    const previous = await dbGet('SELECT lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=?', [orderId]);
+    if (previous && Number(previous.updatedAt) >= measuredAt) {
+      return res.status(409).json({ error: 'An equal or newer location update already exists.', code: 'GPS_FIX_OLD' });
+    }
+    if (previous && Number(previous.updatedAt) > 0) {
+      const pLat = Number(previous.lat) * Math.PI / 180;
+      const latRad = lat * Math.PI / 180;
+      const dLat = latRad - pLat;
+      const dLng = (lng - Number(previous.lng)) * Math.PI / 180;
+      const hav = Math.sin(dLat / 2)**2 + Math.cos(pLat)*Math.cos(latRad)*Math.sin(dLng / 2)**2;
+      const meters = 12742000 * Math.asin(Math.min(1, Math.sqrt(hav)));
+      const seconds = Math.max(1, (measuredAt - Number(previous.updatedAt)) / 1000);
+      const uncertainty = accuracy + (Number(previous.accuracyMeters) || 0);
+      if (meters > uncertainty + 55 * seconds) {
+        return res.status(422).json({ error: 'Location jump is implausible. Waiting for a stable fix.', code: 'GPS_JUMP' });
+      }
+    }
+    await dbRun('INSERT OR REPLACE INTO driver_locations (orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',
+      [orderId, driverName, lat, lng, measuredAt, accuracy]);
+    notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName, updatedAt: measuredAt, accuracyMeters: accuracy });
+    res.set('Cache-Control','no-store').json({ success: true, updatedAt: measuredAt, accuracyMeters: accuracy });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
@@ -5159,12 +5412,18 @@ app.post('/api/public/feedback', publicApiLimiter, (req,res,next)=>{req.params.i
 app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
   try {
     const tenantId = await resolvePublicTenant(req);
-    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
+    const tenant = await dbGet('SELECT id,name FROM tenants WHERE id=?',[tenantId]);
+    if (!tenant || (await getTenantMeta(tenantId)).status !== 'active') {
+      return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
+    }
+    res.set('Cache-Control', 'no-store');
+    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
     res.json({
-      name: s.businessName || s.restaurantName || 'GastroFlow',
+      tenantId,
+      name: s.businessName || s.restaurantName || tenant.name,
       address: s.address || '',
       phone: s.phone || '',
-      storeOpen: (s.storeOpen ?? 'true') === 'true',
+      storeOpen: s.storeOpen === 'true',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
@@ -5173,9 +5432,9 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       deliveryFee: Number(s.deliveryFee || 0),
       minimumOrder: Number(s.minimumOrder || 0),
       timeZone: (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: s.timeZone || 'Asia/Colombo' }).resolvedOptions().timeZone; } catch { return 'Asia/Colombo'; } })(),
-      lat: s.restaurantLat ? Number(s.restaurantLat) : null,
-      lng: s.restaurantLng ? Number(s.restaurantLng) : null,
-      vapidPublicKey: 'BEl62iUYgUivxIkv69yViEuiBIa1-Zpe5-93Aae7lUab6l3e5Jq9l14X_2-Wd5x-J8f90X26m5V0X9Z8m5V0X9Z'
+      lat: (s.storeLat || s.restaurantLat) ? Number(s.storeLat || s.restaurantLat) : null,
+      lng: (s.storeLng || s.restaurantLng) ? Number(s.storeLng || s.restaurantLng) : null,
+      vapidPublicKey: pushConfigured() ? process.env.VAPID_PUBLIC_KEY : null
     });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -5316,7 +5575,7 @@ async function sendOrderConfirmation(order) {
       });
       await sendEmail({
         to: email,
-        subject: `✅ ${business} — Order Confirmed (${inv})`,
+        subject: `GastroFlow · Order received from ${business} (${inv})`,
         html: orderConfirmHtml
       }).catch(e => console.error('[EMAIL] Order confirmation email failed:', e.message));
     }
@@ -5331,118 +5590,35 @@ async function sendOrderConfirmation(order) {
   }
 }
 
-// ── OTP: verify ──────────────────────────────────────────────────────────────
-app.post('/api/otp/verify', otpLimiter, async (req, res) => {
-  const { channel, destination, code } = req.body || {};
-  if (!code) return res.status(400).json({ error: 'Verification code is required.' });
-
-  try {
-    const cleanCode = String(code).trim();
-    const cleanDest = destination ? String(destination).trim().toLowerCase() : '';
-    const codeHash = hashCode(cleanCode);
-    const now = Date.now();
-
-    // 1. Find active unconsumed code
-    let row = null;
-    if (cleanDest) {
-      const normPhone = normalizeLkPhone(cleanDest);
-      row = await dbGet(
-        `SELECT * FROM otp_codes WHERE (LOWER(destination) = ? OR destination = ? OR destination = ?) AND consumedAt IS NULL AND expiresAt > ? ORDER BY createdAt DESC LIMIT 1`,
-        [cleanDest, cleanDest, normPhone, now]
-      );
-    }
-    if (!row) {
-      row = await dbGet(
-        `SELECT * FROM otp_codes WHERE codeHash = ? AND consumedAt IS NULL AND expiresAt > ? ORDER BY createdAt DESC LIMIT 1`,
-        [codeHash, now]
-      );
-    }
-
-    if (!row) {
-      return res.status(400).json({ verified: false, error: 'No active code found. Please request a new code.' });
-    }
-
-    if (row.attempts >= MAX_OTP_ATTEMPTS) {
-      return res.status(429).json({ verified: false, error: 'Too many attempts. Request a new code.' });
-    }
-
-    if (row.codeHash !== codeHash) {
-      await dbRun('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?', [row.id]);
-      return res.status(400).json({ verified: false, error: 'Incorrect code. Please check and try again.' });
-    }
-
-    // Mark code as consumed
-    await dbRun('UPDATE otp_codes SET consumedAt = ? WHERE id = ?', [now, row.id]);
-
-    const actualDest = row.destination ? row.destination.toLowerCase() : cleanDest;
-    console.log(`[OTP VERIFIED SUCCESS] ID: ${row.id} | Dest: ${actualDest} | Code: ${cleanCode}`);
-
-    // Check if customer exists for 1-tap OTP login in customer_accounts or customers
-    let customer = await dbGet(
-      `SELECT id, name, phone, email, loyaltyPoints as points FROM customer_accounts WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ? OR email = ?`,
-      [actualDest, actualDest, cleanDest, cleanDest]
-    );
-
-    if (!customer) {
-      customer = await dbGet(
-        `SELECT id, name, phone, email, points FROM customers WHERE LOWER(phone) = ? OR LOWER(email) = ? OR phone = ? OR email = ?`,
-        [actualDest, actualDest, cleanDest, cleanDest]
-      );
-    }
-
-    if (!customer) {
-      // Auto-create customer profile on verified OTP
-      const newCustId = `cust_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      const isEmail = actualDest.includes('@');
-      const custName = isEmail ? actualDest.split('@')[0] : 'Customer';
-      const custPhone = isEmail ? '' : actualDest;
-      const custEmail = isEmail ? actualDest : '';
-
-      await dbRun(
-        `INSERT INTO customer_accounts (id, name, phone, email, loyaltyPoints, createdAt, tenant_id) VALUES (?, ?, ?, ?, 0, ?, ?)`,
-        [newCustId, custName, custPhone, custEmail, Date.now(), await resolvePublicTenant(req)]
-      );
-      customer = { id: newCustId, name: custName, phone: custPhone, email: custEmail, points: 0 };
-    }
-
-    const token = jwt.sign(
-      { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, type: 'customer' },
-      process.env.JWT_SECRET || JWT_SECRET,
-      { expiresIn: '30d' }
-    );
-
-    res.json({
-      verified: true,
-      loggedIn: true,
-      token,
-      customer: { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email, points: customer.points || 0 }
-    });
-  } catch (err) {
-    console.error('[OTP VERIFY ERROR]', err);
-    res.status(500).json({ error: errMsg(err) });
-  }
-});
+// Customer OTP verification is handled by the purpose-bound /api/otp/verify
+// endpoint defined alongside registration above. The obsolete duplicate
+// handler (which could auto-create unverified accounts) was removed.
 
 // ── Customer: forgot password (request) ──────────────────────────────────────
 app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
   const { email } = req.body || {};
   if (!email) return res.status(400).json({ error: 'email is required.' });
+  if (!isEmailConfigured() && !isSmsConfigured()) return res.status(503).json({
+    error:'Password recovery messaging is temporarily unavailable. Contact GastroFlow support.',
+    code:'RECOVERY_PROVIDER_UNAVAILABLE'
+  });
   try {
-    const acct = await dbGet('SELECT id, email, phone FROM customer_accounts WHERE email = ?', [String(email).trim().toLowerCase()]);
+    const acct = await dbGet('SELECT id,email,phone FROM customer_accounts WHERE email=? AND tenant_id=?', [String(email).trim().toLowerCase(),await resolvePublicTenant(req)]);
     // Always respond the same way — no account enumeration.
     if (acct) {
       const { token, code } = await createPasswordReset('customer', acct.id);
-      const link = `${customerAppUrl()}/?reset=${token}`;
-      const business = await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro');
+      const resetLink = new URL(customerAppUrl());
+      resetLink.searchParams.set('tenant', await resolvePublicTenant(req));
+      resetLink.searchParams.set('reset', token);
+      const link = resetLink.toString();
       const resetHtml = buildPasswordResetEmail({
         userType: 'customer',
         resetUrl: link,
-        code,
-        businessName: business
+        code
       });
       await sendEmail({
         to: acct.email,
-        subject: `Reset your ${business} password`,
+        subject: 'Reset your GastroFlow password',
         html: resetHtml
       });
       if (acct.phone) await sendSms({ to: acct.phone, message: `GastroFlow password reset code: ${code} (valid 30 min).` });
@@ -5456,9 +5632,9 @@ app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
 // ── Customer: reset password (confirm) ───────────────────────────────────────
 app.post('/api/customer/auth/reset-password', otpLimiter, async (req, res) => {
   const { token, email, code, newPassword } = req.body || {};
-  if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 10 || newPassword.length > 72) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
   try {
-    const reset = await resolveReset('customer', { token, email, code, lookupByEmail: async (e) => dbGet('SELECT id FROM customer_accounts WHERE email = ?', [String(e).trim().toLowerCase()]) });
+    const reset = await resolveReset('customer', { token, email, code, lookupByEmail: async (e) => dbGet('SELECT id FROM customer_accounts WHERE email = ? AND tenant_id = ?', [String(e).trim().toLowerCase(),await resolvePublicTenant(req)]) });
     if (!reset) return res.status(400).json({ error: 'Invalid or expired reset request.' });
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await dbRun('UPDATE customer_accounts SET passwordHash = ? WHERE id = ?', [passwordHash, reset.userId]);
@@ -5490,7 +5666,7 @@ app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
         });
         await sendEmail({
           to: user.email,
-          subject: `Reset your ${business} staff password`,
+          subject: `GastroFlow · Reset staff password for ${business}`,
           html: resetHtml
         });
       }
@@ -5900,7 +6076,7 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
     }
     const oldItems = await dbAll('SELECT menuItemId, quantity FROM order_items WHERE orderId = ?', [orderId]);
     await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:[],reason:'modify_release',actorId:req.user.id,requireExisting:true});
-    const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, null, existing.deliveryFee || 0, req.tenantId);
+    const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, null, existing.deliveryFee || 0, req.tenantId, { allowStaffPriceOverride: ['owner','manager'].includes(req.user.role) });
     await dbRun(`UPDATE orders SET items=?, subtotal=?, discountType=?, discountValue=?, discount=?, tax=?, serviceCharge=?, total=?, tip=?, roundedAmount=? WHERE id=? AND tenant_id=?`,
       [JSON.stringify(bill.resolvedItems),bill.subtotal,discountType || null,Number(discountValue || 0),bill.totalDiscount,bill.tax,bill.serviceCharge,bill.total,bill.tip,bill.roundedAmount,orderId,req.tenantId]);
     await dbRun('DELETE FROM order_items WHERE orderId = ?', [orderId]);
@@ -5908,6 +6084,9 @@ app.put('/api/orders/:id/modify', requireRole(['owner', 'manager', 'cashier']), 
       await dbRun('INSERT INTO order_items (id,orderId,menuItemId,name,price,quantity,notes,tenant_id) VALUES (?,?,?,?,?,?,?,?)', [crypto.randomUUID(),orderId,item.id,item.name,item.unitPrice,item.quantity,item.notes,req.tenantId]);
     }
     await setOrderInventory({dbGet,dbAll,dbRun,orderId,tenantId:req.tenantId,items:bill.resolvedItems,reason:'modify_reserve',actorId:req.user.id,requireExisting:true});
+    for (const item of bill.resolvedItems.filter(line => line.customUnitPrice != null)) {
+      await writeAuditLog(req.user.id, req.user.username, 'pos_custom_price', `Amended order ${orderId}: ${item.name}, menu price ${item.menuPrice}, charged unit price ${item.customUnitPrice}`);
+    }
     await dbRun('COMMIT');
     notifyPOS({ type: 'order_updated', orderId }, req.tenantId);
     res.json({ success: true, orderId, total: bill.total });
@@ -6397,7 +6576,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
       let staffDeliveryFee;
       try { staffDeliveryFee = diningType === 'delivery' ? amountInCents(req.body.deliveryFee || 0, 'Delivery fee') / 100 : 0; }
       catch (error) { return res.status(400).json({ error: error.message }); }
-      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode, staffDeliveryFee, tenantId);
+      const bill = await resolveAndCalculateBill(items, discountType, discountValue, 0, tip, promoCode, staffDeliveryFee, tenantId, { allowStaffPriceOverride: ['owner','manager'].includes(req.user.role) });
 
       // Begin SQLite transaction
       await dbRun('BEGIN TRANSACTION');
@@ -6445,6 +6624,9 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         }
 
         await writeAuditLog(userId, username, 'create_order', `Created order ${id} with total ${bill.total}`);
+        for (const item of bill.resolvedItems.filter(line => line.customUnitPrice != null)) {
+          await writeAuditLog(userId, username, 'pos_custom_price', `Order ${id}: ${item.name}, menu price ${item.menuPrice}, charged unit price ${item.customUnitPrice}`);
+        }
         if (bill.totalDiscount > 0) {
           await writeAuditLog(userId, username, 'apply_discount', `Discount of ${bill.totalDiscount} applied to order ${id}`);
         }

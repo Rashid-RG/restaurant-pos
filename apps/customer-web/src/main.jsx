@@ -20,5 +20,8 @@ if ('serviceWorker' in navigator) {
 }
 
 import './modern.css';
-
 import '../../../shared/ui/devices.css';
+import './premium-motion.css';
+import './experience-2026.css';
+import './reference-login.css';
+import './modern-commerce.css';

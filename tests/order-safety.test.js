@@ -4,15 +4,16 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 process.env.DATABASE_FILE=path.join(os.tmpdir(),`order-safety-${crypto.randomUUID()}.db`);
 process.env.JWT_SECRET='safety-staff-test';process.env.CUSTOMER_JWT_SECRET='safety-customer-test';
 const {app,dbReady,dbRun,dbGet}=await import('../server.js');
 const staff=(tenant='safe_A',id=tenant+'_owner')=>({Authorization:'Bearer '+jwt.sign({id,role:'owner',tenant_id:tenant},process.env.JWT_SECRET)});
-const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer'},process.env.CUSTOMER_JWT_SECRET)});
+const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer',tenantId:'safe_A',sessionVersion:crypto.createHmac('sha256',process.env.CUSTOMER_JWT_SECRET).update('fixture').digest('hex').slice(0,24)},process.env.CUSTOMER_JWT_SECRET)});
 const driver=(id='safe_driver',tenant='safe_A')=>({Authorization:'Bearer '+jwt.sign({driverId:id,role:'driver',name:'Forged Name',tenant_id:tenant},process.env.JWT_SECRET)});
 const stock=()=>dbGet("SELECT stock FROM menu_items WHERE id='safe_item'");
 const ingredient=()=>dbGet("SELECT stock FROM ingredients WHERE id='safe_ingredient'");
-const publicOrder=()=>request(app).post('/api/public/orders?tenant=safe_A').send({customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
+const publicOrder=async()=>request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
 const ticket=async()=>{const id=crypto.randomUUID();const response=await request(app).post('/api/orders').set(staff()).send({id,diningType:'takeaway',items:[{id:'safe_item',quantity:2}]});expect(response.status,response.text).toBe(200);return id;};
 beforeAll(async()=>{
  await dbReady;
@@ -92,7 +93,7 @@ it('uses private hosts and tenant-bound invitations and claims group checkout on
  expect((await request(app).post(`/api/public/group-cart/${id}/items?tenant=safe_A`).set('X-Group-Participant',participant).send({...item,itemId:'foreign_item'})).status).toBe(400);
  const endpoint=`/api/public/group-cart/${id}/checkout?tenant=safe_A`,body={customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'foreign_item',quantity:1}]};
  expect((await request(app).post(endpoint).send(body)).status).toBe(404);
- const before=await stock(),raw=await ingredient(),checkout=()=>request(app).post(endpoint).set('X-Group-Host',hostToken).send(body);
+ const before=await stock(),raw=await ingredient(),checkoutProof=await testCheckoutProof(dbRun,'safe_A','0770000000'),checkout=()=>request(app).post(endpoint).set('X-Group-Host',hostToken).send({...body,checkoutProof});
  const responses=await Promise.all([checkout(),checkout()]);expect(responses.filter(r=>r.status===201)).toHaveLength(1);expect(responses.filter(r=>r.status!==201)).toHaveLength(1);
  expect((await stock()).stock).toBe(before.stock-2);expect((await ingredient()).stock).toBe(raw.stock-1);
  expect((await request(app).post(`/api/public/group-cart/${id}/items?tenant=safe_A`).set('X-Group-Participant',participant).send(item)).status).toBe(409);
@@ -113,8 +114,8 @@ it('rejects negative or foreign stock transfers and cannot approve unavailable s
 });
 it('returns recorded loyalty reservations once when a customer cancels',async()=>{
  await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
- const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);
- const created=await request(app).post('/api/public/orders?tenant=safe_A').send({customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',customerToken:token,loyaltyPointsToRedeem:500,items:[{id:'safe_item',quantity:1}]});expect(created.status,created.text).toBe(201);
+ const token=customer('safe_customer').Authorization.split(' ')[1];
+ const created=await request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',customerToken:token,loyaltyPointsToRedeem:500,items:[{id:'safe_item',quantity:1}]});expect(created.status,created.text).toBe(201);
  expect((await dbGet("SELECT loyaltyPoints FROM customer_accounts WHERE id='safe_customer'")).loyaltyPoints).toBe(500);
  const cancel=()=>request(app).post(`/api/public/orders/${created.body.orderId}/cancel?tenant=safe_A`).set('X-Order-Tracking',created.body.trackingToken);
  expect((await Promise.all([cancel(),cancel()])).map(r=>r.status)).toEqual([200,200]);expect((await dbGet("SELECT loyaltyPoints FROM customer_accounts WHERE id='safe_customer'")).loyaltyPoints).toBe(1000);
@@ -145,12 +146,17 @@ it('keeps each invited participant in control of their own items and rolls back 
  for(const token of [first,second])expect((await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',token).send(body)).status).toBe(200);
  const removal=await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',second).send({...body,quantity:0});expect(removal.body.items).toHaveLength(1);
  await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");const before=await stock();
- const response=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash'});expect(response.status).toBe(500);
+ const response=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash'});expect(response.status).toBe(500);
  expect((await dbGet('SELECT status,orderId FROM group_carts WHERE id=?',[id]))).toEqual({status:'active',orderId:null});expect(await stock()).toEqual(before);
  await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");
 });
 const recoveryBody=()=>({customerName:'Retry Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
-const retryCheckout=(key,body=recoveryBody(),tenant='safe_A')=>request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send(body);
+const proofByRequest=new Map();
+const retryCheckout=async(key,body=recoveryBody(),tenant='safe_A')=>{
+ const proofKey=tenant+':'+key;
+ if(!proofByRequest.has(proofKey))proofByRequest.set(proofKey,testCheckoutProof(dbRun,tenant,body.customerPhone||'0770000000'));
+ return request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send({...body,checkoutProof:await proofByRequest.get(proofKey)});
+};
 it('saves one order and one inventory reservation across concurrent checkout retries',async()=>{
  const key=crypto.randomUUID(),before=await stock(),raw=await ingredient();const results=await Promise.all([retryCheckout(key),retryCheckout(key)]);
  expect(results.map(r=>r.status).sort()).toEqual([200,201]);expect(new Set(results.map(r=>r.body.orderId)).size).toBe(1);expect(results.find(r=>r.status===200).headers['idempotency-replayed']).toBe('true');
@@ -162,10 +168,10 @@ it('rejects reuse of a private checkout key with a changed order',async()=>{
  expect((await retryCheckout(key,{...recoveryBody(),items:[{id:'safe_item',quantity:3}]})).status).toBe(409);expect(await stock()).toEqual(before);
 });
 it('recovers the original paid receipt after pricing, stock, loyalty and account tokens change',async()=>{
- const key=crypto.randomUUID(),body={...recoveryBody(),loyaltyPointsToRedeem:500},firstToken=jwt.sign({id:'safe_customer',type:'customer',version:1},process.env.CUSTOMER_JWT_SECRET);
+ const key=crypto.randomUUID(),body={...recoveryBody(),loyaltyPointsToRedeem:500},firstToken=jwt.sign({...jwt.decode(customer('safe_customer').Authorization.split(' ')[1]),version:1},process.env.CUSTOMER_JWT_SECRET);
  await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");const first=await retryCheckout(key,{...body,customerToken:firstToken});expect(first.status,first.text).toBe(201);
  await dbRun("UPDATE menu_items SET price=9999,isAvailable=0 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=0 WHERE id='safe_customer'");await dbRun("UPDATE orders SET paymentStatus='paid' WHERE id=?",[first.body.orderId]);
- const rotated=jwt.sign({id:'safe_customer',type:'customer',version:2},process.env.CUSTOMER_JWT_SECRET),replay=await retryCheckout(key,{...body,customerToken:rotated});expect(replay.status,replay.text).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.total).toBe(first.body.total);expect(replay.body.paymentStatus).toBe('paid');expect(replay.body.trackingToken).toBeTruthy();
+ const rotated=jwt.sign({...jwt.decode(customer('safe_customer').Authorization.split(' ')[1]),version:2},process.env.CUSTOMER_JWT_SECRET),replay=await retryCheckout(key,{...body,customerToken:rotated});expect(replay.status,replay.text).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.total).toBe(first.body.total);expect(replay.body.paymentStatus).toBe('paid');expect(replay.body.trackingToken).toBeTruthy();
  await dbRun("UPDATE menu_items SET price=100,isAvailable=1 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
 });
 it('scopes the same checkout key separately to each restaurant',async()=>{
@@ -173,7 +179,7 @@ it('scopes the same checkout key separately to each restaurant',async()=>{
 });
 it('does not transfer checkout recovery access to a different customer identity',async()=>{
  const key=crypto.randomUUID();expect((await retryCheckout(key)).status).toBe(201);
- const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);expect((await retryCheckout(key,{...recoveryBody(),customerToken:token})).status).toBe(409);
+ const token=customer('safe_customer').Authorization.split(' ')[1];expect((await retryCheckout(key,{...recoveryBody(),customerToken:token})).status).toBe(409);
 });
 it('rolls back the recovery record with failed inventory and allows a corrected retry',async()=>{
  const key=crypto.randomUUID(),before=await stock();await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(500);expect(await stock()).toEqual(before);
@@ -187,7 +193,7 @@ it('blocks new orders while closed but still recovers an already saved checkout'
 it('recovers a checked-out group order only for its private host',async()=>{
  const created=await request(app).post('/api/public/group-cart?tenant=safe_A').send({}),{id,hostToken}=created.body,endpoint=`/api/public/group-cart/${id}`;
  expect((await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',crypto.randomBytes(32).toString('hex')).send({participantName:'Host',itemId:'safe_item',quantity:1})).status).toBe(200);
- const first=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send(recoveryBody());expect(first.status).toBe(201);const before=await stock();
+ const first=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({...recoveryBody(),checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000')});expect(first.status).toBe(201);const before=await stock();
  const replay=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({});expect(replay.status).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.trackingToken).toBeTruthy();expect(await stock()).toEqual(before);
  expect((await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',crypto.randomBytes(32).toString('hex')).send({})).status).toBe(404);
 });

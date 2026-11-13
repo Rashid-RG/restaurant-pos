@@ -1,14 +1,16 @@
 import { apiFetch } from '../utils/api.js';
+import {cartStorageKey,parseSavedCart} from '../utils/cart-storage.js';
+import {isMenuItemAvailable,maxMenuItemQuantity,menuItemTotal} from '../utils/menu-selection.js';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const CartContext = createContext(null);
-const CART_STORAGE_KEY = 'gastroflow_cart_items';
+// Legacy shared cart is intentionally not imported: its restaurant cannot be verified.
 
-export function CartProvider({ children }) {
+export function CartProvider({ children, tenantId }) {
+  const storageKey = cartStorageKey(tenantId);
   const [items, setItems] = useState(() => {
     try {
-      const saved = localStorage.getItem(CART_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
+      return parseSavedCart(localStorage.getItem(storageKey));
     } catch {
       return [];
     }
@@ -20,30 +22,28 @@ export function CartProvider({ children }) {
   // Sync cart items to localStorage on change
   useEffect(() => {
     try {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      localStorage.setItem(storageKey, JSON.stringify(items));
     } catch (e) {
       console.error('Failed to save cart to localStorage', e);
     }
-  }, [items]);
+  }, [items, storageKey]);
 
   const addItem = useCallback((menuItem, qty = 1, selectedModifiers = [], notes = '') => {
+    if (!isMenuItemAvailable(menuItem) || menuItemTotal(menuItem, qty, selectedModifiers) === null) return;
     setItems(prev => {
-      const sortedMods = [...(selectedModifiers || [])].sort((a, b) => a.id.localeCompare(b.id));
-      const uniqueId = `${menuItem.id}_${sortedMods.map(m => m.id).join('_')}_${(notes || '').trim()}`;
+      const sortedMods = [...(selectedModifiers || [])].sort((a,b) => String(a.id).localeCompare(String(b.id)));
+      const uniqueId = `${menuItem.id}_${sortedMods.map(m => m.id).join('_')}_${String(notes || '').trim()}`;
+      const alreadyInCart = prev.filter(i => i.id === menuItem.id).reduce((sum,i)=>sum+(Number(i.qty)||0),0);
+      const allowed = Math.min(qty, Math.max(0,maxMenuItemQuantity(menuItem) - alreadyInCart));
+      if (allowed === 0) return prev;
+      const currentUnitPrice = menuItemTotal(menuItem, 1, sortedMods);
+      if (currentUnitPrice === null) return prev;
       const existing = prev.find(i => i.cartId === uniqueId);
-      const modifiersPrice = (selectedModifiers || []).reduce((acc, m) => acc + m.priceDelta, 0);
-      const itemPrice = menuItem.price + modifiersPrice;
-
-      if (existing) {
-        return prev.map(i => i.cartId === uniqueId ? { ...i, qty: i.qty + qty } : i);
-      }
+      if (existing) return prev.map(i => i.cartId === uniqueId ? {...i,qty:Number(i.qty)+allowed,unitPrice:currentUnitPrice} : i);
       return [...prev, {
-        ...menuItem,
-        cartId: uniqueId,
-        qty,
-        selectedModifiers: sortedMods,
-        notes: notes.trim(),
-        unitPrice: itemPrice
+        ...menuItem,cartId:uniqueId,qty:allowed,
+        selectedModifiers:sortedMods,notes:String(notes || '').trim(),
+        unitPrice:currentUnitPrice
       }];
     });
   }, []);
@@ -64,8 +64,8 @@ export function CartProvider({ children }) {
 
   const clearCart = useCallback(() => {
     setItems([]);
-    localStorage.removeItem(CART_STORAGE_KEY);
-  }, []);
+    localStorage.removeItem(storageKey);
+  }, [storageKey]);
 
   const totalItems = items.reduce((sum, i) => sum + i.qty, 0);
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.qty, 0);

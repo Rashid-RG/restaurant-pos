@@ -4,6 +4,7 @@ import {
   Search, X, Eye, FileText, CheckCircle2, ShieldCheck, Utensils
 } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
+import { printSelectedReceipt } from '../utils/printer';
 import { restaurantTimeZone, dateAtRestaurant, formatRestaurantTime, shiftCalendarDate } from '../utils/restaurant-time';
 
 export default function Dashboard() {
@@ -318,13 +319,15 @@ export default function Dashboard() {
 
   // ─── PDF Print via Clean Popup Window (bypasses viewport/overflow constraints) ───
   const handlePrintPdf = () => {
+    // The audit is an A4 document, NOT a thermal receipt. Sending it to a
+    // POS-58/POS-80 can feed multiple long pages of blank thermal paper.
+    if (!window.confirm('Sales Audit is an A4 report. Choose an A4 printer or “Save as PDF” in the print dialog. Do NOT select your thermal receipt printer. Continue?')) return;
     const printArea = document.getElementById('sales-audit-report-printable');
     const content = printArea ? printArea.innerHTML : '<p>Report not available</p>';
 
     const printWindow = window.open('', '_blank', 'width=1000,height=800,scrollbars=yes');
     if (!printWindow) {
-      // Fallback: popup was blocked
-      window.print();
+      showToast('Allow popups to print the Sales Audit report. The report was not sent to the printer.', 'error');
       return;
     }
     printWindow.document.open();
@@ -364,22 +367,17 @@ export default function Dashboard() {
 <body>${content}</body>
 </html>`);
     printWindow.document.close();
-    // Give images and fonts time to load before triggering print
-    printWindow.onload = () => {
-      setTimeout(() => {
-        printWindow.focus();
-        printWindow.print();
-      }, 350);
+    // Print exactly once: the previous load handler plus fallback could
+    // open two print dialogs and feed duplicate paper on Windows printers.
+    let started = false;
+    const printOnce = () => {
+      if (started || printWindow.closed) return;
+      started = true;
+      printWindow.focus();
+      printWindow.print();
     };
-    // Fallback if onload does not fire (some browsers)
-    setTimeout(() => {
-      try {
-        if (printWindow && !printWindow.closed) {
-          printWindow.focus();
-          printWindow.print();
-        }
-      } catch (_) {}
-    }, 1500);
+    printWindow.onload = () => setTimeout(printOnce, 350);
+    setTimeout(printOnce, 1500);
   };
 
   // Export CSV handler for currently filtered sales
@@ -475,11 +473,8 @@ export default function Dashboard() {
 
           {/* Right: Platform Branding & Statement Title */}
           <div style={{ textAlign: 'right', maxWidth: '42%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '4px' }}>
-              <img src="/pos-logo.svg" alt="GastroFlow" width="28" height="28" style={{ borderRadius: '6px' }} />
-              <span style={{ fontSize: '17px', fontWeight: '800', color: '#24664f', letterSpacing: '-0.3px' }}>
-                gastroflow<span style={{ color: '#edc780' }}>.</span>
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '4px' }}>
+              <img src="/gastroflow-brand.svg?v=1" alt="GastroFlow restaurant technology" width="160" height="42" style={{ objectFit: 'contain' }} />
             </div>
             <div style={{ fontSize: '10px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: '600' }}>
               The Smart Restaurant Workspace
@@ -767,7 +762,7 @@ export default function Dashboard() {
           gap: '8px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <img src="/pos-logo.svg" alt="GastroFlow" width="20" height="20" style={{ borderRadius: '4px' }} />
+            <img src="/gastroflow-brand.svg?v=1" alt="GastroFlow platform" width="96" height="26" style={{ objectFit: 'contain' }} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <strong style={{ color: '#24664f', fontWeight: '800' }}>GastroFlow Restaurant Workspace</strong>
@@ -1476,7 +1471,11 @@ export default function Dashboard() {
                 <button 
                   className="btn btn-secondary" 
                   style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    if (!printSelectedReceipt('#printable-receipt', settings?.printerPaperWidth || '80mm')) {
+                      showToast('Receipt content is not ready. Reopen the receipt and retry.', 'error');
+                    }
+                  }}
                 >
                   <Printer size={15} /> Print
                 </button>
@@ -1509,7 +1508,7 @@ export default function Dashboard() {
                 const totalTax = todayOrders.reduce((acc, o) => acc + (o.tax || 0), 0);
 
                 return (
-                  <div style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div id="x-report-print" style={{ fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div style={{ background: 'var(--bg-surface)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Mid-Shift Sales Snapshot</div>
                       <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-primary)', marginTop: '4px' }}>{formatCurrency(todayRev)}</div>
@@ -1538,7 +1537,11 @@ export default function Dashboard() {
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
-                      <button className="btn btn-secondary" onClick={() => window.print()}>🖨️ Print X-Report</button>
+                      <button className="btn btn-secondary" onClick={() => {
+                        if (!printSelectedReceipt('#x-report-print', settings?.printerPaperWidth || '80mm')) {
+                          showToast('X-Report has not rendered. Reopen it and retry printing.', 'error');
+                        }
+                      }}>🖨️ Print X-Report</button>
                       <button className="btn btn-primary" onClick={() => setShowXReportModal(false)}>Close</button>
                     </div>
                   </div>

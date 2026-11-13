@@ -78,6 +78,10 @@ describe('Uber Eats-Grade Features Integration Tests', () => {
 
     expect(assignRes.status).toBe(200);
     expect(assignRes.body.success).toBe(true);
+    // Assignment is not pickup or dispatch: the kitchen is still pending.
+    const assignedOrder = await dbGet('SELECT status,driverId FROM orders WHERE id=?',[testOrderId]);
+    expect(assignedOrder.status).toBe('pending');
+    expect(assignedOrder.driverId).toBe(testDriverId);
 
     // BUG-004 fix: endpoint now requires driver JWT — identity from token, not query param
     const dToken = driverToken(testDriverId);

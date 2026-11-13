@@ -11,6 +11,7 @@ const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedV
 export default function Settings() {
   const {
     currentUser,
+    setActiveTab,
     settings,
     updateSetting,
     menuItems,
@@ -31,7 +32,11 @@ export default function Settings() {
   const isMasterSuperAdmin = currentUser?.isPlatformAdmin === true;
 
   // Settings sub-tab selection: 'business' | 'menu' | 'database'
-  const [subTab, setSubTab] = useState('business');
+  const [subTab, setSubTab] = useState(()=>{
+    const requested=sessionStorage.getItem('gastroflow_settings_tab');
+    sessionStorage.removeItem('gastroflow_settings_tab');
+    return ['online','business','menu','database','users'].includes(requested)?requested:'business';
+  });
 
   // Business config states
   const [bizName, setBizName] = useState(settings.businessName || settings.restaurantName || '');
@@ -647,8 +652,8 @@ export default function Settings() {
               👥 Staff & Users
             </button>
             <button
-              className={`settings-nav-btn ${subTab === 'online' ? 'active' : ''}`}
-              onClick={() => setSubTab('online')}
+              className="settings-nav-btn"
+              onClick={() => setActiveTab('online-store')}
             >
               🌐 Online Store
             </button>
@@ -1107,9 +1112,35 @@ export default function Settings() {
             {/* 4. Online Store Admin Settings */}
             {subTab === 'online' && (
               <div>
-                <h2 className="settings-section-title">Online Store Management</h2>
+                <div style={{display:'flex',gap:10,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',marginBottom:14}}>
+                  <h2 className="settings-section-title" style={{margin:0}}>Online Store Settings</h2>
+                  <button type="button" className="btn btn-outline" onClick={()=>setActiveTab('online-store')}>← Online Store dashboard</button>
+                </div>
+                <section className="online-store-launch-panel" aria-label="Customer store setup and preview" style={{background:'var(--bg-surface)',border:'1px solid var(--border-color)',borderRadius:18,padding:20,marginBottom:24}}>
+                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:14,flexWrap:'wrap'}}>
+                    <div>
+                      <p style={{fontSize:11,fontWeight:800,letterSpacing:'.1em',color:'var(--color-primary)',marginBottom:6}}>YOUR ONLINE STOREFRONT</p>
+                      <h3 style={{fontSize:19,fontWeight:800,margin:'0 0 7px'}}>Set up your customer ordering experience</h3>
+                      <p style={{color:'var(--text-muted)',fontSize:13,lineHeight:1.6,maxWidth:570}}>Configure your shop identity, items, delivery fees and opening status, then preview what customers see. Changes here apply only to your restaurant.</p>
+                    </div>
+                    <a className="btn btn-primary" target="_blank" rel="noopener noreferrer"
+                      href={`/customer/?tenant=${encodeURIComponent(currentUser?.tenant_id || currentUser?.tenantId || 'default_tenant')}&view=menu`}
+                      style={{display:'inline-flex',alignItems:'center',gap:7,textDecoration:'none'}}>↗ Preview my customer store</a>
+                  </div>
+                  <div className="online-store-checklist" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,210px),1fr))',gap:12,marginTop:18}}>
+                    {[
+                      {title:'Business profile',help:'Shop name, phone, logo and address',action:()=>setSubTab('business')},
+                      {title:'Online menu',help:'Categories, food photos, stock and prices',action:()=>setSubTab('menu')},
+                      {title:'Online availability',help:'Open or pause incoming orders',action:()=>document.getElementById('online-store-controls')?.scrollIntoView({behavior:'smooth',block:'start'})},
+                      {title:'Delivery settings',help:'Radius, charges and preparation times',action:()=>document.getElementById('online-store-delivery')?.scrollIntoView({behavior:'smooth',block:'start'})}
+                    ].map(item=><button type="button" key={item.title} onClick={item.action}
+                      style={{background:'var(--bg-card)',textAlign:'left',border:'1px solid var(--border-color)',borderRadius:12,padding:14,cursor:'pointer',display:'grid',gap:6}}>
+                      <strong style={{fontSize:13}}>{item.title} ↗</strong><small style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.4}}>{item.help}</small>
+                    </button>)}
+                  </div>
+                </section>
                 
-                <div style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div id="online-store-controls" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                     
                     <div style={{ flex: 1, minWidth: '200px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
@@ -1118,15 +1149,15 @@ export default function Settings() {
                         Toggle the online store closed instantly if the kitchen is slammed.
                       </p>
                       <button 
-                        className={`btn ${settings.find(s => s.key === 'storeOpen')?.value === 'true' ? 'btn-danger' : 'btn-primary'}`} 
+                        className={`btn ${settings?.storeOpen === 'true' ? 'btn-danger' : 'btn-primary'}`} 
                         onClick={async () => {
-                          const currentVal = settings.find(s => s.key === 'storeOpen')?.value;
+                          const currentVal = settings?.storeOpen;
                           const nextVal = currentVal === 'true' ? 'false' : 'true';
                           await updateSetting('storeOpen', nextVal);
                           showToast(nextVal === 'true' ? '🟢 Online store is now OPEN' : '🔴 Online orders paused', nextVal === 'true' ? 'success' : 'info');
                         }}
                       >
-                        {settings.find(s => s.key === 'storeOpen')?.value === 'true' ? '🔴 Pause Online Orders' : '🟢 Open Online Store'}
+                        {settings?.storeOpen === 'true' ? '🔴 Pause Online Orders' : '🟢 Open Online Store'}
                       </button>
                     </div>
 
@@ -1136,7 +1167,7 @@ export default function Settings() {
                         <label style={{ fontSize: '12px', fontWeight: 600 }}>Printer Paper Size</label>
                         <select 
                           className="form-select"
-                          value={settings.find(s => s.key === 'printerPaperWidth')?.value || 'auto'}
+                          value={settings?.printerPaperWidth || 'auto'}
                           onChange={async (e) => {
                             await updateSetting('printerPaperWidth', e.target.value);
                             try { localStorage.setItem('gastroflow_printer_paper', e.target.value); } catch (_) {}
@@ -1152,8 +1183,8 @@ export default function Settings() {
                           className="btn btn-outline"
                           style={{ fontSize: '12px', padding: '6px 12px', height: 'auto', marginTop: '4px' }}
                           onClick={() => {
-                            const curSettingsObj = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
-                            testPrintReceipt(curSettingsObj, settings.find(s => s.key === 'currencySymbol')?.value || 'Rs.');
+                            const curSettingsObj = { ...settings };
+                            testPrintReceipt(curSettingsObj, settings?.currencySymbol || 'Rs.');
                           }}
                         >
                           🖨️ Test Print Slip
@@ -1161,7 +1192,7 @@ export default function Settings() {
                         <label style={{ fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', marginTop: '4px' }}>
                           <input 
                             type="checkbox"
-                            checked={settings.find(s => s.key === 'autoKickDrawer')?.value === 'true'}
+                            checked={settings?.autoKickDrawer === 'true'}
                             onChange={async (e) => {
                               await updateSetting('autoKickDrawer', e.target.checked ? 'true' : 'false');
                             }}
@@ -1183,7 +1214,7 @@ export default function Settings() {
                           <input 
                             type="number" 
                             className="form-input" 
-                            defaultValue={settings.find(s => s.key === 'dineInPrepTime')?.value || 15}
+                            defaultValue={settings?.dineInPrepTime || 15}
                             onBlur={async (e) => {
                               await updateSetting('dineInPrepTime', e.target.value);
                             }}
@@ -1194,7 +1225,7 @@ export default function Settings() {
                           <input 
                             type="number" 
                             className="form-input" 
-                            defaultValue={settings.find(s => s.key === 'takeawayPrepTime')?.value || 20}
+                            defaultValue={settings?.takeawayPrepTime || 20}
                             onBlur={async (e) => {
                               await updateSetting('takeawayPrepTime', e.target.value);
                             }}
@@ -1205,7 +1236,7 @@ export default function Settings() {
                           <input 
                             type="number" 
                             className="form-input" 
-                            defaultValue={settings.find(s => s.key === 'deliveryPrepTime')?.value || 35}
+                            defaultValue={settings?.deliveryPrepTime || 35}
                             onBlur={async (e) => {
                               await updateSetting('deliveryPrepTime', e.target.value);
                             }}
@@ -1216,6 +1247,19 @@ export default function Settings() {
 
                   </div>
                 </div>
+
+                <div id="online-store-delivery" />
+                <section className="online-schedule-settings" style={{padding:20,border:'1px solid var(--border-color)',borderRadius:16,background:'var(--bg-surface)',marginBottom:24}}>
+                  <h3 style={{fontSize:16,fontWeight:800,marginBottom:8}}>Scheduled order capacity</h3>
+                  <p style={{fontSize:13,color:'var(--text-muted)',marginBottom:14}}>Limit how many customer orders can reserve each 15-minute pickup, dine-in or delivery slot. A full slot disappears from the customer checkout. Changes save when you leave the field.</p>
+                  <label style={{display:'grid',gap:8,maxWidth:260,fontSize:13,fontWeight:700}}>
+                    Orders per 15-minute slot
+                    <input className="form-input" type="number" min="1" max="100" step="1" key={settings?.scheduledOrdersPerSlot||'6'}
+                      defaultValue={settings?.scheduledOrdersPerSlot||'6'}
+                      onBlur={async e=>{const n=Number(e.target.value);if(!Number.isSafeInteger(n)||n<1||n>100){showToast('Choose a capacity from 1 to 100 orders.','error');return;}await updateSetting('scheduledOrdersPerSlot',String(n));}} />
+                  </label>
+                  <small style={{display:'block',color:'var(--text-muted)',marginTop:9}}>Default: 6. Capacity is checked again when the customer submits an order.</small>
+                </section>
 
                 {/* ── Delivery Zone Strategy Panel ── */}
                 <div style={{ marginBottom: '32px' }}>
@@ -1229,7 +1273,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🛵 Base Delivery Fee (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'deliveryBaseFee')?.value || 99}
+                        defaultValue={settings?.deliveryBaseFee || 99}
                         onBlur={async (e) => await updateSetting('deliveryBaseFee', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Flat fee every delivery order</span>
@@ -1239,7 +1283,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>📏 Free Radius (km)</label>
                       <input 
                         type="number" step="0.5" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'deliveryFreeRadiusKm')?.value || 2}
+                        defaultValue={settings?.deliveryFreeRadiusKm || 2}
                         onBlur={async (e) => await updateSetting('deliveryFreeRadiusKm', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>No per-km charge within this radius</span>
@@ -1249,7 +1293,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>💰 Per-Km Rate (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'deliveryPerKmRate')?.value || 50}
+                        defaultValue={settings?.deliveryPerKmRate || 50}
                         onBlur={async (e) => await updateSetting('deliveryPerKmRate', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Charge per km beyond free radius</span>
@@ -1259,7 +1303,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🚫 Max Delivery Radius (km)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'deliveryMaxRadiusKm')?.value || 15}
+                        defaultValue={settings?.deliveryMaxRadiusKm || 15}
                         onBlur={async (e) => await updateSetting('deliveryMaxRadiusKm', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Reject orders beyond this distance</span>
@@ -1269,7 +1313,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🔥 Peak Hour Surcharge (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'deliveryPeakSurcharge')?.value || 50}
+                        defaultValue={settings?.deliveryPeakSurcharge || 50}
                         onBlur={async (e) => await updateSetting('deliveryPeakSurcharge', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Auto-applied during lunch & dinner rush</span>
@@ -1279,7 +1323,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🌧️ Rain Surcharge (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'deliveryRainSurcharge')?.value || 75}
+                        defaultValue={settings?.deliveryRainSurcharge || 75}
                         onBlur={async (e) => await updateSetting('deliveryRainSurcharge', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Applied when rainy weather is toggled ON</span>
@@ -1289,7 +1333,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🎁 Free Delivery Threshold (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'deliveryFreeThreshold')?.value || 3000}
+                        defaultValue={settings?.deliveryFreeThreshold || 3000}
                         onBlur={async (e) => await updateSetting('deliveryFreeThreshold', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Orders above this get FREE delivery</span>
@@ -1299,7 +1343,7 @@ export default function Settings() {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>📦 Min Order Value (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings.find(s => s.key === 'minimumOrder')?.value || 1000}
+                        defaultValue={settings?.minimumOrder || 1000}
                         onBlur={async (e) => await updateSetting('minimumOrder', e.target.value)}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Minimum subtotal for delivery orders</span>
@@ -1311,25 +1355,25 @@ export default function Settings() {
                     <div style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--bg-surface)' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600 }}>🕐 Lunch Peak Start</label>
                       <input type="time" className="form-input"
-                        defaultValue={settings.find(s => s.key === 'peakLunchStart')?.value || '11:30'}
+                        defaultValue={settings?.peakLunchStart || '11:30'}
                         onBlur={async (e) => await updateSetting('peakLunchStart', e.target.value)} />
                     </div>
                     <div style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--bg-surface)' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600 }}>🕑 Lunch Peak End</label>
                       <input type="time" className="form-input"
-                        defaultValue={settings.find(s => s.key === 'peakLunchEnd')?.value || '14:00'}
+                        defaultValue={settings?.peakLunchEnd || '14:00'}
                         onBlur={async (e) => await updateSetting('peakLunchEnd', e.target.value)} />
                     </div>
                     <div style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--bg-surface)' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600 }}>🕕 Dinner Peak Start</label>
                       <input type="time" className="form-input"
-                        defaultValue={settings.find(s => s.key === 'peakDinnerStart')?.value || '18:30'}
+                        defaultValue={settings?.peakDinnerStart || '18:30'}
                         onBlur={async (e) => await updateSetting('peakDinnerStart', e.target.value)} />
                     </div>
                     <div style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--bg-surface)' }}>
                       <label style={{ fontSize: '11px', fontWeight: 600 }}>🕘 Dinner Peak End</label>
                       <input type="time" className="form-input"
-                        defaultValue={settings.find(s => s.key === 'peakDinnerEnd')?.value || '21:30'}
+                        defaultValue={settings?.peakDinnerEnd || '21:30'}
                         onBlur={async (e) => await updateSetting('peakDinnerEnd', e.target.value)} />
                     </div>
                   </div>
@@ -1342,13 +1386,13 @@ export default function Settings() {
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '10px', fontWeight: 600 }}>Latitude</label>
                           <input type="number" step="0.0001" className="form-input"
-                            defaultValue={settings.find(s => s.key === 'storeLat')?.value || '6.9271'}
+                            defaultValue={settings?.storeLat || '6.9271'}
                             onBlur={async (e) => await updateSetting('storeLat', e.target.value)} />
                         </div>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '10px', fontWeight: 600 }}>Longitude</label>
                           <input type="number" step="0.0001" className="form-input"
-                            defaultValue={settings.find(s => s.key === 'storeLng')?.value || '79.8612'}
+                            defaultValue={settings?.storeLng || '79.8612'}
                             onBlur={async (e) => await updateSetting('storeLng', e.target.value)} />
                         </div>
                       </div>
@@ -1367,15 +1411,15 @@ export default function Settings() {
                     <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
                       <h4 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>🌤️ Weather & Live Controls</h4>
                       <button
-                        className={`btn ${settings.find(s => s.key === 'isRainyWeather')?.value === 'true' ? 'btn-primary' : 'btn-secondary'}`}
+                        className={`btn ${settings?.isRainyWeather === 'true' ? 'btn-primary' : 'btn-secondary'}`}
                         style={{ padding: '10px 16px', fontSize: '13px', width: '100%', marginBottom: '8px' }}
                         onClick={async () => {
-                          const current = settings.find(s => s.key === 'isRainyWeather')?.value;
+                          const current = settings?.isRainyWeather;
                           const next = current === 'true' ? 'false' : 'true';
                           await updateSetting('isRainyWeather', next);
                           showToast(next === 'true' ? '🌧️ Rainy Weather Mode ON — rain surcharge applies to deliveries.' : '☀️ Rainy Weather Mode OFF — normal delivery pricing.', 'info');
                         }}>
-                        {settings.find(s => s.key === 'isRainyWeather')?.value === 'true' ? '🌧️ Rainy Weather ACTIVE (Click to Clear)' : '☀️ Normal Weather (Click for Rain Mode)'}
+                        {settings?.isRainyWeather === 'true' ? '🌧️ Rainy Weather ACTIVE (Click to Clear)' : '☀️ Normal Weather (Click for Rain Mode)'}
                       </button>
                       <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: 0 }}>
                         Activates rain surcharge on all delivery orders. Toggle during monsoon / heavy rain periods.
@@ -1405,15 +1449,15 @@ export default function Settings() {
                         }}
                         style={{
                           padding: '16px',
-                          border: `2px solid ${settings.find(s => s.key === 'driverDispatchMode')?.value === opt.mode ? 'var(--color-primary)' : 'var(--border-color)'}`,
+                          border: `2px solid ${settings?.driverDispatchMode === opt.mode ? 'var(--color-primary)' : 'var(--border-color)'}`,
                           borderRadius: '12px',
-                          background: settings.find(s => s.key === 'driverDispatchMode')?.value === opt.mode ? 'var(--color-primary-light, #6366f115)' : 'var(--bg-surface)',
+                          background: settings?.driverDispatchMode === opt.mode ? 'var(--color-primary-light, #6366f115)' : 'var(--bg-surface)',
                           cursor: 'pointer',
                           transition: 'all 0.2s ease'
                         }}>
                         <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '4px' }}>{opt.label}</div>
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{opt.desc}</div>
-                        {settings.find(s => s.key === 'driverDispatchMode')?.value === opt.mode && (
+                        {settings?.driverDispatchMode === opt.mode && (
                           <div style={{ fontSize: '11px', color: 'var(--color-primary)', fontWeight: 700, marginTop: '6px' }}>✅ Active</div>
                         )}
                       </div>
@@ -1423,7 +1467,7 @@ export default function Settings() {
                   <div style={{ marginTop: '12px', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--bg-surface)', maxWidth: '300px' }}>
                     <label style={{ fontSize: '11px', fontWeight: 600 }}>⏱️ Auto-Dispatch Timeout (seconds)</label>
                     <input type="number" className="form-input"
-                      defaultValue={settings.find(s => s.key === 'autoDispatchTimeoutSec')?.value || 180}
+                      defaultValue={settings?.autoDispatchTimeoutSec || 180}
                       onBlur={async (e) => await updateSetting('autoDispatchTimeoutSec', e.target.value)} />
                     <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>In hybrid mode, escalates to manager after this timeout</span>
                   </div>
@@ -1437,7 +1481,7 @@ export default function Settings() {
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <input type="number" step="0.5" min="0" max="50" className="form-input" style={{ maxWidth: '80px' }}
-                      defaultValue={settings.find(s => s.key === 'platformCommissionRate')?.value || 15}
+                      defaultValue={settings?.platformCommissionRate || 15}
                       onBlur={async (e) => await updateSetting('platformCommissionRate', e.target.value)} />
                     <span style={{ fontSize: '14px', fontWeight: 700 }}>%</span>
                   </div>

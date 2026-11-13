@@ -26,3 +26,80 @@ body{font-size:14px}.workspace{display:flex;flex-direction:column;min-width:0;fl
 @media(max-width:768px){.pos-layout .cart-panel.mobile-cart-open{max-height:calc(100dvh - 152px - env(safe-area-inset-bottom) - env(safe-area-inset-top))!important}.mobile-cart-toolbar{position:sticky;top:0;background:var(--bg-card);z-index:1}}
 @media(max-width:768px){.category-tabs{overflow-x:auto;max-width:100%;min-width:0}.category-tabs .category-tab{flex:0 0 auto!important;width:auto!important;min-width:max-content!important;white-space:nowrap!important;padding:10px 14px!important;border-radius:12px!important}}
 @media print{.mobile-cart-toggle,.mobile-cart-toolbar{display:none!important}}
+
+
+/* Platform-owner workspace only: the POS shell fixes body to 100vh, so its
+   full-height administration page must provide its own scrolling surface.
+   Keep ordinary restaurant POS layouts and their print styles unchanged. */
+@media screen {
+  .workspace.platform-owner-workspace {
+    min-height: 0;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+  .platform-owner-workspace > .platform-page {
+    flex: none;
+    width: 100%;
+    min-height: min-content;
+  }
+  .platform-owner-workspace > .workspace-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    flex-shrink: 0;
+  }
+  .platform-owner-sidebar .sidebar-brand { flex-shrink: 0; }
+  .platform-owner-sidebar .platform-workspace-switcher {
+    margin-top: 50px;
+    flex-shrink: 0;
+  }
+  .platform-owner-sidebar .sidebar-collapse {
+    top: 77px;
+    right: 22px;
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--bg-card);
+    z-index: 2;
+  }
+  .platform-owner-sidebar .sidebar-section-label { margin: 16px 0 12px; }
+  .platform-owner-sidebar .platform-switch-button {
+    min-height: 44px;
+    padding: 9px 10px;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+  .platform-owner-sidebar .platform-switch-button svg { flex-shrink: 0; }
+  .platform-owner-sidebar.collapsed .sidebar-collapse {
+    right: 50%;
+    transform: translateX(50%);
+  }
+  .platform-owner-sidebar.collapsed .platform-workspace-switcher { padding: 8px 0 !important; }
+  .platform-owner-sidebar.collapsed .platform-switch-button {
+    width: 44px !important;
+    min-width: 0;
+    height: 44px;
+    padding: 0 !important;
+    margin: 0 auto;
+  }
+  .platform-owner-sidebar.collapsed .sidebar-menu {
+    margin-top: 12px;
+  }
+  .platform-owner-sidebar.collapsed .sidebar-item {
+    justify-content: center;
+    padding: 12px;
+  }
+}
+@media screen and (max-width: 768px) {
+  .workspace.platform-owner-workspace {
+    max-height: 100dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

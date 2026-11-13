@@ -1,9 +1,13 @@
 import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/checkout-recovery.js';
-import React, { useState, useEffect } from 'react';
+import { createSubmissionGuard } from '../utils/submission-guard.js';
+import { recoveryDecision } from '../utils/order-recovery-status.js';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
+import { getActiveTenant } from '../utils/tenant.js';
+import { Store, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/LocationPicker.jsx';
 
 const ORDER_TYPES = [
@@ -13,11 +17,13 @@ const ORDER_TYPES = [
 ];
 
 const LOCAL_PAYMENTS = [
-  { id: 'cash', label: 'Cash on Delivery / Pay at Counter', icon: '💵' },
-  { id: 'payhere', label: 'PayHere (Card / eZ Cash / Bank)', icon: '💳' }
+  { id: 'cash', label: 'Pay with cash', icon: '💵', description: 'Cash on delivery, at the counter or at your table.' },
+  { id: 'bank_transfer', label: 'Manual bank transfer (LKR)', icon: '🏦', description: 'Place the order unpaid. Contact the restaurant for bank details; a manager must verify the transfer.' },
+  { id: 'payhere', label: 'Card / PayHere', icon: '💳', description: 'Not available at the moment' },
+  { id: 'lankaqr', label: 'LankaQR / mobile wallet', icon: '📱', description: 'Coming soon', disabled: true }
 ];
 
-export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
+export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, store, canOrder, refreshStore }) {
   const { items, subtotal, clearCart, setCartOpen, addItem, rates } = useCart();
   const { customer, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
@@ -35,6 +41,20 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
   // Scheduling states
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledTimeVal, setScheduledTimeVal] = useState(null);
+  const [scheduleAvailability,setScheduleAvailability]=useState([]);
+  const [scheduleLoading,setScheduleLoading]=useState(false);
+  const [scheduleError,setScheduleError]=useState('');
+  useEffect(()=>{
+    if(!isScheduled)return;
+    let cancelled=false;
+    setScheduleLoading(true);
+    setScheduleError('');
+    apiFetch('/public/schedule/slots?type='+encodeURIComponent(orderType))
+      .then(data=>{if(!cancelled){setScheduleAvailability((data.slots||[]).filter(s=>!s.full));setScheduledTimeVal(previous=>(data.slots||[]).some(s=>!s.full&&s.timestamp===previous)?previous:(data.slots||[]).find(s=>!s.full)?.timestamp||null)}})
+      .catch(err=>{if(!cancelled){setScheduleAvailability([]);setScheduledTimeVal(null);setScheduleError(err.message||'Scheduled times are unavailable.')}})
+      .finally(()=>{if(!cancelled)setScheduleLoading(false)});
+    return ()=>{cancelled=true};
+  },[isScheduled,orderType]);
 
   // Delivery & prep time settings from DB
   const [deliveryFee, setDeliveryFee] = useState(0);
@@ -56,13 +76,28 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
   // States
   const [loading, setLoading] = useState(false);
+  const checkoutGuard = useRef(createSubmissionGuard());
+  const otpGuard = useRef(createSubmissionGuard());
+  const otpProofRef = useRef(null);
   const [pendingCheckout,setPendingCheckout]=useState(readPendingCheckout);
-  const finishRecovery=()=>{clearPendingCheckout();setPendingCheckout(null);};
-  const recoverCheckout=async()=>{
+  const finishRecovery=()=>{clearPendingCheckout();setPendingCheckout(null);otpProofRef.current=null;};
+  const recoverCheckout=()=>checkoutGuard.current.run(async()=>{
     if(loading||!pendingCheckout)return;setLoading(true);
-    try{const result=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':pendingCheckout.key},body:JSON.stringify({...pendingCheckout.payload,customerToken:getToken()||null})});if(JSON.stringify(pendingCheckout.payload.items)===JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();finishRecovery();setCartOpen(false);onOrderPlaced&&onOrderPlaced(result.orderId);}
+    try {
+      const result=await apiFetch('/public/orders',{
+        method:'POST',headers:{'Idempotency-Key':pendingCheckout.key},
+        body:JSON.stringify({...pendingCheckout.payload,customerToken:getToken()||null})
+      });
+      const decision=recoveryDecision(result,pendingCheckout.payload.paymentMethod);
+      if(decision.action !== 'track'){toast(decision.message,'warning');return;}
+      if(decision.clearCart && JSON.stringify(pendingCheckout.payload.items) === JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();
+      finishRecovery();
+      setCartOpen(false);
+      toast(decision.message,decision.clearCart?'success':'info');
+      onOrderPlaced&&onOrderPlaced(result.orderId);
+    }
     catch(error){toast(error.message,'error');}finally{setLoading(false);}
-  };
+  });
   const [payhereRedirectData, setPayhereRedirectData] = useState(null);
 
   // OTP Verification States
@@ -97,41 +132,39 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         .catch(() => {});
     }
 
-    // Load store delivery & prep time settings
-    apiFetch('/public/menu')
-      .then(data => {
-        if (data) {
-          setDeliveryFee(data.deliveryFee || 0);
-          setMinimumOrder(data.minimumOrder || 0);
-          if (data.prepTime) setStorePrepTime(data.prepTime);
-        }
-      })
-      .catch(() => {});
+    // Store settings are loaded from the live, tenant-verified storefront.
   }, [customer]);
 
-  // Load real smart cart upsell recommendations from active menu
+  // No recommendations from closed, offline or wrong-tenant stores.
   const [realRecommendations, setRealRecommendations] = useState([]);
+  const cartIds = items.map(item => item.id).join('|');
   useEffect(() => {
-    apiFetch('/public/menu')
-      .then(data => {
-        const allItems = data?.items || [];
-        const cartIds = items.map(ci => ci.id);
-        const candidates = allItems.filter(itm => itm.isAvailable !== 0 && !cartIds.includes(itm.id));
+    let cancelled = false;
+    if (!canOrder || !store?.tenantId) { setRealRecommendations([]); return; }
+    setRealRecommendations([]);
+    apiFetch('/public/menu', { cache: 'no-store' }).then(data => {
+      if (cancelled) return;
+      if (data?.offlineSnapshot || data?.tenantId !== store.tenantId || data.storeOpen !== true) {
+        setRealRecommendations([]); return;
+      }
+      const inCart = new Set(items.map(item => item.id));
+      const candidates = (data.items || []).filter(item =>
+        item.isAvailable !== 0 && item.isAvailable !== false &&
+        (item.stock == null || Number(item.stock) > 0) &&
+        !inCart.has(item.id) && !(item.modifiers || []).some(option => option.isRequired)
+      );
+      const isSide = item => /drink|beverage|dessert|side|grill/i.test(String(item.category || ''));
+      candidates.sort((x,y) => Number(isSide(y)) - Number(isSide(x)));
+      setRealRecommendations(candidates.slice(0, 4));
+    }).catch(() => { if (!cancelled) setRealRecommendations([]); });
+    return () => { cancelled = true; };
+  }, [canOrder, store?.tenantId, cartIds]);
 
-        candidates.sort((a, b) => {
-          const catA = String(a.category || '').toLowerCase();
-          const catB = String(b.category || '').toLowerCase();
-          const isDrinkSideA = catA.includes('drink') || catA.includes('side') || catA.includes('beverage') || catA.includes('dessert') || catA.includes('grill');
-          const isDrinkSideB = catB.includes('drink') || catB.includes('side') || catB.includes('beverage') || catB.includes('dessert') || catB.includes('grill');
-          if (isDrinkSideA && !isDrinkSideB) return -1;
-          if (!isDrinkSideA && isDrinkSideB) return 1;
-          return 0;
-        });
-
-        setRealRecommendations(candidates.slice(0, 4));
-      })
-      .catch(() => {});
-  }, [items]);
+  useEffect(() => {
+    setDeliveryFee(Number(store?.deliveryFee || 0));
+    setMinimumOrder(Number(store?.minimumOrder || 0));
+    if (store?.prepTime) setStorePrepTime(store.prepTime);
+  }, [store?.tenantId, store?.deliveryFee, store?.minimumOrder, store?.prepTime]);
 
   // ── Dynamic delivery fee calculation when location is picked ──
   useEffect(() => {
@@ -219,30 +252,26 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     return slots;
   };
 
-  // Apply Promo Code
+  // Promotions are verified and priced by the backend for the selected restaurant.
+  const cartFingerprint = JSON.stringify(items.map(i=>({id:i.id,qty:i.qty,selectedModifiers:i.selectedModifiers||[],notes:i.notes||''})));
+  useEffect(()=>{
+    if(appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) setAppliedPromo(null);
+  },[cartFingerprint,appliedPromo]);
   const handleApplyPromo = async () => {
-    if (!promoCode.trim()) return;
+    const code=promoCode.trim().toUpperCase();
+    if(!code)return;
     try {
-      const code = promoCode.trim().toUpperCase();
-      if (code === 'WELCOME10') {
-        if (subtotal < 1000) {
-          toast('Min spend of Rs. 1000 required for WELCOME10.', 'error');
-          return;
-        }
-        setAppliedPromo({ code, type: 'percent', value: 10 });
-        toast('Promo code WELCOME10 applied! 🎉', 'success');
-      } else if (code === 'FLAT200') {
-        if (subtotal < 1500) {
-          toast('Min spend of Rs. 1500 required for FLAT200.', 'error');
-          return;
-        }
-        setAppliedPromo({ code, type: 'flat', value: 200 });
-        toast('Promo code FLAT200 applied! 🎉', 'success');
-      } else {
-        toast('Invalid or expired promo code.', 'error');
-      }
-    } catch (err) {
-      toast('Failed to apply promo code.', 'error');
+      const result=await apiFetch('/public/promotions/preview',{
+        method:'POST',body:JSON.stringify({
+          code,
+          items:items.map(i=>({menuItemId:i.id,quantity:i.qty,selectedModifiers:i.selectedModifiers||[],notes:i.notes||''}))
+        })
+      });
+      setAppliedPromo({code:result.code,type:'flat',value:Number(result.promoDiscount||0),cartFingerprint});
+      toast('Promotion validated. Final discount is confirmed again at checkout.', 'success');
+    } catch(err) {
+      setAppliedPromo(null);
+      toast(err.message || 'Promotion unavailable.', 'error');
     }
   };
 
@@ -252,7 +281,12 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     if (loc?.label) setAddress(loc.label);
   };
 
-  const executeOrderPlacement = async () => {
+  const executeOrderPlacement = () => checkoutGuard.current.run(async () => {
+    if (!getActiveTenant() || !(await refreshStore())) {
+      toast('This restaurant is not accepting online orders. Your cart is saved.', 'error');
+      return;
+    }
+    if(isScheduled && (!scheduledTimeVal||scheduleLoading||scheduleError)){toast('Choose an available scheduled time before ordering.','error');return;}
     setLoading(true);
     try {
       const token = getToken();
@@ -267,7 +301,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           orderType,
           customerName: name.trim(),
           customerPhone: phone.trim(),
-          customerEmail: email.trim() || null,
+          customerEmail: email.trim() || customer?.email || null,
+          checkoutProof: otpProofRef.current,
           deliveryAddress: orderType === 'delivery' ? (geoLocation?.label || address.trim()) : null,
           deliveryLat: orderType === 'delivery' && geoLocation ? geoLocation.lat : null,
           deliveryLng: orderType === 'delivery' && geoLocation ? geoLocation.lng : null,
@@ -275,7 +310,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
           promoCode: appliedPromo?.code || null,
           scheduledTime: isScheduled ? scheduledTimeVal : null,
           tip: tipAmount,
-          paymentMethod: paymentMethod === 'payhere' ? 'online_pending' : 'cash'
+          paymentMethod: paymentMethod === 'payhere' ? 'online_pending' : paymentMethod === 'bank_transfer' ? 'bank_transfer' : 'cash'
         };
       const attempt=checkoutIntent(payload);setPendingCheckout(attempt);
       const data=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':attempt.key},body:JSON.stringify({...attempt.payload,customerToken:token||null})});
@@ -337,7 +372,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       } else {
         finishRecovery();clearCart();
         setCartOpen(false);
-        toast('Order placed successfully! 🎉', 'success');
+        toast(paymentMethod === 'bank_transfer' ? 'Order placed, awaiting bank transfer verification. Contact the restaurant for confirmed payment details.' : 'Order placed successfully! 🎉', paymentMethod === 'bank_transfer' ? 'info' : 'success');
         onOrderPlaced && onOrderPlaced(data.orderId);
       }
     } catch (err) {
@@ -346,11 +381,16 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
       setLoading(false);
       setOtpVerified(false);
     }
-  };
+  });
 
-  const handlePlaceOrder = async (e) => {
+  const handlePlaceOrder = (e) => {
     e.preventDefault();
+    return otpGuard.current.run(async () => {
+    if(typeof navigator!=='undefined' && navigator.onLine===false){toast('You are offline. Your cart is saved on this device; reconnect before placing an order. No order was submitted.','warning');return;}
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
+    if (!canOrder) { toast('Restaurant availability cannot be confirmed. Your cart is saved.', 'warning'); return; }
+    if (appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) { toast('Your cart changed. Please apply the promotion again.', 'warning'); return; }
+    if ((paymentMethod === 'payhere' && !rates.payhereEnabled) || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
     if (!name.trim()) { toast('Please enter your name.', 'error'); return; }
     if (!phone.trim()) { toast('Please enter your phone number.', 'error'); return; }
 
@@ -413,6 +453,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
     }
 
     await executeOrderPlacement();
+    });
   };
 
   // Local/dev only: ask the SERVER to simulate a PayHere settlement. The browser never marks
@@ -496,9 +537,24 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
   return (
     <div className="checkout-view fade-in" style={{ padding: '16px 12px', paddingBottom: 'calc(var(--bottom-bar) + var(--sa-bottom) + 96px)' }}>
+      <section className="customer-checkout-restaurant" aria-label="Restaurant fulfilling your order">
+        <div className="customer-checkout-restaurant-icon"><Store size={24}/></div>
+        <div className="customer-checkout-restaurant-details">
+          <small>ORDERING FROM</small><strong>{store?.name || 'Select a restaurant'}</strong>
+          {store?.address && <span>{store.address}</span>}
+          <span className={canOrder ? 'customer-store-open' : 'customer-store-closed'}>
+            {canOrder ? '● Accepting online orders' : store?.status === 'closed' ? '● Online orders paused' : '● Availability not confirmed'}
+          </span>
+        </div>
+        <button className="customer-change-store" type="button" onClick={() => onNavigate('restaurants')}>Change</button>
+      </section>
+      {!canOrder && <div className="customer-checkout-closed-notice" role="alert">
+        <AlertCircle size={20}/>
+        <span>{store?.status === 'closed' ? 'This restaurant is currently closed. You can keep your saved cart, but cannot place an order.' : 'Select an open restaurant or reconnect to confirm availability.'}</span>
+      </div>}
       {pendingCheckout&&<section aria-label="Previous checkout" className="glass" style={{padding:16,marginBottom:16}}>
         <strong>Previous checkout</strong>
-        <p>Your last checkout may already be saved. Check its order before placing another.</p>
+        <p>Your previous submission may have reached the restaurant. Recover its status before submitting another order. If online payment is still pending, it will not be shown as paid.</p>
         <button className="btn btn-brand" disabled={loading} onClick={recoverCheckout}>Recover previous order</button>
         <button className="btn btn-ghost" disabled={loading} onClick={()=>{if(window.confirm('Have you checked the previous order? Starting again can create an additional order.'))finishRecovery();}}>Start a separate order</button>
       </section>}
@@ -537,15 +593,17 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
       {/* OTP Verification Modal */}
       {showOtpModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div className="device-dialog" role="dialog" aria-modal="true" aria-label="Verify order" style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 16, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 800 }}>🔐 Verify Order Credentials</h3>
+        <div className="gastrofood-otp-backdrop">
+          <div className="device-dialog gastrofood-otp-dialog" role="dialog" aria-modal="true" aria-labelledby="gastrofood-otp-title">
+            <div className="gastrofood-otp-icon" aria-hidden="true">🔐</div>
+            <span className="gastrofood-otp-eyebrow">SECURE CHECKOUT · STEP 3 OF 3</span>
+            <h3 id="gastrofood-otp-title" className="gastrofood-otp-title">Verify your order</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-              Verification code sent to <strong>{otpChannel === 'email' ? (email || customer?.email) : phone}</strong>.
+              Enter the 6-digit code sent to <strong>{otpChannel === 'email' ? (email || customer?.email) : phone}</strong>. Your code expires after 10 minutes.
             </p>
 
             {/* OTP Channel Selector Toggle */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <div className="gastrofood-otp-channel-switch" role="group" aria-label="Choose verification channel">
               <button
                 type="button"
                 className={`btn ${otpChannel === 'email' ? 'btn-brand' : 'btn-outline'}`}
@@ -606,28 +664,32 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
             <div className="form-group" style={{ marginBottom: 16 }}>
               <input
-                className="form-control"
+                className="form-control gastrofood-otp-input"
+                aria-label="Six digit verification code" id="gastrofood-otp-code"
                 type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*"
                 maxLength={6}
                 placeholder="Enter 6-digit OTP..."
                 value={enteredOtp}
-                onChange={e => setEnteredOtp(e.target.value)}
+                onChange={e => setEnteredOtp(e.target.value.replace(/\D/g,'').slice(0,6))}
                 style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px', fontWeight: 700 }}
               />
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button 
-                className="btn btn-brand" 
+                type="button"
+                className="btn btn-brand gastrofood-otp-submit" 
                 style={{ flex: 1 }}
-                onClick={async () => {
+                onClick={() => otpGuard.current.run(async () => {
                   const cleanPhone = phone.trim().replace(/[\s-]/g, '');
                   const dest = otpChannel === 'email' ? (email.trim() || customer?.email) : cleanPhone;
+                  if (!/^\d{6}$/.test(enteredOtp.trim())) { toast('Enter the 6-digit verification code.', 'warning'); return; }
                   try {
                     const r = await apiFetch('/otp/verify', {
                       method: 'POST',
                       body: JSON.stringify({ channel: otpChannel, destination: dest, purpose: 'order_verify', code: enteredOtp.trim() })
                     });
-                    if (r.verified) {
+                    if (r.verified && typeof r.checkoutProof === 'string') {
+                      otpProofRef.current=r.checkoutProof;
                       setOtpVerified(true);
                       setShowOtpModal(false);
                       setEnteredOtp('');
@@ -639,12 +701,12 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                   } catch (err) {
                     toast(err.message || 'Verification failed.', 'error');
                   }
-                }}
+                })}
               >
-                Verify & Place Order
+                Verify & place order
               </button>
               <button 
-                className="btn btn-ghost" 
+                type="button" className="btn btn-ghost" 
                 onClick={() => setShowOtpModal(false)}
               >
                 Cancel
@@ -654,7 +716,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         </div>
       )}
 
-      <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 16 }}>Checkout Details</h2>
+      <div className="gastrofood-checkout-heading"><span className="gastrofood-checkout-eyebrow">FINAL STEP · SECURE ORDER</span><h2>Checkout</h2><p>Review your details and place your order with confidence.</p></div>
 
 
       <form onSubmit={handlePlaceOrder}>
@@ -710,7 +772,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                 setScheduledTimeVal(null);
               }}
             >
-              🚀 Order ASAP
+              🚀 {t('scheduleNow')}
             </button>
             <button 
               type="button" 
@@ -718,25 +780,25 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
               style={{ flex: 1, padding: 10, fontSize: '0.8rem' }}
               onClick={() => {
                 setIsScheduled(true);
-                const slots = getAvailableTimeSlots();
-                if (slots.length > 0) setScheduledTimeVal(slots[0].timestamp);
               }}
             >
-              📅 Schedule Later
+              📅 {t('scheduleLater')}
             </button>
           </div>
 
           {isScheduled && (
             <div className="form-group" style={{ marginTop: 12 }}>
-              <label>Choose Delivery / Pickup Time</label>
+              <p role="status" style={{fontSize:'.8rem',color:'var(--text-muted)'}}>{scheduleLoading?t('scheduleLoading'):scheduleError || (scheduleAvailability.length ? t('scheduleConfirm') : t('scheduleFull'))}</p>
+              <label>{t('chooseSchedule')}</label>
               <select 
                 className="form-control"
                 value={scheduledTimeVal || ''}
                 onChange={e => setScheduledTimeVal(parseInt(e.target.value, 10))}
                 style={{ fontWeight: 600 }}
               >
-                {getAvailableTimeSlots().map(slot => (
-                  <option key={slot.timestamp} value={slot.timestamp}>{slot.label}</option>
+                {!scheduledTimeVal && <option value="">{t('chooseSchedule')}</option>}
+                {scheduleAvailability.map(slot => (
+                  <option key={slot.timestamp} value={slot.timestamp}>{new Date(slot.timestamp).toLocaleString()} · {t('spotsLeft',{count:slot.available})}</option>
                 ))}
               </select>
             </div>
@@ -744,20 +806,22 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
         </div>
 
         {/* Real Smart Upsell & Cross-Sell Suggestions */}
-        {realRecommendations.length > 0 && (
+        {canOrder && realRecommendations.length > 0 && (
           <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
             <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>🥤</span> Complete Your Meal (Smart Suggestions)
+              <span>🥤</span> Add something extra
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
-              Frequently paired with your current cart items:
+              Available dishes from {store?.name || 'this restaurant'}:
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
               {realRecommendations.map(up => (
                 <div key={up.id} style={{ padding: 10, background: 'rgba(0,0,0,0.02)', borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ fontSize: '1.5rem' }}>{up.emoji || '🍽️'}</div>
+                    <div className="customer-smart-item-media">
+                       {up.imageUrl ? <img src={up.imageUrl} alt={up.name} loading="lazy"/> : <span aria-hidden="true">{up.emoji || '🍽️'}</span>}
+                     </div>
                     <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{up.name}</div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 800, marginTop: 2 }}>LKR {Number(up.price || 0).toFixed(2)}</div>
                     {up.allergens && (
@@ -769,6 +833,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
                     className="btn btn-outline"
                     style={{ marginTop: 8, padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, borderRadius: 8, width: '100%', cursor: 'pointer' }}
                     onClick={() => {
+                      if (!canOrder) return;
                       addItem(up);
                       toast && toast(`Added ${up.name} to your order! ➕`, 'success');
                     }}
@@ -888,22 +953,24 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
         {/* Payment Methods */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Payment Method</h3>
+          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>{t('paymentMethod')}</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
-            {LOCAL_PAYMENTS.filter(p => p.id !== 'payhere' || rates.payhereEnabled === true).map(p => (
+            {LOCAL_PAYMENTS.map(p => (
               <label 
-                key={p.id} 
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'rgba(0,0,0,0.02)', borderRadius: 8, cursor: 'pointer' }}
+                key={p.id}
+                aria-disabled={p.disabled || (p.id === 'payhere' && !rates.payhereEnabled)}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface-2, #f7f7f2)', borderRadius: 12, cursor: p.disabled || (p.id === 'payhere' && !rates.payhereEnabled) ? 'not-allowed' : 'pointer', opacity: p.disabled || (p.id === 'payhere' && !rates.payhereEnabled) ? 0.67 : 1, border: paymentMethod === p.id ? '2px solid var(--brand)' : '1px solid var(--border-color)' }}
               >
                 <input 
                   type="radio" 
                   name="payment" 
                   checked={paymentMethod === p.id}
+                  disabled={p.disabled || (p.id === 'payhere' && !rates.payhereEnabled)}
                   onChange={() => setPaymentMethod(p.id)}
                   style={{ width: 18, height: 18, accentColor: 'var(--brand)' }}
                 />
                 <span style={{ fontSize: '1.25rem' }}>{p.icon}</span>
-                <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{p.label}</span>
+                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.id==='cash'?t('cashPaymentLabel'):p.id==='bank_transfer'?t('manualBankLabel'):p.id==='payhere'&&!rates.payhereEnabled?t('cardUnavailable'):p.id==='lankaqr'?t('lankaQrSoon'):p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.id==='cash'?t('cashPaymentHelp'):p.id==='bank_transfer'?t('manualBankHelp'):p.id==='payhere'&&rates.payhereEnabled?'Secure card payment via PayHere':p.description}</small></span>
               </label>
             ))}
           </div>
@@ -1015,6 +1082,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
 
         {/* Bill Summary */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 20, border: '1px solid var(--border-color)', fontSize: '0.88rem' }}>
+          <div className="customer-bill-merchant"><span>RESTAURANT BILL</span>
+            <strong>{store?.name || 'Restaurant not selected'}</strong>
+            {store?.address && <small>{store.address}</small>}
+          </div>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>{t.billSummary}</h3>
           
           {orderType === 'delivery' && subtotal < minimumOrder && (
@@ -1103,14 +1174,18 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.05rem', borderTop: '1px solid var(--border-color)', paddingTop: 8, marginTop: 4 }}>
               <span>{t.totalPayable}</span><span style={{ color: 'var(--brand)' }}>Rs. {total.toFixed(2)}</span>
             </div>
+            <div className="customer-bill-brand">Powered by <strong>GastroFlow</strong> · Developed by <strong>RS Technologies</strong></div>
           </div>
         </div>
 
+        <div className="customer-offline-checkout-note" role="status">
+          <strong>{t('offlineSafe')}</strong> · {t('offlineSafeHelp')}
+        </div>
         <div className="sticky-bar">
           <button
             type="submit"
             className="btn btn-brand"
-            disabled={loading || (orderType === 'delivery' && subtotal < minimumOrder)}
+            disabled={loading || !canOrder || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
             {loading ? `⏳ ${t.processing}` : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { validateProductionConfig } from '../lib/runtime-config.js';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 import { createDatabaseGate } from '../lib/database-gate.js';
 
 process.env.DATABASE_FILE = path.join(os.tmpdir(), `gastroflow_hardening_${crypto.randomUUID()}.db`);
@@ -25,7 +26,8 @@ const signedPayment = (order, overrides = {}) => {
   return body;
 };
 async function order(items = [{ menuItemId: 'security_item', quantity: 1 }], extra = {}) {
-  return request(app).post('/api/public/orders').send({ items, customerName: 'Regression Tester', customerPhone: '0770000000', orderType: 'takeaway', ...extra });
+  const checkoutProof = await testCheckoutProof(dbRun, 'default_tenant', extra.customerPhone || '0770000000');
+  return request(app).post('/api/public/orders').send({ items, customerName: 'Regression Tester', customerPhone: '0770000000', orderType: 'takeaway', ...extra, checkoutProof });
 }
 beforeAll(async () => {
   await dbReady;

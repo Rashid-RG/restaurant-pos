@@ -6,7 +6,7 @@ import LoginRegisterView from './LoginRegisterView.jsx';
 import { apiFetch } from '../utils/api.js';
 import { dateAtRestaurant } from '../../../../src/utils/restaurant-time.js';
 
-export default function ProfileView({ toast, resetToken, onResetHandled }) {
+export default function ProfileView({ toast, resetToken, onResetHandled, onBack }) {
   const { customer, logout, refreshProfile, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
   const { addItem, setCartOpen } = useCart();
@@ -18,14 +18,13 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Saved Addresses & Cards states
   const [addresses, setAddresses] = useState([]);
   const [cards, setCards] = useState([]);
   const [newAddress, setNewAddress] = useState('');
-  const [newCardNum, setNewCardNum] = useState('');
-  const [newCardExpiry, setNewCardExpiry] = useState('');
 
   useEffect(() => {
     if (customer) {
@@ -69,15 +68,21 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiFetch('/customer/profile', {
+      const response = await apiFetch('/customer/profile', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ name, phone, password: password || undefined })
+        body: JSON.stringify({ name, phone, password: password || undefined, currentPassword: password ? currentPassword : undefined })
       });
-      await refreshProfile();
       setEditMode(false);
       setPassword('');
-      toast('Profile updated! ✓', 'success');
+      setCurrentPassword('');
+      if (response.reauthenticationRequired) {
+        logout();
+        toast('Password updated. Sign in again to secure your account.', 'success');
+      } else {
+        await refreshProfile();
+        toast('Profile updated!', 'success');
+      }
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -96,35 +101,6 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
       setNewAddress('');
       toast('Address saved successfully! ✓', 'success');
       fetchAddresses();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  };
-
-  const handleAddCard = async (e) => {
-    e.preventDefault();
-    if (!newCardNum.trim()) return;
-    const cleanNum = newCardNum.replace(/\s+/g, '');
-    if (cleanNum.length < 12) {
-      toast('Please enter a valid card number.', 'error');
-      return;
-    }
-    const lastFour = cleanNum.slice(-4);
-    const cardType = cleanNum.startsWith('4') ? 'Visa' : cleanNum.startsWith('5') ? 'Mastercard' : 'Amex';
-    try {
-      await apiFetch('/customer/cards', {
-        method: 'POST',
-        body: JSON.stringify({
-          cardToken: `tok_${Date.now()}`,
-          cardType,
-          lastFour,
-          expiry: newCardExpiry.trim() || '12/28'
-        })
-      });
-      setNewCardNum('');
-      setNewCardExpiry('');
-      toast('Card saved successfully! ✓', 'success');
-      fetchCards();
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -162,7 +138,7 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
   };
 
   if (!customer) {
-    return <LoginRegisterView onSuccess={refreshProfile} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
+    return <LoginRegisterView onSuccess={refreshProfile} onBack={onBack} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
   }
 
   const initials = customer.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -265,15 +241,21 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
             </div>
             <div className="form-group" style={{ marginBottom: 10 }}>
               <label>Phone</label>
-              <input className="form-control" type="text" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+              <input className="form-control" type="tel" autoComplete="tel" inputMode="tel" value={phone} readOnly aria-describedby="phone-change-help" />
+              <small id="phone-change-help" style={{color:'var(--text-muted)'}}>Phone changes require ownership verification. Contact support to update this number.</small>
             </div>
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label>New Password <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(leave blank to keep)</span></label>
-              <input className="form-control" type="password" placeholder="Minimum 6 characters"
+              <input className="form-control" type="password" placeholder="At least 10 characters" autoComplete="new-password"
                 value={password} onChange={e => setPassword(e.target.value)} />
             </div>
+            {password && <div className="form-group" style={{ marginBottom: 12 }}>
+              <label>Current password (required to change password)</label>
+              <input className="form-control" type="password" autoComplete="current-password" required
+                value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
+            </div>}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className="btn btn-ghost" onClick={() => setEditMode(false)}>Cancel</button>
+              <button type="button" className="btn btn-ghost" onClick={() => { setEditMode(false); setPassword(''); setCurrentPassword(''); }}>Cancel</button>
               <button type="submit" className="btn btn-brand" disabled={saving}>{saving ? '⏳ Saving…' : 'Save Changes'}</button>
             </div>
           </form>
@@ -300,27 +282,11 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
         </form>
       </div>
 
-      {/* Saved Cards list */}
-      <div className="profile-card" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, border: '1px solid var(--border-color)', marginBottom: 16 }}>
-        <h3 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: 12 }}>💳 {t.savedCards}</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-          {cards.length === 0 ? (
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No saved payment cards.</p>
-          ) : (
-            cards.map(c => (
-              <div key={c.id} style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.01)', borderRadius: 8, fontSize: '0.82rem', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>💳 {c.cardType} ending in {c.lastFour}</span>
-                <span style={{ color: 'var(--text-muted)' }}>Exp: {c.expiry}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <form onSubmit={handleAddCard} style={{ display: 'flex', gap: 8 }}>
-          <input className="form-control" type="text" inputMode="numeric" autoComplete="cc-number" placeholder="Card number..." value={newCardNum} onChange={e => setNewCardNum(e.target.value)} />
-          <input className="form-control" style={{ width: '80px' }} placeholder="MM/YY" value={newCardExpiry} onChange={e => setNewCardExpiry(e.target.value)} />
-          <button className="btn btn-brand" type="submit" style={{ width: 'auto', padding: '0 16px' }}>Save</button>
-        </form>
-      </div>
+      {/* Gateway-tokenized cards can be enabled after certified provider integration. */}
+      <section className="profile-card" aria-label="Card payments" style={{background:'var(--bg-card)',padding:20,borderRadius:16,border:'1px solid var(--border-color)',marginBottom:16}}>
+        <h3 style={{fontSize:'1rem',fontWeight:800,marginBottom:8}}>💳 Card payment</h3>
+        <p style={{fontSize:'.85rem',color:'var(--text-muted)',lineHeight:1.55}}>Card payments and saved cards are not available at the moment. For safety, GastroFlow does not collect card numbers here. Please choose cash or manual bank transfer at checkout.</p>
+      </section>
 
       {/* Order History */}
       <div className="profile-card" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, border: '1px solid var(--border-color)', marginBottom: 16 }}>

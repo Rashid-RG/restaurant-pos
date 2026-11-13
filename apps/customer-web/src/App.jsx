@@ -6,14 +6,16 @@ import { CartProvider, useCart } from './context/CartContext.jsx';
 import { LanguageProvider, useLang } from './context/LanguageContext.jsx';
 import Toast, { useToast } from './components/Toast.jsx';
 import MenuView from './views/MenuView.jsx';
+import MarketplaceMenu from './views/MarketplaceMenu.jsx';
 import CartCheckoutView from './views/CartCheckoutView.jsx';
+import { useStorefront } from './hooks/useStorefront.js';
 import OrderTrackingView from './views/OrderTrackingView.jsx';
 import ProfileView from './views/ProfileView.jsx';
 import RestaurantsView from './views/RestaurantsView.jsx';
 import LegalPoliciesView from './views/LegalPoliciesView.jsx';
 import SupportView from './views/SupportView.jsx';
 import GastroAiConcierge from './components/GastroAiConcierge.jsx';
-import { setActiveTenant } from './utils/tenant.js';
+import { setActiveTenant, getActiveTenant } from './utils/tenant.js';
 import SystemUpdatePrompt from './components/SystemUpdatePrompt.jsx';
 
 
@@ -23,19 +25,22 @@ class ErrorBoundary extends Component {
   static getDerivedStateFromError(error) { return { error }; }
   render() {
     if (this.state.error) return (
-      <div style={{ padding: 24, fontFamily: 'monospace', color: '#c00', background: '#fff0f0', minHeight: '100dvh' }}>
-        <h2>⚠ App Error</h2>
-        <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', marginTop: 12 }}>
-          {this.state.error?.message}{'\n\n'}{this.state.error?.stack}
-        </pre>
-      </div>
+      <main className="customer-error-screen" role="alert">
+        <div className="customer-error-panel">
+          <div className="customer-error-symbol" aria-hidden="true">!</div>
+          <p className="customer-eyebrow">WE COULDN'T LOAD THIS SCREEN</p>
+          <h1>Something went wrong</h1>
+          <p>We couldn't display this page. Your order may already have been submitted, so check tracking before placing another order.</p>
+          <button className="btn btn-brand" onClick={() => window.location.reload()}>Try again</button>
+          <a href={import.meta.env.BASE_URL + '?view=track'}>Check an existing order</a>
+        </div>
+      </main>
     );
     return this.props.children;
   }
 }
 
-
-function CartSheet({ onCheckout }) {
+function CartSheet({ onCheckout, store, canOrder }) {
   const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems, rates } = useCart();
   // Use the same formula as CartCheckoutView so the cart sidebar and checkout
   // page show a consistent total. Previously CartSheet used subtotal * 1.10
@@ -47,21 +52,23 @@ function CartSheet({ onCheckout }) {
   if (!cartOpen) return null;
   return (
     <>
-      <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} />
-      <div className={`cart-sheet ${cartOpen ? 'open' : ''}`} role="dialog" aria-modal="true" aria-label="Your cart">
+      <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} aria-hidden="true" />
+      <div className={`cart-sheet ${cartOpen ? 'open' : ''} gf-modern-cart-sheet`} role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="cart-sheet-handle" />
         <div className="cart-sheet-header">
-          <h2>🛒 Cart · {totalItems} items</h2>
+          <div><h2>🛒 Cart · {totalItems} items</h2>
+            <p className="customer-cart-store-label">Order from: <strong>{store.name || 'Select a restaurant'}</strong></p>
+          </div>
           <button aria-label="Close cart" className="cart-close-btn" onClick={() => setCartOpen(false)}>✕</button>
         </div>
         <div className="cart-body">
           {items.length === 0 ? (
             <div className="cart-empty">
               <div className="empty-icon">🛒</div>
-              <p>Your cart is empty!</p>
+              <p>Your cart is empty</p><span>Explore the menu and add something delicious.</span>
             </div>
           ) : items.map(item => (
-            <div key={item.cartId} className="cart-item">
+            <div key={item.cartId} className="cart-item gf-modern-cart-item">
               <div className="cart-item-emoji">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} loading="lazy"
@@ -73,7 +80,7 @@ function CartSheet({ onCheckout }) {
                 <div className="cart-item-name">{item.name}</div>
                 {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                    {item.selectedModifiers.map(m => `+ ${m.name}`).join(', ')}
+                    {item.selectedModifiers.map(m => '+ ' + String(m.name || '')).join(', ')}
                   </div>
                 )}
                 {item.notes && (
@@ -81,26 +88,32 @@ function CartSheet({ onCheckout }) {
                     Note: "{item.notes}"
                   </div>
                 )}
-                <div className="cart-item-price">Rs. {item.unitPrice.toFixed(2)} each</div>
+                <div className="cart-item-price">Rs. {Number(item.unitPrice).toFixed(2)} each · Rs. {(Number(item.unitPrice)*Number(item.qty)).toFixed(2)} total</div>
               </div>
-              <div className="qty-control">
-                <button className="dec" onClick={() => removeItem(item.cartId)}>−</button>
-                <span className="qty">{item.qty}</span>
-                <button className="inc" onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+              <div className="gf-modern-cart-actions">
+                <div className="qty-control">
+                  <button type="button" className="dec" aria-label={'Remove one ' + item.name} disabled={item.qty<1} onClick={() => removeItem(item.cartId)}>−</button>
+                  <span className="qty" aria-live="polite">{item.qty}</span>
+                  <button type="button" className="inc" aria-label={'Add one ' + item.name} disabled={!canOrder || item.isAvailable === false || item.isAvailable === 0 || (item.stock!=null && items.filter(i=>i.id===item.id).reduce((n,i)=>n+Number(i.qty),0)>=Number(item.stock))} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+                </div>
+                <button type="button" className="gf-modern-cart-remove" aria-label={'Remove ' + item.name + ' from cart'} onClick={()=>deleteItem(item.cartId)}>Remove</button>
               </div>
             </div>
           ))}
         </div>
         {items.length > 0 && (
           <div className="cart-footer">
+            {!canOrder && <p role="status" className="customer-cart-closed-message">{store.status === 'closed' ? 'This restaurant is closed for online orders. Your cart is saved.' : 'Store availability is not confirmed. Select an open restaurant or reconnect.'}</p>}
             <div className="cart-summary-row"><span>Subtotal</span><span>Rs. {subtotal.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Service charge ({rates.serviceChargeRate}%)</span><span>Rs. {serviceCharge.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Tax ({rates.taxRate}%)</span><span>Rs. {tax.toFixed(2)}</span></div>
-            <div className="cart-summary-row total"><span>Est. Total</span><span>Rs. {total.toFixed(2)}</span></div>
+            <div className="cart-summary-row total"><span>Estimated total</span><span>Rs. {total.toFixed(2)}</span></div>
+            <p className="gf-modern-cart-estimate">Final prices, fees and item availability are confirmed by the restaurant at checkout. Delivery fees depend on your address.</p>
             <button
               className="btn btn-brand"
               style={{ marginTop: 12 }}
-              onClick={() => { setCartOpen(false); onCheckout && onCheckout(); }}
+              disabled={!canOrder}
+              onClick={() => { if (!canOrder) return; setCartOpen(false); onCheckout && onCheckout(); }}
             >
               Go to Checkout · Rs. {total.toFixed(2)}
             </button>
@@ -206,12 +219,16 @@ function InstallPrompt() {
 }
 
 // ── Inner App (needs context) ────────────────────────────────────────
-function InnerApp() {
-  const [view, setView] = useState('menu');
+function InnerApp({ switchRestaurant }) {
+  const [view, setView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tenant') ? 'store-menu' : 'menu';
+  });
   const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
-  const { items, totalItems, setCartOpen } = useCart();
+  const { items, totalItems, setCartOpen, cartOpen } = useCart();
+  const { store, canOrder, refreshStore } = useStorefront();
   const { messages, toast } = useToast();
   const { t, lang, setLang, languages } = useLang();
 
@@ -230,7 +247,7 @@ function InnerApp() {
       toast && toast(`🪑 Seated at Table #${table}! Menu loaded for table order.`, 'success');
     }
     if (tenant) {
-      setActiveTenant(tenant);
+      switchRestaurant(tenant);
     }
 
     if (track) {
@@ -241,14 +258,15 @@ function InnerApp() {
       setView('account');
     } else if (legal) {
       setView('legal');
-    } else if (viewParam && ['menu', 'restaurants', 'checkout', 'track', 'account', 'support', 'legal'].includes(viewParam)) {
-      setView(viewParam);
+    } else if (viewParam && ['menu', 'store-menu', 'restaurants', 'checkout', 'track', 'account', 'support', 'legal'].includes(viewParam)) {
+      // Existing restaurant-specific share links remain compatible.
+      setView(viewParam === 'menu' && tenant ? 'store-menu' : viewParam);
     }
 
     const handlePopState = () => {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('view') || p.get('page') || 'menu';
-      setView(v);
+      setView(v === 'menu' && p.get('tenant') ? 'store-menu' : v);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -284,7 +302,7 @@ function InnerApp() {
   };
 
   return (
-    <div className="app-shell"><ConnectionStatus/>
+    <div className={`app-shell customer-premium ${view === 'account' && !customer ? 'customer-auth-route' : ''}`}><ConnectionStatus/>
       <Toast messages={messages} />
       <InstallPrompt />
       <SystemUpdatePrompt />
@@ -292,7 +310,7 @@ function InnerApp() {
 
 
       {/* Top Header */}
-      <header className="top-header">
+      <header className="top-header" role="banner">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexShrink: 1 }}>
           {view !== 'restaurants' && (
             <button
@@ -364,25 +382,31 @@ function InnerApp() {
       </header>
 
       {/* Main Content */}
-      <main className="main-content">
+      <main className="main-content" id="customer-main">
         {view === 'restaurants' && (
           <RestaurantsView
             onSelectRestaurant={(rest) => {
-              if (rest && rest.id) setActiveTenant(rest.id);
-              setView('menu');
+              if (rest && rest.id) {
+                navigate('store-menu', {tenant:rest.id, group:null, track:null});
+                switchRestaurant(rest.id);
+              }
             }}
             toast={toast}
           />
         )}
-        {view === 'menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
-        {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
+        {view === 'menu' && <MarketplaceMenu onChooseStore={rest => {
+          navigate('store-menu', {tenant: rest.id, group: null, track: null});
+          switchRestaurant(rest.id);
+        }} />}
+        {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
+        {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
-        {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
+        {view === 'account' && <ProfileView toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
         {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
 
-        {/* ── Signature Footer & Gateway Legal Policies ── */}
-        <footer style={{
+        {/* Keep legal links available without forcing a long footer beneath food cards. */}
+        {(view === 'restaurants' || view === 'legal') && <footer className="customer-page-footer" style={{
           padding: '24px 16px 44px',
           textAlign: 'center',
           borderTop: '1px solid var(--border-color)',
@@ -443,35 +467,47 @@ function InnerApp() {
           <div style={{ fontSize: '0.68rem', opacity: 0.6, marginTop: 4 }}>
             © {new Date().getFullYear()} RS Technologies. All rights reserved. Registered in Sri Lanka.
           </div>
-        </footer>
+        </footer>}
       </main>
 
       {/* Global 24/7 GastroAI Concierge Assistant */}
       <GastroAiConcierge onNavigate={navigate} cartItems={items} />
 
+      {/* Cart shortcut sits outside the animated menu view, so scrolling
+          cannot move it under the fixed bottom navigation. */}
+      {view === 'store-menu' && totalItems > 0 && !cartOpen && (
+        <div className="customer-fixed-cart-action">
+          <button type="button" onClick={() => setCartOpen(true)} aria-label={`View cart containing ${totalItems} items`}>
+            <ShoppingBag size={19}/>
+            <span>View Cart</span>
+            <strong>{totalItems}</strong>
+          </button>
+        </div>
+      )}
+
       {/* Cart Sheet */}
-      <CartSheet onCheckout={() => navigate('checkout')} />
+      <CartSheet onCheckout={() => navigate('checkout')} store={store} canOrder={canOrder} />
 
       {/* Bottom Navigation */}
-      <nav className="bottom-nav">
-        <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} onClick={() => navigate('restaurants')}>
+      <nav className="bottom-nav" aria-label="Customer app navigation">
+        <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} aria-current={view==='restaurants'?'page':undefined} onClick={() => navigate('restaurants')}>
           <span className="nav-icon"><Store size={21}/></span>
           Stores
         </button>
-        <button className={`nav-item ${view === 'menu' ? 'active' : ''}`} onClick={() => navigate('menu')}>
+        <button className={`nav-item ${view === 'menu' || view === 'store-menu' ? 'active' : ''}`} aria-current={view==='menu'||view==='store-menu'?'page':undefined} onClick={() => navigate('menu', {tenant: null, group: null})}>
           <span className="nav-icon"><Utensils size={21}/></span>
           {t('navMenu')}
         </button>
-        <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} onClick={() => navigate('checkout')}>
+        <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} aria-current={view==='checkout'?'page':undefined} onClick={() => navigate('checkout')}>
           <span className="nav-icon"><ShoppingBag size={21}/></span>
           {t('navCart')}
           {totalItems > 0 && <span className="badge" style={{ position: 'static', fontSize: '0.6rem', padding: '1px 5px' }}>{totalItems}</span>}
         </button>
-        <button className={`nav-item ${view === 'track' ? 'active' : ''}`} onClick={() => navigate('track')}>
+        <button className={`nav-item ${view === 'track' ? 'active' : ''}`} aria-current={view==='track'?'page':undefined} onClick={() => navigate('track')}>
           <span className="nav-icon"><Package size={21}/></span>
           {t('navTrack')}
         </button>
-        <button className={`nav-item ${view === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>
+        <button className={`nav-item ${view === 'account' ? 'active' : ''}`} aria-current={view==='account'?'page':undefined} onClick={() => navigate('account')}>
           <span className="nav-icon"><UserRound size={21}/></span>
           {customer ? t('navAccount') : t('navSignIn')}
         </button>
@@ -482,12 +518,27 @@ function InnerApp() {
 
 // ── Root App ────────────────────────────────────────────────────────
 export default function App() {
+  // Select tenant synchronously before auth/cart child effects load any data.
+  const [tenantId, setTenantId] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('tenant');
+    const selected = fromUrl || getActiveTenant() || 'default_tenant';
+    setActiveTenant(selected);
+    return selected;
+  });
+  const switchRestaurant = (id) => {
+    if (!id || id === tenantId) return;
+    setActiveTenant(id);
+    // Restaurant identity changes require fresh customer identity and cart scopes.
+    localStorage.removeItem('gastroflow_dinein_table');
+    localStorage.removeItem('gastroflow_table_number');
+    setTenantId(id);
+  };
   return (
     <ErrorBoundary>
       <LanguageProvider>
-        <CustomerAuthProvider>
-          <CartProvider>
-            <InnerApp />
+        <CustomerAuthProvider key={tenantId}>
+          <CartProvider key={tenantId} tenantId={tenantId}>
+            <InnerApp key={tenantId} switchRestaurant={switchRestaurant} />
           </CartProvider>
         </CustomerAuthProvider>
       </LanguageProvider>

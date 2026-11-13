@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import crypto from 'crypto';
 import path from 'path';
 import os from 'os';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 
 const TMP_DB = path.join(os.tmpdir(), `gastroflow_it_${Date.now()}_${Math.random().toString(36).slice(2)}.db`);
 process.env.DATABASE_FILE = TMP_DB;
@@ -19,7 +20,7 @@ process.env.PAYHERE_MERCHANT_SECRET = 'test_merchant_secret';
 process.env.PAYHERE_MERCHANT_ID = 'TESTMERCHANT';
 // NODE_ENV stays undefined (not 'production') so fail-fast + dev-simulate guard behave for tests.
 
-const { app, dbReady } = await import('../server.js');
+const { app, dbReady, dbRun } = await import('../server.js');
 const request = (await import('supertest')).default;
 
 // Reproduce the server's PayHere webhook signature exactly.
@@ -33,6 +34,7 @@ async function createOnlineOrder() {
   const menu = await request(app).get('/api/public/menu');
   const item = menu.body.items[0];
   const res = await request(app).post('/api/public/orders').send({
+    checkoutProof: await testCheckoutProof(dbRun,'default_tenant','0770000000'),
     items: [{ menuItemId: item.id, quantity: 2 }],
     orderType: 'takeaway',
     customerName: 'IT Tester',

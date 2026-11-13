@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
+import {trackingProgress,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
+import {shouldRetainTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
 const STATUS_STEPS = [
   { id: 'pending', label: 'Order Received', desc: 'Awaiting restaurant confirmation', icon: '📋' },
@@ -15,8 +17,8 @@ const STATUS_STEPS = [
 function statusIndex(status) {
   if (!status) return 0;
   const s = status.toLowerCase();
-  if (s === 'paid' || s === 'delivered' || s === 'completed' || s === 'served') return 3;
-  if (s === 'ready' || s === 'out_for_delivery') return 2;
+  if (s === 'delivered' || s === 'completed' || s === 'served') return 3;
+  if (['ready','picked_up','out_for_delivery','arrived'].includes(s)) return 2;
   if (s === 'preparing' || s === 'in progress') return 1;
   return 0;
 }
@@ -41,9 +43,21 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [cancelling, setCancelling] = useState(false);
   const [storeInfo, setStoreInfo] = useState(null);   // { lat, lng, name, ... }
   const [driverLoc, setDriverLoc] = useState(null);    // live { lat, lng, driverName }
+  const [driverLastSeen,setDriverLastSeen]=useState(null);
+  const [nowClock,setNowClock]=useState(Date.now());
+  useEffect(() => { const id=window.setInterval(()=>setNowClock(Date.now()),10000); return ()=>window.clearInterval(id); },[]);
+  const [pushBusy,setPushBusy]=useState(false);
+  const [pushEnabled,setPushEnabled]=useState(false);
+  const [lastUpdate,setLastUpdate]=useState(null);
+  const [streamConnected,setStreamConnected]=useState(false);
+  const driverFixRef=useRef(null);
+  const activeTrackedIdRef=useRef(null);
+  const trackingFetchRef=useRef(null);
+  const [connectionWarning,setConnectionWarning]=useState('');
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
   const [dynamicETA, setDynamicETA] = useState(null);
+  const [roadRoute,setRoadRoute]=useState(null);
   const [driverChatOpen, setDriverChatOpen] = useState(false);
   const [driverMessages, setDriverMessages] = useState([]);
   const [driverInputMsg, setDriverInputMsg] = useState('');
@@ -70,11 +84,27 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     }
   }, [order?.id, order?.status]);
 
+  // Optional dedicated routing provider: refresh only for active deliveries.
+  useEffect(()=>{
+    const id=order?.id;
+    const type=String(order?.orderType||order?.diningType||'').toLowerCase();
+    const status=String(order?.status||'').toLowerCase();
+    if(!id || type!=='delivery' || ['cancelled','rejected','refunded','partially_refunded','completed','delivered'].includes(status)){setRoadRoute(null);return;}
+    let disposed=false;
+    const fetchRoute=()=>apiFetch(`/public/orders/${encodeURIComponent(id)}/road-route`).then(data=>{
+      if(!disposed)setRoadRoute(data?.available?data:null);
+    }).catch(()=>{if(!disposed)setRoadRoute(null);});
+    setRoadRoute(null);
+    fetchRoute();
+    const timer=setInterval(()=>{if(document.visibilityState==='visible')fetchRoute();},30000);
+    return()=>{disposed=true;clearInterval(timer);};
+  },[order?.id,order?.status,order?.orderType,order?.diningType]);
+
   // ── Poll Dispatch Status every 8 seconds ──
   useEffect(() => {
     if (!order || !order.id) return;
     const s = (order.status || '').toLowerCase();
-    if (s === 'completed' || s === 'delivered' || s === 'paid' || s === 'cancelled') return;
+    if (['completed','delivered','cancelled','rejected','refunded','partially_refunded'].includes(s)) return;
 
     const fetchDispatch = () => {
       apiFetch(`/public/orders/${order.id}/dispatch-status`)
@@ -154,32 +184,49 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   };
 
   const applyOrderUpdate = (update) => {
+    if (update?.id && activeTrackedIdRef.current && String(update.id)!==String(activeTrackedIdRef.current)) return;
     let items = update.items ?? orderRef.current?.items ?? [];
     if (typeof items === 'string') {
       try { items = JSON.parse(items); } catch { items = []; }
     }
-    const data = { ...update, items: Array.isArray(items) ? items : [] };
+    const data = { ...orderRef.current, ...update, items: Array.isArray(items) ? items : [] };
     if (orderRef.current?.status && data.status !== orderRef.current.status) {
       playCustomerChime();
       toast(`🔔 Order Status Updated: ${String(data.status).toUpperCase()}`, 'info');
     }
     orderRef.current = data;
     setOrder(data);
-    if (data.driver && typeof data.driver.lat === 'number') setDriverLoc(data.driver);
+    setLastUpdate(Date.now());
+    const fix=normalizeDriverFix(data.driver);
+    if(isNewerDriverFix(fix,driverFixRef.current)){
+      driverFixRef.current=fix;setDriverLoc(fix);setDriverLastSeen(fix.updatedAt);
+    }
   };
 
-  const fetchOrder = async (id) => {
-    if (!id) return;
-    setLoading(true); setError('');
+  const fetchOrder = async (id,{silent=false}={}) => {
+    if (!id || trackingFetchRef.current===id)return;
+    trackingFetchRef.current=id;
+    if (activeTrackedIdRef.current !== id) {
+      activeTrackedIdRef.current=id;
+      driverFixRef.current=null;orderRef.current=null;
+      setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setRoadRoute(null);
+      setDriverChatOpen(false);setDriverMessages([]);setRemainingMins(null);
+    }
+    if(!silent)setLoading(true);
+    if(!silent)setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
+      if(activeTrackedIdRef.current!==id)return;
       applyOrderUpdate(data);
+      setConnectionWarning('');
       setFeedbackSubmitted(false);
     } catch (err) {
-      setError(err.message);
-      setOrder(null);
+      if(activeTrackedIdRef.current!==id)return;
+      if(orderRef.current && shouldRetainTrackedOrder(err))setConnectionWarning('Connection interrupted. Showing the last confirmed order status.');
+      else if(!orderRef.current){setError(err.message||'Unable to load order.');setOrder(null);}
+      else setConnectionWarning('Unable to refresh this order. Please retry.');
     } finally {
-      setLoading(false);
+      if(trackingFetchRef.current===id){trackingFetchRef.current=null;if(!silent)setLoading(false);}
     }
   };
 
@@ -195,7 +242,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if (!order || !order.id) return;
 
     const status = (order.status || '').toLowerCase();
-    if (status === 'paid' || status === 'delivered' || status === 'completed' || status === 'cancelled') return;
+    if (['delivered','completed','cancelled','rejected','refunded','partially_refunded'].includes(status)) return;
 
     // SSE Stream setup
     let es;
@@ -203,11 +250,19 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
       const streamUrl = stream.href;
       es = new EventSource(streamUrl);
+      es.onopen=()=>setStreamConnected(true);
+      es.onerror=()=>setStreamConnected(false);
       es.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
           if (msg && msg.type === 'driver_location') {
-            setDriverLoc({ lat: msg.lat, lng: msg.lng, driverName: msg.driverName });
+            const fix=normalizeDriverFix(msg);
+            if(isNewerDriverFix(fix,driverFixRef.current)){
+              driverFixRef.current=fix;setDriverLoc(fix);setDriverLastSeen(fix.updatedAt);
+            }
+          } else if (msg?.type==='driver_assigned' && msg.orderId===orderRef.current?.id) {
+            // Rider assignment does not imply pickup; refresh the authoritative order.
+            fetchOrder(msg.orderId,{silent:true});
           } else if (msg && msg.id) {
             applyOrderUpdate(msg);
           }
@@ -217,54 +272,50 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
     // Polling fallback — reads orderId from orderRef so it is never stale
     const interval = setInterval(() => {
-      if (orderRef.current?.id) fetchOrder(orderRef.current.id);
+      if (orderRef.current?.id && document.visibilityState!=='hidden') fetchOrder(orderRef.current.id,{silent:true});
     }, 5000);
 
-    // Web Push Notification Registration
-    if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-      Notification.requestPermission().then(permission => {
-        if (permission === 'granted' && 'serviceWorker' in navigator) {
-          navigator.serviceWorker.ready.then(reg => {
-            if (storeInfo?.vapidPublicKey) {
-              reg.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: storeInfo.vapidPublicKey
-              }).then(sub => {
-                apiFetch('/public/push/subscribe', {
-                  method: 'POST',
-                  body: JSON.stringify({ orderId: order.id, subscription: sub })
-                }).catch(() => {});
-              }).catch(() => {});
-            }
-          });
-        }
-      });
-    }
 
     return () => {
       clearInterval(interval);
       if (es) es.close();
+      setStreamConnected(false);
     };
   }, [order?.id, order?.status]);
+
+  // Customer opt-in: permission must never be requested during page load.
+  const enableNotifications=async()=>{
+    if(!order?.id || !storeInfo?.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))return;
+    setPushBusy(true);
+    try {
+      const permission=await Notification.requestPermission();
+      if(permission!=='granted')throw new Error(t('notificationDenied') || 'Notifications were not allowed.');
+      const reg=await navigator.serviceWorker.ready;
+      const base64=storeInfo.vapidPublicKey.replace(/-/g,'+').replace(/_/g,'/');
+      const raw=atob(base64.padEnd(Math.ceil(base64.length/4)*4,'='));
+      const bytes=Uint8Array.from(raw,ch=>ch.charCodeAt(0));
+      const sub=await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:bytes});
+      await apiFetch('/public/orders/'+encodeURIComponent(order.id)+'/push-subscription',{method:'POST',body:JSON.stringify({subscription:sub.toJSON()})});
+      setPushEnabled(true);
+      toast(t('notificationsEnabled') || 'Order notifications enabled.','success');
+    }catch(e){toast(e.message||'Could not enable browser notifications. Live tracking remains available.','warning')}
+    finally{setPushBusy(false)}
+  };
 
   // Calculate dynamic ETA countdown
   useEffect(() => {
     if (!order) return;
-    if (order.status === 'cancelled' || order.status === 'paid' || order.status === 'completed') {
+    if (order.status === 'cancelled' || order.status === 'delivered' || order.status === 'completed') {
       setRemainingMins(null);
       return;
     }
 
-    const eta = order.etaMinutes || 25;
-    const startTime = order.acceptedAt || order.timestamp;
-    const elapsedMins = Math.floor((Date.now() - startTime) / 60000);
-    const left = Math.max(1, eta - elapsedMins);
-    setRemainingMins(left);
-
-    const timer = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTime) / 60000);
-      setRemainingMins(Math.max(1, eta - elapsed));
-    }, 30000);
+    const eta=trackingEtaMinutes(order.etaMinutes);
+    const startTime=Number(order.acceptedAt||order.timestamp);
+    if(eta===null||!Number.isFinite(startTime)||startTime<=0){setRemainingMins(null);return;}
+    const left=()=>Math.max(0,eta-Math.max(0,Math.floor((Date.now()-startTime)/60000)));
+    setRemainingMins(left());
+    const timer=setInterval(()=>setRemainingMins(left()),30000);
 
     return () => clearInterval(timer);
   }, [order?.acceptedAt, order?.etaMinutes, order?.timestamp, order?.status]);
@@ -309,59 +360,74 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
   const curStep = order ? statusIndex(order.status) : -1;
   const progressPct = order ? getProgressPercent(curStep) : 0;
-  const isCancelled = order?.status === 'cancelled';
+  const isCancelled = ['cancelled','rejected','refunded','partially_refunded'].includes(String(order?.status||'').toLowerCase());
   const canCancel = order?.status === 'pending';
   const rawType = (order?.orderType || order?.diningType || 'takeaway').toLowerCase();
   const isDelivery = rawType === 'delivery';
-  const isDineIn = rawType === 'dine_in' || rawType === 'dinein' || rawType === 'qr' || rawType === 'table' || rawType === 'dine in';
+  const isDineIn = rawType === 'dine-in' || rawType === 'dine_in' || rawType === 'dinein' || rawType === 'qr' || rawType === 'table' || rawType === 'dine in';
   const isTakeaway = !isDelivery && !isDineIn;
+  const trackingMode=isDelivery?'delivery':isDineIn?'dine-in':'takeaway';
+  const actualProgress=trackingProgress(order?.status,trackingMode);
+  const gpsState=driverFreshness(driverLoc,nowClock);
+  const hasRecentUpdates=lastUpdate && nowClock-lastUpdate<TRACKING_UPDATE_STALE_MS;
+  const etaDisplay=trackingEtaMinutes(dynamicETA?.estimatedMinutes) ?? remainingMins;
 
   return (
-    <div className="tracking-page fade-in" style={{ padding: '20px 16px 80px' }}>
+    <div className="tracking-page fade-in gf-modern-tracking" style={{ padding: '20px 16px 90px' }}>
       {!order ? (
 
-        <div className="form-section" style={{ marginTop: 24 }}>
-          <h2>📦 Track Your Order</h2>
-          <p className="text-muted" style={{ marginBottom: 16 }}>Enter your order reference ID to see live status & ETA</p>
+        <div className="form-section gf-tracking-lookup" style={{ marginTop: 24 }}>
+          <h2>📦 {t('trackOrderTitle')}</h2>
+          <p className="text-muted" style={{ marginBottom: 16 }}>{t('trackOrderHelp')}</p>
           <div className="form-group">
-            <label>Order ID</label>
+            <label>{t('orderId')}</label>
             <input className="form-control" placeholder="e.g. ord_online_…"
               value={trackId} onChange={e => setTrackId(e.target.value)} />
           </div>
           <button className="btn btn-brand mt-8" onClick={() => fetchOrder(trackId)} disabled={loading || !trackId}>
-            {loading ? '⏳ Looking up…' : '🔍 Track Order Live'}
+            {loading ? '⏳ '+t('loading') : '🔍 '+t('trackOrderLive')}
           </button>
           {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginTop: 12 }}>⚠ {error}</p>}
         </div>
       ) : (
         <>
-          {/* UBER EATS HERO LIVE BANNER */}
+          {order.paymentMethod === 'bank_transfer' && order.paymentStatus !== 'paid' && (
+            <section role="status" className="form-section" style={{border:'1px solid #a2c5ae',background:'#eef8f1',padding:18,borderRadius:16,marginBottom:16,color:'#203c2b'}}>
+              <strong style={{display:'block',fontSize:'1rem',marginBottom:8}}>🏦 {t('bankPending')}</strong>
+              <p style={{fontSize:'.85rem',lineHeight:1.6,margin:0}}>{t('bankPendingHelp')}</p>
+            </section>
+          )}
+          <div className="customer-tracking-tools">
+            <div className="customer-tracking-freshness" role="status" aria-live="polite"><strong>{streamConnected && hasRecentUpdates ? 'Live updates connected' : hasRecentUpdates ? 'Order updated · reconnecting' : 'Checking for order updates'}</strong><small>{lastUpdate ? 'Last confirmed '+new Date(lastUpdate).toLocaleTimeString() : 'Connecting…'}</small></div>
+            {storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
+              <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
+            {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
+            {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
+          </div>
+          {/* Server-backed order status hero. */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
+              {!isCancelled && <img className="tracking-food-art" src={`${import.meta.env.BASE_URL}tracking-food-bowl.svg`} alt="" aria-hidden="true" loading="lazy" />}
               {!isCancelled && <AnimatedFeatureIcon kind={curStep === 1 ? 'cooking' : curStep === 2 ? (isDelivery ? 'delivery' : 'ready') : curStep === 3 ? 'ready' : 'order'} size={72} active={curStep < 3}/>}
               {isCancelled ? (
                 <div>
-                  <div className="uber-status-badge cancelled">Cancelled</div>
-                  <h1 className="uber-hero-title" style={{ color: 'var(--danger)' }}>Order Cancelled</h1>
+                  <div className="uber-status-badge cancelled">{t('statusCancelled')}</div>
+                  <h1 className="uber-hero-title" style={{ color: 'var(--danger)' }}>{t('orderCancelledTitle')}</h1>
                   <p className="uber-hero-subtitle">{order.rejectedReason || 'The kitchen was unable to fulfill your order.'}</p>
                 </div>
               ) : curStep === 3 ? (
                 <div>
                   <div className="uber-status-badge completed">{isDineIn ? 'Served' : isTakeaway ? 'Picked Up' : 'Delivered'}</div>
                   <h1 className="uber-hero-title">{isDineIn ? 'Food Served! 🍽️' : isTakeaway ? 'Order Picked Up! 🛍️' : 'Order Delivered! 🎉'}</h1>
-                  <p className="uber-hero-subtitle">Thank you for dining with GastroFlow.</p>
+                  <p className="uber-hero-subtitle">{t('orderCompletedThanks')}</p>
                 </div>
               ) : (
                 <div>
-                  <div className="uber-status-badge live">🔴 Live Tracking ({isDineIn ? '🍽️ Dine-In' : isTakeaway ? '🛍️ Takeaway' : '🛵 Delivery'})</div>
+                  <div className="uber-status-badge live">{streamConnected && hasRecentUpdates ? '● Live updates' : '○ Checking updates'} · {isDineIn ? 'Dine-in' : isTakeaway ? 'Pickup' : 'Delivery'}</div>
                   <h1 className="uber-hero-title">
-                    {dynamicETA ? `⏱️ ~${dynamicETA.estimatedMinutes} mins` : remainingMins ? `~${remainingMins} mins` : 'Estimated ~15 mins'}
+                    {etaDisplay !== null ? `Approx. ${etaDisplay} min` : 'Awaiting estimate'}
                   </h1>
-                  {dynamicETA && (
-                    <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 4 }}>
-                      ⚡ Kitchen Prep: {dynamicETA.maxItemPrep}m · Load: +{dynamicETA.kitchenLoadBuffer}m {dynamicETA.rainBuffer ? '· Rain Surge +12m 🌧️' : ''}
-                    </div>
-                  )}
+                  {etaDisplay !== null && <p className="gf-tracking-eta-note">Approximate only · depends on kitchen and road conditions</p>}
                   <p className="uber-hero-subtitle">
                     {isDineIn ? (
                       curStep === 0 ? 'Waiting for restaurant confirmation…' :
@@ -376,7 +442,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     ) : (
                       curStep === 0 ? 'Waiting for restaurant confirmation…' :
                       curStep === 1 ? 'Chef is preparing your food fresh in the kitchen 👨‍🍳' :
-                      curStep === 2 ? 'Rider is en route to your delivery address 🛵' :
+                      curStep === 2 ? (order.status === 'out_for_delivery' ? 'Your rider is on the way 🛵' : 'Food is ready and awaiting delivery pickup 🛍️') :
                       'Delivered! Enjoy your meal 🎉'
                     )}
                   </p>
@@ -387,20 +453,22 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             {/* Uber Progress Bar */}
             {!isCancelled && (
               <div className="uber-progress-bar-wrap">
-                <div className="uber-progress-bar-fill" style={{ width: `${progressPct}%` }} />
+                <div className="uber-progress-bar-fill" style={{ width: `${actualProgress.percent}%` }} />
               </div>
             )}
 
             {/* Real live map — only for delivery orders with a pinned destination. */}
-            {!isCancelled && curStep < 3 && isDelivery && typeof order.deliveryLat === 'number' && (
+            {!isCancelled && curStep < 3 && isDelivery && validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng}) && (
               <div style={{ position: 'relative', margin: '16px 0' }}>
                 <TrackingMap
                   store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
                   dest={{ lat: order.deliveryLat, lng: order.deliveryLng }}
-                  driver={driverLoc}
+                  driver={gpsState.visible ? driverLoc : null}
+                  route={roadRoute}
                 />
+                {roadRoute?.available && <div className="gf-route-summary" role="status"><strong>{roadRoute.distanceKm.toFixed(1)} km by road</strong><span>About {roadRoute.travelMinutes} min estimated driving · {roadRoute.startingPoint==='rider'?'from latest rider fix':'from restaurant'} · excludes traffic and preparation time</span></div>}
                 <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                  {driverLoc ? '🛵 Driver live' : '📡 Live tracking'}
+                  {gpsState.label}
                 </div>
               </div>
             )}
@@ -420,12 +488,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#f8fafc' }}>{dispatchStatus.dispatchLabel}</div>
                     {dispatchStatus.driver && dispatchStatus.driver.isRecent && dispatchStatus.driver.distanceToStoreKm !== null && (
                       <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 3 }}>
-                        📍 {dispatchStatus.driver.distanceToStoreKm} km from store · GPS live
+                        📍 {dispatchStatus.driver.distanceToStoreKm} km from restaurant · Last reported location
                       </div>
                     )}
-                    {dispatchStatus.etaMinutes && (
+                    {trackingEtaMinutes(dispatchStatus.etaMinutes) !== null && (
                       <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: 2, fontWeight: 700 }}>
-                        ⏱️ Est. delivery: ~{dispatchStatus.etaMinutes} mins
+                        ⏱️ Est. delivery: about {trackingEtaMinutes(dispatchStatus.etaMinutes)} min
                       </div>
                     )}
                   </div>
@@ -443,14 +511,14 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           {/* First-Class Contact & Conduct Action Buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, margin: '12px 0' }}>
             <a
-              href={`tel:${order?.storePhone || '0760130922'}`}
+              href={order?.storePhone || storeInfo?.phone ? `tel:${order?.storePhone || storeInfo.phone}` : undefined}
               className="btn btn-primary"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, textDecoration: 'none', padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700 }}
             >
               📞 Call Store
             </a>
             <a
-              href={`https://wa.me/94760130922?text=${encodeURIComponent(`Hi GastroFlow, inquiry about Order #${order?.id}`)}`}
+              href={order?.storePhone || storeInfo?.phone ? `https://wa.me/${String(order?.storePhone || storeInfo.phone).replace(/[^\d]/g,'').replace(/^0/, '94')}?text=${encodeURIComponent(`Hi, inquiry about GastroFlow Order #${order?.id}`)}` : undefined}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-secondary"
@@ -463,7 +531,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               className="btn btn-secondary"
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700, background: '#128C7E', color: '#fff', border: 'none' }}
               onClick={() => {
-                const msg = `🧾 *GastroFlow Invoice #${order?.invoiceNumber || order?.id.slice(-4).toUpperCase()}*\nCustomer: ${order?.customerName || 'Customer'}\nTotal: LKR ${(order?.total || 0).toFixed(2)}\nTrack: ${window.location.href}`;
+                const msg = `🧾 *${order?.storeName || storeInfo?.name || 'Restaurant'} — GastroFlow Invoice #${order?.invoiceNumber || order?.id.slice(-4).toUpperCase()}*\nCustomer: ${order?.customerName || 'Customer'}\nTotal: LKR ${Number(order?.total || 0).toFixed(2)}\nPowered by GastroFlow · Developed by RS Technologies\nTrack: ${window.location.href}`;
                 if (navigator.share) {
                   navigator.share({ title: 'GastroFlow Invoice', text: msg, url: window.location.href }).catch(() => {});
                 } else {
@@ -480,13 +548,13 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={onBack}>
               ⬅ Back to Menu
             </button>
-            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { setOrder(null); setTrackId(''); }}>
+            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { activeTrackedIdRef.current=null;driverFixRef.current=null;orderRef.current=null;setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setOrder(null);setTrackId(''); }}>
               🔍 Track Another
             </button>
           </div>
 
           {/* Customer Rating Feedback Popup (when delivered) */}
-          {curStep === 3 && (
+          {actualProgress.done && (
             <div className="tracking-card" style={{ marginTop: 12, border: '2px solid var(--brand)', background: 'var(--bg-card)' }}>
               <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 800 }}>⭐ Rate Your Experience</h3>
               {feedbackSubmitted ? (
@@ -531,8 +599,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             </div>
           )}
 
-          {/* Detailed Order Card */}
-          <div className="tracking-card" style={{ marginTop: 12 }}>
+          {/* The receipt identifies the restaurant that owns the order. */}
+          <div className="tracking-card customer-order-receipt" style={{ marginTop: 12 }}>
+            <div className="customer-receipt-brand"><strong>{order.storeName || storeInfo?.name || 'Restaurant'}</strong><small>{order.storeAddress || storeInfo?.address || ''}</small>{(order.storePhone || storeInfo?.phone) && <small>Tel: {order.storePhone || storeInfo.phone}</small>}</div>
             <div className="flex-between" style={{ marginBottom: 8 }}>
               <div>
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Order Reference</div>
@@ -563,59 +632,11 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
-            {/* 1-Tap Direct Call & Chat Buttons — Delivery ONLY */}
-            {isDelivery && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDriverChatOpen(true);
-                    fetchDriverMessages(order.id);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '10px 4px',
-                    borderRadius: 10,
-                    background: '#6366f115',
-                    border: '1px solid #6366f150',
-                    color: '#6366f1',
-                    fontWeight: 800,
-                    fontSize: '0.78rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 4
-                  }}
-                >
-                  <span>💬 Chat Rider</span>
-                </button>
-
-                <a
-                  href={`tel:${order?.driver?.phone || order?.driverPhone || '+94760130922'}`}
-                  style={{ textDecoration: 'none' }}
-                >
-                  <button
-                    type="button"
-                    style={{
-                      width: '100%',
-                      padding: '10px 4px',
-                      borderRadius: 10,
-                      background: '#10b98115',
-                      border: '1px solid #10b98150',
-                      color: '#10b981',
-                      fontWeight: 800,
-                      fontSize: '0.78rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4
-                    }}
-                  >
-                    <span>🛵 Call Rider</span>
-                  </button>
-                </a>
+            {/* Driver contact options only after a confirmed assignment. */}
+            {isDelivery && !isCancelled && (order.driver?.id || order.driverId || dispatchStatus?.driverId) && (
+              <div className="gf-tracking-driver-actions">
+                <button type="button" onClick={() => {setDriverChatOpen(true);fetchDriverMessages(order.id);}}>💬 Message rider</button>
+                {(order.driver?.phone || order.driverPhone) && <a href={`tel:${order.driver?.phone || order.driverPhone}`}>📞 Call rider</a>}
               </div>
             )}
 
@@ -630,9 +651,11 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
             <div className="flex-between" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border-color)', fontWeight: 800, fontSize: '1rem' }}>
               <span>{tr.totalAmount}</span>
-              <span style={{ color: 'var(--brand)' }}>Rs. {order.total?.toFixed(0)}</span>
+              <span style={{ color: 'var(--brand)' }}>Rs. {Number(order.total || 0).toFixed(2)}</span>
             </div>
 
+            <div className="customer-receipt-powered">Powered by <strong>GastroFlow</strong><span>Developed by RS Technologies</span></div>
+            <button type="button" className="customer-print-receipt" onClick={() => window.print()}>🧾 Print / Save receipt</button>
             {canCancel && (
               <button
                 className="btn btn-outline"
@@ -650,28 +673,28 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             )}
           </div>
 
-          {/* Timeline Steps */}
+          {/* Accurate five-stage delivery timeline; never combine ready with rider departure. */}
           {!isCancelled && (
-            <div className="tracking-card" style={{ marginTop: 12 }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 16 }}>Live Progress Timeline</h3>
-              <div className="status-steps">
-                {STATUS_STEPS.map((step, i) => {
-                  const done = i < curStep;
-                  const active = i === curStep;
-                  return (
-                    <div key={step.id} className={`status-step ${done ? 'done' : active ? 'active' : ''}`}>
-                      <div className="step-dot">
-                        {done ? '✓' : <AnimatedFeatureIcon kind={i === 1 ? 'cooking' : i === 2 ? (isDelivery ? 'delivery' : 'ready') : i === 3 ? 'ready' : 'order'} size={32} active={active}/>}
-                      </div>
-                      <div className="step-info">
-                        <h4>{step.label}</h4>
-                        <p>{(done || active) ? step.desc : 'Waiting…'}</p>
-                      </div>
-                    </div>
-                  );
-                })}
+            <section className="tracking-card gf-tracking-timeline" aria-label="Order progress timeline">
+              <div className="gf-tracking-section-heading">
+                <span className="gf-tracking-overline">YOUR ORDER JOURNEY</span>
+                <h3>Order progress</h3>
+                <p>Updated from the restaurant's confirmed order status.</p>
               </div>
-            </div>
+              <ol className="gf-tracking-steps">
+                {actualProgress.steps.map((step,i)=>{
+                  const complete=i<actualProgress.currentIndex || (actualProgress.done && i===actualProgress.currentIndex);
+                  const active=i===actualProgress.currentIndex && !actualProgress.done;
+                  return <li key={step.id} className={`gf-tracking-step ${complete?'is-done':active?'is-active':'is-upcoming'}`} aria-current={active?'step':undefined}>
+                    <div className="gf-tracking-node" aria-hidden="true">{complete?'✓':String(i+1)}</div>
+                    <div>
+                      <strong>{step.label}{active?' · Current':''}</strong>
+                      <p>{complete||active?step.description:'Upcoming stage'}</p>
+                    </div>
+                  </li>;
+                })}
+              </ol>
+            </section>
           )}
           {/* Driver In-App Live Chat Drawer */}
           {driverChatOpen && (

@@ -2,7 +2,7 @@ import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePOS } from '../context/POSContext';
-import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint } from '../utils/printer';
+import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt, printSelectedReceipt } from '../utils/printer';
 import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
 
 export function getFoodImageForItem(item) {
@@ -60,6 +60,7 @@ export default function POSView() {
     cart,
     addToCart,
     updateCartQuantity,
+    updateCartUnitPrice,
     updateCartNotes,
     removeFromCart,
     clearCart,
@@ -112,6 +113,9 @@ export default function POSView() {
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showCustomizerModal, setShowCustomizerModal] = useState(false);
+  const [customPriceLine, setCustomPriceLine] = useState(null);
+  const [customPriceValue, setCustomPriceValue] = useState('');
+  const [customPriceError, setCustomPriceError] = useState('');
 
   // Cash In / Cash Out (Paid-Out) Modal state
   const [showCashMoveModal, setShowCashMoveModal] = useState(false);
@@ -177,30 +181,34 @@ export default function POSView() {
   const [printReceiptOrder, setPrintReceiptOrder] = useState(null);
   const [lastPaidOrder, setLastPaidOrder] = useState(null);
 
-  // Auto-print receipt only when a new payment is completed.
-  // autoPrintRef.current is set to true in handlePaymentComplete and false on
-  // manual reprints (“Last Bill” button), preventing the double-print bug.
+  // Print only after the paid receipt has been committed to React's print portal.
   useEffect(() => {
-    if (printReceiptOrder && autoPrintRef.current) {
-      autoPrintRef.current = false;
-      const is58mm = settings.printerPaperWidth === '58mm';
-      if (is58mm) document.body.classList.add('print-58mm');
-      else document.body.classList.remove('print-58mm');
-      document.body.classList.add('printing-receipt');
-      const timer = setTimeout(() => {
-        prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
-        window.print();
-        setTimeout(() => {
-          document.body.classList.remove('print-58mm');
-          document.body.classList.remove('printing-receipt');
-          cleanupThermalPrint();
-        }, 1200);
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [printReceiptOrder]);
+    if (!printReceiptOrder || !autoPrintRef.current) return;
+    autoPrintRef.current=false;
+    const timer=setTimeout(() => {
+      if (!printRenderedReceipt(settings?.printerPaperWidth || '80mm')) {
+        showToast('The bill was not ready to print. Open Last Bill and try Print Receipt again.','error');
+      }
+    },500);
+    return ()=>clearTimeout(timer);
+  },[printReceiptOrder]);
 
   const currencySymbol = settings.currencySymbol || 'Rs.';
+  const openCustomPrice = (lineIndex, line) => {
+    if (!['owner', 'manager'].includes(currentUser?.role)) return;
+    setCustomPriceLine(lineIndex);
+    setCustomPriceValue(String(Number(line.unitPrice ?? line.price)));
+    setCustomPriceError('');
+  };
+  const saveCustomPrice = (event) => {
+    event.preventDefault();
+    const amount = Number(customPriceValue);
+    try {
+      updateCartUnitPrice(customPriceLine, amount);
+      setCustomPriceLine(null);
+      showToast('Custom price applied to this bill only. Menu prices are unchanged.', 'success');
+    } catch(error) { setCustomPriceError(error.message || 'Invalid custom price.'); }
+  };
 
   // Filter items
   const filteredItems = menuItems.filter((item) => {
@@ -778,7 +786,11 @@ export default function POSView() {
               <div className="cart-item" key={index}>
                 <div className="cart-item-desc">
                   <h4>{item.name}</h4>
-                  <span className="cart-item-price">{currencySymbol}{item.price.toFixed(2)}</span>
+                  <span className="cart-item-price">{currencySymbol}{Number(item.unitPrice ?? item.price).toFixed(2)} each</span>
+                  {item.customUnitPrice != null && <small style={{display:'block',color:'var(--text-muted)',fontSize:11}}>Menu price: {currencySymbol}{Number(item.menuPrice ?? item.price).toFixed(2)} · Custom for this bill</small>}
+                  {['owner', 'manager'].includes(currentUser?.role) && <button type="button" className="btn btn-secondary" style={{fontSize:11,minHeight:30,padding:'4px 9px',marginTop:6}}
+                    aria-label={`Edit price for ${item.name}`}
+                    onClick={() => openCustomPrice(index, item)}>✎ {item.customUnitPrice != null ? 'Edit price' : 'Custom price'}</button>}
                   {item.notes && <div className="cart-item-notes">📝 {item.notes}</div>}
                 </div>
                 <div className="cart-item-controls">
@@ -787,7 +799,7 @@ export default function POSView() {
                     <div className="qty-val">{item.quantity}</div>
                     <button className="qty-btn" onClick={() => updateCartQuantity(index, item.quantity + 1)}>＋</button>
                   </div>
-                  <span className="cart-item-total">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                  <span className="cart-item-total">{currencySymbol}{(Number(item.unitPrice ?? item.price) * item.quantity).toFixed(2)}</span>
                   <button 
                     className="cart-item-remove" 
                     onClick={() => updateCartQuantity(index, 0)}
@@ -889,6 +901,33 @@ export default function POSView() {
           </div>
         </div>
       </div>
+
+      {/* One-time owner/manager price, never edits the menu catalog. */}
+      {customPriceLine != null && cart[customPriceLine] && (
+        <div className="modal-overlay" role="presentation">
+          <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="pos-custom-price-title" style={{maxWidth:420}}>
+            <div className="modal-header">
+              <h2 id="pos-custom-price-title">Custom item price</h2>
+              <button type="button" className="modal-close" aria-label="Close custom price" onClick={()=>setCustomPriceLine(null)}>×</button>
+            </div>
+            <p style={{fontWeight:700,margin:'0 0 6px'}}>{cart[customPriceLine].name}</p>
+            <p style={{color:'var(--text-muted)',fontSize:13,margin:'0 0 16px'}}>Standard menu price: {currencySymbol}{Number(menuItems.find(i=>i.id===cart[customPriceLine].id)?.price ?? cart[customPriceLine].menuPrice ?? cart[customPriceLine].price).toFixed(2)}. Only this bill will change.</p>
+            <form onSubmit={saveCustomPrice}>
+              <label htmlFor="pos-one-off-price" style={{display:'block',fontWeight:700,marginBottom:7}}>Charge per item ({currencySymbol})</label>
+              <input id="pos-one-off-price" className="form-input" type="number" min="0.01" max="10000000" step="0.01" required autoFocus
+                value={customPriceValue} onChange={e=>setCustomPriceValue(e.target.value)} />
+              {customPriceError && <p role="alert" style={{color:'var(--color-danger)',fontSize:13}}>{customPriceError}</p>}
+              <div style={{display:'flex',gap:8,marginTop:16,flexWrap:'wrap'}}>
+                <button type="submit" className="btn btn-primary" style={{flex:1}}>Apply to this bill</button>
+                {cart[customPriceLine].customUnitPrice != null && <button type="button" className="btn btn-secondary" onClick={()=>{
+                  try { updateCartUnitPrice(customPriceLine,null);setCustomPriceLine(null); } catch(e){setCustomPriceError(e.message);}
+                }}>Restore menu price</button>}
+                <button type="button" className="btn btn-secondary" onClick={()=>setCustomPriceLine(null)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 3. MODALS BLOCK */}
 
@@ -1429,17 +1468,9 @@ export default function POSView() {
                 className="btn btn-secondary" 
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                 onClick={() => {
-                  const is58mm = settings?.printerPaperWidth === '58mm';
-                  if (is58mm) document.body.classList.add('print-58mm');
-                  else document.body.classList.remove('print-58mm');
-                  document.body.classList.add('printing-receipt');
-                  prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
-                  window.print();
-                  setTimeout(() => {
-                    document.body.classList.remove('print-58mm');
-                    document.body.classList.remove('printing-receipt');
-                    cleanupThermalPrint();
-                  }, 1200);
+                  if(!printRenderedReceipt(settings?.printerPaperWidth || '80mm', { userInitiated: true })){
+                    showToast('Cannot print: receipt content is missing. Reopen this paid bill and retry.','error');
+                  }
                 }}
               >
                 🖨️ Print Receipt
@@ -1644,13 +1675,11 @@ export default function POSView() {
 
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => {
-                    document.body.classList.add('printing-receipt');
-                    prepareThermalPrint('#z-report-print', settings?.printerPaperWidth || '80mm');
-                    window.print();
-                    setTimeout(() => {
-                      document.body.classList.remove('printing-receipt');
-                      cleanupThermalPrint();
-                    }, 1200);
+                    // A Z-Report is a standalone receipt, never print the entire POS window.
+                    // The previous global print mode could generate blank or oversized pages.
+                    if (!printSelectedReceipt('#z-report-print', settings?.printerPaperWidth || '80mm')) {
+                      showToast('Z-Report is not ready for printing. Please reopen the report and try again.', 'error');
+                    }
                   }}>
                     🖨️ Print Z-Report
                   </button>
@@ -1683,13 +1712,14 @@ export default function POSView() {
               ) : (
                 <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍽️</div>
               )}
-              <h3 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
+              <h3 className="receipt-business-name" style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
                 {settings?.restaurantName || settings?.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
               </h3>
               {settings?.address && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>{settings.address}</p>}
               {settings?.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
             </div>
             <div className="receipt-divider"></div>
+            <div className="receipt-center receipt-document-heading"><strong>{printReceiptOrder.paymentStatus === 'paid' || printReceiptOrder.status === 'paid' ? 'PAYMENT RECEIPT' : 'CUSTOMER BILL'}</strong></div>
             <p>Date: {formatRestaurantTime(printReceiptOrder.timestamp || Date.now(), restaurantTimeZone(settings))}</p>
             {printReceiptOrder.invoiceNumber != null && (
               <p><strong style={{ fontSize: '13px' }}>INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</strong></p>
@@ -1702,12 +1732,20 @@ export default function POSView() {
             {printReceiptOrder.deliveryAddress && <p>Address: {printReceiptOrder.deliveryAddress}</p>}
             <div className="receipt-divider"></div>
             
-            {printReceiptOrder.items?.map((item, idx) => (
-              <div key={idx} className="receipt-row">
-                <span>{item.quantity}x {item.name}</span>
-                <span>{currencySymbol}{((item.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
-              </div>
-            ))}
+            <div className="receipt-items-heading"><span>ITEM · QTY</span><span>AMOUNT</span></div>
+            {printReceiptOrder.items?.map((item, idx) => {
+              const quantity=Number(item.quantity || 1);
+              const price=Number(item.unitPrice ?? item.price ?? 0);
+              return (
+                <div key={idx} className="receipt-item-block">
+                  <div className="receipt-row">
+                    <span>{quantity} × {item.name}</span>
+                    <span>{currencySymbol}{(price*quantity).toFixed(2)}</span>
+                  </div>
+                  <div className="receipt-item-detail">{currencySymbol}{price.toFixed(2)} each{item.customUnitPrice != null ? ' · Special price' : ''}</div>
+                </div>
+              );
+            })}
 
             <div className="receipt-divider"></div>
             <div className="receipt-row">
@@ -1756,7 +1794,7 @@ export default function POSView() {
             {Number(printReceiptOrder.refundedAmount||0)>0&&<><div className="receipt-row"><span>REFUNDED:</span><span>{currencySymbol}{Number(printReceiptOrder.refundedAmount).toFixed(2)}</span></div><div className="receipt-row"><span>NET RETAINED:</span><span>{currencySymbol}{(Number(printReceiptOrder.total)-Number(printReceiptOrder.refundedAmount)).toFixed(2)}</span></div><p>Status: {printReceiptOrder.status}</p></>}
             <div className="receipt-divider"></div>
             <div className="receipt-center">
-              <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
+              <p className="receipt-payment-method">Payment: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
               {(() => {
                 if (!printReceiptOrder.paymentSplit) return null;
                 try {
@@ -1775,8 +1813,14 @@ export default function POSView() {
                   return null;
                 }
               })()}
-              <p style={{ marginTop: '12px', fontWeight: 'bold' }}>Thank You For Dining With Us!</p>
-              <p>System by RS Technologies</p>
+              <div className="receipt-gratitude">
+                <div className="receipt-thank-you">Thank You!</div>
+                <div className="receipt-visit-again">— Visit Again —</div>
+              </div>
+              <div className="receipt-platform-credit">
+                <div>Powered by <strong>GastroFlow</strong></div>
+                <div className="receipt-developed-by">Developed by RS Technologies</div>
+              </div>
             </div>
           </div>
         );

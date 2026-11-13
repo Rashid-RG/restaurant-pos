@@ -1,5 +1,7 @@
 import {startStoreUpdates} from '../utils/live-store.js';
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { isMenuItemAvailable, maxMenuItemQuantity, validMenuQuantity, menuItemTotal, isRequiredModifierMissing } from '../utils/menu-selection.js';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -131,14 +133,14 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
     // 1. Fetch Menu for active tenant
     apiFetch('/public/menu')
       .then(data => {
-        setRates({taxRate: Number(data.taxRate || 0), serviceChargeRate: Number(data.serviceChargeRate || 0)});
+        setRates({taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0),payhereEnabled:data.payhereEnabled===true});
         setMenu({
           ...data,
           categories: data.categories || [],
           items: data.items || [],
           restaurantName: data.restaurantName || '',
           logo: data.logo || null,
-          storeOpen: data.storeOpen !== undefined ? data.storeOpen : true
+          storeOpen: data.storeOpen === true
         });
         setLoading(false);
       })
@@ -186,8 +188,8 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
     let disposed=false;
     const refreshMenu=async()=>{
       const data=await apiFetch('/public/menu');if(disposed)return;
-      setRates({taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0)});
-      setMenu(prev=>({...prev,...data,categories:data.categories||[],items:data.items||[],storeOpen:data.storeOpen!==false}));
+      setRates(prev=>({...prev,taxRate:Number(data.taxRate||0),serviceChargeRate:Number(data.serviceChargeRate||0),payhereEnabled:data.payhereEnabled===true}));
+      setMenu(prev=>({...prev,...data,categories:data.categories||[],items:data.items||[],storeOpen:data.storeOpen===true}));
     };
     const handleMessage = (e) => {
       try {
@@ -277,7 +279,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
           .sort((a, b) => frequencies[b] - frequencies[a])
           .map(id => menu.items.find(i => String(i.id) === String(id)))
           .filter(Boolean)
-          .filter(i => i.isAvailable !== 0 && (i.stock === undefined || i.stock > 0))
+          .filter(isMenuItemAvailable)
           .slice(0, 3);
 
         setPersonalRecs(sortedRecs);
@@ -285,7 +287,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
       .catch(() => {});
   }, [customer, menu.items]);
 
-  const getQty = (id) => cartItems.find(i => i.id === id)?.qty || 0;
+  const getQty = (id) => cartItems.filter(i => i.id === id).reduce((sum,row)=>sum+(Number(row.qty)||0),0);
 
   // Advanced Multi-Dimensional Filter & Sort Items
   const filteredItems = (menu.items || [])
@@ -316,6 +318,10 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
 
   // Open Customizer
   const handleItemAddClick = (item) => {
+    if (!isMenuItemAvailable(item)) { toast('This item is currently unavailable.', 'warning'); return; }
+    if (menu.storeOpen !== true || menu.offlineSnapshot) {
+      toast('This restaurant is not accepting online orders.', 'warning'); return;
+    }
     if (item.modifiers && item.modifiers.length > 0) {
       setCustomizerItem(item);
       setCustomizerQty(1);
@@ -343,6 +349,10 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
 
   // Add customized item to cart (local or group)
   const handleAddToCart = async (item, qty, modifiers, notes) => {
+    if (!validMenuQuantity(qty,item) || menuItemTotal(item,qty,modifiers) === null) { toast('This selection is unavailable or exceeds remaining stock.', 'warning'); return; }
+    if (menu.storeOpen !== true || menu.offlineSnapshot) {
+      toast('This restaurant is not accepting online orders.', 'warning'); return;
+    }
     if(!groupId)addItem(item, qty, modifiers, notes);
     
     if (groupId && participantName) {
@@ -476,12 +486,18 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
     : {};
 
   // Compute live price delta in customizer
-  const currentModifiersCost = selectedModifiers.reduce((acc, m) => acc + m.priceDelta, 0);
-  const singleItemPrice = customizerItem ? customizerItem.price + currentModifiersCost : 0;
-  const totalCustomizerPrice = singleItemPrice * customizerQty;
+  const totalCustomizerPrice = customizerItem ? menuItemTotal(customizerItem,customizerQty,selectedModifiers) : null;
+  const requiredMissing = customizerItem ? isRequiredModifierMissing(groupedModifiers,selectedModifiers) : false;
+  useEffect(()=>{
+    if(!showCustomizerModal)return;
+    const onKey=e=>{if(e.key==='Escape')setShowCustomizerModal(false)};
+    window.addEventListener('keydown',onKey);
+    return ()=>window.removeEventListener('keydown',onKey);
+  },[showCustomizerModal]);
 
   return (
-    <div className="fade-in" style={{ paddingBottom: '100px' }}>
+    <div className="fade-in customer-menu-view" style={{ paddingBottom: '100px' }}>
+      {menu.offlineSnapshot&&<div role="status" className="customer-offline-menu-banner"><strong>📡 Offline menu snapshot</strong><span>These are the last saved menu details and prices. You can prepare a cart, but live stock, final prices and order availability will be checked when you reconnect. No order can be submitted offline.</span></div>}
       {liveState!=='live'&&<p role="status" style={{padding:'10px 16px',fontSize:'0.85rem',color:'var(--text-muted)'}}>{liveState==='offline'?'Updates are temporarily unavailable. Check your connection; we will retry.':liveState==='polling'?'Live connection unavailable — refreshing the menu every 15 seconds.':'Connecting to live menu updates…'}</p>}
       
       {/* Store Closed Banner */}
@@ -749,15 +765,16 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
             ))}
           </div>
         ) : filteredItems.length === 0 ? (
-          <div style={{ padding: '40px 0', color: 'var(--text-muted)', textAlign: 'center' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🥺</div>
-            <p>No items match current filters.</p>
+          <div className="gf-menu-empty" role="status">
+            <div aria-hidden="true" style={{fontSize:'2rem',marginBottom:8}}>🍽️</div>
+            <h3>No matching menu items</h3><p>Try another category or clear the filters.</p>
+            <button type="button" onClick={() => {setSearch('');setActiveCategory('all');setSelectedDiet(null);setFavoritesOnly(false);setMaxPriceFilter('');setSortBy('popular');}}>Clear filters</button>
           </div>
         ) : (
           <div className="menu-grid">
             {filteredItems.map(item => {
               const qty = getQty(item.id);
-              const isSoldOut = item.stock !== undefined && item.stock <= 0;
+              const isSoldOut = !isMenuItemAvailable(item);
               const tags = (item.dietaryTags || '').split(',').map(tag => tag.trim()).filter(Boolean);
 
               return (
@@ -799,7 +816,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
                     )}
                     
                     <div className="menu-card-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-                      <div className="menu-card-price" style={{ fontWeight: 800, color: 'var(--brand)' }}>Rs. {item.price.toFixed(0)}</div>
+                      <div className="menu-card-price" style={{ fontWeight: 800, color: 'var(--brand)' }}>Rs. {Number.isFinite(Number(item.price)) ? Number(item.price).toFixed(0) : '—'}</div>
                       {isSoldOut ? (
                         <span style={{ fontSize: '0.72rem', color: 'var(--danger)', fontWeight: 800 }}>{t.soldOut}</span>
                       ) : (
@@ -807,7 +824,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
                           className="add-btn"
                           style={menu.storeOpen === false ? { background: 'var(--text-muted)', cursor: 'not-allowed', opacity: 0.5 } : undefined}
                           onClick={() => menu.storeOpen !== false && handleItemAddClick(item)}
-                          disabled={menu.storeOpen === false}
+                          disabled={menu.storeOpen !== true || menu.offlineSnapshot}
                           aria-label={`Add ${item.name} to cart`}
                         >
                           +
@@ -829,16 +846,16 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
       </div>
 
       {/* Customized Item Modifier Selection Modal */}
-      {showCustomizerModal && customizerItem && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div className="glass device-dialog" role="dialog" aria-modal="true" aria-label="Customize item" style={{ width: '100%', maxWidth: 480, background: 'var(--bg-card)', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '90dvh', overflowY: 'auto' }}>
+      {showCustomizerModal && customizerItem && createPortal(
+        <div className="gf-menu-customizer-backdrop">
+          <div className="glass device-dialog customer-customizer gf-menu-customizer-sheet" role="dialog" aria-modal="true" aria-labelledby="gf-menu-customizer-title">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>{t.customizerTitle}</h3>
+              <h3 id="gf-menu-customizer-title" style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>{t.customizerTitle}</h3>
               <button style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-1)' }} aria-label="Close item customizer" onClick={() => setShowCustomizerModal(false)}>✕</button>
             </div>
 
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>
+              {customizerItem.imageUrl ? <img className="customer-customizer-image" src={customizerItem.imageUrl} alt={customizerItem.name} onError={e=>{e.currentTarget.style.display='none'}} /> : <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>}
               <h4 style={{ margin: '8px 0 4px', fontSize: '1.05rem', fontWeight: 700 }}>{customizerItem.name}</h4>
               <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>{customizerItem.description}</p>
             </div>
@@ -846,8 +863,8 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
             {/* Modifier Groups */}
             {Object.keys(groupedModifiers).map(groupName => {
               const mods = groupedModifiers[groupName];
-              const isMulti = mods[0].isMultiSelect === 1;
-              const isRequired = mods[0].isRequired === 1;
+              const isMulti = mods[0].isMultiSelect === true || Number(mods[0].isMultiSelect) === 1;
+              const isRequired = mods[0].isRequired === true || Number(mods[0].isRequired) === 1;
 
               return (
                 <div key={groupName} style={{ marginBottom: 16, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 10 }}>
@@ -860,7 +877,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
                     {mods.map(mod => {
                       const isChecked = !!selectedModifiers.find(m => m.id === mod.id);
                       return (
-                        <label key={mod.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontSize: '0.85rem' }}>
+                        <label key={mod.id} className="gf-menu-modifier-option">
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <input 
                               type={isMulti ? "checkbox" : "radio"} 
@@ -872,7 +889,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
                             <span>{mod.name}</span>
                           </div>
                           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                            {mod.priceDelta > 0 ? `+ Rs. ${mod.priceDelta}` : 'Free'}
+                            {Number(mod.priceDelta) > 0 ? `+ Rs. ${Number(mod.priceDelta).toFixed(0)}` : Number(mod.priceDelta) < 0 ? `− Rs. ${Math.abs(Number(mod.priceDelta)).toFixed(0)}` : 'Included'}
                           </span>
                         </label>
                       );
@@ -886,9 +903,9 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0', padding: '12px 0', borderTop: '1px solid var(--border-color)' }}>
               <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{t.quantity}</span>
               <div className="qty-control" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <button className="dec" aria-label="Decrease quantity" onClick={() => setCustomizerQty(prev => Math.max(1, prev - 1))}>−</button>
+                <button type="button" className="dec" aria-label="Decrease quantity" disabled={customizerQty<=1} onClick={() => setCustomizerQty(prev => Math.max(1, prev - 1))}>−</button>
                 <span className="qty" style={{ fontWeight: 700 }}>{customizerQty}</span>
-                <button className="inc" aria-label="Increase quantity" onClick={() => setCustomizerQty(prev => prev + 1)}>+</button>
+                <button type="button" className="inc" aria-label="Increase quantity" disabled={customizerQty >= maxMenuItemQuantity(customizerItem)} onClick={() => setCustomizerQty(prev => Math.min(maxMenuItemQuantity(customizerItem),prev + 1))}>+</button>
               </div>
             </div>
 
@@ -900,7 +917,8 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
                 rows="2"
                 placeholder="E.g., No onions, extra spicy, etc."
                 value={customizerNotes}
-                onChange={e => setCustomizerNotes(e.target.value)}
+                maxLength={300}
+                 onChange={e => setCustomizerNotes(e.target.value)}
                 style={{ resize: 'none' }}
               />
             </div>
@@ -909,13 +927,14 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
             <button 
               className="btn btn-brand" 
               style={{ width: '100%', padding: '12px' }}
+              disabled={requiredMissing || totalCustomizerPrice === null || menu.storeOpen!==true || menu.offlineSnapshot}
               onClick={() => handleAddToCart(customizerItem, customizerQty, selectedModifiers, customizerNotes)}
             >
-              {t.addToCart} · Rs. {totalCustomizerPrice.toFixed(0)}
+              {requiredMissing ? 'Choose required options' : t.addToCart} · Rs. {totalCustomizerPrice === null ? '—' : totalCustomizerPrice.toFixed(0)}
             </button>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Group Cart Identity Modal */}
       {showGroupModal && (
@@ -964,35 +983,6 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
         </div>
       )}
 
-      {/* Sleek Modern Floating Cart Pill */}
-      {totalItems > 0 && (
-        <div className="floating-cart-pill-wrap" style={{ position: 'fixed', bottom: 76, left: 16, zIndex: 140 }}>
-          <button
-            onClick={() => setCartOpen(true)}
-            style={{
-              background: 'linear-gradient(135deg, #ff6b35 0%, #ff3d00 100%)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: 24,
-              padding: '8px 16px',
-              fontSize: '0.82rem',
-              fontWeight: 800,
-              boxShadow: '0 8px 24px rgba(255, 107, 53, 0.45)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              cursor: 'pointer',
-              transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-            }}
-          >
-            <span>🛒</span>
-            <span>{t.viewCart}</span>
-            <span style={{ background: '#ffffff', color: '#ff6b35', borderRadius: 10, padding: '1px 7px', fontSize: '0.72rem', fontWeight: 900 }}>
-              {totalItems}
-            </span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

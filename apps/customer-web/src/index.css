@@ -782,3 +782,559 @@ html { background: var(--surface-2); }
   flex-shrink: 0;
   white-space: nowrap;
 }
+
+
+/* GastroFood checkout and verification — accessible, touch-first mobile presentation */
+.gastrofood-checkout-heading {
+  margin: 2px 0 18px;
+  padding: 20px 18px;
+  border: 1px solid rgba(249,115,22,.14);
+  border-radius: 22px;
+  background: linear-gradient(135deg,#fff 0%,#fff7ed 70%,#ffedd5 100%);
+  box-shadow: 0 10px 30px rgba(77,42,14,.06);
+}
+.gastrofood-checkout-eyebrow,.gastrofood-otp-eyebrow {
+  display:block;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  font-size: .68rem;
+  font-weight: 800;
+  color: #c2410c;
+  margin-bottom: 7px;
+}
+.gastrofood-checkout-heading h2 {
+  font-family: var(--font-display,var(--font));
+  font-size: clamp(1.55rem,6vw,2rem);
+  line-height: 1.12;
+  letter-spacing: -.045em;
+  color: #172033;
+  margin: 0 0 7px;
+}
+.gastrofood-checkout-heading p {font-size: .86rem; line-height: 1.5; color: #64748b;}
+.gastrofood-otp-backdrop {
+  position: fixed; inset: 0; z-index: 2000;
+  padding: max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
+  background: rgba(12,18,39,.72);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  display: flex; justify-content: center; align-items: center;
+  overflow-y: auto;
+}
+.gastrofood-otp-dialog {
+  background: #fff;
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 25px;
+  padding: 26px 22px 22px;
+  max-width: 390px;
+  width: 100%;
+  max-height: min(92dvh,740px);
+  overflow-y: auto;
+  box-shadow: 0 24px 84px rgba(7,21,57,.28);
+  color: #18243a;
+}
+.gastrofood-otp-icon {
+  width: 54px; height: 54px; display: grid; place-items: center;
+  margin-bottom: 17px; border-radius: 17px;
+  background: linear-gradient(135deg,#fff0dd,#ffe4cc);
+  font-size: 1.55rem;
+}
+.gastrofood-otp-title {
+  font-family: var(--font-display,var(--font));
+  color: #18243a;
+  font-size: 1.55rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -.035em;
+  margin: 0 0 10px;
+}
+.gastrofood-otp-dialog p {line-height: 1.55;}
+.gastrofood-otp-channel-switch {
+  display: flex; gap: 9px; margin: 14px 0;
+}
+.gastrofood-otp-channel-switch .btn {
+  flex: 1;
+  min-height: 45px;
+  border-radius: 12px;
+  white-space: normal;
+}
+.gastrofood-otp-input {
+  height: 58px;
+  min-height: 58px;
+  text-align: center;
+  font-size: 22px !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .28em;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1.5px solid #d7dee9;
+}
+.gastrofood-otp-input:focus-visible {
+  outline: 3px solid rgba(249,115,22,.28);
+  outline-offset: 2px;
+  border-color: #ea580c;
+}
+.gastrofood-otp-submit {
+  min-height: 49px;
+  font-weight: 800;
+  border-radius: 13px;
+}
+@media(max-width:480px) {
+  .gastrofood-otp-backdrop { align-items: flex-end; padding: 0; }
+  .gastrofood-otp-dialog {
+    max-width: 100%; max-height: 94dvh;
+    border-radius: 25px 25px 0 0;
+    padding: 25px 20px max(23px,env(safe-area-inset-bottom));
+    animation: gastrofood-sheet-appear .2s ease-out;
+  }
+  @keyframes gastrofood-sheet-appear {
+    from {transform: translateY(20px); opacity:.8;}
+    to {transform: translateY(0); opacity:1;}
+  }
+}
+@media(prefers-reduced-motion:reduce) {
+  .gastrofood-otp-dialog {animation:none !important;}
+}
+
+
+/* Accessible GastroFood authentication: touch-friendly registration and OTP verification */
+.gf-auth-password-hint {
+  margin-top: 7px; font-size: .78rem; font-weight: 650; color: #64748b;
+  line-height: 1.4;
+}
+.gf-auth-password-hint.valid { color: #087550; }
+.gf-auth-otp-backdrop {
+  position: fixed; inset: 0; z-index: 2500;
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+  background: rgba(14, 26, 36, .72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.gf-auth-otp-sheet {
+  width: min(100%, 430px); max-height: 94dvh; overflow-y: auto;
+  background: #fff; color: #142d26; border-radius: 26px;
+  padding: 27px 24px 23px;
+  box-shadow: 0 26px 90px rgba(10, 31, 26, .28);
+  border: 1px solid rgba(255,255,255,.75);
+}
+.gf-auth-otp-mark {
+  width: 55px; height: 55px; border-radius: 17px;
+  display: grid; place-items: center;
+  background: #e1f5ed; color: #067552; margin-bottom: 17px;
+}
+.gf-auth-otp-eyebrow {
+  color: #087653; font-size: .69rem; font-weight: 800;
+  letter-spacing: .115em; margin-bottom: 8px;
+}
+.gf-auth-otp-sheet h2 {
+  font-size: clamp(1.35rem,5vw,1.8rem); line-height: 1.19;
+  font-weight: 800; letter-spacing: -.035em; margin: 0 0 11px;
+  font-family: var(--font-display,var(--font));
+}
+.gf-auth-otp-description {
+  color: #51655d; font-size: .9rem; line-height: 1.6; margin-bottom: 23px;
+  overflow-wrap: anywhere;
+}
+.gf-auth-otp-description strong { color: #065f46; }
+.gf-auth-otp-label {
+  display: block; font-weight: 750; font-size: .85rem; margin-bottom: 9px;
+}
+.gf-auth-otp-code {
+  display: block; width: 100%; height: 62px;
+  border-radius: 15px; background: #f7faf9;
+  border: 1.5px solid #cbdcd5;
+  text-align: center; font-size: 24px !important;
+  letter-spacing: .27em; font-variant-numeric: tabular-nums;
+  font-weight: 750;
+}
+.gf-auth-otp-code:focus-visible {
+  outline: 3px solid rgba(6, 117, 82, .19);
+  outline-offset: 2px; border-color: #087653;
+}
+.gf-auth-otp-help {
+  margin: 11px 0 19px; font-size: .79rem; line-height: 1.5; color: #667d73;
+}
+.gf-auth-otp-actions { display: flex; flex-direction: column; gap: 10px; }
+.gf-auth-otp-primary {
+  width: 100%; min-height: 50px; border-radius: 14px;
+  background: linear-gradient(120deg,#068357,#056747);
+  font-size: .94rem; font-weight: 800; line-height: 1.35; padding: 11px 14px;
+  white-space: normal;
+}
+.gf-auth-otp-primary:disabled { opacity: .55; cursor: not-allowed; }
+.gf-auth-otp-secondary {
+  width: 100%; min-height: 45px; border-radius: 13px;
+  background: #f1f5f4; color: #284438;
+  font-weight: 750; padding: 10px 14px;
+}
+.gf-auth-otp-privacy {
+  margin-top: 17px; font-size: .71rem; color: #778980;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  text-align: center; line-height: 1.45;
+}
+.gf-auth-otp-error {
+  margin: -5px 0 15px; border-radius: 11px;
+  border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c;
+  padding: 10px 12px; font-size: .84rem; line-height: 1.45; font-weight: 650;
+}
+@media (max-width: 520px) {
+  .gf-auth-otp-backdrop {align-items: flex-end; padding: 0;}
+  .gf-auth-otp-sheet {
+    width: 100%; max-height: min(92dvh,840px);
+    border-radius: 27px 27px 0 0;
+    padding: 26px 21px max(24px,env(safe-area-inset-bottom));
+    animation: gf-otp-rise .22s ease-out;
+  }
+  @keyframes gf-otp-rise {
+    from { transform: translateY(17px); opacity: .7; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gf-auth-otp-sheet { animation: none !important; }
+}
+
+
+/* GastroFood discovery upgrade — small-screen-first navigation and cards */
+.gastrofood-discovery {
+  --discovery-ink:#183229;
+  --discovery-green:#087653;
+}
+.gastrofood-discovery .restaurants-location-row {
+  min-width:0;
+  gap:14px;
+}
+.gastrofood-discovery .restaurants-location-button {
+  min-width:0;
+  max-width:100%;
+  text-align:left;
+  border-radius:16px;
+}
+.gastrofood-discovery .restaurants-location-button > div:last-child {
+  min-width:0;
+  overflow-wrap:anywhere;
+  line-height:1.3;
+}
+.gastrofood-discovery .stores-modern-search {
+  min-height:54px;
+  border-radius:16px;
+  box-shadow:0 6px 22px rgba(17,47,35,.05);
+}
+.gastrofood-discovery .stores-modern-search input {
+  min-width:0;
+  width:100%;
+  font-size:16px; /* prevent iOS Safari zoom on focus */
+}
+.gastrofood-discovery .stores-quick-filters {
+  display:flex;
+  gap:9px;
+  overflow-x:auto;
+  max-width:100%;
+  scrollbar-width:none;
+  padding-bottom:9px;
+  -webkit-overflow-scrolling:touch;
+}
+.gastrofood-discovery .stores-quick-filters::-webkit-scrollbar {display:none}
+.gastrofood-discovery .stores-quick-filters > button {
+  min-height:43px;
+  flex:0 0 auto;
+  white-space:nowrap;
+  border-radius:13px;
+}
+.gastrofood-discovery .stores-quick-filters > button:disabled {
+  opacity:.5;
+  cursor:not-allowed;
+}
+.gastrofood-discovery .stores-quick-filters > .gastrofood-clear-filters {
+  color:#075f46;
+  border-color:#b9dccb;
+  background:#f2faf5;
+  font-weight:800;
+}
+.gastrofood-result-count {
+  font-size:.8rem;
+  color:#526c5f;
+  font-weight:700;
+  white-space:nowrap;
+  margin-left:12px;
+}
+.gastrofood-discovery-empty {
+  padding:38px 20px 42px;
+  text-align:center;
+  border:1px solid #dcebe2;
+  border-radius:20px;
+  background:#fff;
+  box-shadow:0 8px 26px rgba(24,65,44,.04);
+}
+.gastrofood-discovery-empty h4 {
+  font-size:1.16rem;
+  font-weight:800;
+  color:var(--text-1);
+  line-height:1.35;
+  margin:0 0 7px;
+}
+.gastrofood-discovery-empty p {
+  color:var(--text-muted);
+  font-size:.89rem;
+  line-height:1.55;
+  max-width:34ch;
+  margin:0 auto 17px;
+}
+.gastrofood-discovery-empty button {
+  min-height:44px;
+  border-radius:13px;
+  padding:10px 22px;
+  border:1px solid #c5dfd0;
+  background:#f1faf5;
+  color:#076548;
+  font-size:.87rem;
+  font-weight:800;
+}
+.gastrofood-discovery .gastrofood-restaurant-card {
+  min-width:0;
+  border:1px solid #e2eae5 !important;
+  border-radius:20px !important;
+  background:#fff !important;
+  box-shadow:0 4px 20px rgba(24,67,46,.055) !important;
+  transition:box-shadow .18s ease,border-color .18s ease,transform .18s ease;
+}
+.gastrofood-discovery .gastrofood-restaurant-card:focus-visible {
+  outline:3px solid #18a67d;
+  outline-offset:3px;
+}
+.gastrofood-discovery .gastrofood-restaurant-card.is-closed {
+  border-color:#e7e8eb !important;
+}
+.gastrofood-discovery .gastrofood-store-name {
+  margin:0;
+  font-size:1.07rem;
+  line-height:1.32;
+  font-weight:800;
+  color:#19352b;
+  overflow-wrap:anywhere;
+}
+@media (hover:hover) {
+  .gastrofood-discovery .gastrofood-restaurant-card:hover {
+    transform:translateY(-2px);
+    border-color:#c4decf !important;
+    box-shadow:0 10px 32px rgba(24,67,46,.105) !important;
+  }
+}
+@media (max-width:600px) {
+  .gastrofood-discovery {padding:14px 12px 116px !important}
+  .gastrofood-discovery .restaurants-location-row {align-items:flex-start !important}
+  .gastrofood-discovery .restaurants-context-label {display:none}
+  .gastrofood-discovery .stores-modern-hero {
+    padding:20px 17px;
+    border-radius:20px;
+    overflow:hidden;
+  }
+  .gastrofood-discovery .stores-hero-kpis {
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+  }
+  .gastrofood-discovery .stores-modern-grid {
+    grid-template-columns:minmax(0,1fr) !important;
+    gap:14px !important;
+  }
+  .gastrofood-discovery .gastrofood-restaurant-card {border-radius:19px !important}
+}
+@media(prefers-reduced-motion:reduce) {
+  .gastrofood-discovery .gastrofood-restaurant-card {
+    transition:none !important;
+  }
+}
+
+
+/* GastroFood live order tracking: compact, credible, and mobile-first. */
+.gf-modern-tracking {max-width:770px;margin:0 auto;}
+.gf-modern-tracking .customer-tracking-tools {
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:12px;
+  padding:13px 15px;margin:0 0 13px;
+  border:1px solid #dbeae2;
+  border-radius:17px;
+  background:#fff;
+}
+.gf-modern-tracking .customer-tracking-freshness {
+  display:flex;flex-direction:column;gap:4px;min-width:0;
+}
+.gf-modern-tracking .customer-tracking-freshness strong {
+  font-size:.82rem;font-weight:800;color:#146649;
+}
+.gf-modern-tracking .customer-tracking-freshness small {
+  font-size:.73rem;color:#627569;line-height:1.5;
+}
+.gf-modern-tracking .uber-hero-card {
+  border-radius:23px;
+  overflow:hidden;
+  box-shadow:0 14px 40px rgba(20,47,35,.12);
+}
+.gf-tracking-eta-note {
+  font-size:.75rem;
+  line-height:1.45;
+  opacity:.88;
+  color:#e3f0e9;
+  margin:8px 0 0;
+}
+.gf-tracking-overline {
+  display:block;font-weight:850;
+  font-size:.68rem;letter-spacing:.12em;
+  color:#167351;margin-bottom:7px;
+}
+.gf-tracking-timeline {
+  border:1px solid #dcebe2;
+  border-radius:22px;
+  padding:23px 19px !important;
+  box-shadow:0 6px 22px rgba(13,60,33,.05);
+}
+.gf-tracking-section-heading h3 {
+  font-size:1.23rem;color:#173e2e;
+  letter-spacing:-.025em;margin:0 0 6px;font-weight:850;
+}
+.gf-tracking-section-heading p {
+  color:#637569;font-size:.8rem;line-height:1.55;
+  margin:0 0 22px;
+}
+.gf-tracking-steps {list-style:none;display:grid;gap:0;margin:0;padding:0}
+.gf-tracking-step {
+  position:relative;display:flex;align-items:flex-start;
+  gap:15px;min-height:73px;
+  padding:0 0 19px;
+}
+.gf-tracking-step:not(:last-child)::before {
+  content:'';position:absolute;z-index:0;
+  left:19px;top:38px;bottom:0;width:2px;
+  background:#dce8e0;
+}
+.gf-tracking-step.is-done:not(:last-child)::before {background:#0f9d6b}
+.gf-tracking-node {
+  position:relative;z-index:1;
+  flex:0 0 40px;height:40px;
+  display:grid;place-items:center;
+  border-radius:15px;
+  background:#f1f5f2;border:1px solid #dfebe1;
+  color:#6c7d71;font-weight:850;font-size:.94rem;
+}
+.gf-tracking-step.is-done .gf-tracking-node {
+  color:#fff;background:#087653;border-color:#087653;
+}
+.gf-tracking-step.is-active .gf-tracking-node {
+  color:#087653;background:#e2f7ec;border:2px solid #087653;
+  box-shadow:0 0 0 4px #ecf8f0;
+}
+.gf-tracking-step strong {
+  display:block;font-size:.9rem;
+  color:#263f32;font-weight:800;
+  line-height:1.4;margin:1px 0 4px;
+}
+.gf-tracking-step p {
+  margin:0;color:#74877b;font-size:.79rem;line-height:1.45;
+}
+.gf-tracking-step.is-upcoming {opacity:.72}
+.gf-tracking-driver-actions {
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:10px;margin:0 0 16px;
+}
+.gf-tracking-driver-actions > a,.gf-tracking-driver-actions > button {
+  display:flex;align-items:center;justify-content:center;
+  text-decoration:none;min-height:46px;
+  padding:10px 13px;
+  border:1px solid #c3e3d3;border-radius:13px;
+  background:#ecf8f1;color:#087653;
+  font-size:.85rem;font-weight:850;cursor:pointer;
+}
+.gf-tracking-driver-actions > a:focus-visible,.gf-tracking-driver-actions > button:focus-visible {
+  outline:3px solid #167351;outline-offset:2px;
+}
+.gf-modern-tracking .customer-map-note {display:block;line-height:1.5;}
+@media(max-width:520px){
+  .gf-modern-tracking {padding:14px 12px 108px !important;}
+  .gf-modern-tracking .gf-tracking-timeline {padding:21px 16px !important;}
+  .gf-modern-tracking .customer-tracking-tools {padding:12px;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .gf-modern-tracking .gf-tracking-step,.gf-modern-tracking .gf-tracking-node {animation:none!important}
+}
+
+
+/* GastroFood live delivery map — touch-first controls and measured GPS precision. */
+.gf-modern-live-map {
+  border:1px solid #d7e9de;
+  border-radius:18px;
+  overflow:hidden;
+  background:#fff;
+  box-shadow:0 8px 28px rgba(10,64,38,.07);
+}
+.gf-modern-live-map .gf-map-toolbar {
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:8px;
+  padding:10px 12px;background:#f4fbf6;
+}
+.gf-modern-live-map .gf-map-label {
+  font-size:.74rem;line-height:1.5;color:#236649;font-weight:800;
+}
+.gf-modern-live-map .gf-map-toolbar button {
+  min-height:39px;padding:7px 12px;border-radius:12px;
+  border:1px solid #b8dccc;background:#fff;
+  color:#075b43;font-size:.77rem;font-weight:800;cursor:pointer;
+}
+.gf-modern-live-map .gf-map-toolbar button:disabled {opacity:.5;cursor:not-allowed}
+.gf-modern-live-map .gf-map-toolbar button:focus-visible {outline:3px solid #0f956c;outline-offset:2px}
+.gf-modern-live-map .tm-map {height:min(52vh,370px);min-height:245px}
+.gf-modern-live-map .customer-map-note {
+  display:block;padding:10px 13px;
+  font-size:.73rem;line-height:1.5;color:#526b5c;
+}
+.gf-modern-live-map .tm-driver .tm-emoji {
+  background:#fff;border:2px solid #11865f;
+  box-shadow:0 5px 16px rgba(8,83,52,.25);
+  border-radius:999px;
+}
+@media(max-width:520px){
+  .gf-modern-live-map .tm-map {height:290px;min-height:240px}
+  .gf-modern-live-map .gf-map-toolbar {padding:9px}
+}
+
+
+/* Offline-aware live order tracking */
+.gf-modern-tracking .gf-tracking-reconnect{
+  width:100%;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:10px;
+  padding:12px 14px;border:1px solid #f1d39b;
+  background:#fff9eb;color:#7d541e;
+  border-radius:12px;
+  font-size:.82rem;line-height:1.45;
+}
+.gf-modern-tracking .gf-tracking-reconnect button {
+  flex:0 0 auto;min-height:42px;padding:9px 13px;
+  background:#fff;border:1px solid #e6c580;
+  color:#795019;font-weight:800;border-radius:10px;
+  cursor:pointer;
+}
+.gf-modern-tracking .gf-tracking-reconnect button:focus-visible{
+  outline:3px solid #c4841e;outline-offset:2px
+}
+
+
+.gf-modern-tracking .gf-route-summary {
+  margin:10px 0 8px;
+  background:#effaf4;
+  color:#154734;
+  border:1px solid #c4e6d4;
+  border-radius:13px;
+  padding:10px 12px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px 10px;
+  align-items:center;
+  line-height:1.5;
+}
+.gf-modern-tracking .gf-route-summary strong {
+  font-weight:850;font-size:.86rem;
+}
+.gf-modern-tracking .gf-route-summary span {
+  font-size:.73rem;color:#426b55;
+}

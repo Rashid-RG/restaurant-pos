@@ -4,6 +4,8 @@ import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModa
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
+import {shouldSendDriverFix} from './utils/gps-transmission.js';
+import {createDispatchRequestGate,latestDispatchTickets} from './utils/dispatch-sync.js';
 
 
 // ── Auth token storage ──
@@ -58,6 +60,9 @@ export default function App() {
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [watchId, setWatchId] = useState(null);
   const [lastCoords, setLastCoords] = useState(null);
+  const [gpsQuality, setGpsQuality] = useState('not_started');
+  const lastBroadcastRef = useRef(null);
+  const lastFixRef = useRef(null);
   const [toastMsg, setToastMsg] = useState(null);
   const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState(null);
   const [proofPreview, setProofPreview] = useState(null);
@@ -70,6 +75,11 @@ export default function App() {
   // Bug 3 fix: ref instead of state so polling interval always reads
   // the latest count without a stale closure.
   const prevUnassignedCountRef = useRef(0);
+  const dispatchGateRef=useRef(createDispatchRequestGate());
+  const [dispatchLastSynced,setDispatchLastSynced]=useState(null);
+  const [dispatchSyncError,setDispatchSyncError]=useState(false);
+  const [driverClock,setDriverClock]=useState(Date.now());
+  useEffect(()=>{const i=setInterval(()=>setDriverClock(Date.now()),10000);return()=>clearInterval(i);},[]);
 
   // Bug 6 fix: store the toast auto-dismiss timer so it can be cancelled.
   const toastTimerRef = useRef(null);
@@ -123,6 +133,9 @@ export default function App() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setIsGpsActive(false);
     setWatchId(null);
+    setGpsQuality('not_started');
+    lastBroadcastRef.current = null;
+    lastFixRef.current = null;
     setDriver(null);
     // Bug 4 fix: clear order state so the next driver to log in on the
     // same device does not briefly see the previous driver's orders.
@@ -130,6 +143,8 @@ export default function App() {
     setAvailableOrders([]);
     activeOrdersRef.current = [];
     prevUnassignedCountRef.current = 0;
+    dispatchGateRef.current.invalidate();
+    setDispatchLastSynced(null);setDispatchSyncError(false);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(DRIVER_KEY);
   };
@@ -171,11 +186,16 @@ export default function App() {
   // ── Orders ──
   const fetchDriverOrders = async () => {
     if (!driver) return;
+    const gate=dispatchGateRef.current;
+    const request=gate.start();
+    if(request===null)return;
     setLoading(true);
     try {
       const data = await apiFetch('/public/driver/orders');
-      const newUnassigned = data.unassigned || [];
-      const newAssigned = data.assigned || [];
+      if(!gate.isCurrent(request))return;
+      const tickets=latestDispatchTickets(data);
+      const newUnassigned=tickets.unassigned;
+      const newAssigned=tickets.assigned;
 
       // Bug 3 fix: compare against ref (always current) not a stale state closure.
       // prevUnassignedCountRef.current is updated immediately after comparison
@@ -187,15 +207,17 @@ export default function App() {
       prevUnassignedCountRef.current = newUnassigned.length;
 
       setActiveOrders(newAssigned);
-      setHistory(data.completed || []);
+      setHistory(tickets.completed);
+      setDispatchLastSynced(Date.now());setDispatchSyncError(false);
       setSummary(data.summary || { completedToday: 0, cashToHandover: 0 });
       if (data.timeZone) setRestaurantTimeZone(data.timeZone);
       setAvailableOrders(newUnassigned);
     } catch (err) {
+      if(!gate.isCurrent(request))return;
       if (/token/i.test(err.message)) { handleLogout(); showToast('Session expired — please sign in again', 'warning'); }
-      else showToast('Failed to load delivery tickets', 'error');
+      else setDispatchSyncError(true); // Preserve last confirmed tickets on a transient outage.
     } finally {
-      setLoading(false);
+      if(gate.isCurrent(request)){setLoading(false);gate.finish(request);}
     }
   };
 
@@ -203,7 +225,11 @@ export default function App() {
     if (driver) {
       fetchDriverOrders();
       const interval = setInterval(fetchDriverOrders, 8000);
-      return () => clearInterval(interval);
+      const onResume=()=>{if(document.visibilityState==='visible')fetchDriverOrders();};
+      const onOnline=()=>fetchDriverOrders();
+      document.addEventListener('visibilitychange',onResume);
+      window.addEventListener('online',onOnline);
+      return () => {clearInterval(interval);document.removeEventListener('visibilitychange',onResume);window.removeEventListener('online',onOnline);dispatchGateRef.current.invalidate();};
     }
   }, [driver?.id]);
 
@@ -213,30 +239,56 @@ export default function App() {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       setIsGpsActive(false);
       setWatchId(null);
-      showToast('GPS tracking disabled 🛑', 'info');
-    } else {
-      if (!('geolocation' in navigator)) { showToast('Geolocation not supported', 'error'); return; }
-      showToast('Starting live GPS broadcast… 📡', 'success');
-      setIsGpsActive(true);
-      const id = navigator.geolocation.watchPosition(
-        (pos) => {
-          const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setLastCoords(coords);
-          // Bug 1 fix: read from activeOrdersRef.current (always up-to-date) instead
-          // of activeOrders (stale closure captured at watchPosition registration time).
-          // Without this, orders claimed AFTER GPS was enabled were never broadcast.
-          activeOrdersRef.current.forEach(ord => {
-            apiFetch('/public/driver/location', {
-              method: 'POST',
-              body: JSON.stringify({ orderId: ord.id, lat: coords.lat, lng: coords.lng })
-            }).catch(() => {});
-          });
-        },
-        () => showToast('Location permission denied or signal lost', 'warning'),
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
-      );
-      setWatchId(id);
+      setGpsQuality('off');
+      lastBroadcastRef.current = null;
+      lastFixRef.current = null;
+      showToast('Location sharing stopped.', 'info');
+      return;
     }
+    if (!('geolocation' in navigator) || !window.isSecureContext) {
+      showToast('Use HTTPS and enable device location to share a live position.', 'error');
+      return;
+    }
+    setIsGpsActive(true);
+    setGpsQuality('searching');
+    showToast('Searching for a reliable device location…', 'info');
+    const id = navigator.geolocation.watchPosition((pos) => {
+      // The OS normally fuses GPS, mobile signals, Wi-Fi and phone sensors.
+      const lat = pos.coords.latitude, lng = pos.coords.longitude;
+      const accuracyMeters = pos.coords.accuracy;
+      const recordedAt = pos.timestamp;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
+          !Number.isFinite(accuracyMeters) || accuracyMeters <= 0 || accuracyMeters > 150 ||
+          !Number.isFinite(recordedAt) || Date.now() - recordedAt > 30000 ||
+          recordedAt > Date.now() + 10000) {
+        setGpsQuality('weak');
+        return; // Never advertise a poor or stale fix as live.
+      }
+      const coords = { lat, lng, accuracyMeters, recordedAt };
+      if (lastFixRef.current && recordedAt <= lastFixRef.current.recordedAt) return;
+      lastFixRef.current = coords;
+      setLastCoords(coords);
+      setGpsQuality('good');
+      // Adaptive movement-based sends with heartbeat while stationary.
+      // Never upload GPS unless an active delivery is assigned.
+      const assigned=activeOrdersRef.current.filter(order => order?.id && !['delivered','completed','cancelled','rejected'].includes(String(order.status||'').toLowerCase()));
+      if (!assigned.length || !shouldSendDriverFix(coords,lastBroadcastRef.current)) return;
+      lastBroadcastRef.current={...coords,sentAt:Date.now()};
+      assigned.forEach(order => {
+        apiFetch('/public/driver/location', {
+          method: 'POST',
+          body: JSON.stringify({ orderId: order.id, ...coords })
+        }).catch(err => {
+          if (/location|accuracy|jump|fix/i.test(err.message || '')) setGpsQuality('weak');
+          // A later new fix can be retried; don't replay stale GPS.
+        });
+      });
+    }, err => {
+      setGpsQuality(err?.code === 1 ? 'denied' : 'weak');
+      showToast(err?.code === 1 ? 'Location permission denied. Enable it in device settings.' :
+        'Location signal weak. Keep the app visible and move to a clearer area.', 'warning');
+    }, { enableHighAccuracy: true, timeout: 18000, maximumAge: 0 });
+    setWatchId(id);
   };
 
   const handleClaim = async (orderId) => {
@@ -355,13 +407,14 @@ export default function App() {
           /* ── Rider dashboard ── */
           <div>
             <section className="driver-welcome"><span>YOUR DAY, IN MOTION</span><h1>Let’s make every<br/>delivery a good one.</h1><p>Welcome back, {driver.name?.split(' ')[0]}. Your assigned orders and pickup opportunities are all here.</p><ConnectionStatus compact/></section>
+            <div className="driver-dispatch-sync" role="status" aria-live="polite"><strong>{dispatchSyncError || !dispatchLastSynced || driverClock-dispatchLastSynced>25000 ? 'Checking dispatch connection' : 'Dispatch synced'}</strong><span>{dispatchLastSynced ? 'Last confirmed '+new Date(dispatchLastSynced).toLocaleTimeString() : 'Waiting for first update'}</span>{dispatchSyncError && <button type="button" onClick={fetchDriverOrders}>Retry now</button>}</div>
             <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
 
             <div className="card driver-controls-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-main)' }}>🛵 {driver.name}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {lastCoords ? `GPS (${lastCoords.lat.toFixed(3)}, ${lastCoords.lng.toFixed(3)})` : 'GPS Idle'}
+                  {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {gpsQuality === 'good' && lastCoords ? `Device location ±${Math.round(lastCoords.accuracyMeters)}m · ${new Date(lastCoords.recordedAt).toLocaleTimeString()}` : gpsQuality === 'weak' ? 'Weak location signal · not sharing' : gpsQuality === 'denied' ? 'Location permission denied' : 'Live location inactive'}
                 </div>
               </div>
               <div className="driver-controls-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -375,7 +428,7 @@ export default function App() {
                 </button>
                 <button onClick={toggleGps} className="btn-emerald"
                   style={{ padding: '8px 14px', borderRadius: 20, fontSize: '0.8rem', background: isGpsActive ? '#10b981' : '#64748b' }}>
-                  {isGpsActive ? '📡 GPS Live' : '📡 Enable GPS'}
+                  {isGpsActive ? (gpsQuality === 'good' ? '📍 Location active' : '⌛ Finding location') : '📍 Share location'}
                 </button>
                 <button onClick={handleLogout} className="btn-outline" style={{ padding: '8px 12px', fontSize: '0.9rem' }} title="Sign out">🚪</button>
               </div>
