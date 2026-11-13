@@ -4,6 +4,7 @@ import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModa
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
+import {shouldSendDriverFix} from './utils/gps-transmission.js';
 
 
 // ── Auth token storage ──
@@ -59,7 +60,7 @@ export default function App() {
   const [watchId, setWatchId] = useState(null);
   const [lastCoords, setLastCoords] = useState(null);
   const [gpsQuality, setGpsQuality] = useState('not_started');
-  const lastBroadcastRef = useRef(0);
+  const lastBroadcastRef = useRef(null);
   const lastFixRef = useRef(null);
   const [toastMsg, setToastMsg] = useState(null);
   const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState(null);
@@ -127,7 +128,7 @@ export default function App() {
     setIsGpsActive(false);
     setWatchId(null);
     setGpsQuality('not_started');
-    lastBroadcastRef.current = 0;
+    lastBroadcastRef.current = null;
     lastFixRef.current = null;
     setDriver(null);
     // Bug 4 fix: clear order state so the next driver to log in on the
@@ -220,7 +221,7 @@ export default function App() {
       setIsGpsActive(false);
       setWatchId(null);
       setGpsQuality('off');
-      lastBroadcastRef.current = 0;
+      lastBroadcastRef.current = null;
       lastFixRef.current = null;
       showToast('Location sharing stopped.', 'info');
       return;
@@ -249,10 +250,12 @@ export default function App() {
       lastFixRef.current = coords;
       setLastCoords(coords);
       setGpsQuality('good');
-      // Limit uploads to protect battery and mobile data.
-      if (Date.now() - lastBroadcastRef.current < 4000) return;
-      lastBroadcastRef.current = Date.now();
-      activeOrdersRef.current.forEach(order => {
+      // Adaptive movement-based sends with heartbeat while stationary.
+      // Never upload GPS unless an active delivery is assigned.
+      const assigned=activeOrdersRef.current.filter(order => order?.id && !['delivered','completed','cancelled','rejected'].includes(String(order.status||'').toLowerCase()));
+      if (!assigned.length || !shouldSendDriverFix(coords,lastBroadcastRef.current)) return;
+      lastBroadcastRef.current={...coords,sentAt:Date.now()};
+      assigned.forEach(order => {
         apiFetch('/public/driver/location', {
           method: 'POST',
           body: JSON.stringify({ orderId: order.id, ...coords })
