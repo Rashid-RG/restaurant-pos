@@ -84,8 +84,8 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
     if (!regPhone.trim()) { setError('Phone Number is required.'); return; }
     const cleanPhone = regPhone.replace(/[\s-]/g, '');
     if (!PHONE_RE.test(cleanPhone)) { setError('Please enter a valid Sri Lankan mobile number (e.g. 0771234567).'); return; }
+    if (regPassword.length < 10 || regPassword.length > 72) { setError('Password must be 10–72 characters.'); return; }
     if (regPassword !== regConfirm) { setError('Passwords do not match.'); return; }
-    if (regPassword.length < 10) { setError('Use a password of at least 10 characters.'); return; }
 
     if (!authCapabilities.emailOtp && !authCapabilities.smsOtp) {
       setError('Registration verification is unavailable. Contact GastroFlow support.');
@@ -98,6 +98,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
     // Registration consumes its code once during account creation.
     if (!otpVerified) {
       setOtpBusy(true);
+      setEnteredOtp('');
       const isEmailChannel = regOtpChannel === 'email';
       const dest = isEmailChannel ? regEmail.trim().toLowerCase() : cleanPhone;
       if (isEmailChannel && (!regEmail.trim() || !regEmail.includes('@'))) {
@@ -128,10 +129,14 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const doRegister = async (codeVal) => {
     setLoading(true);
     try {
-      await register(regName, regEmail.trim(), regPhone, regPassword, codeVal);
+      await register(regName.trim(), regEmail.trim(), regPhone.trim(), regPassword, codeVal);
+      setError('');
       onSuccess && onSuccess();
+      return true;
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Registration failed. Please check the code and try again.');
+      return false;
+    } finally {
       setLoading(false);
     }
   };
@@ -139,18 +144,21 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const verifyOtp = async () => {
     const dest = activeOtpDestination || loginPhone.trim();
     const codeVal = enteredOtp.trim();
-    if (!/^\\d{6}$/.test(codeVal)) {
-      toast('Enter the six-digit verification code.', 'warning');
+    if (!/^[0-9]{6}$/.test(codeVal)) {
+      setError('Enter the six-digit code from your email or SMS.');
       return;
     }
+    setError('');
     setOtpBusy(true);
     try {
       if (tab === 'register') {
         // Registration consumes the code at /customer/auth/register.
         // Calling /otp/verify first would consume it prematurely and fail signup.
-        await doRegister(codeVal);
-        setShowOtpModal(false);
-        setEnteredOtp('');
+        const registered = await doRegister(codeVal);
+        if (registered) {
+          setShowOtpModal(false);
+          setEnteredOtp('');
+        }
         return;
       }
       const result = await loginWithOtp(dest, codeVal);
