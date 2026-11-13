@@ -993,3 +993,155 @@ html { background: var(--surface-2); }
 @media (prefers-reduced-motion: reduce) {
   .gf-auth-otp-sheet { animation: none !important; }
 }
+
+
+/* GastroFood discovery upgrade — small-screen-first navigation and cards */
+.gastrofood-discovery {
+  --discovery-ink:#183229;
+  --discovery-green:#087653;
+}
+.gastrofood-discovery .restaurants-location-row {
+  min-width:0;
+  gap:14px;
+}
+.gastrofood-discovery .restaurants-location-button {
+  min-width:0;
+  max-width:100%;
+  text-align:left;
+  border-radius:16px;
+}
+.gastrofood-discovery .restaurants-location-button > div:last-child {
+  min-width:0;
+  overflow-wrap:anywhere;
+  line-height:1.3;
+}
+.gastrofood-discovery .stores-modern-search {
+  min-height:54px;
+  border-radius:16px;
+  box-shadow:0 6px 22px rgba(17,47,35,.05);
+}
+.gastrofood-discovery .stores-modern-search input {
+  min-width:0;
+  width:100%;
+  font-size:16px; /* prevent iOS Safari zoom on focus */
+}
+.gastrofood-discovery .stores-quick-filters {
+  display:flex;
+  gap:9px;
+  overflow-x:auto;
+  max-width:100%;
+  scrollbar-width:none;
+  padding-bottom:9px;
+  -webkit-overflow-scrolling:touch;
+}
+.gastrofood-discovery .stores-quick-filters::-webkit-scrollbar {display:none}
+.gastrofood-discovery .stores-quick-filters > button {
+  min-height:43px;
+  flex:0 0 auto;
+  white-space:nowrap;
+  border-radius:13px;
+}
+.gastrofood-discovery .stores-quick-filters > button:disabled {
+  opacity:.5;
+  cursor:not-allowed;
+}
+.gastrofood-discovery .stores-quick-filters > .gastrofood-clear-filters {
+  color:#075f46;
+  border-color:#b9dccb;
+  background:#f2faf5;
+  font-weight:800;
+}
+.gastrofood-result-count {
+  font-size:.8rem;
+  color:#526c5f;
+  font-weight:700;
+  white-space:nowrap;
+  margin-left:12px;
+}
+.gastrofood-discovery-empty {
+  padding:38px 20px 42px;
+  text-align:center;
+  border:1px solid #dcebe2;
+  border-radius:20px;
+  background:#fff;
+  box-shadow:0 8px 26px rgba(24,65,44,.04);
+}
+.gastrofood-discovery-empty h4 {
+  font-size:1.16rem;
+  font-weight:800;
+  color:var(--text-1);
+  line-height:1.35;
+  margin:0 0 7px;
+}
+.gastrofood-discovery-empty p {
+  color:var(--text-muted);
+  font-size:.89rem;
+  line-height:1.55;
+  max-width:34ch;
+  margin:0 auto 17px;
+}
+.gastrofood-discovery-empty button {
+  min-height:44px;
+  border-radius:13px;
+  padding:10px 22px;
+  border:1px solid #c5dfd0;
+  background:#f1faf5;
+  color:#076548;
+  font-size:.87rem;
+  font-weight:800;
+}
+.gastrofood-discovery .gastrofood-restaurant-card {
+  min-width:0;
+  border:1px solid #e2eae5 !important;
+  border-radius:20px !important;
+  background:#fff !important;
+  box-shadow:0 4px 20px rgba(24,67,46,.055) !important;
+  transition:box-shadow .18s ease,border-color .18s ease,transform .18s ease;
+}
+.gastrofood-discovery .gastrofood-restaurant-card:focus-visible {
+  outline:3px solid #18a67d;
+  outline-offset:3px;
+}
+.gastrofood-discovery .gastrofood-restaurant-card.is-closed {
+  border-color:#e7e8eb !important;
+}
+.gastrofood-discovery .gastrofood-store-name {
+  margin:0;
+  font-size:1.07rem;
+  line-height:1.32;
+  font-weight:800;
+  color:#19352b;
+  overflow-wrap:anywhere;
+}
+@media (hover:hover) {
+  .gastrofood-discovery .gastrofood-restaurant-card:hover {
+    transform:translateY(-2px);
+    border-color:#c4decf !important;
+    box-shadow:0 10px 32px rgba(24,67,46,.105) !important;
+  }
+}
+@media (max-width:600px) {
+  .gastrofood-discovery {padding:14px 12px 116px !important}
+  .gastrofood-discovery .restaurants-location-row {align-items:flex-start !important}
+  .gastrofood-discovery .restaurants-context-label {display:none}
+  .gastrofood-discovery .stores-modern-hero {
+    padding:20px 17px;
+    border-radius:20px;
+    overflow:hidden;
+  }
+  .gastrofood-discovery .stores-hero-kpis {
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+  }
+  .gastrofood-discovery .stores-modern-grid {
+    grid-template-columns:minmax(0,1fr) !important;
+    gap:14px !important;
+  }
+  .gastrofood-discovery .gastrofood-restaurant-card {border-radius:19px !important}
+}
+@media(prefers-reduced-motion:reduce) {
+  .gastrofood-discovery .gastrofood-restaurant-card {
+    transition:none !important;
+  }
+}
