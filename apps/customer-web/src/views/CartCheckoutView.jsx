@@ -77,8 +77,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [loading, setLoading] = useState(false);
   const checkoutGuard = useRef(createSubmissionGuard());
   const otpGuard = useRef(createSubmissionGuard());
+  const otpProofRef = useRef(null);
   const [pendingCheckout,setPendingCheckout]=useState(readPendingCheckout);
-  const finishRecovery=()=>{clearPendingCheckout();setPendingCheckout(null);};
+  const finishRecovery=()=>{clearPendingCheckout();setPendingCheckout(null);otpProofRef.current=null;};
   const recoverCheckout=()=>checkoutGuard.current.run(async()=>{
     if(loading||!pendingCheckout)return;setLoading(true);
     try{const result=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':pendingCheckout.key},body:JSON.stringify({...pendingCheckout.payload,customerToken:getToken()||null})});if(JSON.stringify(pendingCheckout.payload.items)===JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();finishRecovery();setCartOpen(false);onOrderPlaced&&onOrderPlaced(result.orderId);}
@@ -287,7 +288,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           orderType,
           customerName: name.trim(),
           customerPhone: phone.trim(),
-          customerEmail: email.trim() || null,
+          customerEmail: email.trim() || customer?.email || null,
+          checkoutProof: otpProofRef.current,
           deliveryAddress: orderType === 'delivery' ? (geoLocation?.label || address.trim()) : null,
           deliveryLat: orderType === 'delivery' && geoLocation ? geoLocation.lat : null,
           deliveryLng: orderType === 'delivery' && geoLocation ? geoLocation.lng : null,
@@ -578,15 +580,17 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
 
       {/* OTP Verification Modal */}
       {showOtpModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div className="device-dialog" role="dialog" aria-modal="true" aria-label="Verify order" style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 16, maxWidth: 380, width: '100%', border: '1px solid var(--border-color)', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 800 }}>🔐 Verify Order Credentials</h3>
+        <div className="gastrofood-otp-backdrop">
+          <div className="device-dialog gastrofood-otp-dialog" role="dialog" aria-modal="true" aria-labelledby="gastrofood-otp-title">
+            <div className="gastrofood-otp-icon" aria-hidden="true">🔐</div>
+            <span className="gastrofood-otp-eyebrow">SECURE CHECKOUT · STEP 3 OF 3</span>
+            <h3 id="gastrofood-otp-title" className="gastrofood-otp-title">Verify your order</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-              Verification code sent to <strong>{otpChannel === 'email' ? (email || customer?.email) : phone}</strong>.
+              Enter the 6-digit code sent to <strong>{otpChannel === 'email' ? (email || customer?.email) : phone}</strong>. Your code expires after 10 minutes.
             </p>
 
             {/* OTP Channel Selector Toggle */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            <div className="gastrofood-otp-channel-switch" role="group" aria-label="Choose verification channel">
               <button
                 type="button"
                 className={`btn ${otpChannel === 'email' ? 'btn-brand' : 'btn-outline'}`}
@@ -647,18 +651,20 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
 
             <div className="form-group" style={{ marginBottom: 16 }}>
               <input
-                className="form-control"
+                className="form-control gastrofood-otp-input"
+                aria-label="Six digit verification code" id="gastrofood-otp-code"
                 type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*"
                 maxLength={6}
                 placeholder="Enter 6-digit OTP..."
                 value={enteredOtp}
-                onChange={e => setEnteredOtp(e.target.value)}
+                onChange={e => setEnteredOtp(e.target.value.replace(/\D/g,'').slice(0,6))}
                 style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px', fontWeight: 700 }}
               />
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button 
-                className="btn btn-brand" 
+                type="button"
+                className="btn btn-brand gastrofood-otp-submit" 
                 style={{ flex: 1 }}
                 onClick={() => otpGuard.current.run(async () => {
                   const cleanPhone = phone.trim().replace(/[\s-]/g, '');
@@ -669,7 +675,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                       method: 'POST',
                       body: JSON.stringify({ channel: otpChannel, destination: dest, purpose: 'order_verify', code: enteredOtp.trim() })
                     });
-                    if (r.verified) {
+                    if (r.verified && typeof r.checkoutProof === 'string') {
+                      otpProofRef.current=r.checkoutProof;
                       setOtpVerified(true);
                       setShowOtpModal(false);
                       setEnteredOtp('');
@@ -683,10 +690,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   }
                 })}
               >
-                Verify & Place Order
+                Verify & place order
               </button>
               <button 
-                className="btn btn-ghost" 
+                type="button" className="btn btn-ghost" 
                 onClick={() => setShowOtpModal(false)}
               >
                 Cancel
@@ -696,7 +703,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
       )}
 
-      <h2 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 16 }}>Checkout Details</h2>
+      <div className="gastrofood-checkout-heading"><span className="gastrofood-checkout-eyebrow">FINAL STEP · SECURE ORDER</span><h2>Checkout</h2><p>Review your details and place your order with confidence.</p></div>
 
 
       <form onSubmit={handlePlaceOrder}>
