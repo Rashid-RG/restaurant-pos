@@ -1,0 +1,32 @@
+name: Customer app staging quality gate
+
+on:
+  push:
+    branches:
+      - codex/production-readiness
+    paths:
+      - 'apps/customer-web/**'
+      - 'tests/customer-marketplace-availability.test.js'
+      - 'tests/customer-auth-resilience.test.js'
+      - '.github/workflows/customer-staging-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  customer-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --include=dev
+      - name: Customer safety regression tests
+        run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js
+      - name: Build POS, customer and driver apps
+        run: npm run build:all
