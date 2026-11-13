@@ -5508,7 +5508,7 @@ async function sendOrderConfirmation(order) {
       });
       await sendEmail({
         to: email,
-        subject: `✅ ${business} — Order Confirmed (${inv})`,
+        subject: `GastroFlow · Order received from ${business} (${inv})`,
         html: orderConfirmHtml
       }).catch(e => console.error('[EMAIL] Order confirmation email failed:', e.message));
     }
@@ -5599,7 +5599,7 @@ app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
         });
         await sendEmail({
           to: user.email,
-          subject: `Reset your ${business} staff password`,
+          subject: `GastroFlow · Reset staff password for ${business}`,
           html: resetHtml
         });
       }
