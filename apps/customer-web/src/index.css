@@ -782,3 +782,115 @@ html { background: var(--surface-2); }
   flex-shrink: 0;
   white-space: nowrap;
 }
+
+
+/* GastroFood checkout and verification — accessible, touch-first mobile presentation */
+.gastrofood-checkout-heading {
+  margin: 2px 0 18px;
+  padding: 20px 18px;
+  border: 1px solid rgba(249,115,22,.14);
+  border-radius: 22px;
+  background: linear-gradient(135deg,#fff 0%,#fff7ed 70%,#ffedd5 100%);
+  box-shadow: 0 10px 30px rgba(77,42,14,.06);
+}
+.gastrofood-checkout-eyebrow,.gastrofood-otp-eyebrow {
+  display:block;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  font-size: .68rem;
+  font-weight: 800;
+  color: #c2410c;
+  margin-bottom: 7px;
+}
+.gastrofood-checkout-heading h2 {
+  font-family: var(--font-display,var(--font));
+  font-size: clamp(1.55rem,6vw,2rem);
+  line-height: 1.12;
+  letter-spacing: -.045em;
+  color: #172033;
+  margin: 0 0 7px;
+}
+.gastrofood-checkout-heading p {font-size: .86rem; line-height: 1.5; color: #64748b;}
+.gastrofood-otp-backdrop {
+  position: fixed; inset: 0; z-index: 2000;
+  padding: max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
+  background: rgba(12,18,39,.72);
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  display: flex; justify-content: center; align-items: center;
+  overflow-y: auto;
+}
+.gastrofood-otp-dialog {
+  background: #fff;
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 25px;
+  padding: 26px 22px 22px;
+  max-width: 390px;
+  width: 100%;
+  max-height: min(92dvh,740px);
+  overflow-y: auto;
+  box-shadow: 0 24px 84px rgba(7,21,57,.28);
+  color: #18243a;
+}
+.gastrofood-otp-icon {
+  width: 54px; height: 54px; display: grid; place-items: center;
+  margin-bottom: 17px; border-radius: 17px;
+  background: linear-gradient(135deg,#fff0dd,#ffe4cc);
+  font-size: 1.55rem;
+}
+.gastrofood-otp-title {
+  font-family: var(--font-display,var(--font));
+  color: #18243a;
+  font-size: 1.55rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -.035em;
+  margin: 0 0 10px;
+}
+.gastrofood-otp-dialog p {line-height: 1.55;}
+.gastrofood-otp-channel-switch {
+  display: flex; gap: 9px; margin: 14px 0;
+}
+.gastrofood-otp-channel-switch .btn {
+  flex: 1;
+  min-height: 45px;
+  border-radius: 12px;
+  white-space: normal;
+}
+.gastrofood-otp-input {
+  height: 58px;
+  min-height: 58px;
+  text-align: center;
+  font-size: 22px !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .28em;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1.5px solid #d7dee9;
+}
+.gastrofood-otp-input:focus-visible {
+  outline: 3px solid rgba(249,115,22,.28);
+  outline-offset: 2px;
+  border-color: #ea580c;
+}
+.gastrofood-otp-submit {
+  min-height: 49px;
+  font-weight: 800;
+  border-radius: 13px;
+}
+@media(max-width:480px) {
+  .gastrofood-otp-backdrop { align-items: flex-end; padding: 0; }
+  .gastrofood-otp-dialog {
+    max-width: 100%; max-height: 94dvh;
+    border-radius: 25px 25px 0 0;
+    padding: 25px 20px max(23px,env(safe-area-inset-bottom));
+    animation: gastrofood-sheet-appear .2s ease-out;
+  }
+  @keyframes gastrofood-sheet-appear {
+    from {transform: translateY(20px); opacity:.8;}
+    to {transform: translateY(0); opacity:1;}
+  }
+}
+@media(prefers-reduced-motion:reduce) {
+  .gastrofood-otp-dialog {animation:none !important;}
+}
