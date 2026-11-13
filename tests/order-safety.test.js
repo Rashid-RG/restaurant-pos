@@ -93,7 +93,7 @@ it('uses private hosts and tenant-bound invitations and claims group checkout on
  expect((await request(app).post(`/api/public/group-cart/${id}/items?tenant=safe_A`).set('X-Group-Participant',participant).send({...item,itemId:'foreign_item'})).status).toBe(400);
  const endpoint=`/api/public/group-cart/${id}/checkout?tenant=safe_A`,body={customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'foreign_item',quantity:1}]};
  expect((await request(app).post(endpoint).send(body)).status).toBe(404);
- const before=await stock(),raw=await ingredient(),checkout=()=>request(app).post(endpoint).set('X-Group-Host',hostToken).send(body);
+ const before=await stock(),raw=await ingredient(),checkoutProof=await testCheckoutProof(dbRun,'safe_A','0770000000'),checkout=()=>request(app).post(endpoint).set('X-Group-Host',hostToken).send({...body,checkoutProof});
  const responses=await Promise.all([checkout(),checkout()]);expect(responses.filter(r=>r.status===201)).toHaveLength(1);expect(responses.filter(r=>r.status!==201)).toHaveLength(1);
  expect((await stock()).stock).toBe(before.stock-2);expect((await ingredient()).stock).toBe(raw.stock-1);
  expect((await request(app).post(`/api/public/group-cart/${id}/items?tenant=safe_A`).set('X-Group-Participant',participant).send(item)).status).toBe(409);
@@ -115,7 +115,7 @@ it('rejects negative or foreign stock transfers and cannot approve unavailable s
 it('returns recorded loyalty reservations once when a customer cancels',async()=>{
  await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
  const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);
- const created=await request(app).post('/api/public/orders?tenant=safe_A').send({customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',customerToken:token,loyaltyPointsToRedeem:500,items:[{id:'safe_item',quantity:1}]});expect(created.status,created.text).toBe(201);
+ const created=await request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',customerToken:token,loyaltyPointsToRedeem:500,items:[{id:'safe_item',quantity:1}]});expect(created.status,created.text).toBe(201);
  expect((await dbGet("SELECT loyaltyPoints FROM customer_accounts WHERE id='safe_customer'")).loyaltyPoints).toBe(500);
  const cancel=()=>request(app).post(`/api/public/orders/${created.body.orderId}/cancel?tenant=safe_A`).set('X-Order-Tracking',created.body.trackingToken);
  expect((await Promise.all([cancel(),cancel()])).map(r=>r.status)).toEqual([200,200]);expect((await dbGet("SELECT loyaltyPoints FROM customer_accounts WHERE id='safe_customer'")).loyaltyPoints).toBe(1000);
@@ -146,7 +146,7 @@ it('keeps each invited participant in control of their own items and rolls back 
  for(const token of [first,second])expect((await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',token).send(body)).status).toBe(200);
  const removal=await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',second).send({...body,quantity:0});expect(removal.body.items).toHaveLength(1);
  await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");const before=await stock();
- const response=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash'});expect(response.status).toBe(500);
+ const response=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash'});expect(response.status).toBe(500);
  expect((await dbGet('SELECT status,orderId FROM group_carts WHERE id=?',[id]))).toEqual({status:'active',orderId:null});expect(await stock()).toEqual(before);
  await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");
 });
@@ -188,7 +188,7 @@ it('blocks new orders while closed but still recovers an already saved checkout'
 it('recovers a checked-out group order only for its private host',async()=>{
  const created=await request(app).post('/api/public/group-cart?tenant=safe_A').send({}),{id,hostToken}=created.body,endpoint=`/api/public/group-cart/${id}`;
  expect((await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',crypto.randomBytes(32).toString('hex')).send({participantName:'Host',itemId:'safe_item',quantity:1})).status).toBe(200);
- const first=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send(recoveryBody());expect(first.status).toBe(201);const before=await stock();
+ const first=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({...recoveryBody(),checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000')});expect(first.status).toBe(201);const before=await stock();
  const replay=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({});expect(replay.status).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.trackingToken).toBeTruthy();expect(await stock()).toEqual(before);
  expect((await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',crypto.randomBytes(32).toString('hex')).send({})).status).toBe(404);
 });
