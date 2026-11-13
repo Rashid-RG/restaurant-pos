@@ -168,10 +168,10 @@ it('rejects reuse of a private checkout key with a changed order',async()=>{
  expect((await retryCheckout(key,{...recoveryBody(),items:[{id:'safe_item',quantity:3}]})).status).toBe(409);expect(await stock()).toEqual(before);
 });
 it('recovers the original paid receipt after pricing, stock, loyalty and account tokens change',async()=>{
- const key=crypto.randomUUID(),body={...recoveryBody(),loyaltyPointsToRedeem:500},firstToken=jwt.sign({id:'safe_customer',type:'customer',version:1},process.env.CUSTOMER_JWT_SECRET);
+ const key=crypto.randomUUID(),body={...recoveryBody(),loyaltyPointsToRedeem:500},firstToken=jwt.sign({...jwt.decode(customer('safe_customer').Authorization.split(' ')[1]),version:1},process.env.CUSTOMER_JWT_SECRET);
  await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");const first=await retryCheckout(key,{...body,customerToken:firstToken});expect(first.status,first.text).toBe(201);
  await dbRun("UPDATE menu_items SET price=9999,isAvailable=0 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=0 WHERE id='safe_customer'");await dbRun("UPDATE orders SET paymentStatus='paid' WHERE id=?",[first.body.orderId]);
- const rotated=jwt.sign({id:'safe_customer',type:'customer',version:2},process.env.CUSTOMER_JWT_SECRET),replay=await retryCheckout(key,{...body,customerToken:rotated});expect(replay.status,replay.text).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.total).toBe(first.body.total);expect(replay.body.paymentStatus).toBe('paid');expect(replay.body.trackingToken).toBeTruthy();
+ const rotated=jwt.sign({...jwt.decode(customer('safe_customer').Authorization.split(' ')[1]),version:2},process.env.CUSTOMER_JWT_SECRET),replay=await retryCheckout(key,{...body,customerToken:rotated});expect(replay.status,replay.text).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.total).toBe(first.body.total);expect(replay.body.paymentStatus).toBe('paid');expect(replay.body.trackingToken).toBeTruthy();
  await dbRun("UPDATE menu_items SET price=100,isAvailable=1 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
 });
 it('scopes the same checkout key separately to each restaurant',async()=>{
