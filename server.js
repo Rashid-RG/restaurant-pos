@@ -47,7 +47,8 @@ import {
   buildOrderConfirmationEmail,
   buildOtpEmail,
   buildPasswordResetEmail,
-  buildWelcomeEmail
+  buildWelcomeEmail,
+  buildSignInAlertEmail
 } from './lib/email_templates.js';
 import {
   resolveAndCalculateBill as _resolveAndCalculateBill,
@@ -2860,13 +2861,11 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
 
     // Verification is database-backed; process-local OTP maps are not used.
 
-    const tenantId = await resolvePublicTenant(req);
-    const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
-
+    // Account verification messages always carry the GastroFlow platform identity.
     let isSimulated = false;
 
     if (isEmail) {
-      const html = buildOtpEmail({ code, purpose, destination: cleanDest, businessName: storeName });
+      const html = buildOtpEmail({ code, purpose, destination: cleanDest });
 
       let emailSent = false;
       let emailError = null;
@@ -2874,9 +2873,9 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
       try {
         const sendPromise = sendEmail({
           to: cleanDest,
-          subject: `Your ${storeName} verification code`,
+          subject: 'Your GastroFlow verification code',
           html,
-          text: `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`
+          text: `Your GastroFlow verification code is ${code}. Valid for 10 minutes. Never share this code.`
         });
         const timeoutPromise = new Promise(r => setTimeout(() => r({ timeout: true, error: 'Email timeout (15s)' }), 15000));
         const sendRes = await Promise.race([sendPromise, timeoutPromise]);
@@ -3070,11 +3069,10 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
     // Welcome email — fire-and-forget, never blocks the response
     if (cleanEmail) {
-      const business = (await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro'));
-      const welcomeHtml = buildWelcomeEmail({ name: name.trim(), loginUrl: customerAppUrl(), businessName: business });
+      const welcomeHtml = buildWelcomeEmail({ name: name.trim(), loginUrl: customerAppUrl() });
       sendEmail({
         to: cleanEmail,
-        subject: `Welcome to ${business}! 🎉`,
+        subject: 'Welcome to GastroFlow',
         html: welcomeHtml
       }).catch(e => console.error('[EMAIL] Welcome email failed:', e.message));
     }
@@ -3123,29 +3121,12 @@ app.post('/api/customer/auth/login', customerLoginLimiter, async (req, res) => {
 
     // Login notification email — fire-and-forget
     if (customer.email) {
-      const business = (await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow'));
       const loginTime = new Date().toLocaleString('en-LK', { timeZone: 'Asia/Colombo', dateStyle: 'medium', timeStyle: 'short' });
+      const html = buildSignInAlertEmail({ name: customer.name, loginTime, appUrl: customerAppUrl() });
       sendEmail({
         to: customer.email,
-        subject: `New sign-in to your ${business} account`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08)">
-            <div style="background:#1a1a2e;padding:24px;text-align:center">
-              <h1 style="color:#ff6b35;margin:0;font-size:22px">🍽️ ${business}</h1>
-            </div>
-            <div style="padding:28px 24px">
-              <h2 style="color:#1a1a2e;margin:0 0 12px">New Sign-In Detected 🔐</h2>
-              <p style="color:#555;line-height:1.6">Hi ${customer.name}, we noticed a new sign-in to your account.</p>
-              <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:20px 0">
-                <p style="margin:0;color:#333"><strong>Time:</strong> ${loginTime} (Sri Lanka)</p>
-                <p style="margin:6px 0 0;color:#333"><strong>Phone:</strong> ${customer.phone}</p>
-              </div>
-              <p style="color:#777;font-size:13px">If this wasn't you, please change your password immediately.</p>
-            </div>
-            <div style="background:#f8f9fa;padding:16px 24px;text-align:center">
-              <p style="color:#999;font-size:12px;margin:0">© ${new Date().getFullYear()} ${business}. All rights reserved.</p>
-            </div>
-          </div>`
+        subject: 'New sign-in to your GastroFlow account',
+        html
       }).catch(e => console.error('[EMAIL] Login notification failed:', e.message));
     }
   } catch (err) {
@@ -5563,16 +5544,14 @@ app.post('/api/customer/auth/forgot-password', otpLimiter, async (req, res) => {
       resetLink.searchParams.set('tenant', await resolvePublicTenant(req));
       resetLink.searchParams.set('reset', token);
       const link = resetLink.toString();
-      const business = await getSettingAny(await resolvePublicTenant(req), ['businessName', 'restaurantName'], 'GastroFlow Bistro');
       const resetHtml = buildPasswordResetEmail({
         userType: 'customer',
         resetUrl: link,
-        code,
-        businessName: business
+        code
       });
       await sendEmail({
         to: acct.email,
-        subject: `Reset your ${business} password`,
+        subject: 'Reset your GastroFlow password',
         html: resetHtml
       });
       if (acct.phone) await sendSms({ to: acct.phone, message: `GastroFlow password reset code: ${code} (valid 30 min).` });
