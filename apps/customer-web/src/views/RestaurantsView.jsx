@@ -6,6 +6,7 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import { calculateHaversineDistanceKm, resolveAddressToCoords, evaluateStoreProximity } from '../utils/geo.js';
 import { acceptsOnlineOrders, recommendationScore, recommendedOpenStores } from '../utils/marketplace-availability.js';
+import { restaurantRatingText, restaurantDeliveryText, restaurantEmptyState, sortRestaurants } from '../utils/discovery-display.js';
 
 
 const CUISINE_CATEGORIES = [
@@ -485,42 +486,28 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     }
   };
 
-  const filtered = deduplicateStores(
+  const filtered = sortRestaurants(deduplicateStores(
     restaurants.filter(r => {
-      const matchesSearch = !search ||
-        r.name.toLowerCase().includes(search.toLowerCase()) ||
-        r.cuisine.toLowerCase().includes(search.toLowerCase());
+      const name = String(r.name || '').toLocaleLowerCase();
+      const cuisine = String(r.cuisine || '').toLocaleLowerCase();
+      const query = search.trim().toLocaleLowerCase();
+      const matchesSearch = !query || name.includes(query) || cuisine.includes(query);
       const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
       const matchesOpen = !openOnly || acceptsOnlineOrders(r);
       const matchesDelivery = !deliveryOnly || r.isDeliverable === true;
       return matchesSearch && matchesCuisine && matchesOpen && matchesDelivery;
     })
-  ).sort((a, b) => {
-    if (sortBy === 'fastest') {
-      const getMinTime = s => {
-        const match = String(s.deliveryTime || '').match(/\d+/);
-        return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
-      };
-      return getMinTime(a) - getMinTime(b);
-    }
-    if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
-    if (sortBy === 'distance') return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
-    // Default: AI recommendation score — in-zone first, then by score
-    const aOpen = acceptsOnlineOrders(a) ? 0 : 1;
-    const bOpen = acceptsOnlineOrders(b) ? 0 : 1;
-    if (aOpen !== bOpen) return aOpen - bOpen;
-    const aZone = a.isDeliverable ? 0 : 1;
-    const bZone = b.isDeliverable ? 0 : 1;
-    if (aZone !== bZone) return aZone - bZone;
-    return (b.recommendationScore || 0) - (a.recommendationScore || 0);
-  });
+  ), sortBy);
+
+  const emptyState = restaurantEmptyState({loading, failed:Boolean(loadError), total:restaurants.length, search, cuisine:activeCuisine, openOnly, deliveryOnly});
+  const hasActiveFilters = Boolean(search.trim() || activeCuisine !== 'all' || openOnly || deliveryOnly);
 
   const openCount = restaurants.filter(acceptsOnlineOrders).length;
   const deliverableCount = restaurants.filter(r => acceptsOnlineOrders(r) && r.isDeliverable === true).length;
   const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng));
 
   return (
-    <div className="restaurants-view" style={{ padding: '16px', maxWidth: 1120, margin: '0 auto', paddingBottom: 96, fontFamily: 'inherit' }}>
+    <div className="restaurants-view gastrofood-discovery" style={{ padding: '16px', maxWidth: 1120, margin: '0 auto', paddingBottom: 96, fontFamily: 'inherit' }}>
       
       {/* Top Location & Banner */}
       <div className="restaurants-location-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -717,18 +704,19 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         </div>
       )}
 
-      <div className="stores-modern-search">
+      <div className="stores-modern-search" role="search">
         <Search size={20}/>
-        <input aria-label="Search restaurants or cuisines" placeholder="Search restaurants, pizza, burgers, rice…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        <input type="search" enterKeyHint="search" autoComplete="off" aria-label="Search restaurants or cuisines" placeholder="Search restaurants, pizza, burgers, rice…" value={search} onChange={e=>setSearch(e.target.value)}/>
         {search && <button type="button" aria-label="Clear search" onClick={()=>setSearch('')}>×</button>}
       </div>
       <div className="stores-quick-filters" aria-label="Availability filters">
         <button type="button" aria-pressed={openOnly} className={openOnly?'active':''} onClick={()=>setOpenOnly(v=>!v)}><CheckCircle2 size={17}/> Open now</button>
         <button type="button" aria-pressed={deliveryOnly} className={deliveryOnly?'active':''} disabled={!hasPreciseLocation} title={!hasPreciseLocation?'Select your location first':'Only stores that can deliver to your location'} onClick={()=>setDeliveryOnly(v=>!v)}><Bike size={17}/> Delivers here</button>
         <button type="button" onClick={()=>setShowLocationModal(true)}><MapPinned size={17}/> Change location</button>
+        {hasActiveFilters && <button type="button" className="gastrofood-clear-filters" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);}} aria-label="Clear all restaurant filters">Clear all</button>}
       </div>
 
-      {/* UberEats Smart Sort Filter Bar */}
+      {/* Discovery sorting — available restaurants always appear first. */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
         {[
           { id: 'recommendation', label: 'Browse', desc: 'Available restaurants first' },
@@ -784,7 +772,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         ))}
       </div>
 
-      {/* UberEats Featured Top Picks Horizontal Carousel */}
+      {/* Restaurants confirmed open and deliverable at the selected location. */}
       {sortBy === 'recommendation' && !loading && recommendedOpenStores(filtered, hasPreciseLocation).length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
@@ -825,10 +813,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                     {r.name}
                   </h4>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6 }}>
-                    {r.ratingCount > 0 ? `⭐ ${r.rating} (${r.ratingCount})` : 'New restaurant'}{r.deliveryTime ? ` · ⏱️ ${r.deliveryTime}` : ''}
+                    {restaurantRatingText(r)}{r.deliveryTime ? ` · ⏱️ ${r.deliveryTime}` : ''}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#10b981', fontWeight: 700 }}>
-                    📍 {r.distanceKm !== null && r.distanceKm !== undefined ? `${r.distanceKm} km away` : 'Location not set'}
+                    📍 {Number.isFinite(r.distanceKm) ? `${r.distanceKm} km away` : 'Distance not available'}
                   </div>
                 </div>
               </div>
@@ -840,12 +828,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       {/* Restaurants List Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
-          {sortBy === 'fastest' ? 'Fastest Outlets Near You' :
+          {sortBy === 'fastest' ? 'Restaurants by preparation estimate' :
            sortBy === 'rating' ? '⭐ Highest Rated Restaurants' :
            sortBy === 'distance' ? '📍 Closest Outlets' :
            `Explore Restaurants (${filtered.length})`}
         </h3>
-        <span style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 700 }}>{filtered.length} Unique Outlets</span>
+        <span className="gastrofood-result-count" aria-live="polite">{loading ? 'Updating…' : `${filtered.length} results`}</span>
       </div>
 
       {/* Restaurants Grid / Cards */}
@@ -855,19 +843,22 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           <p style={{ marginTop: 12, color: 'var(--text-muted)' }}>Loading real nearby restaurants...</p>
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ padding: 32, background: 'var(--surface-1)', borderRadius: 16, border: '1px solid var(--border-color)', textAlign: 'center' }}>
+        <div className="gastrofood-discovery-empty" role="status">
           <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏪</div>
-          <h4 style={{ margin: 0, color: 'var(--text-1)' }}>No restaurants found</h4>
-          <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Try searching for another dish or cuisine type.</p>
+          <h4>{emptyState.title}</h4>
+          <p>{emptyState.description}</p>
+          {hasActiveFilters && <button type="button" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);}}>Clear filters</button>}
+          {!hasActiveFilters && <button type="button" onClick={()=>fetchRestaurants()}>Try again</button>}
         </div>
       ) : (
-        <div className="restaurants-result-grid stores-modern-grid" style={{ display: 'grid', gap: 18 }}>
+        <div className="restaurants-result-grid stores-modern-grid" style={{ display: 'grid', gap: 18 }} aria-live="polite">
           {filtered.map(r => (
             <div
               key={r.id}
+              className={`gastrofood-restaurant-card ${acceptsOnlineOrders(r) ? 'is-open' : 'is-closed'}`}
               role="button"
               tabIndex={0}
-              aria-label={`Browse menu at ${r.name}`}
+              aria-label={`Browse menu at ${r.name}. ${acceptsOnlineOrders(r) ? 'Accepting orders' : 'Currently closed'}.`}
               onKeyDown={e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelectRestaurant?.(r);} }}
               onClick={() => onSelectRestaurant && onSelectRestaurant(r)}
               style={{
@@ -885,7 +876,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 <span style={{ fontSize: '4rem' }}>{r.emoji || '🏬'}</span>
 
                 {/* Top-left: Promo or Personalization Badge */}
-                {r.promoBadge ? (
+                {r.promoVerified === true && r.promoBadge ? (
                   <span style={{ position: 'absolute', top: 10, left: 10, background: '#10b981', color: '#fff', padding: '3px 9px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800 }}>
                     🏷️ {r.promoBadge}
                   </span>
@@ -896,7 +887,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 ) : null}
 
                 {/* Bottom-left: Distance + Zone Badge */}
-                {r.distanceKm !== null && r.distanceKm !== undefined && (
+                {Number.isFinite(r.distanceKm) && (
                   <span style={{
                     position: 'absolute', bottom: 10, left: 10,
                     background: r.isDeliverable ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)',
@@ -909,7 +900,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 {/* Top-right: Open/Closed + Rush Hour */}
                 <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                   <span style={{ background: r.isOpenNow ? 'rgba(0,0,0,0.65)' : 'rgba(239,68,68,0.9)', color: '#fff', padding: '3px 9px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 700, backdropFilter: 'blur(4px)' }}>
-                    {r.isOpenNow ? '🟢 Open' : '🔴 Closed'}
+                    {acceptsOnlineOrders(r) ? 'Accepting orders' : 'Closed · Browse menu'}
                   </span>
                   {r.feeBreakdown?.isRush && (
                     <span style={{ background: 'rgba(245,158,11,0.9)', color: '#fff', padding: '2px 8px', borderRadius: 8, fontSize: '0.65rem', fontWeight: 800 }}>
@@ -922,9 +913,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               {/* Card Details */}
               <div style={{ padding: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                  <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-1)' }}>{r.name}</h4>
+                  <h4 className="gastrofood-store-name">{r.name}</h4>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f59e0b15', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 800 }}>
-                    ⭐ {r.rating ?? 'New'} <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 500 }}>({r.ratingCount ?? 0})</span>
+                    <Star size={13} aria-hidden="true"/> {restaurantRatingText(r)}
                   </div>
                 </div>
 
@@ -950,9 +941,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 <div style={{ display: 'flex', gap: 10, fontSize: '0.76rem', color: 'var(--text-1)', fontWeight: 600, borderTop: '1px solid var(--border-color)', paddingTop: 10, flexWrap: 'wrap' }}>
                   <span>⏱️ {r.deliveryTime || 'Confirm at checkout'}</span>
                   <span title={r.feeBreakdown ? `Base: LKR ${r.feeBreakdown.base} + Distance: LKR ${r.feeBreakdown.distFee}${r.feeBreakdown.isRush ? ' × 1.3 (Peak)' : ''}` : ''}>
-                    🚚 LKR {r.deliveryFee ?? 0}{r.feeBreakdown?.isRush ? ' ⏰' : ''}
+                    🚚 {restaurantDeliveryText(r, hasPreciseLocation)}
                   </span>
-                  <span style={{ color: 'var(--text-muted)' }}>Min: LKR {r.minOrder ?? 0}</span>
+                  {r.minOrder != null && <span style={{ color: 'var(--text-muted)' }}>Min order: LKR {r.minOrder}</span>}
                 </div>
               </div>
             </div>
