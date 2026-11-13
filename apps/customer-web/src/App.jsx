@@ -80,7 +80,7 @@ function CartSheet({ onCheckout, store, canOrder }) {
                 <div className="cart-item-name">{item.name}</div>
                 {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                    {item.selectedModifiers.map(m => `+ ${m.name}`).join(', ')}
+                    {item.selectedModifiers.map(m => '+ ' + String(m.name || '')).join(', ')}
                   </div>
                 )}
                 {item.notes && (
