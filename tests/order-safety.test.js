@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 process.env.DATABASE_FILE=path.join(os.tmpdir(),`order-safety-${crypto.randomUUID()}.db`);
 process.env.JWT_SECRET='safety-staff-test';process.env.CUSTOMER_JWT_SECRET='safety-customer-test';
 const {app,dbReady,dbRun,dbGet}=await import('../server.js');
@@ -12,7 +13,7 @@ const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer',sessio
 const driver=(id='safe_driver',tenant='safe_A')=>({Authorization:'Bearer '+jwt.sign({driverId:id,role:'driver',name:'Forged Name',tenant_id:tenant},process.env.JWT_SECRET)});
 const stock=()=>dbGet("SELECT stock FROM menu_items WHERE id='safe_item'");
 const ingredient=()=>dbGet("SELECT stock FROM ingredients WHERE id='safe_ingredient'");
-const publicOrder=()=>request(app).post('/api/public/orders?tenant=safe_A').send({customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
+const publicOrder=async()=>request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
 const ticket=async()=>{const id=crypto.randomUUID();const response=await request(app).post('/api/orders').set(staff()).send({id,diningType:'takeaway',items:[{id:'safe_item',quantity:2}]});expect(response.status,response.text).toBe(200);return id;};
 beforeAll(async()=>{
  await dbReady;
