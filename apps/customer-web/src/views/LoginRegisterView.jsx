@@ -429,7 +429,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Password</label>
             <div style={{ position: 'relative' }}>
-              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Minimum 10 characters" value={regPassword} onChange={e => setRegPassword(e.target.value)} style={{ paddingRight: 40 }} />
+              <input className="form-control" type={showPassword ? "text" : "password"} required minLength={10} maxLength={72} autoComplete="new-password" aria-describedby="gf-registration-password-help" placeholder="Create a strong password" value={regPassword} onChange={e => setRegPassword(e.target.value)} style={{ paddingRight: 48 }} />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -450,11 +450,14 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
                 {showPassword ? '👁️' : '🙈'}
               </button>
             </div>
+            <div id="gf-registration-password-help" className={`gf-auth-password-hint ${regPassword.length >= 10 && regPassword.length <= 72 ? 'valid' : ''}`} role="status">
+              {regPassword.length >= 10 && regPassword.length <= 72 ? '✓ Password length meets the requirement' : `At least 10 characters · ${regPassword.length}/10`}
+            </div>
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
             <label>Confirm Password</label>
             <div style={{ position: 'relative' }}>
-              <input className="form-control" type={showPassword ? "text" : "password"} required placeholder="Re-enter password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} style={{ paddingRight: 40 }} />
+              <input className="form-control" type={showPassword ? "text" : "password"} required minLength={10} maxLength={72} autoComplete="new-password" placeholder="Re-enter password" value={regConfirm} onChange={e => setRegConfirm(e.target.value)} style={{ paddingRight: 48 }} />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -488,7 +491,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
             </div>
           </div>
           <div style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || (!authCapabilities.emailOtp && !authCapabilities.smsOtp)} style={{ width: '100%', padding: 12 }}>
+            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || regPassword.length < 10 || regPassword.length > 72 || regPassword !== regConfirm || (!authCapabilities.emailOtp && !authCapabilities.smsOtp)} style={{ width: '100%', padding: 12 }}>
               {loading || otpBusy ? '⏳ Processing…' : `🎉 ${dict.createAccount || 'Create Account'} (${regOtpChannel === 'email' ? 'Email OTP' : 'SMS OTP'})`}
             </button>
           </div>
@@ -550,33 +553,37 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
         </form>
       )}
 
-      {/* Real OTP Verification Modal (registration phone verify) */}
+      {/* Accessible verification sheet — no code reflected outside its input. */}
       {showOtpModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--bg-card)', padding: 24, borderRadius: 16, maxWidth: 360, width: '100%', border: '1px solid var(--border-color)', boxShadow: '0 10px 25px rgba(0,0,0,0.15)' }}>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 800 }}>
-              {tab === 'otp_login' ? '🔑 Verify & Sign In' : '📱 Verify Your Phone'}
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 16 }}>
-              Enter the 6-digit code sent to <strong style={{ color: 'var(--brand)' }}>{activeOtpDestination || regPhone || loginPhone}</strong>.
+        <div className="gf-auth-otp-backdrop">
+          <section className="gf-auth-otp-sheet" role="dialog" aria-modal="true" aria-labelledby="gf-auth-otp-title" aria-describedby="gf-auth-otp-description">
+            <div className="gf-auth-otp-mark" aria-hidden="true"><ShieldCheck size={26}/></div>
+            <div className="gf-auth-otp-eyebrow">{tab === 'register' ? 'ACCOUNT SECURITY · STEP 2 OF 2' : 'SECURE SIGN IN'}</div>
+            <h2 id="gf-auth-otp-title">{tab === 'otp_login' ? 'Verify your sign in' : 'Verify your email or phone'}</h2>
+            <p id="gf-auth-otp-description" className="gf-auth-otp-description">
+              Enter the six-digit code sent to <strong>{activeOtpDestination || regPhone || loginPhone}</strong>.
             </p>
-            {enteredOtp && (
-              <div style={{ background: 'rgba(255,107,53,0.1)', border: '1px dashed var(--brand)', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem', textAlign: 'center', marginBottom: 12, fontWeight: 700, color: 'var(--brand)' }}>
-                🔑 Code: <span style={{ fontSize: '1.1rem', letterSpacing: '2px' }}>{enteredOtp}</span> (Auto-Filled)
-              </div>
-            )}
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <input className="form-control" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]*" maxLength={6}
-                placeholder="Enter 6-digit OTP…" value={enteredOtp} onChange={e => setEnteredOtp(e.target.value)}
-                style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px', fontWeight: 700 }} />
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-brand" style={{ flex: 1 }} disabled={otpBusy} onClick={verifyOtp}>
-                {otpBusy ? '⏳ …' : (tab === 'otp_login' ? 'Verify & Sign In' : 'Verify & Register')}
+            {error && <div className="gf-auth-otp-error" role="alert">{error}</div>}
+            <label className="gf-auth-otp-label" htmlFor="gf-auth-otp-code">Verification code</label>
+            <input
+              id="gf-auth-otp-code"
+              className="form-control gf-auth-otp-code"
+              type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
+              pattern="[0-9]{6}" required
+              placeholder="000000" value={enteredOtp}
+              onChange={e => { setEnteredOtp(e.target.value.replace(/[^0-9]/g, '').slice(0,6)); if(error) setError(''); }}
+              aria-invalid={Boolean(error)}
+              autoFocus
+            />
+            <p className="gf-auth-otp-help">Codes expire after 10 minutes. Check your inbox or spam folder.</p>
+            <div className="gf-auth-otp-actions">
+              <button type="button" className="btn btn-brand gf-auth-otp-primary" disabled={otpBusy || loading || enteredOtp.length !== 6} onClick={verifyOtp}>
+                {otpBusy || loading ? 'Verifying…' : (tab === 'otp_login' ? 'Verify & sign in' : 'Verify & create account')}
               </button>
-              <button className="btn btn-ghost" onClick={() => setShowOtpModal(false)}>Cancel</button>
+              <button type="button" className="btn gf-auth-otp-secondary" disabled={otpBusy || loading} onClick={() => {setShowOtpModal(false);setError('');}}>Back to details</button>
             </div>
-          </div>
+            <p className="gf-auth-otp-privacy"><LockKeyhole size={14} aria-hidden="true"/> Your verification code is private and can only be used once.</p>
+          </section>
         </div>
       )}
 
