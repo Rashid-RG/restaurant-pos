@@ -10,6 +10,12 @@
   "theme_color": "#c55b3b",
   "icons": [
     {
+      "src": "food-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
       "src": "food-logo-192.png",
       "sizes": "192x192",
       "type": "image/png",
