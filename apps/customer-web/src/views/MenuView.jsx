@@ -816,7 +816,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
                     )}
                     
                     <div className="menu-card-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
-                      <div className="menu-card-price" style={{ fontWeight: 800, color: 'var(--brand)' }}>Rs. {item.price.toFixed(0)}</div>
+                      <div className="menu-card-price" style={{ fontWeight: 800, color: 'var(--brand)' }}>Rs. {Number.isFinite(Number(item.price)) ? Number(item.price).toFixed(0) : '—'}</div>
                       {isSoldOut ? (
                         <span style={{ fontSize: '0.72rem', color: 'var(--danger)', fontWeight: 800 }}>{t.soldOut}</span>
                       ) : (
