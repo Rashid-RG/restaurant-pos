@@ -1257,3 +1257,42 @@ html { background: var(--surface-2); }
 @media(prefers-reduced-motion:reduce) {
   .gf-modern-tracking .gf-tracking-step,.gf-modern-tracking .gf-tracking-node {animation:none!important}
 }
+
+
+/* GastroFood live delivery map — touch-first controls and measured GPS precision. */
+.gf-modern-live-map {
+  border:1px solid #d7e9de;
+  border-radius:18px;
+  overflow:hidden;
+  background:#fff;
+  box-shadow:0 8px 28px rgba(10,64,38,.07);
+}
+.gf-modern-live-map .gf-map-toolbar {
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:8px;
+  padding:10px 12px;background:#f4fbf6;
+}
+.gf-modern-live-map .gf-map-label {
+  font-size:.74rem;line-height:1.5;color:#236649;font-weight:800;
+}
+.gf-modern-live-map .gf-map-toolbar button {
+  min-height:39px;padding:7px 12px;border-radius:12px;
+  border:1px solid #b8dccc;background:#fff;
+  color:#075b43;font-size:.77rem;font-weight:800;cursor:pointer;
+}
+.gf-modern-live-map .gf-map-toolbar button:disabled {opacity:.5;cursor:not-allowed}
+.gf-modern-live-map .gf-map-toolbar button:focus-visible {outline:3px solid #0f956c;outline-offset:2px}
+.gf-modern-live-map .tm-map {height:min(52vh,370px);min-height:245px}
+.gf-modern-live-map .customer-map-note {
+  display:block;padding:10px 13px;
+  font-size:.73rem;line-height:1.5;color:#526b5c;
+}
+.gf-modern-live-map .tm-driver .tm-emoji {
+  background:#fff;border:2px solid #11865f;
+  box-shadow:0 5px 16px rgba(8,83,52,.25);
+  border-radius:999px;
+}
+@media(max-width:520px){
+  .gf-modern-live-map .tm-map {height:290px;min-height:240px}
+  .gf-modern-live-map .gf-map-toolbar {padding:9px}
+}
