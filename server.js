@@ -1,5 +1,6 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,pushConfigured} from './lib/customer-push.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
+import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
 import {initServiceExceptions,createServiceExceptions} from './routes/service-exceptions.js';
 import {initManualPayments,createManualPayments} from './routes/manual-payments.js';
@@ -869,6 +870,12 @@ async function initTables() {
       if (!/duplicate column|already exists/i.test(String(error?.message || error))) throw error;
     }
     await dbRun('DELETE FROM otp_codes WHERE tenant_id IS NULL');
+    await dbRun(`CREATE TABLE IF NOT EXISTS order_verification_proofs (
+      id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, destination TEXT NOT NULL,
+      tokenHash TEXT NOT NULL UNIQUE, expiresAt INTEGER NOT NULL,
+      createdAt INTEGER NOT NULL, consumedAt INTEGER
+    )`);
+    await dbRun('CREATE INDEX IF NOT EXISTS order_verification_proofs_lookup ON order_verification_proofs (tenant_id, tokenHash, expiresAt)');
 
     // 20. Raw Ingredients Table
     await dbRun(`
@@ -2939,7 +2946,10 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
 
     // Checkout confirms contact possession but must not issue an authentication token.
     if (!canCreateCustomerSession(purpose)) {
-      if (purpose === 'order_verify') return res.set('Cache-Control','no-store').json({ verified: true, purpose: 'order_verify' });
+      if (purpose === 'order_verify') {
+        const proof = await issueOrderProof({dbRun,tenantId:await resolvePublicTenant(req),destination:cleanDest});
+        return res.set('Cache-Control','no-store').json({verified:true,purpose:'order_verify',...proof});
+      }
       return res.status(400).json({ error: 'Use account registration to verify sign-up codes.' });
     }
 
@@ -4726,7 +4736,7 @@ const createPublicOrder = async (req, res) => {
     items, diningType, orderType,
     customerName, customerPhone, customerEmail, deliveryAddress,
     deliveryLat, deliveryLng,
-    customerToken, loyaltyPointsToRedeem, promoCode,
+    customerToken, checkoutProof, loyaltyPointsToRedeem, promoCode,
     scheduledTime, paymentMethod, tip
   } = req.body;
 
@@ -4771,9 +4781,10 @@ const createPublicOrder = async (req, res) => {
         const rawToken = customerToken || (req.headers.authorization ? req.headers.authorization.split(' ')[1] : '');
         const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
         const decoded = jwt.verify(rawToken, secret);
-        if (decoded && decoded.id && decoded.type === 'customer' && await dbGet('SELECT id FROM customer_accounts WHERE id=? AND tenant_id=?',[decoded.id,tenantId])) {
+        const account = decoded?.id && decoded.type === 'customer' && decoded.tenantId === tenantId && await dbGet('SELECT id,phone,phoneVerified,passwordHash FROM customer_accounts WHERE id=? AND tenant_id=?',[decoded.id,tenantId]);
+        if (account && decoded.sessionVersion === customerSessionVersion(account)) {
           customerAccountId = decoded.id;
-          isAlreadyVerified = true;
+          isAlreadyVerified = Number(account.phoneVerified) === 1 && normalizeCheckoutContact(account.phone) === normalizeCheckoutContact(cleanPhone);
         }
       } catch (e) { /* ignore invalid tokens */ }
     }
@@ -4856,6 +4867,9 @@ const createPublicOrder = async (req, res) => {
       if(concurrentReplay){await dbRun('COMMIT');return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(concurrentReplay),trackingToken:makeTrackingAccess(concurrentReplay.id,tenantId)});}
 
       if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')!=='true')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
+      if (!isAlreadyVerified && !await consumeOrderProof({dbRun,tenantId,checkoutProof,customerPhone:cleanPhone,customerEmail})) {
+        throw Object.assign(Error('Verify your phone or email before placing this order. Request a new code if needed.'),{status:403,code:'CHECKOUT_OTP_REQUIRED'});
+      }
       const limit=checkLimit((await getTenantMeta(tenantId)).plan,'orders',await countTenantOrdersThisMonth(tenantId));if(!limit.allowed)throw Error('Restaurant order capacity reached.');
       if(requestedSchedule.scheduled){
         const limit=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
