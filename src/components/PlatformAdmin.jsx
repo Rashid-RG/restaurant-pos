@@ -41,7 +41,7 @@ export default function PlatformAdmin({ embedded = false }) {
     platformName: 'GastroFlow',
     platformCompany: 'RS Technologies',
     platformSlogan: 'Smarter Dining Operations & Cloud POS',
-    platformLogoUrl: '/pos-logo.svg',
+    platformLogoUrl: '/gastroflow-brand.svg?v=1',
     commissionRate: '15',
     supportEmail: 'support@gastroflow.lk'
   });
@@ -1030,7 +1030,7 @@ export default function PlatformAdmin({ embedded = false }) {
                   className="form-input"
                   value={brandingSettings.platformLogoUrl || ''}
                   onChange={e => setBrandingSettings({ ...brandingSettings, platformLogoUrl: e.target.value })}
-                  placeholder="/pos-logo.svg"
+                  placeholder="/gastroflow-brand.svg?v=1"
                   style={{ width: '100%', height: '40px' }}
                 />
               </div>
