@@ -3,6 +3,7 @@ import { Eye, EyeOff, ShieldCheck, UtensilsCrossed, Bike, ShoppingBag, MapPin, L
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
+import { isSixDigitOtp, validRegistrationPassword } from '../utils/registration-validation.js';
 
 const PHONE_RE = /^(?:\+94|0)7\d{8}$/;
 
@@ -84,7 +85,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
     if (!regPhone.trim()) { setError('Phone Number is required.'); return; }
     const cleanPhone = regPhone.replace(/[\s-]/g, '');
     if (!PHONE_RE.test(cleanPhone)) { setError('Please enter a valid Sri Lankan mobile number (e.g. 0771234567).'); return; }
-    if (regPassword.length < 10 || regPassword.length > 72) { setError('Password must be 10–72 characters.'); return; }
+    if (!validRegistrationPassword(regPassword)) { setError('Password must be 10–72 characters.'); return; }
     if (regPassword !== regConfirm) { setError('Passwords do not match.'); return; }
 
     if (!authCapabilities.emailOtp && !authCapabilities.smsOtp) {
@@ -144,7 +145,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const verifyOtp = async () => {
     const dest = activeOtpDestination || loginPhone.trim();
     const codeVal = enteredOtp.trim();
-    if (!/^[0-9]{6}$/.test(codeVal)) {
+    if (!isSixDigitOtp(codeVal)) {
       setError('Enter the six-digit code from your email or SMS.');
       return;
     }
@@ -450,8 +451,8 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
                 {showPassword ? '👁️' : '🙈'}
               </button>
             </div>
-            <div id="gf-registration-password-help" className={`gf-auth-password-hint ${regPassword.length >= 10 && regPassword.length <= 72 ? 'valid' : ''}`} role="status">
-              {regPassword.length >= 10 && regPassword.length <= 72 ? '✓ Password length meets the requirement' : `At least 10 characters · ${regPassword.length}/10`}
+            <div id="gf-registration-password-help" className={`gf-auth-password-hint ${validRegistrationPassword(regPassword) ? 'valid' : ''}`} role="status">
+              {validRegistrationPassword(regPassword) ? '✓ Password length meets the requirement' : `At least 10 characters · ${regPassword.length}/10`}
             </div>
           </div>
           <div className="form-group" style={{ marginTop: 12 }}>
@@ -491,7 +492,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
             </div>
           </div>
           <div style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || regPassword.length < 10 || regPassword.length > 72 || regPassword !== regConfirm || (!authCapabilities.emailOtp && !authCapabilities.smsOtp)} style={{ width: '100%', padding: 12 }}>
+            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || !validRegistrationPassword(regPassword) || regPassword !== regConfirm || (!authCapabilities.emailOtp && !authCapabilities.smsOtp)} style={{ width: '100%', padding: 12 }}>
               {loading || otpBusy ? '⏳ Processing…' : `🎉 ${dict.createAccount || 'Create Account'} (${regOtpChannel === 'email' ? 'Email OTP' : 'SMS OTP'})`}
             </button>
           </div>
