@@ -366,7 +366,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
           </div>
-          {/* UBER EATS HERO LIVE BANNER */}
+          {/* Server-backed order status hero. */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
               {!isCancelled && <img className="tracking-food-art" src={`${import.meta.env.BASE_URL}tracking-food-bowl.svg`} alt="" aria-hidden="true" loading="lazy" />}
@@ -419,7 +419,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             {/* Uber Progress Bar */}
             {!isCancelled && (
               <div className="uber-progress-bar-wrap">
-                <div className="uber-progress-bar-fill" style={{ width: `${progressPct}%` }} />
+                <div className="uber-progress-bar-fill" style={{ width: `${actualProgress.percent}%` }} />
               </div>
             )}
 
@@ -596,59 +596,11 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
-            {/* 1-Tap Direct Call & Chat Buttons — Delivery ONLY */}
-            {isDelivery && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDriverChatOpen(true);
-                    fetchDriverMessages(order.id);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '10px 4px',
-                    borderRadius: 10,
-                    background: '#6366f115',
-                    border: '1px solid #6366f150',
-                    color: '#6366f1',
-                    fontWeight: 800,
-                    fontSize: '0.78rem',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 4
-                  }}
-                >
-                  <span>💬 Chat Rider</span>
-                </button>
-
-                <a
-                  href={`tel:${order?.driver?.phone || order?.driverPhone || '+94760130922'}`}
-                  style={{ textDecoration: 'none' }}
-                >
-                  <button
-                    type="button"
-                    style={{
-                      width: '100%',
-                      padding: '10px 4px',
-                      borderRadius: 10,
-                      background: '#10b98115',
-                      border: '1px solid #10b98150',
-                      color: '#10b981',
-                      fontWeight: 800,
-                      fontSize: '0.78rem',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4
-                    }}
-                  >
-                    <span>🛵 Call Rider</span>
-                  </button>
-                </a>
+            {/* Driver contact options only after a confirmed assignment. */}
+            {isDelivery && !isCancelled && (order.driver?.id || order.driverId || dispatchStatus?.driverId) && (
+              <div className="gf-tracking-driver-actions">
+                <button type="button" onClick={() => {setDriverChatOpen(true);fetchDriverMessages(order.id);}}>💬 Message rider</button>
+                {(order.driver?.phone || order.driverPhone) && <a href={`tel:${order.driver?.phone || order.driverPhone}`}>📞 Call rider</a>}
               </div>
             )}
 
@@ -685,46 +637,28 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             )}
           </div>
 
-          {/* Timeline Steps */}
+          {/* Accurate five-stage delivery timeline; never combine ready with rider departure. */}
           {!isCancelled && (
-            <div className="tracking-card" style={{ marginTop: 12 }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 16 }}>Live Progress Timeline</h3>
-              <div className="status-steps">
-                {STATUS_STEPS.map((step, i) => {
-                  const done = i < curStep;
-                  const active = i === curStep;
-                  const labels = isDelivery
-                    ? ['Order received', 'Preparing your food', order.status === 'out_for_delivery' ? 'Out for delivery' : 'Ready for delivery', 'Delivered']
-                    : isDineIn
-                      ? ['Order received', 'Kitchen preparing', 'Ready to serve', 'Served']
-                      : ['Order received', 'Preparing your food', 'Ready for pickup', 'Collected'];
-                  const descriptions = isDelivery
-                    ? ['Restaurant reviewing your order', 'Your meal is being prepared', order.status === 'out_for_delivery' ? 'Rider is on the way' : 'Prepared for delivery', 'Your order is completed']
-                    : isDineIn
-                      ? ['Restaurant reviewing your order', 'Your chef is preparing the meal', 'Food is ready for your table', 'Enjoy your meal']
-                      : ['Restaurant reviewing your order', 'Your meal is being prepared', 'Collect at the restaurant counter', 'Pickup completed'];
-                  // Animate only the live stage. Never imply a rider is moving
-                  // until the backend explicitly reports out_for_delivery.
-                  const iconKind = i === 0 ? 'order'
-                    : i === 1 ? 'cooking'
-                    : i === 2 ? (isDelivery
-                      ? (order.status === 'out_for_delivery' ? 'delivery' : 'ready')
-                      : isDineIn ? 'served' : 'pickup')
-                    : 'success';
-                  return (
-                    <div key={step.id} className={`status-step ${done ? 'done' : active ? 'active' : ''}`} aria-current={active ? 'step' : undefined}>
-                      <div className="step-dot">
-                        {done ? <AnimatedFeatureIcon kind="success" size={26} active={false}/> : <AnimatedFeatureIcon kind={iconKind} size={30} active={active}/>}
-                      </div>
-                      <div className="step-info">
-                        <h4>{labels[i]} {active ? '· Current' : done ? '· Complete' : ''}</h4>
-                        <p>{done || active ? descriptions[i] : 'Upcoming stage'}</p>
-                      </div>
-                    </div>
-                  );
-                })}
+            <section className="tracking-card gf-tracking-timeline" aria-label="Order progress timeline">
+              <div className="gf-tracking-section-heading">
+                <span className="gf-tracking-overline">YOUR ORDER JOURNEY</span>
+                <h3>Order progress</h3>
+                <p>Updated from the restaurant's confirmed order status.</p>
               </div>
-            </div>
+              <ol className="gf-tracking-steps">
+                {actualProgress.steps.map((step,i)=>{
+                  const complete=i<actualProgress.currentIndex || (actualProgress.done && i===actualProgress.currentIndex);
+                  const active=i===actualProgress.currentIndex && !actualProgress.done;
+                  return <li key={step.id} className={`gf-tracking-step ${complete?'is-done':active?'is-active':'is-upcoming'}`} aria-current={active?'step':undefined}>
+                    <div className="gf-tracking-node" aria-hidden="true">{complete?'✓':String(i+1)}</div>
+                    <div>
+                      <strong>{step.label}{active?' · Current':''}</strong>
+                      <p>{complete||active?step.description:'Upcoming stage'}</p>
+                    </div>
+                  </li>;
+                })}
+              </ol>
+            </section>
           )}
           {/* Driver In-App Live Chat Drawer */}
           {driverChatOpen && (
