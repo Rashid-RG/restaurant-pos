@@ -9,6 +9,7 @@ import {createKitchenRouter} from './routes/kitchen.js';
 import {initInventoryOperations,createInventoryOperations} from './routes/inventory-operations.js';
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation} from './lib/checkout-recovery.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
+import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
@@ -1883,7 +1884,7 @@ app.use('/api',createManualPayments({dbGet,dbAll,dbRun,authenticateToken,require
 app.use('/api',createKitchenRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyOrderUpdate}));
 app.use('/api',createInventoryOperations({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyPOS}));
 app.use('/api',createOrderChatRouter({dbGet,dbAll,dbRun,authenticateToken,authenticateCustomer,authenticateDriver,broadcastEvent,rateLimiter:publicApiLimiter}));
-app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
+app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/orders/:id/eta','/api/public/orders/:id/dispatch-status','/api/public/orders/:id/road-route','/api/stream/orders/:id'], createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}));
 app.post('/api/public/orders/:id/push-subscription',publicApiLimiter,createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}),
   createCustomerPushRoutes({dbRun,dbGet,resolvePublicTenant}));
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],(req,res,next)=>{req.params.id=req.body?.orderId;return createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver})(req,res,next);});
@@ -3505,6 +3506,47 @@ export async function calculateOrderETA(orderId, tenantId = 'default_tenant') {
     return { estimatedMinutes: 25, estimatedDeliveryTime: Date.now() + 25 * 60 * 1000 };
   }
 }
+
+// Configurable road-route lookup for authorized order tracking.
+// When routing is not configured or provider is unavailable, the UI retains
+// its existing honest straight-line proximity indicator (no invented road ETA).
+const roadRouteCache=new Map();
+app.get('/api/public/orders/:id/road-route',publicApiLimiter,async(req,res)=>{
+  res.set('Cache-Control','private, no-store');
+  const origin=routingOrigin();
+  if(!origin)return res.json({available:false,reason:'not_configured'});
+  try{
+    const tenantId=await resolvePublicTenant(req);
+    const order=await dbGet('SELECT id,tenant_id,status,driverId,orderType,diningType,deliveryLat,deliveryLng FROM orders WHERE id=? AND tenant_id=?',[req.params.id,tenantId]);
+    if(!order)return res.status(404).json({error:'Order not found.'});
+    const mode=String(order.orderType||order.diningType||'').toLowerCase();
+    if(mode!=='delivery'||['cancelled','rejected','delivered','completed','refunded'].includes(String(order.status||'').toLowerCase()))return res.json({available:false,reason:'not_active_delivery'});
+    const to={lat:order.deliveryLat,lng:order.deliveryLng};
+    if(!validRoadPoint(to))return res.json({available:false,reason:'no_delivery_pin'});
+    let from=null,startingPoint='restaurant';
+    if(order.driverId&&String(order.status).toLowerCase()==='out_for_delivery'){
+      const latest=await dbGet('SELECT lat,lng,updatedAt FROM driver_locations WHERE orderId=?',[order.id]);
+      if(latest&&Date.now()-Number(latest.updatedAt)>=0&&Date.now()-Number(latest.updatedAt)<90000&&validRoadPoint(latest)){
+        from={lat:latest.lat,lng:latest.lng};startingPoint='rider';
+      }
+    }
+    if(!from){
+      const settings=await getSettingsMap(tenantId,['storeLat','storeLng']);
+      const store={lat:settings.storeLat,lng:settings.storeLng};
+      if(validRoadPoint(store))from=store;
+    }
+    if(!validRoadPoint(from))return res.json({available:false,reason:'no_origin_pin'});
+    const key=order.id+':'+startingPoint+':'+Number(from.lat).toFixed(4)+':'+Number(from.lng).toFixed(4)+':'+Number(to.lat).toFixed(4)+':'+Number(to.lng).toFixed(4);
+    const cached=roadRouteCache.get(key);
+    if(cached&&Date.now()-cached.at<30000)return res.json(cached.data);
+    const route=await fetchRoadRoute({from,to,origin});
+    if(!route)return res.json({available:false,reason:'provider_unavailable'});
+    const data={...route,startingPoint,estimateOnly:true};
+    if(roadRouteCache.size>150)roadRouteCache.clear();
+    roadRouteCache.set(key,{at:Date.now(),data});
+    return res.json(data);
+  }catch(err){return res.json({available:false,reason:'provider_unavailable'});}
+});
 
 // GET /api/public/orders/:id/eta — Dynamic ETA computation
 app.get('/api/public/orders/:id/eta', publicApiLimiter, async (req, res) => {
