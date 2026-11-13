@@ -1,5 +1,6 @@
 import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/checkout-recovery.js';
 import { createSubmissionGuard } from '../utils/submission-guard.js';
+import { recoveryDecision } from '../utils/order-recovery-status.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
@@ -82,7 +83,19 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const finishRecovery=()=>{clearPendingCheckout();setPendingCheckout(null);otpProofRef.current=null;};
   const recoverCheckout=()=>checkoutGuard.current.run(async()=>{
     if(loading||!pendingCheckout)return;setLoading(true);
-    try{const result=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':pendingCheckout.key},body:JSON.stringify({...pendingCheckout.payload,customerToken:getToken()||null})});if(JSON.stringify(pendingCheckout.payload.items)===JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();finishRecovery();setCartOpen(false);onOrderPlaced&&onOrderPlaced(result.orderId);}
+    try {
+      const result=await apiFetch('/public/orders',{
+        method:'POST',headers:{'Idempotency-Key':pendingCheckout.key},
+        body:JSON.stringify({...pendingCheckout.payload,customerToken:getToken()||null})
+      });
+      const decision=recoveryDecision(result,pendingCheckout.payload.paymentMethod);
+      if(decision.action !== 'track'){toast(decision.message,'warning');return;}
+      if(decision.clearCart && JSON.stringify(pendingCheckout.payload.items) === JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();
+      finishRecovery();
+      setCartOpen(false);
+      toast(decision.message,decision.clearCart?'success':'info');
+      onOrderPlaced&&onOrderPlaced(result.orderId);
+    }
     catch(error){toast(error.message,'error');}finally{setLoading(false);}
   });
   const [payhereRedirectData, setPayhereRedirectData] = useState(null);
@@ -541,7 +554,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       </div>}
       {pendingCheckout&&<section aria-label="Previous checkout" className="glass" style={{padding:16,marginBottom:16}}>
         <strong>Previous checkout</strong>
-        <p>Your last checkout may already be saved. Check its order before placing another.</p>
+        <p>Your previous submission may have reached the restaurant. Recover its status before submitting another order. If online payment is still pending, it will not be shown as paid.</p>
         <button className="btn btn-brand" disabled={loading} onClick={recoverCheckout}>Recover previous order</button>
         <button className="btn btn-ghost" disabled={loading} onClick={()=>{if(window.confirm('Have you checked the previous order? Starting again can create an additional order.'))finishRecovery();}}>Start a separate order</button>
       </section>}
