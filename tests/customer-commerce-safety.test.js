@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {cartStorageKey,parseSavedCart} from '../apps/customer-web/src/utils/cart-storage.js';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 
 describe('Multi-restaurant private cart storage',()=>{
   it('never shares carts between two restaurants or legacy global cart',()=>{
@@ -54,7 +55,7 @@ describe('Public customer payment availability and promotional safety',()=>{
   it('records a bank transfer order as unpaid until verified by staff',async()=>{
     const order=await request(app).post('/api/public/orders')
       .set('X-Tenant-Id',tenant).set('Idempotency-Key',crypto.randomUUID())
-      .send({items:[{menuItemId:'customer_safety_meal',quantity:1}],
+      .send({checkoutProof:await testCheckoutProof(dbRun,tenant,'0771234567'),items:[{menuItemId:'customer_safety_meal',quantity:1}],
         orderType:'takeaway',customerName:'Checkout Tester',
         customerPhone:'0771234567',paymentMethod:'bank_transfer'});
     expect(order.status,JSON.stringify(order.body)).toBe(201);
@@ -77,7 +78,7 @@ describe('Public customer payment availability and promotional safety',()=>{
   it('blocks the online card option while temporarily unavailable',async()=>{
     const response=await request(app).post('/api/public/orders')
       .set('X-Tenant-Id',tenant).set('Idempotency-Key',crypto.randomUUID())
-      .send({items:[{menuItemId:'customer_safety_meal',quantity:1}],
+      .send({checkoutProof:await testCheckoutProof(dbRun,tenant,'0771234567'),items:[{menuItemId:'customer_safety_meal',quantity:1}],
         orderType:'takeaway',customerName:'Checkout Tester',
         customerPhone:'0771234567',paymentMethod:'online_pending'});
     expect(response.status).toBe(503);
@@ -93,7 +94,7 @@ describe('Public customer payment availability and promotional safety',()=>{
   it('rejects invalid order schedule before insertion',async()=>{
     const response=await request(app).post('/api/public/orders').set('X-Tenant-Id',tenant)
       .set('Idempotency-Key',crypto.randomUUID())
-      .send({items:[{menuItemId:'customer_safety_meal',quantity:1}],orderType:'takeaway',
+      .send({checkoutProof:await testCheckoutProof(dbRun,tenant,'0771234567'),items:[{menuItemId:'customer_safety_meal',quantity:1}],orderType:'takeaway',
         customerName:'Scheduled Test',customerPhone:'0771234567',paymentMethod:'cash',scheduledTime:Date.now()+4*60000});
     expect(response.status).toBe(400);
     expect(response.body.error).toMatch(/slot|soon|time/i);
