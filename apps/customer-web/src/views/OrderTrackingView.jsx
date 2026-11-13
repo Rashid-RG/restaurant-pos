@@ -339,7 +339,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     <div className="tracking-page fade-in gf-modern-tracking" style={{ padding: '20px 16px 90px' }}>
       {!order ? (
 
-        <div className="form-section" style={{ marginTop: 24 }}>
+        <div className="form-section gf-tracking-lookup" style={{ marginTop: 24 }}>
           <h2>📦 {t('trackOrderTitle')}</h2>
           <p className="text-muted" style={{ marginBottom: 16 }}>{t('trackOrderHelp')}</p>
           <div className="form-group">
@@ -389,11 +389,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                   <h1 className="uber-hero-title">
                     {etaDisplay !== null ? `Approx. ${etaDisplay} min` : 'Awaiting estimate'}
                   </h1>
-                  {dynamicETA && (
-                    <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 4 }}>
-                      ⚡ Kitchen Prep: {dynamicETA.maxItemPrep}m · Load: +{dynamicETA.kitchenLoadBuffer}m {dynamicETA.rainBuffer ? '· Rain Surge +12m 🌧️' : ''}
-                    </div>
-                  )}
+                  {etaDisplay !== null && <p className="gf-tracking-eta-note">Approximate only · depends on kitchen and road conditions</p>}
                   <p className="uber-hero-subtitle">
                     {isDineIn ? (
                       curStep === 0 ? 'Waiting for restaurant confirmation…' :
