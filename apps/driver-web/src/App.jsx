@@ -5,6 +5,7 @@ import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
 import {shouldSendDriverFix} from './utils/gps-transmission.js';
+import {createDispatchRequestGate,latestDispatchTickets} from './utils/dispatch-sync.js';
 
 
 // ── Auth token storage ──
@@ -74,6 +75,11 @@ export default function App() {
   // Bug 3 fix: ref instead of state so polling interval always reads
   // the latest count without a stale closure.
   const prevUnassignedCountRef = useRef(0);
+  const dispatchGateRef=useRef(createDispatchRequestGate());
+  const [dispatchLastSynced,setDispatchLastSynced]=useState(null);
+  const [dispatchSyncError,setDispatchSyncError]=useState(false);
+  const [driverClock,setDriverClock]=useState(Date.now());
+  useEffect(()=>{const i=setInterval(()=>setDriverClock(Date.now()),10000);return()=>clearInterval(i);},[]);
 
   // Bug 6 fix: store the toast auto-dismiss timer so it can be cancelled.
   const toastTimerRef = useRef(null);
@@ -137,6 +143,8 @@ export default function App() {
     setAvailableOrders([]);
     activeOrdersRef.current = [];
     prevUnassignedCountRef.current = 0;
+    dispatchGateRef.current.invalidate();
+    setDispatchLastSynced(null);setDispatchSyncError(false);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(DRIVER_KEY);
   };
@@ -178,11 +186,16 @@ export default function App() {
   // ── Orders ──
   const fetchDriverOrders = async () => {
     if (!driver) return;
+    const gate=dispatchGateRef.current;
+    const request=gate.start();
+    if(request===null)return;
     setLoading(true);
     try {
       const data = await apiFetch('/public/driver/orders');
-      const newUnassigned = data.unassigned || [];
-      const newAssigned = data.assigned || [];
+      if(!gate.isCurrent(request))return;
+      const tickets=latestDispatchTickets(data);
+      const newUnassigned=tickets.unassigned;
+      const newAssigned=tickets.assigned;
 
       // Bug 3 fix: compare against ref (always current) not a stale state closure.
       // prevUnassignedCountRef.current is updated immediately after comparison
@@ -194,15 +207,17 @@ export default function App() {
       prevUnassignedCountRef.current = newUnassigned.length;
 
       setActiveOrders(newAssigned);
-      setHistory(data.completed || []);
+      setHistory(tickets.completed);
+      setDispatchLastSynced(Date.now());setDispatchSyncError(false);
       setSummary(data.summary || { completedToday: 0, cashToHandover: 0 });
       if (data.timeZone) setRestaurantTimeZone(data.timeZone);
       setAvailableOrders(newUnassigned);
     } catch (err) {
+      if(!gate.isCurrent(request))return;
       if (/token/i.test(err.message)) { handleLogout(); showToast('Session expired — please sign in again', 'warning'); }
-      else showToast('Failed to load delivery tickets', 'error');
+      else setDispatchSyncError(true); // Preserve last confirmed tickets on a transient outage.
     } finally {
-      setLoading(false);
+      if(gate.isCurrent(request)){setLoading(false);gate.finish(request);}
     }
   };
 
@@ -210,7 +225,11 @@ export default function App() {
     if (driver) {
       fetchDriverOrders();
       const interval = setInterval(fetchDriverOrders, 8000);
-      return () => clearInterval(interval);
+      const onResume=()=>{if(document.visibilityState==='visible')fetchDriverOrders();};
+      const onOnline=()=>fetchDriverOrders();
+      document.addEventListener('visibilitychange',onResume);
+      window.addEventListener('online',onOnline);
+      return () => {clearInterval(interval);document.removeEventListener('visibilitychange',onResume);window.removeEventListener('online',onOnline);dispatchGateRef.current.invalidate();};
     }
   }, [driver?.id]);
 
@@ -388,6 +407,7 @@ export default function App() {
           /* ── Rider dashboard ── */
           <div>
             <section className="driver-welcome"><span>YOUR DAY, IN MOTION</span><h1>Let’s make every<br/>delivery a good one.</h1><p>Welcome back, {driver.name?.split(' ')[0]}. Your assigned orders and pickup opportunities are all here.</p><ConnectionStatus compact/></section>
+            <div className="driver-dispatch-sync" role="status" aria-live="polite"><strong>{dispatchSyncError || !dispatchLastSynced || driverClock-dispatchLastSynced>25000 ? 'Checking dispatch connection' : 'Dispatch synced'}</strong><span>{dispatchLastSynced ? 'Last confirmed '+new Date(dispatchLastSynced).toLocaleTimeString() : 'Waiting for first update'}</span>{dispatchSyncError && <button type="button" onClick={fetchDriverOrders}>Retry now</button>}</div>
             <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
 
             <div className="card driver-controls-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
