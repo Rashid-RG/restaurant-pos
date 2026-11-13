@@ -1,5 +1,6 @@
 import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/checkout-recovery.js';
-import React, { useState, useEffect } from 'react';
+import { createSubmissionGuard } from '../utils/submission-guard.js';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -74,13 +75,15 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
 
   // States
   const [loading, setLoading] = useState(false);
+  const checkoutGuard = useRef(createSubmissionGuard());
+  const otpGuard = useRef(createSubmissionGuard());
   const [pendingCheckout,setPendingCheckout]=useState(readPendingCheckout);
   const finishRecovery=()=>{clearPendingCheckout();setPendingCheckout(null);};
-  const recoverCheckout=async()=>{
+  const recoverCheckout=()=>checkoutGuard.current.run(async()=>{
     if(loading||!pendingCheckout)return;setLoading(true);
     try{const result=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':pendingCheckout.key},body:JSON.stringify({...pendingCheckout.payload,customerToken:getToken()||null})});if(JSON.stringify(pendingCheckout.payload.items)===JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();finishRecovery();setCartOpen(false);onOrderPlaced&&onOrderPlaced(result.orderId);}
     catch(error){toast(error.message,'error');}finally{setLoading(false);}
-  };
+  });
   const [payhereRedirectData, setPayhereRedirectData] = useState(null);
 
   // OTP Verification States
@@ -264,7 +267,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     if (loc?.label) setAddress(loc.label);
   };
 
-  const executeOrderPlacement = async () => {
+  const executeOrderPlacement = () => checkoutGuard.current.run(async () => {
     if (!getActiveTenant() || !(await refreshStore())) {
       toast('This restaurant is not accepting online orders. Your cart is saved.', 'error');
       return;
@@ -363,10 +366,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       setLoading(false);
       setOtpVerified(false);
     }
-  };
+  });
 
-  const handlePlaceOrder = async (e) => {
+  const handlePlaceOrder = (e) => {
     e.preventDefault();
+    return otpGuard.current.run(async () => {
     if(typeof navigator!=='undefined' && navigator.onLine===false){toast('You are offline. Your cart is saved on this device; reconnect before placing an order. No order was submitted.','warning');return;}
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
     if (!canOrder) { toast('Restaurant availability cannot be confirmed. Your cart is saved.', 'warning'); return; }
@@ -434,6 +438,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     }
 
     await executeOrderPlacement();
+    });
   };
 
   // Local/dev only: ask the SERVER to simulate a PayHere settlement. The browser never marks
