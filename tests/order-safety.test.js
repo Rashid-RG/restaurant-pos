@@ -114,7 +114,7 @@ it('rejects negative or foreign stock transfers and cannot approve unavailable s
 });
 it('returns recorded loyalty reservations once when a customer cancels',async()=>{
  await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
- const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);
+ const token=customer('safe_customer').Authorization.split(' ')[1];
  const created=await request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',customerToken:token,loyaltyPointsToRedeem:500,items:[{id:'safe_item',quantity:1}]});expect(created.status,created.text).toBe(201);
  expect((await dbGet("SELECT loyaltyPoints FROM customer_accounts WHERE id='safe_customer'")).loyaltyPoints).toBe(500);
  const cancel=()=>request(app).post(`/api/public/orders/${created.body.orderId}/cancel?tenant=safe_A`).set('X-Order-Tracking',created.body.trackingToken);
@@ -179,7 +179,7 @@ it('scopes the same checkout key separately to each restaurant',async()=>{
 });
 it('does not transfer checkout recovery access to a different customer identity',async()=>{
  const key=crypto.randomUUID();expect((await retryCheckout(key)).status).toBe(201);
- const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);expect((await retryCheckout(key,{...recoveryBody(),customerToken:token})).status).toBe(409);
+ const token=customer('safe_customer').Authorization.split(' ')[1];expect((await retryCheckout(key,{...recoveryBody(),customerToken:token})).status).toBe(409);
 });
 it('rolls back the recovery record with failed inventory and allows a corrected retry',async()=>{
  const key=crypto.randomUUID(),before=await stock();await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(500);expect(await stock()).toEqual(before);
