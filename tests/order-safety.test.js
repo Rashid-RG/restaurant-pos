@@ -151,7 +151,12 @@ it('keeps each invited participant in control of their own items and rolls back 
  await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");
 });
 const recoveryBody=()=>({customerName:'Retry Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
-const retryCheckout=(key,body=recoveryBody(),tenant='safe_A')=>request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send(body);
+const proofByRequest=new Map();
+const retryCheckout=async(key,body=recoveryBody(),tenant='safe_A')=>{
+ const proofKey=tenant+':'+key;
+ if(!proofByRequest.has(proofKey))proofByRequest.set(proofKey,await testCheckoutProof(dbRun,tenant,body.customerPhone||'0770000000'));
+ return request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send({...body,checkoutProof:proofByRequest.get(proofKey)});
+};
 it('saves one order and one inventory reservation across concurrent checkout retries',async()=>{
  const key=crypto.randomUUID(),before=await stock(),raw=await ingredient();const results=await Promise.all([retryCheckout(key),retryCheckout(key)]);
  expect(results.map(r=>r.status).sort()).toEqual([200,201]);expect(new Set(results.map(r=>r.body.orderId)).size).toBe(1);expect(results.find(r=>r.status===200).headers['idempotency-replayed']).toBe('true');
