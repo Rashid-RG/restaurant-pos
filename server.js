@@ -3611,8 +3611,14 @@ app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, 
       dispatchLabel = 'Finding a driver for you…';
       dispatchIcon  = '🔄';
     } else if (s === 'out_for_delivery') {
-      dispatchLabel = `${order.driverId} is on the way! ${distanceToStoreKm !== null ? `(${distanceToStoreKm} km from store)` : ''}`;
-      dispatchIcon  = '🛵';
+      dispatchLabel = `${order.driverId} is on the way to your destination`;
+      dispatchIcon = '🛵';
+    } else if (s === 'picked_up') {
+      dispatchLabel = `${order.driverId} has collected your order`;
+      dispatchIcon = '📦';
+    } else if (s === 'arrived') {
+      dispatchLabel = `${order.driverId} has reported arrival at your destination`;
+      dispatchIcon = '📍';
     } else if (s === 'ready') {
       dispatchLabel = `${order.driverId} assigned — picking up your order`;
       dispatchIcon  = '✅';
@@ -5258,7 +5264,7 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
     return res.status(422).json({ error: 'A recent location fix within 150 m accuracy is required.', code: 'GPS_QUALITY_LOW' });
   }
   try {
-    const existing = await dbGet("SELECT tenant_id FROM orders WHERE id=? AND driverId=? AND status IN ('ready','out_for_delivery')", [orderId, driverId]);
+    const existing = await dbGet("SELECT tenant_id FROM orders WHERE id=? AND driverId=? AND status IN ('ready','picked_up','out_for_delivery','arrived')", [orderId, driverId]);
     if (!existing || existing.tenant_id !== tenantId) return res.status(404).json({ error: 'Order not found.' });
     const previous = await dbGet('SELECT lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=?', [orderId]);
     if (previous && Number(previous.updatedAt) >= measuredAt) {
