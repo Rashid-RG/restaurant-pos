@@ -3742,31 +3742,38 @@ app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
 // BUG-003 fix: require staff authentication with manager/owner role
 // Previously this was a fully unauthenticated endpoint allowing anyone to reassign orders
 app.post('/api/public/driver/assign-batch', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
-  try {
-    const { driverId, orderIds } = req.body;
-    if (!driverId || !Array.isArray(orderIds) || orderIds.length === 0) {
-      return res.status(400).json({ error: 'Driver ID and list of order IDs are required.' });
-    }
-    if (orderIds.length > 20) {
-      return res.status(400).json({ error: 'Cannot batch-assign more than 20 orders at once.' });
-    }
-
-    const tenantId = req.tenantId || 'default_tenant';
-    const driver = await dbGet('SELECT * FROM drivers WHERE (id = ? OR phone = ?) AND tenant_id = ?', [driverId, driverId, tenantId]);
-    if (!driver) return res.status(404).json({ error: 'Driver not found.' });
-
-    for (const orderId of orderIds) {
-      // Only assign orders belonging to this tenant
-      await dbRun(
-        "UPDATE orders SET driverId = ?, status = 'out_for_delivery' WHERE id = ? AND tenant_id = ?",
-        [driver.id, orderId, tenantId]
+  const {driverId,orderIds}=req.body||{};
+  if(typeof driverId!=='string'||!driverId.trim()||!Array.isArray(orderIds)||orderIds.length<1||orderIds.length>20||
+     orderIds.some(id=>typeof id!=='string'||!id.trim())||new Set(orderIds).size!==orderIds.length){
+    return res.status(400).json({error:'Choose a driver and 1–20 unique delivery order IDs.'});
+  }
+  const tenantId=req.tenantId;
+  let inTransaction=false;
+  try{
+    const driver=await dbGet('SELECT id,name FROM drivers WHERE (id=? OR phone=?) AND tenant_id=?',[driverId,driverId,tenantId]);
+    if(!driver)return res.status(404).json({error:'Driver not found.'});
+    await dbRun('BEGIN TRANSACTION');inTransaction=true;
+    for(const orderId of orderIds){
+      // Assignment alone must never mark food as collected or on the way.
+      const result=await dbRun(
+        "UPDATE orders SET driverId=? WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')",
+        [driver.id,orderId,tenantId]
       );
-      broadcastEvent('order_updated', { orderId, status: 'out_for_delivery', driverName: driver.name, driverPhone: driver.phone });
+      if(result.changes!==1){
+        await dbRun('ROLLBACK');inTransaction=false;
+        return res.status(409).json({error:'An order is already assigned, unavailable, or not a delivery. Refresh and try again; no batch assignments were saved.'});
+      }
     }
-
-    res.json({ success: true, message: `Batch of ${orderIds.length} orders assigned to driver ${driver.name}!`, orderIds });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    await dbRun('COMMIT');inTransaction=false;
+    for(const orderId of orderIds){
+      notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+      notifyPOS({type:'driver_assigned',orderId,driverId:driver.id},tenantId);
+      void sendOrderPush(dbAll,dbRun,orderId,tenantId,'driver_assigned').catch(()=>{});
+    }
+    res.json({success:true,message:`Assigned ${orderIds.length} delivery orders to ${driver.name}.`,orderIds});
+  }catch(err){
+    if(inTransaction)await dbRun('ROLLBACK').catch(()=>{});
+    res.status(500).json({error:'Could not assign delivery orders. Please retry.'});
   }
 });
 
@@ -4371,6 +4378,8 @@ app.post('/api/delivery/assign',authenticateToken,requireRole(['owner','manager'
   await writeAuditLog(req.user.id,req.user.username,'assign_driver',`Assigned ${driverId} to ${orderId}`);
   await dbRun('COMMIT');open=false;
   broadcastEvent('order_updated',{orderId,status:order.status,driverId,driverName:driver.name},req.tenantId);
+  notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+  void sendOrderPush(dbAll,dbRun,orderId,req.tenantId,'driver_assigned').catch(()=>{});
   res.json({success:true,message:'Driver assigned.'});
  }catch(error){if(open)await dbRun('ROLLBACK');res.status(500).json({error:errMsg(error)});}
 });
@@ -5160,6 +5169,8 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
     const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
     if (claimed.changes !== 1) return res.status(409).json({ error: 'This delivery has already been assigned or closed.' });
     notifyPOS({ type: 'driver_assigned', orderId, driverId }, t);
+    notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+    void sendOrderPush(dbAll,dbRun,orderId,t,'driver_assigned').catch(()=>{});
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
