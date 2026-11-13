@@ -473,11 +473,8 @@ export default function Dashboard() {
 
           {/* Right: Platform Branding & Statement Title */}
           <div style={{ textAlign: 'right', maxWidth: '42%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginBottom: '4px' }}>
-              <img src="/pos-logo.svg" alt="GastroFlow" width="28" height="28" style={{ borderRadius: '6px' }} />
-              <span style={{ fontSize: '17px', fontWeight: '800', color: '#24664f', letterSpacing: '-0.3px' }}>
-                gastroflow<span style={{ color: '#edc780' }}>.</span>
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '4px' }}>
+              <img src="/gastroflow-brand.svg?v=1" alt="GastroFlow restaurant technology" width="160" height="42" style={{ objectFit: 'contain' }} />
             </div>
             <div style={{ fontSize: '10px', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: '600' }}>
               The Smart Restaurant Workspace
@@ -765,7 +762,7 @@ export default function Dashboard() {
           gap: '8px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <img src="/pos-logo.svg" alt="GastroFlow" width="20" height="20" style={{ borderRadius: '4px' }} />
+            <img src="/gastroflow-brand.svg?v=1" alt="GastroFlow platform" width="96" height="26" style={{ objectFit: 'contain' }} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <strong style={{ color: '#24664f', fontWeight: '800' }}>GastroFlow Restaurant Workspace</strong>
