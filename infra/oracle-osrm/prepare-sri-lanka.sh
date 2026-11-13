@@ -23,9 +23,9 @@ fi
 # Memory-heavy preprocessing is sequential and runs before routing is brought online.
 # The container uses the same image/profile as the runtime.
 echo "OSRM: extract Sri Lanka driving network"
-docker compose run --rm --no-deps osrm osrm-extract -p /opt/car.lua /data/sri-lanka-latest.osm.pbf
+docker run --rm --platform linux/arm64 -v "$PWD/data:/data" ghcr.io/project-osrm/osrm-backend:latest osrm-extract -p /opt/car.lua /data/sri-lanka-latest.osm.pbf
 echo "OSRM: partition"
-docker compose run --rm --no-deps osrm osrm-partition /data/sri-lanka-latest.osrm
+docker run --rm --platform linux/arm64 -v "$PWD/data:/data" ghcr.io/project-osrm/osrm-backend:latest osrm-partition /data/sri-lanka-latest.osrm
 echo "OSRM: customize"
-docker compose run --rm --no-deps osrm osrm-customize /data/sri-lanka-latest.osrm
+docker run --rm --platform linux/arm64 -v "$PWD/data:/data" ghcr.io/project-osrm/osrm-backend:latest osrm-customize /data/sri-lanka-latest.osrm
 echo "OSRM dataset processed. Do not start the service before configuring .env and DNS."
