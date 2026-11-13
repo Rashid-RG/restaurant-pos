@@ -10,7 +10,7 @@ export function restaurantRatingText(store) {
 export function restaurantDeliveryText(store, hasLocation = false) {
   if (hasLocation && store?.isDeliverable === false) return 'Delivery unavailable here';
   if (!hasLocation || store?.isDeliverable !== true) return 'Select location for delivery';
-  const fee = Number(store?.deliveryFee);
+  const fee = store?.deliveryFee == null ? NaN : Number(store.deliveryFee);
   return Number.isFinite(fee) && fee >= 0 ? `Delivery LKR ${fee.toFixed(0)}` : 'Delivery fee at checkout';
 }
 
