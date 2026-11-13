@@ -894,3 +894,102 @@ html { background: var(--surface-2); }
 @media(prefers-reduced-motion:reduce) {
   .gastrofood-otp-dialog {animation:none !important;}
 }
+
+
+/* Accessible GastroFood authentication: touch-friendly registration and OTP verification */
+.gf-auth-password-hint {
+  margin-top: 7px; font-size: .78rem; font-weight: 650; color: #64748b;
+  line-height: 1.4;
+}
+.gf-auth-password-hint.valid { color: #087550; }
+.gf-auth-otp-backdrop {
+  position: fixed; inset: 0; z-index: 2500;
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+  background: rgba(14, 26, 36, .72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.gf-auth-otp-sheet {
+  width: min(100%, 430px); max-height: 94dvh; overflow-y: auto;
+  background: #fff; color: #142d26; border-radius: 26px;
+  padding: 27px 24px 23px;
+  box-shadow: 0 26px 90px rgba(10, 31, 26, .28);
+  border: 1px solid rgba(255,255,255,.75);
+}
+.gf-auth-otp-mark {
+  width: 55px; height: 55px; border-radius: 17px;
+  display: grid; place-items: center;
+  background: #e1f5ed; color: #067552; margin-bottom: 17px;
+}
+.gf-auth-otp-eyebrow {
+  color: #087653; font-size: .69rem; font-weight: 800;
+  letter-spacing: .115em; margin-bottom: 8px;
+}
+.gf-auth-otp-sheet h2 {
+  font-size: clamp(1.35rem,5vw,1.8rem); line-height: 1.19;
+  font-weight: 800; letter-spacing: -.035em; margin: 0 0 11px;
+  font-family: var(--font-display,var(--font));
+}
+.gf-auth-otp-description {
+  color: #51655d; font-size: .9rem; line-height: 1.6; margin-bottom: 23px;
+  overflow-wrap: anywhere;
+}
+.gf-auth-otp-description strong { color: #065f46; }
+.gf-auth-otp-label {
+  display: block; font-weight: 750; font-size: .85rem; margin-bottom: 9px;
+}
+.gf-auth-otp-code {
+  display: block; width: 100%; height: 62px;
+  border-radius: 15px; background: #f7faf9;
+  border: 1.5px solid #cbdcd5;
+  text-align: center; font-size: 24px !important;
+  letter-spacing: .27em; font-variant-numeric: tabular-nums;
+  font-weight: 750;
+}
+.gf-auth-otp-code:focus-visible {
+  outline: 3px solid rgba(6, 117, 82, .19);
+  outline-offset: 2px; border-color: #087653;
+}
+.gf-auth-otp-help {
+  margin: 11px 0 19px; font-size: .79rem; line-height: 1.5; color: #667d73;
+}
+.gf-auth-otp-actions { display: flex; flex-direction: column; gap: 10px; }
+.gf-auth-otp-primary {
+  width: 100%; min-height: 50px; border-radius: 14px;
+  background: linear-gradient(120deg,#068357,#056747);
+  font-size: .94rem; font-weight: 800; line-height: 1.35; padding: 11px 14px;
+  white-space: normal;
+}
+.gf-auth-otp-primary:disabled { opacity: .55; cursor: not-allowed; }
+.gf-auth-otp-secondary {
+  width: 100%; min-height: 45px; border-radius: 13px;
+  background: #f1f5f4; color: #284438;
+  font-weight: 750; padding: 10px 14px;
+}
+.gf-auth-otp-privacy {
+  margin-top: 17px; font-size: .71rem; color: #778980;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  text-align: center; line-height: 1.45;
+}
+.gf-auth-otp-error {
+  margin: -5px 0 15px; border-radius: 11px;
+  border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c;
+  padding: 10px 12px; font-size: .84rem; line-height: 1.45; font-weight: 650;
+}
+@media (max-width: 520px) {
+  .gf-auth-otp-backdrop {align-items: flex-end; padding: 0;}
+  .gf-auth-otp-sheet {
+    width: 100%; max-height: min(92dvh,840px);
+    border-radius: 27px 27px 0 0;
+    padding: 26px 21px max(24px,env(safe-area-inset-bottom));
+    animation: gf-otp-rise .22s ease-out;
+  }
+  @keyframes gf-otp-rise {
+    from { transform: translateY(17px); opacity: .7; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gf-auth-otp-sheet { animation: none !important; }
+}
