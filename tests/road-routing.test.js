@@ -30,7 +30,10 @@ describe('GastroFlow opt-in road-based delivery routing',()=>{
    const fake=vi.fn(async()=>({ok:true,json:async()=>data}));
    expect(await fetchRoadRoute({from:a,to:b,origin:null,fetchImpl:fake})).toBe(null);
    expect(fake).not.toHaveBeenCalled();
-   expect((await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',fetchImpl:fake})).travelMinutes).toBe(30);
-   expect(await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',fetchImpl:()=>Promise.reject(new Error('timeout'))})).toBe(null);
+   expect(await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',routingKey:'short-key',fetchImpl:fake})).toBe(null);
+   const key='gastroflow-staging-routing-key-32-chars-long';
+   expect((await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',routingKey:key,fetchImpl:fake})).travelMinutes).toBe(30);
+   expect(fake.mock.calls.at(-1)[1].headers['X-GastroFlow-Routing-Key']).toBe(key);
+   expect(await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',routingKey:'gastroflow-staging-routing-key-32-chars-long',fetchImpl:()=>Promise.reject(new Error('timeout'))})).toBe(null);
  });
 });
