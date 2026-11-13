@@ -53,7 +53,7 @@ function CartSheet({ onCheckout, store, canOrder }) {
   return (
     <>
       <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} aria-hidden="true" />
-      <div className={`cart-sheet ${cartOpen ? 'open' : ''} gf-modern-cart-sheet" role="dialog" aria-modal="true" aria-label="Your cart">
+      <div className={`cart-sheet ${cartOpen ? 'open' : ''} gf-modern-cart-sheet`} role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="cart-sheet-handle" />
         <div className="cart-sheet-header">
           <div><h2>🛒 Cart · {totalItems} items</h2>
