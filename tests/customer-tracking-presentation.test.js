@@ -4,9 +4,13 @@ import {trackingSteps,trackingProgress,trackingEtaMinutes,validGeoPoint,normaliz
 describe('GastroFood real order tracking presentation',()=>{
   it('separates ready-for-rider from actually out-for-delivery',()=>{
     const steps=trackingSteps('delivery');
-    expect(steps.map(x=>x.id)).toEqual(['pending','preparing','ready','out_for_delivery','completed']);
+    expect(steps.map(x=>x.id)).toEqual(['pending','preparing','ready','picked_up','out_for_delivery','arrived','completed']);
     expect(trackingProgress('ready','delivery').currentIndex).toBe(2);
-    expect(trackingProgress('out_for_delivery','delivery').currentIndex).toBe(3);
+    expect(trackingProgress('picked_up','delivery').currentIndex).toBe(3);
+    expect(trackingProgress('out_for_delivery','delivery').currentIndex).toBe(4);
+    expect(trackingProgress('arrived','delivery').currentIndex).toBe(5);
+    expect(trackingProgress('arrived','delivery').done).toBe(false);
+    expect(trackingProgress('delivered','delivery').done).toBe(true);
     expect(trackingProgress('completed','delivery').done).toBe(true);
     expect(trackingSteps('takeaway').length).toBe(4);
     expect(trackingSteps('dine-in').at(-1).label).toBe('Served');
