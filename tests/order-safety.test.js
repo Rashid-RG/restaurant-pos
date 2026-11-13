@@ -154,8 +154,8 @@ const recoveryBody=()=>({customerName:'Retry Customer',customerPhone:'0770000000
 const proofByRequest=new Map();
 const retryCheckout=async(key,body=recoveryBody(),tenant='safe_A')=>{
  const proofKey=tenant+':'+key;
- if(!proofByRequest.has(proofKey))proofByRequest.set(proofKey,await testCheckoutProof(dbRun,tenant,body.customerPhone||'0770000000'));
- return request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send({...body,checkoutProof:proofByRequest.get(proofKey)});
+ if(!proofByRequest.has(proofKey))proofByRequest.set(proofKey,testCheckoutProof(dbRun,tenant,body.customerPhone||'0770000000'));
+ return request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send({...body,checkoutProof:await proofByRequest.get(proofKey)});
 };
 it('saves one order and one inventory reservation across concurrent checkout retries',async()=>{
  const key=crypto.randomUUID(),before=await stock(),raw=await ingredient();const results=await Promise.all([retryCheckout(key),retryCheckout(key)]);
