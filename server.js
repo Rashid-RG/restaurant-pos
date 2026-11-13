@@ -3408,14 +3408,14 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     const dispatchMode = (await getSetting(tenantId, 'driverDispatchMode')) || 'hybrid';
     if (dispatchMode === 'manual') return; // manager handles it
 
-    const order = await dbGet('SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ?', [orderId]);
+    const order = await dbGet('SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ? AND tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId = '')', [orderId,tenantId]);
     if (!order || !order.deliveryLat || !order.deliveryLng) return;
 
     // Get all drivers with recent GPS pings (within last 30 min)
-    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+    const thirtyMinAgo = Date.now() - 5 * 60 * 1000;
     const driverPings = await dbAll(
-      'SELECT orderId, driverName, lat, lng, updatedAt FROM driver_locations WHERE updatedAt > ? GROUP BY driverName ORDER BY updatedAt DESC',
-      [thirtyMinAgo]
+      'SELECT dl.orderId,dl.driverName,dl.lat,dl.lng,dl.updatedAt FROM driver_locations dl JOIN orders o ON o.id=dl.orderId WHERE o.tenant_id=? AND dl.updatedAt>? ORDER BY dl.updatedAt DESC',
+      [tenantId,thirtyMinAgo]
     );
 
     // Get store location for fallback
@@ -3424,7 +3424,8 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     const storeLng = parseFloat(dispatchStore.storeLng || 79.8612);
 
     // Calculate distance from each driver to the STORE (pickup point)
-    const driversWithDistance = driverPings.map(d => ({
+    const seenDrivers=new Set();
+    const driversWithDistance = driverPings.filter(d=>{if(seenDrivers.has(d.driverName))return false;seenDrivers.add(d.driverName);return true;}).map(d => ({
       ...d,
       distToStore: haversineDistanceKm(d.lat, d.lng, storeLat, storeLng)
     }));
@@ -3435,13 +3436,19 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     // Check which drivers are currently NOT on an active delivery
     for (const driver of driversWithDistance) {
       const activeDelivery = await dbGet(
-        "SELECT id FROM orders WHERE driverId = ? AND status IN ('preparing', 'ready', 'out_for_delivery')",
-        [driver.driverName]
+        "SELECT id FROM orders WHERE driverId=? AND tenant_id=? AND status IN ('pending','preparing','ready','picked_up','out_for_delivery','arrived')",
+        [driver.driverName,tenantId]
       );
       if (!activeDelivery) {
         // Auto-assign this driver
-        await dbRun('UPDATE orders SET driverId = ?, dispatchMode = ? WHERE id = ?', [driver.driverName, 'auto', orderId]);
+        const claimed=await dbRun(
+          "UPDATE orders SET driverId=?, dispatchMode=? WHERE id=? AND tenant_id=? AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')",
+          [driver.driverName,'auto',orderId,tenantId]
+        );
+        if(claimed.changes!==1)return;
         notifyPOS({ type: 'driver_auto_assigned', orderId, driverId: driver.driverName, distanceKm: Math.round(driver.distToStore * 10) / 10 }, tenantId);
+        notifyOrderStream(orderId,{type:'driver_assigned',orderId});
+        void sendOrderPush(dbAll,dbRun,orderId,tenantId,'driver_assigned').catch(()=>{});
         console.log(`[Auto-Dispatch] Assigned ${driver.driverName} to order ${orderId} (${driver.distToStore.toFixed(1)} km from store)`);
         return;
       }
