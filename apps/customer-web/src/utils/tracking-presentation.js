@@ -9,8 +9,10 @@ export function trackingSteps(type = 'takeaway') {
     {id:'pending',label:'Order received',description:'Waiting for restaurant confirmation'},
     {id:'preparing',label:'Preparing your food',description:'The restaurant is preparing your order'},
     {id:'ready',label:'Ready for pickup',description:'Food prepared; waiting for rider pickup'},
-    {id:'out_for_delivery',label:'On the way',description:'The rider has collected your order'},
-    {id:'completed',label:'Delivered',description:'Your order has arrived'}
+    {id:'picked_up',label:'Picked up by rider',description:'Your rider has collected the food'},
+    {id:'out_for_delivery',label:'On the way',description:'Your rider is heading to the destination'},
+    {id:'arrived',label:'Rider arrived',description:'Your rider reported arrival at the destination'},
+    {id:'completed',label:'Delivered',description:'The restaurant confirmed delivery completion'}
   ];
   if (type === 'dine-in') return [
     {id:'pending',label:'Order received',description:'Waiting for restaurant confirmation'},
