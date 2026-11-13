@@ -66,7 +66,9 @@ export async function apiFetch(endpoint, options = {}) {
     const msg = typeof data?.error === 'string'
       ? data.error
       : (data?.message || `Error ${res.status}`);
-    throw new Error(msg);
+    const error = new Error(msg);
+    error.status = res.status;
+    throw error;
   }
 
   // Cache only a public, tenant-scoped menu snapshot for read-only offline browsing.
