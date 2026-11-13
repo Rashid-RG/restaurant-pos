@@ -92,11 +92,11 @@ function CartSheet({ onCheckout, store, canOrder }) {
               </div>
               <div className="gf-modern-cart-actions">
                 <div className="qty-control">
-                  <button type="button" className="dec" aria-label={`Remove one ${item.name}`} disabled={item.qty<1} onClick={() => removeItem(item.cartId)}>−</button>
+                  <button type="button" className="dec" aria-label={'Remove one ' + item.name} disabled={item.qty<1} onClick={() => removeItem(item.cartId)}>−</button>
                   <span className="qty" aria-live="polite">{item.qty}</span>
-                  <button type="button" className="inc" aria-label={`Add one ${item.name}`} disabled={!canOrder || item.isAvailable === false || item.isAvailable === 0 || (item.stock!=null && items.filter(i=>i.id===item.id).reduce((n,i)=>n+Number(i.qty),0)>=Number(item.stock))} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+                  <button type="button" className="inc" aria-label={'Add one ' + item.name} disabled={!canOrder || item.isAvailable === false || item.isAvailable === 0 || (item.stock!=null && items.filter(i=>i.id===item.id).reduce((n,i)=>n+Number(i.qty),0)>=Number(item.stock))} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
                 </div>
-                <button type="button" className="gf-modern-cart-remove" aria-label={`Remove ${item.name} from cart`} onClick={()=>deleteItem(item.cartId)}>Remove</button>
+                <button type="button" className="gf-modern-cart-remove" aria-label={'Remove ' + item.name + ' from cart'} onClick={()=>deleteItem(item.cartId)}>Remove</button>
               </div>
             </div>
           ))}
