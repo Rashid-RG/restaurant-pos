@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 
 // Real HTTP routes with isolated test database: no production store is modified.
 process.env.DATABASE_FILE = path.join(os.tmpdir(), `gastroflow_store_isolation_${crypto.randomUUID()}.db`);
@@ -18,10 +19,10 @@ let orderAccessA = null;
 const token = (owner, tenantId) => jwt.sign({ id: owner, role: 'owner', tenant_id: tenantId }, process.env.JWT_SECRET);
 const auth = (owner, tenantId) => ({ Authorization: `Bearer ${token(owner, tenantId)}` });
 const storeState = async tenantId => request(app).get('/api/public/menu').query({ tenantId });
-const checkout = (tenantId, menuItemId) => request(app)
+const checkout = async (tenantId, menuItemId) => request(app)
   .post('/api/public/orders')
   .set('X-Tenant-Id', tenantId)
-  .send({ items: [{ menuItemId, quantity: 1 }], orderType: 'takeaway', customerName: 'Store Isolation QA', customerPhone: '0771234567', paymentMethod: 'cash' });
+  .send({ checkoutProof: await testCheckoutProof(dbRun, tenantId, '0771234567'), items: [{ menuItemId, quantity: 1 }], orderType: 'takeaway', customerName: 'Store Isolation QA', customerPhone: '0771234567', paymentMethod: 'cash' });
 
 beforeAll(async () => {
   await dbReady;
