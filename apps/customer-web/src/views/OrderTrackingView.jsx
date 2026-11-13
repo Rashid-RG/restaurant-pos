@@ -5,7 +5,7 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
 import {trackingProgress,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
-import {shouldRetainTrackedOrder} from '../../driver-web/src/utils/dispatch-sync.js';
+import {shouldRetainTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
 const STATUS_STEPS = [
   { id: 'pending', label: 'Order Received', desc: 'Awaiting restaurant confirmation', icon: '📋' },
