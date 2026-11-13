@@ -50,6 +50,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [lastUpdate,setLastUpdate]=useState(null);
   const [streamConnected,setStreamConnected]=useState(false);
   const driverFixRef=useRef(null);
+  const activeTrackedIdRef=useRef(null);
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
   const [dynamicETA, setDynamicETA] = useState(null);
@@ -163,6 +164,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   };
 
   const applyOrderUpdate = (update) => {
+    if (update?.id && activeTrackedIdRef.current && String(update.id)!==String(activeTrackedIdRef.current)) return;
     let items = update.items ?? orderRef.current?.items ?? [];
     if (typeof items === 'string') {
       try { items = JSON.parse(items); } catch { items = []; }
@@ -183,6 +185,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
   const fetchOrder = async (id) => {
     if (!id) return;
+    if (activeTrackedIdRef.current !== id) {
+      activeTrackedIdRef.current=id;
+      driverFixRef.current=null;orderRef.current=null;
+      setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);
+      setDriverChatOpen(false);setDriverMessages([]);setRemainingMins(null);
+    }
     setLoading(true); setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
@@ -508,7 +516,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={onBack}>
               ⬅ Back to Menu
             </button>
-            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { setOrder(null); setTrackId(''); }}>
+            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { activeTrackedIdRef.current=null;driverFixRef.current=null;orderRef.current=null;setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setOrder(null);setTrackId(''); }}>
               🔍 Track Another
             </button>
           </div>
