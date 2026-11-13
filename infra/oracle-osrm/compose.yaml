@@ -25,6 +25,7 @@ services:
     environment:
       ROUTING_HOST: ${ROUTING_HOST:?ROUTING_HOST is required}
       GASTROFLOW_ROUTING_KEY: ${GASTROFLOW_ROUTING_KEY:?GASTROFLOW_ROUTING_KEY is required}
+      ACME_CONTACT_EMAIL: ${ACME_CONTACT_EMAIL:?ACME_CONTACT_EMAIL is required}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
