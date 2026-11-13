@@ -5,6 +5,7 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
 import {trackingProgress,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
+import {shouldRetainTrackedOrder} from '../../driver-web/src/utils/dispatch-sync.js';
 
 const STATUS_STEPS = [
   { id: 'pending', label: 'Order Received', desc: 'Awaiting restaurant confirmation', icon: '📋' },
@@ -51,6 +52,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [streamConnected,setStreamConnected]=useState(false);
   const driverFixRef=useRef(null);
   const activeTrackedIdRef=useRef(null);
+  const trackingFetchRef=useRef(false);
+  const [connectionWarning,setConnectionWarning]=useState('');
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
   const [dynamicETA, setDynamicETA] = useState(null);
@@ -183,24 +186,29 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     }
   };
 
-  const fetchOrder = async (id) => {
-    if (!id) return;
+  const fetchOrder = async (id,{silent=false}={}) => {
+    if (!id || trackingFetchRef.current)return;
+    trackingFetchRef.current=true;
     if (activeTrackedIdRef.current !== id) {
       activeTrackedIdRef.current=id;
       driverFixRef.current=null;orderRef.current=null;
       setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);
       setDriverChatOpen(false);setDriverMessages([]);setRemainingMins(null);
     }
-    setLoading(true); setError('');
+    if(!silent)setLoading(true);
+    if(!silent)setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
       applyOrderUpdate(data);
+      setConnectionWarning('');
       setFeedbackSubmitted(false);
     } catch (err) {
-      setError(err.message);
-      setOrder(null);
+      if(orderRef.current && shouldRetainTrackedOrder(err))setConnectionWarning('Connection interrupted. Showing the last confirmed order status.');
+      else if(!orderRef.current){setError(err.message||'Unable to load order.');setOrder(null);}
+      else setConnectionWarning('Unable to refresh this order. Please retry.');
     } finally {
-      setLoading(false);
+      trackingFetchRef.current=false;
+      if(!silent)setLoading(false);
     }
   };
 
@@ -243,7 +251,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
     // Polling fallback — reads orderId from orderRef so it is never stale
     const interval = setInterval(() => {
-      if (orderRef.current?.id) fetchOrder(orderRef.current.id);
+      if (orderRef.current?.id && document.visibilityState!=='hidden') fetchOrder(orderRef.current.id,{silent:true});
     }, 5000);
 
 
@@ -373,6 +381,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             {storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
               <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
+            {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
           </div>
           {/* Server-backed order status hero. */}
           <div className="uber-hero-card">
