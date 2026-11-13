@@ -17,7 +17,7 @@ const distanceMeters=(a,b)=>{
  * Last confirmed GPS positions on OpenStreetMap. Marker animation is a short
  * visual interpolation, not predicted rider movement or a navigable road route.
  */
-export default function TrackingMap({store,dest,driver}) {
+export default function TrackingMap({store,dest,driver,route}) {
   const el=useRef(null),map=useRef(null),markers=useRef({});
   const routeLine=useRef(null),accuracyCircle=useRef(null),animation=useRef(null);
   const fitted=useRef(false),driverRef=useRef(null);
@@ -80,11 +80,16 @@ export default function TrackingMap({store,dest,driver}) {
       }else marker.setLatLng([next.lat,next.lng]);
     }
 
+    const hasRoad=route?.available===true && route.geometry?.type==='LineString' && Array.isArray(route.geometry.coordinates) && route.geometry.coordinates.length>=2;
+    const points=hasRoad ? route.geometry.coordinates.map(c=>[c[1],c[0]]) : null;
     const from=valid(driver)?driver:valid(store)?store:null;
-    if(from&&valid(dest)){
-      const ends=[[from.lat,from.lng],[dest.lat,dest.lng]];
-      if(!routeLine.current)routeLine.current=L.polyline(ends,{color:'#0c8a63',weight:2,opacity:.6,dashArray:'3,9'}).addTo(m);
-      else routeLine.current.setLatLngs(ends);
+    if(points || (from&&valid(dest))){
+      const ends=points || [[from.lat,from.lng],[dest.lat,dest.lng]];
+      if(!routeLine.current)routeLine.current=L.polyline(ends,{color:'#0c8a63',weight:hasRoad?5:2,opacity:hasRoad?.85:.6,dashArray:hasRoad?null:'3,9'}).addTo(m);
+      else {
+        routeLine.current.setLatLngs(ends);
+        routeLine.current.setStyle({weight:hasRoad?5:2,opacity:hasRoad?.85:.6,dashArray:hasRoad?null:'3,9'});
+      }
     }else if(routeLine.current){m.removeLayer(routeLine.current);routeLine.current=null;}
 
     // GPS accuracy circle is a measurement from the device, not a location guarantee.
@@ -103,7 +108,7 @@ export default function TrackingMap({store,dest,driver}) {
         fitted.current=true;
       }else if(pts.length===1){m.setView([pts[0].lat,pts[0].lng],15);fitted.current=true;}
     }
-  },[store?.lat,store?.lng,dest?.lat,dest?.lng,driver?.lat,driver?.lng,driver?.accuracyMeters]);
+  },[store?.lat,store?.lng,dest?.lat,dest?.lng,driver?.lat,driver?.lng,driver?.accuracyMeters,route]);
 
   const locateRider=()=>{
     const p=driverRef.current;
@@ -116,6 +121,6 @@ export default function TrackingMap({store,dest,driver}) {
       <button type="button" onClick={locateRider} disabled={!valid(driver)} aria-label="Center map on latest rider location">◎ Locate rider</button>
     </div>
     <div ref={el} className="tm-map" role="img" aria-label="Map showing restaurant, destination and latest rider GPS fix"/>
-    <small className="customer-map-note">Marker movement is smoothed between received fixes, not predicted. The dotted line shows straight-line proximity, not a road route. Location and accuracy depend on the rider's phone.</small>
+    <small className="customer-map-note">Marker movement is smoothed between received fixes, not predicted. {route?.available?'The solid line follows routing data and is not live traffic guidance.':'The dotted line shows straight-line proximity, not a road route.'} Location and accuracy depend on the rider's phone.</small>
   </div>;
 }
