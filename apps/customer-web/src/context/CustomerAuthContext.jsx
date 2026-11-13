@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { getActiveTenant } from '../utils/tenant.js';
+import { shouldForgetCustomerSession } from '../utils/auth-recovery.js';
 
 const CustomerAuthContext = createContext(null);
 const tokenKey = () => 'gastroflow_customer_token:' + encodeURIComponent(getActiveTenant() || 'default_tenant');
@@ -20,7 +21,7 @@ export function CustomerAuthProvider({ children }) {
         if (data) setCustomer(data);
         else localStorage.removeItem(tokenKey());
       })
-      .catch(() => localStorage.removeItem(tokenKey()))
+      .catch(error => { if (shouldForgetCustomerSession(error)) localStorage.removeItem(tokenKey()); })
       .finally(() => setLoading(false));
   }, []);
 
