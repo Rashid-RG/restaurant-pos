@@ -52,7 +52,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [streamConnected,setStreamConnected]=useState(false);
   const driverFixRef=useRef(null);
   const activeTrackedIdRef=useRef(null);
-  const trackingFetchRef=useRef(false);
+  const trackingFetchRef=useRef(null);
   const [connectionWarning,setConnectionWarning]=useState('');
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
@@ -187,8 +187,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   };
 
   const fetchOrder = async (id,{silent=false}={}) => {
-    if (!id || trackingFetchRef.current)return;
-    trackingFetchRef.current=true;
+    if (!id || trackingFetchRef.current===id)return;
+    trackingFetchRef.current=id;
     if (activeTrackedIdRef.current !== id) {
       activeTrackedIdRef.current=id;
       driverFixRef.current=null;orderRef.current=null;
@@ -199,16 +199,17 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if(!silent)setError('');
     try {
       const data = await apiFetch(`/public/orders/${id}`);
+      if(activeTrackedIdRef.current!==id)return;
       applyOrderUpdate(data);
       setConnectionWarning('');
       setFeedbackSubmitted(false);
     } catch (err) {
+      if(activeTrackedIdRef.current!==id)return;
       if(orderRef.current && shouldRetainTrackedOrder(err))setConnectionWarning('Connection interrupted. Showing the last confirmed order status.');
       else if(!orderRef.current){setError(err.message||'Unable to load order.');setOrder(null);}
       else setConnectionWarning('Unable to refresh this order. Please retry.');
     } finally {
-      trackingFetchRef.current=false;
-      if(!silent)setLoading(false);
+      if(trackingFetchRef.current===id){trackingFetchRef.current=null;if(!silent)setLoading(false);}
     }
   };
 
