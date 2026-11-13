@@ -57,6 +57,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
   const [dynamicETA, setDynamicETA] = useState(null);
+  const [roadRoute,setRoadRoute]=useState(null);
   const [driverChatOpen, setDriverChatOpen] = useState(false);
   const [driverMessages, setDriverMessages] = useState([]);
   const [driverInputMsg, setDriverInputMsg] = useState('');
@@ -82,6 +83,22 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         .catch(() => {});
     }
   }, [order?.id, order?.status]);
+
+  // Optional dedicated routing provider: refresh only for active deliveries.
+  useEffect(()=>{
+    const id=order?.id;
+    const type=String(order?.orderType||order?.diningType||'').toLowerCase();
+    const status=String(order?.status||'').toLowerCase();
+    if(!id || type!=='delivery' || ['cancelled','rejected','completed','delivered'].includes(status)){setRoadRoute(null);return;}
+    let disposed=false;
+    const fetchRoute=()=>apiFetch(`/public/orders/${encodeURIComponent(id)}/road-route`).then(data=>{
+      if(!disposed)setRoadRoute(data?.available?data:null);
+    }).catch(()=>{if(!disposed)setRoadRoute(null);});
+    setRoadRoute(null);
+    fetchRoute();
+    const timer=setInterval(()=>{if(document.visibilityState==='visible')fetchRoute();},30000);
+    return()=>{disposed=true;clearInterval(timer);};
+  },[order?.id,order?.status,order?.orderType,order?.diningType]);
 
   // ── Poll Dispatch Status every 8 seconds ──
   useEffect(() => {
@@ -192,7 +209,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if (activeTrackedIdRef.current !== id) {
       activeTrackedIdRef.current=id;
       driverFixRef.current=null;orderRef.current=null;
-      setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);
+      setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setRoadRoute(null);
       setDriverChatOpen(false);setDriverMessages([]);setRemainingMins(null);
     }
     if(!silent)setLoading(true);
@@ -444,7 +461,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                   store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
                   dest={{ lat: order.deliveryLat, lng: order.deliveryLng }}
                   driver={gpsState.visible ? driverLoc : null}
+                  route={roadRoute}
                 />
+                {roadRoute?.available && <div className="gf-route-summary" role="status"><strong>{roadRoute.distanceKm.toFixed(1)} km by road</strong><span>About {roadRoute.travelMinutes} min estimated driving · {roadRoute.startingPoint==='rider'?'from latest rider fix':'from restaurant'} · excludes traffic and preparation time</span></div>}
                 <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
                   {gpsState.label}
                 </div>
