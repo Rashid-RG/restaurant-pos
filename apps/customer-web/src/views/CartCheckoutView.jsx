@@ -660,9 +660,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               <button 
                 className="btn btn-brand" 
                 style={{ flex: 1 }}
-                onClick={async () => {
+                onClick={() => otpGuard.current.run(async () => {
                   const cleanPhone = phone.trim().replace(/[\s-]/g, '');
                   const dest = otpChannel === 'email' ? (email.trim() || customer?.email) : cleanPhone;
+                  if (!/^\d{6}$/.test(enteredOtp.trim())) { toast('Enter the 6-digit verification code.', 'warning'); return; }
                   try {
                     const r = await apiFetch('/otp/verify', {
                       method: 'POST',
@@ -680,7 +681,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   } catch (err) {
                     toast(err.message || 'Verification failed.', 'error');
                   }
-                }}
+                })}
               >
                 Verify & Place Order
               </button>
