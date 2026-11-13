@@ -53,7 +53,7 @@ function CartSheet({ onCheckout, store, canOrder }) {
   return (
     <>
       <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} aria-hidden="true" />
-      <div className={`cart-sheet ${cartOpen ? 'open' : ''}`} role="dialog" aria-modal="true" aria-label="Your cart">
+      <div className={`cart-sheet ${cartOpen ? 'open' : ''} gf-modern-cart-sheet" role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="cart-sheet-handle" />
         <div className="cart-sheet-header">
           <div><h2>🛒 Cart · {totalItems} items</h2>
@@ -65,10 +65,10 @@ function CartSheet({ onCheckout, store, canOrder }) {
           {items.length === 0 ? (
             <div className="cart-empty">
               <div className="empty-icon">🛒</div>
-              <p>Your cart is empty!</p>
+              <p>Your cart is empty</p><span>Explore the menu and add something delicious.</span>
             </div>
           ) : items.map(item => (
-            <div key={item.cartId} className="cart-item">
+            <div key={item.cartId} className="cart-item gf-modern-cart-item">
               <div className="cart-item-emoji">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} loading="lazy"
@@ -88,12 +88,15 @@ function CartSheet({ onCheckout, store, canOrder }) {
                     Note: "{item.notes}"
                   </div>
                 )}
-                <div className="cart-item-price">Rs. {item.unitPrice.toFixed(2)} each</div>
+                <div className="cart-item-price">Rs. {Number(item.unitPrice).toFixed(2)} each · Rs. {(Number(item.unitPrice)*Number(item.qty)).toFixed(2)} total</div>
               </div>
-              <div className="qty-control">
-                <button className="dec" aria-label={`Remove one ${item.name}`} onClick={() => removeItem(item.cartId)}>−</button>
-                <span className="qty">{item.qty}</span>
-                <button className="inc" aria-label={`Add one ${item.name}`} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+              <div className="gf-modern-cart-actions">
+                <div className="qty-control">
+                  <button type="button" className="dec" aria-label={`Remove one ${item.name}`} disabled={item.qty<1} onClick={() => removeItem(item.cartId)}>−</button>
+                  <span className="qty" aria-live="polite">{item.qty}</span>
+                  <button type="button" className="inc" aria-label={`Add one ${item.name}`} disabled={!canOrder || item.isAvailable === false || item.isAvailable === 0 || (item.stock!=null && items.filter(i=>i.id===item.id).reduce((n,i)=>n+Number(i.qty),0)>=Number(item.stock))} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+                </div>
+                <button type="button" className="gf-modern-cart-remove" aria-label={`Remove ${item.name} from cart`} onClick={()=>deleteItem(item.cartId)}>Remove</button>
               </div>
             </div>
           ))}
@@ -104,7 +107,8 @@ function CartSheet({ onCheckout, store, canOrder }) {
             <div className="cart-summary-row"><span>Subtotal</span><span>Rs. {subtotal.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Service charge ({rates.serviceChargeRate}%)</span><span>Rs. {serviceCharge.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Tax ({rates.taxRate}%)</span><span>Rs. {tax.toFixed(2)}</span></div>
-            <div className="cart-summary-row total"><span>Est. Total</span><span>Rs. {total.toFixed(2)}</span></div>
+            <div className="cart-summary-row total"><span>Estimated total</span><span>Rs. {total.toFixed(2)}</span></div>
+            <p className="gf-modern-cart-estimate">Final prices, fees and item availability are confirmed by the restaurant at checkout. Delivery fees depend on your address.</p>
             <button
               className="btn btn-brand"
               style={{ marginTop: 12 }}
