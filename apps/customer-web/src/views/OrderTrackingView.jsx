@@ -18,7 +18,7 @@ function statusIndex(status) {
   if (!status) return 0;
   const s = status.toLowerCase();
   if (s === 'delivered' || s === 'completed' || s === 'served') return 3;
-  if (s === 'ready' || s === 'out_for_delivery') return 2;
+  if (['ready','picked_up','out_for_delivery','arrived'].includes(s)) return 2;
   if (s === 'preparing' || s === 'in progress') return 1;
   return 0;
 }
@@ -89,7 +89,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     const id=order?.id;
     const type=String(order?.orderType||order?.diningType||'').toLowerCase();
     const status=String(order?.status||'').toLowerCase();
-    if(!id || type!=='delivery' || ['cancelled','rejected','completed','delivered'].includes(status)){setRoadRoute(null);return;}
+    if(!id || type!=='delivery' || ['cancelled','rejected','refunded','partially_refunded','completed','delivered'].includes(status)){setRoadRoute(null);return;}
     let disposed=false;
     const fetchRoute=()=>apiFetch(`/public/orders/${encodeURIComponent(id)}/road-route`).then(data=>{
       if(!disposed)setRoadRoute(data?.available?data:null);
@@ -104,7 +104,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   useEffect(() => {
     if (!order || !order.id) return;
     const s = (order.status || '').toLowerCase();
-    if (s === 'completed' || s === 'delivered' || s === 'cancelled') return;
+    if (['completed','delivered','cancelled','rejected','refunded','partially_refunded'].includes(s)) return;
 
     const fetchDispatch = () => {
       apiFetch(`/public/orders/${order.id}/dispatch-status`)
@@ -242,7 +242,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if (!order || !order.id) return;
 
     const status = (order.status || '').toLowerCase();
-    if (status === 'delivered' || status === 'completed' || status === 'cancelled') return;
+    if (['delivered','completed','cancelled','rejected','refunded','partially_refunded'].includes(status)) return;
 
     // SSE Stream setup
     let es;
