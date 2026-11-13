@@ -3720,8 +3720,8 @@ app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
   try {
     const driverId = req.driver.driverId;
     const driver = await dbGet(
-      'SELECT id, name, phone, status FROM drivers WHERE id = ?',
-      [driverId]
+      'SELECT id, name, phone, status FROM drivers WHERE id = ? AND tenant_id = ?',
+      [driverId,req.driver.tenant_id]
     );
 
     if (!driver) return res.json({ driver: null, orders: [] });
@@ -3730,9 +3730,10 @@ app.get('/api/driver/active-batch', authenticateDriver, async (req, res) => {
       `SELECT o.*, dl.lat as driverLat, dl.lng as driverLng
        FROM orders o
        LEFT JOIN driver_locations dl ON o.id = dl.orderId
-       WHERE o.driverId = ? AND o.status IN ('out_for_delivery', 'confirmed', 'preparing', 'ready')
+       WHERE o.driverId = ? AND o.tenant_id = ? AND (o.orderType='delivery' OR o.diningType='delivery')
+         AND o.status IN ('pending','confirmed','preparing','ready','picked_up','out_for_delivery','arrived')
        ORDER BY o.timestamp ASC`,
-      [driver.id]
+      [driver.id,req.driver.tenant_id]
     );
 
     res.json({
