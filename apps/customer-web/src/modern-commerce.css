@@ -200,3 +200,77 @@
 @media(prefers-reduced-motion:reduce) {
   .gf-menu-customizer-sheet {transition:none!important;animation:none!important}
 }
+
+
+/* Refined GastroFood cart sheet: explicit pricing and touch-friendly controls. */
+.customer-premium .gf-modern-cart-sheet {
+  border-radius:24px 24px 0 0;
+  box-shadow:0 -20px 70px rgba(12,38,27,.19);
+}
+.customer-premium .gf-modern-cart-item {
+  display:flex;
+  gap:12px;
+  align-items:center;
+  padding:15px 0;
+  border-bottom:1px solid #e2ede6;
+  min-width:0;
+}
+.customer-premium .gf-modern-cart-item .cart-item-info {flex:1;min-width:0}
+.customer-premium .gf-modern-cart-item .cart-item-name {
+  font-weight:800;
+  line-height:1.35;
+  overflow-wrap:anywhere;
+}
+.customer-premium .gf-modern-cart-item .cart-item-price {
+  color:#087653;
+  font-weight:750;
+  font-variant-numeric:tabular-nums;
+  line-height:1.55;
+}
+.customer-premium .gf-modern-cart-actions {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+}
+.customer-premium .gf-modern-cart-actions .qty-control button {
+  min-width:42px;min-height:42px;
+}
+.customer-premium .gf-modern-cart-actions .qty-control button:disabled {
+  opacity:.42;cursor:not-allowed;
+}
+.customer-premium .gf-modern-cart-remove {
+  min-height:31px;
+  padding:4px 10px;
+  border:0;
+  background:transparent;
+  color:#9b3333;
+  font-size:12px;
+  font-weight:750;
+  text-decoration:underline;
+  cursor:pointer;
+}
+.customer-premium .gf-modern-cart-remove:focus-visible {
+  outline:2px solid #087653;outline-offset:2px;border-radius:8px;
+}
+.customer-premium .gf-modern-cart-estimate {
+  font-size:.75rem;
+  color:var(--text-muted);
+  line-height:1.5;
+  margin:10px 0 6px;
+}
+.customer-premium .gf-modern-cart-sheet .cart-empty span {
+  font-size:.83rem;
+  display:block;
+  margin-top:8px;
+  line-height:1.5;
+  color:var(--text-muted);
+}
+@media(max-width:420px) {
+  .customer-premium .gf-modern-cart-item {flex-wrap:wrap}
+  .customer-premium .gf-modern-cart-actions {
+    flex-direction:row;justify-content:space-between;
+    width:100%;padding-left:58px;
+  }
+}
