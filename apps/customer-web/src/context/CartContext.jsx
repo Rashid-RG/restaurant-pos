@@ -1,5 +1,6 @@
 import { apiFetch } from '../utils/api.js';
 import {cartStorageKey,parseSavedCart} from '../utils/cart-storage.js';
+import {isMenuItemAvailable,maxMenuItemQuantity,menuItemTotal} from '../utils/menu-selection.js';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const CartContext = createContext(null);
@@ -28,23 +29,21 @@ export function CartProvider({ children, tenantId }) {
   }, [items, storageKey]);
 
   const addItem = useCallback((menuItem, qty = 1, selectedModifiers = [], notes = '') => {
+    if (!isMenuItemAvailable(menuItem) || menuItemTotal(menuItem, qty, selectedModifiers) === null) return;
     setItems(prev => {
-      const sortedMods = [...(selectedModifiers || [])].sort((a, b) => a.id.localeCompare(b.id));
-      const uniqueId = `${menuItem.id}_${sortedMods.map(m => m.id).join('_')}_${(notes || '').trim()}`;
+      const sortedMods = [...(selectedModifiers || [])].sort((a,b) => String(a.id).localeCompare(String(b.id)));
+      const uniqueId = `${menuItem.id}_${sortedMods.map(m => m.id).join('_')}_${String(notes || '').trim()}`;
+      const alreadyInCart = prev.filter(i => i.id === menuItem.id).reduce((sum,i)=>sum+(Number(i.qty)||0),0);
+      const allowed = Math.min(qty, Math.max(0,maxMenuItemQuantity(menuItem) - alreadyInCart));
+      if (allowed === 0) return prev;
+      const currentUnitPrice = menuItemTotal(menuItem, 1, sortedMods);
+      if (currentUnitPrice === null) return prev;
       const existing = prev.find(i => i.cartId === uniqueId);
-      const modifiersPrice = (selectedModifiers || []).reduce((acc, m) => acc + m.priceDelta, 0);
-      const itemPrice = menuItem.price + modifiersPrice;
-
-      if (existing) {
-        return prev.map(i => i.cartId === uniqueId ? { ...i, qty: i.qty + qty } : i);
-      }
+      if (existing) return prev.map(i => i.cartId === uniqueId ? {...i,qty:Number(i.qty)+allowed,unitPrice:currentUnitPrice} : i);
       return [...prev, {
-        ...menuItem,
-        cartId: uniqueId,
-        qty,
-        selectedModifiers: sortedMods,
-        notes: notes.trim(),
-        unitPrice: itemPrice
+        ...menuItem,cartId:uniqueId,qty:allowed,
+        selectedModifiers:sortedMods,notes:String(notes || '').trim(),
+        unitPrice:currentUnitPrice
       }];
     });
   }, []);
