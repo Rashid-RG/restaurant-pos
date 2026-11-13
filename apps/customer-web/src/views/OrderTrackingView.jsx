@@ -260,6 +260,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             if(isNewerDriverFix(fix,driverFixRef.current)){
               driverFixRef.current=fix;setDriverLoc(fix);setDriverLastSeen(fix.updatedAt);
             }
+          } else if (msg?.type==='driver_assigned' && msg.orderId===orderRef.current?.id) {
+            // Rider assignment does not imply pickup; refresh the authoritative order.
+            fetchOrder(msg.orderId,{silent:true});
           } else if (msg && msg.id) {
             applyOrderUpdate(msg);
           }
