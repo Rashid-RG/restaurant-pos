@@ -1317,3 +1317,24 @@ html { background: var(--surface-2); }
 .gf-modern-tracking .gf-tracking-reconnect button:focus-visible{
   outline:3px solid #c4841e;outline-offset:2px
 }
+
+
+.gf-modern-tracking .gf-route-summary {
+  margin:10px 0 8px;
+  background:#effaf4;
+  color:#154734;
+  border:1px solid #c4e6d4;
+  border-radius:13px;
+  padding:10px 12px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px 10px;
+  align-items:center;
+  line-height:1.5;
+}
+.gf-modern-tracking .gf-route-summary strong {
+  font-weight:850;font-size:.86rem;
+}
+.gf-modern-tracking .gf-route-summary span {
+  font-size:.73rem;color:#426b55;
+}
