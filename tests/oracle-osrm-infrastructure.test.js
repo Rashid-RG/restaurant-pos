@@ -33,7 +33,7 @@ describe('Oracle OSRM pilot deployment safety',()=>{
    expect(read('.env.example')).toContain('REPLACE_WITH_');
    const guide=read('README.md');
    expect(guide).toContain('Rollback');
-   expect(guide).toContain('TURSO');
+   expect(guide).toContain('Turso/libSQL');
    expect(guide).toContain('production');
  });
 });
