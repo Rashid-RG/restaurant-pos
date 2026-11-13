@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
+import {trackingProgress,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
 
 const STATUS_STEPS = [
   { id: 'pending', label: 'Order Received', desc: 'Awaiting restaurant confirmation', icon: '📋' },
@@ -47,6 +48,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [pushBusy,setPushBusy]=useState(false);
   const [pushEnabled,setPushEnabled]=useState(false);
   const [lastUpdate,setLastUpdate]=useState(null);
+  const [streamConnected,setStreamConnected]=useState(false);
+  const driverFixRef=useRef(null);
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
   const [dynamicETA, setDynamicETA] = useState(null);
@@ -172,11 +175,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     orderRef.current = data;
     setOrder(data);
     setLastUpdate(Date.now());
-    if (data.driver && Number.isFinite(Number(data.driver.lat)) && Number.isFinite(Number(data.driver.lng))) {
-      const actualAt=Number(data.driver.updatedAt);
-      if (Number.isFinite(actualAt) && actualAt > 0 && actualAt < Date.now()+10000) {
-        setDriverLoc(data.driver); setDriverLastSeen(actualAt);
-      }
+    const fix=normalizeDriverFix(data.driver);
+    if(isNewerDriverFix(fix,driverFixRef.current)){
+      driverFixRef.current=fix;setDriverLoc(fix);setDriverLastSeen(fix.updatedAt);
     }
   };
 
@@ -215,16 +216,15 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
       const streamUrl = stream.href;
       es = new EventSource(streamUrl);
+      es.onopen=()=>setStreamConnected(true);
+      es.onerror=()=>setStreamConnected(false);
       es.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
           if (msg && msg.type === 'driver_location') {
-            if(Number.isFinite(Number(msg.lat))&&Number.isFinite(Number(msg.lng))){
-              const fixTime=Number(msg.updatedAt);
-              if (Number.isFinite(fixTime) && fixTime > 0 && fixTime <= Date.now()+10000) {
-                setDriverLoc({ lat:Number(msg.lat), lng:Number(msg.lng), driverName:msg.driverName, accuracyMeters:msg.accuracyMeters, updatedAt:fixTime });
-                setDriverLastSeen(previous=>Math.max(previous||0,fixTime));
-              }
+            const fix=normalizeDriverFix(msg);
+            if(isNewerDriverFix(fix,driverFixRef.current)){
+              driverFixRef.current=fix;setDriverLoc(fix);setDriverLastSeen(fix.updatedAt);
             }
           } else if (msg && msg.id) {
             applyOrderUpdate(msg);
@@ -242,6 +242,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     return () => {
       clearInterval(interval);
       if (es) es.close();
+      setStreamConnected(false);
     };
   }, [order?.id, order?.status]);
 
@@ -272,16 +273,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       return;
     }
 
-    const eta = order.etaMinutes || 25;
-    const startTime = order.acceptedAt || order.timestamp;
-    const elapsedMins = Math.floor((Date.now() - startTime) / 60000);
-    const left = Math.max(1, eta - elapsedMins);
-    setRemainingMins(left);
-
-    const timer = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTime) / 60000);
-      setRemainingMins(Math.max(1, eta - elapsed));
-    }, 30000);
+    const eta=trackingEtaMinutes(order.etaMinutes);
+    const startTime=Number(order.acceptedAt||order.timestamp);
+    if(eta===null||!Number.isFinite(startTime)||startTime<=0){setRemainingMins(null);return;}
+    const left=()=>Math.max(0,eta-Math.max(0,Math.floor((Date.now()-startTime)/60000)));
+    setRemainingMins(left());
+    const timer=setInterval(()=>setRemainingMins(left()),30000);
 
     return () => clearInterval(timer);
   }, [order?.acceptedAt, order?.etaMinutes, order?.timestamp, order?.status]);
@@ -326,15 +323,20 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
   const curStep = order ? statusIndex(order.status) : -1;
   const progressPct = order ? getProgressPercent(curStep) : 0;
-  const isCancelled = order?.status === 'cancelled';
+  const isCancelled = ['cancelled','rejected','refunded','partially_refunded'].includes(String(order?.status||'').toLowerCase());
   const canCancel = order?.status === 'pending';
   const rawType = (order?.orderType || order?.diningType || 'takeaway').toLowerCase();
   const isDelivery = rawType === 'delivery';
-  const isDineIn = rawType === 'dine_in' || rawType === 'dinein' || rawType === 'qr' || rawType === 'table' || rawType === 'dine in';
+  const isDineIn = rawType === 'dine-in' || rawType === 'dine_in' || rawType === 'dinein' || rawType === 'qr' || rawType === 'table' || rawType === 'dine in';
   const isTakeaway = !isDelivery && !isDineIn;
+  const trackingMode=isDelivery?'delivery':isDineIn?'dine-in':'takeaway';
+  const actualProgress=trackingProgress(order?.status,trackingMode);
+  const gpsState=driverFreshness(driverLoc,nowClock);
+  const hasRecentUpdates=lastUpdate && nowClock-lastUpdate<TRACKING_UPDATE_STALE_MS;
+  const etaDisplay=trackingEtaMinutes(dynamicETA?.estimatedMinutes) ?? remainingMins;
 
   return (
-    <div className="tracking-page fade-in" style={{ padding: '20px 16px 80px' }}>
+    <div className="tracking-page fade-in gf-modern-tracking" style={{ padding: '20px 16px 90px' }}>
       {!order ? (
 
         <div className="form-section" style={{ marginTop: 24 }}>
@@ -359,7 +361,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             </section>
           )}
           <div className="customer-tracking-tools">
-            <div className="customer-tracking-freshness"><strong>{t('orderUpdates') || 'Order updates'}</strong><small>{lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : (t('connecting') || 'Connecting…')}</small></div>
+            <div className="customer-tracking-freshness" role="status" aria-live="polite"><strong>{streamConnected && hasRecentUpdates ? 'Live updates connected' : hasRecentUpdates ? 'Order updated · reconnecting' : 'Checking for order updates'}</strong><small>{lastUpdate ? 'Last confirmed '+new Date(lastUpdate).toLocaleTimeString() : 'Connecting…'}</small></div>
             {storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
               <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
@@ -383,9 +385,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 </div>
               ) : (
                 <div>
-                  <div className="uber-status-badge live">🔴 Live Tracking ({isDineIn ? '🍽️ Dine-In' : isTakeaway ? '🛍️ Takeaway' : '🛵 Delivery'})</div>
+                  <div className="uber-status-badge live">{streamConnected && hasRecentUpdates ? '● Live updates' : '○ Checking updates'} · {isDineIn ? 'Dine-in' : isTakeaway ? 'Pickup' : 'Delivery'}</div>
                   <h1 className="uber-hero-title">
-                    {dynamicETA?.estimatedMinutes != null ? `⏱️ ~${dynamicETA.estimatedMinutes} mins` : remainingMins != null ? `~${remainingMins} mins` : (t('etaPending') || 'ETA updating…')}
+                    {etaDisplay !== null ? `Approx. ${etaDisplay} min` : 'Awaiting estimate'}
                   </h1>
                   {dynamicETA && (
                     <div style={{ fontSize: '0.72rem', color: '#e0e7ff', marginTop: 4 }}>
@@ -422,15 +424,15 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             )}
 
             {/* Real live map — only for delivery orders with a pinned destination. */}
-            {!isCancelled && curStep < 3 && isDelivery && typeof order.deliveryLat === 'number' && (
+            {!isCancelled && curStep < 3 && isDelivery && validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng}) && (
               <div style={{ position: 'relative', margin: '16px 0' }}>
                 <TrackingMap
                   store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
                   dest={{ lat: order.deliveryLat, lng: order.deliveryLng }}
-                  driver={driverLastSeen && nowClock - driverLastSeen < 90000 ? driverLoc : null}
+                  driver={gpsState.visible ? driverLoc : null}
                 />
                 <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                  {driverLoc && driverLastSeen && nowClock-driverLastSeen < 30000 ? `🟢 Rider location active${Number.isFinite(Number(driverLoc.accuracyMeters)) ? ` · ±${Math.round(driverLoc.accuracyMeters)}m` : ''}` : driverLoc && driverLastSeen ? `⚠️ Rider position outdated · ${Math.max(1,Math.floor((nowClock-driverLastSeen)/60000))}m ago` : (t('driverLocationPending') || 'Waiting for rider location')}
+                  {gpsState.label}
                 </div>
               </div>
             )}
@@ -450,12 +452,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#f8fafc' }}>{dispatchStatus.dispatchLabel}</div>
                     {dispatchStatus.driver && dispatchStatus.driver.isRecent && dispatchStatus.driver.distanceToStoreKm !== null && (
                       <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 3 }}>
-                        📍 {dispatchStatus.driver.distanceToStoreKm} km from store · GPS live
+                        📍 {dispatchStatus.driver.distanceToStoreKm} km from restaurant · Last reported location
                       </div>
                     )}
-                    {dispatchStatus.etaMinutes && (
+                    {trackingEtaMinutes(dispatchStatus.etaMinutes) !== null && (
                       <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: 2, fontWeight: 700 }}>
-                        ⏱️ Est. delivery: ~{dispatchStatus.etaMinutes} mins
+                        ⏱️ Est. delivery: about {trackingEtaMinutes(dispatchStatus.etaMinutes)} min
                       </div>
                     )}
                   </div>
@@ -516,7 +518,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           </div>
 
           {/* Customer Rating Feedback Popup (when delivered) */}
-          {curStep === 3 && (
+          {actualProgress.done && (
             <div className="tracking-card" style={{ marginTop: 12, border: '2px solid var(--brand)', background: 'var(--bg-card)' }}>
               <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', fontWeight: 800 }}>⭐ Rate Your Experience</h3>
               {feedbackSubmitted ? (
