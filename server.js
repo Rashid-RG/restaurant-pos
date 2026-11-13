@@ -3408,7 +3408,7 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     const dispatchMode = (await getSetting(tenantId, 'driverDispatchMode')) || 'hybrid';
     if (dispatchMode === 'manual') return; // manager handles it
 
-    const order = await dbGet('SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ? AND tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId = '')', [orderId,tenantId]);
+    const order = await dbGet("SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ? AND tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId = '')", [orderId,tenantId]);
     if (!order || !order.deliveryLat || !order.deliveryLng) return;
 
     // Get all drivers with recent GPS pings (within last 30 min)
