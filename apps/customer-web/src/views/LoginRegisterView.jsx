@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Eye, EyeOff, ShieldCheck, UtensilsCrossed, Bike, ShoppingBag, MapPin, LockKeyhole, Smartphone, ArrowRight, UserRoundPlus, ArrowLeft } from 'lucide-react';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -555,7 +556,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
       )}
 
       {/* Accessible verification sheet — no code reflected outside its input. */}
-      {showOtpModal && (
+      {showOtpModal && createPortal(
         <div className="gf-auth-otp-backdrop">
           <section className="gf-auth-otp-sheet" role="dialog" aria-modal="true" aria-labelledby="gf-auth-otp-title" aria-describedby="gf-auth-otp-description">
             <div className="gf-auth-otp-mark" aria-hidden="true"><ShieldCheck size={26}/></div>
@@ -585,7 +586,8 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
             </div>
             <p className="gf-auth-otp-privacy"><LockKeyhole size={14} aria-hidden="true"/> Your verification code is private and can only be used once.</p>
           </section>
-        </div>
+        </div>,
+        document.body
       )}
 
       <p className="text-center text-muted mt-16" style={{ textAlign: 'center', marginTop: 20, fontSize: '0.75rem' }}>
