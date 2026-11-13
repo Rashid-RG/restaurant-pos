@@ -5,6 +5,7 @@ import L from 'leaflet';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import { calculateHaversineDistanceKm, resolveAddressToCoords, evaluateStoreProximity } from '../utils/geo.js';
+import { acceptsOnlineOrders, recommendationScore, recommendedOpenStores } from '../utils/marketplace-availability.js';
 
 
 const CUISINE_CATEGORIES = [
@@ -387,26 +388,6 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
   };
 
-  // ── 6-Factor Weighted Recommendation Engine ──
-  // Factors: proximity(35) + quality(25) + history(20) + promo(10) + freshness(5) + openNow(5)
-  const computeRecommendationScore = (dist, maxDist, rating, promoBadge, isOpenNow, storeId, isNew) => {
-    const localHistory = (() => {
-      try { return JSON.parse(localStorage.getItem('gastroflow_order_history') || '[]'); } catch { return []; }
-    })();
-    const orderCount = localHistory.filter(o => o.restaurantId === storeId).length;
-    const orderHistoryBonus = Math.min(orderCount * 10, 20); // capped at 20
-
-    const safeMax = maxDist || 50;
-    const proxScore  = ((1 - Math.min(dist, safeMax) / safeMax) * 35);
-    const qualScore  = ((rating || 4.0) / 5.0) * 25;
-    const histScore  = orderHistoryBonus;
-    const promoScore = promoBadge ? 10 : 0;
-    const freshScore = isNew ? 5 : 0;
-    const openScore  = isOpenNow ? 5 : 0;
-
-    return Number((proxScore + qualScore + histScore + promoScore + freshScore + openScore).toFixed(1));
-  };
-
   const processStoreProximity = (uLat, uLng, rawStores = restaurants) => {
     if (!uLat || !uLng || rawStores.length === 0) return;
 
@@ -420,9 +401,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       const inRange = Number.isFinite(dist) ? dist <= radius : null;
       const fee = r.deliveryFee;
       // ETA is supplied by the restaurant; never infer a fake driving time.
-      const isOpenNow = r.isOpen !== false; // default open unless explicitly closed
+      const isOpenNow = acceptsOnlineOrders(r); // missing state must not be shown as open
       const isNew = r.isNew || false;
-      const recScore = computeRecommendationScore(dist ?? maxDist, maxDist, r.rating, r.promoBadge, isOpenNow, r.id, isNew);
+      const recScore = recommendationScore({ distanceKm: dist, maxDistanceKm: maxDist, rating: r.rating, ratingCount: r.ratingCount, orderCount: (() => { try { return JSON.parse(localStorage.getItem('gastroflow_order_history') || '[]').filter(o => o.restaurantId === r.id).length; } catch { return 0; } })(), hasVerifiedPromotion: Boolean(r.promoVerified === true), isNew, isOpen: isOpenNow });
 
       // Fee breakdown for tooltip
       const h = new Date().getHours();
@@ -467,7 +448,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       const coords = overrideCoords || userCoords;
       const q = coords && coords.lat && coords.lng ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
       const data = await apiFetch(`/public/restaurants${q}`);
-      const storeList = deduplicateStores(data || []);
+      const storeList = deduplicateStores(data || []).map(store => ({ ...store, isOpen: acceptsOnlineOrders(store), isOpenNow: acceptsOnlineOrders(store) }));
       setRestaurants(storeList);
 
       if (coords && coords.lat && coords.lng) {
@@ -510,7 +491,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         r.name.toLowerCase().includes(search.toLowerCase()) ||
         r.cuisine.toLowerCase().includes(search.toLowerCase());
       const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
-      const matchesOpen = !openOnly || r.isOpen !== false;
+      const matchesOpen = !openOnly || acceptsOnlineOrders(r);
       const matchesDelivery = !deliveryOnly || r.isDeliverable === true;
       return matchesSearch && matchesCuisine && matchesOpen && matchesDelivery;
     })
@@ -525,14 +506,17 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
     if (sortBy === 'distance') return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
     // Default: AI recommendation score — in-zone first, then by score
+    const aOpen = acceptsOnlineOrders(a) ? 0 : 1;
+    const bOpen = acceptsOnlineOrders(b) ? 0 : 1;
+    if (aOpen !== bOpen) return aOpen - bOpen;
     const aZone = a.isDeliverable ? 0 : 1;
     const bZone = b.isDeliverable ? 0 : 1;
     if (aZone !== bZone) return aZone - bZone;
     return (b.recommendationScore || 0) - (a.recommendationScore || 0);
   });
 
-  const openCount = restaurants.filter(r => r.isOpen !== false).length;
-  const deliverableCount = restaurants.filter(r => r.isOpen !== false && r.isDeliverable === true).length;
+  const openCount = restaurants.filter(acceptsOnlineOrders).length;
+  const deliverableCount = restaurants.filter(r => acceptsOnlineOrders(r) && r.isDeliverable === true).length;
   const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng));
 
   return (
@@ -747,9 +731,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       {/* UberEats Smart Sort Filter Bar */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
         {[
-          { id: 'recommendation', label: 'Top picks', desc: 'AI Match' },
-          { id: 'fastest', label: 'Fastest', desc: '< 30 min' },
-          { id: 'rating', label: 'Top rated', desc: '4.8+' },
+          { id: 'recommendation', label: 'Browse', desc: 'Available restaurants first' },
+          { id: 'fastest', label: 'Prep estimate', desc: 'Restaurant-supplied' },
+          { id: 'rating', label: 'Ratings', desc: 'Verified reviews only' },
           { id: 'distance', label: 'Nearest', desc: 'Proximity' }
         ].map(tab => (
           <button
@@ -801,17 +785,17 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       </div>
 
       {/* UberEats Featured Top Picks Horizontal Carousel */}
-      {sortBy === 'recommendation' && !loading && filtered.length > 1 && (
+      {sortBy === 'recommendation' && !loading && recommendedOpenStores(filtered, hasPreciseLocation).length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>🔥 Top Picks Near You</span>
+              <span>Restaurants accepting orders near you</span>
             </h3>
-            <span style={{ fontSize: '0.75rem', color: 'var(--brand)', fontWeight: 700 }}>Curated</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--brand)', fontWeight: 700 }}>Based on verified availability</span>
           </div>
 
           <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
-            {filtered.slice(0, 4).map(r => (
+            {recommendedOpenStores(filtered, hasPreciseLocation).slice(0, 4).map(r => (
               <div
                 key={`pick_${r.id}`}
                 role="button"
@@ -833,7 +817,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 <div style={{ height: 100, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <span style={{ fontSize: '3rem' }}>{r.emoji || '🏬'}</span>
                   <span style={{ position: 'absolute', top: 8, left: 8, background: '#24664f', color: '#fff', padding: '2px 8px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 800 }}>
-                    Featured
+                    Open for orders
                   </span>
                 </div>
                 <div style={{ padding: 12 }}>
@@ -949,7 +933,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 </div>
 
                 {/* AI Score Badge */}
-                {r.recommendationScore > 0 && (
+                {acceptsOnlineOrders(r) && hasPreciseLocation && r.isDeliverable === true && r.recommendationScore > 0 && (
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <div style={{ height: 4, borderRadius: 2, background: 'var(--border-color)', flex: 1, overflow: 'hidden' }}>
