@@ -1,0 +1,38 @@
+# Dedicated Oracle Ampere A1 (ARM64) routing VM. No database or POS services.
+# OSRM is reachable ONLY by Caddy on the Docker network, never on a public port.
+services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    platform: linux/arm64
+    restart: unless-stopped
+    command: ["osrm-routed", "--algorithm", "mld", "/data/sri-lanka-latest.osrm"]
+    volumes:
+      - ./data:/data:ro
+    expose:
+      - "5000"
+    mem_limit: 6g
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - osrm
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ROUTING_HOST: ${ROUTING_HOST:?ROUTING_HOST is required}
+      GASTROFLOW_ROUTING_KEY: ${GASTROFLOW_ROUTING_KEY:?GASTROFLOW_ROUTING_KEY is required}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  caddy_data:
+  caddy_config:
