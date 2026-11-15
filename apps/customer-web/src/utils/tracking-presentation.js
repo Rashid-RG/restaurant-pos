@@ -67,3 +67,18 @@ export function trackingEtaMinutes(eta) {
   const v=Number(eta);
   return eta == null || !Number.isFinite(v)||v<=0||v>24*60?null:Math.ceil(v);
 }
+
+// A rider assignment, pickup, or arrival must never imply delivery completion.
+export function trackingHeroMessage(status, type = 'takeaway') {
+  const {steps,currentIndex,done,terminal}=trackingProgress(status,type);
+  if(terminal) return 'This order is no longer active.';
+  if(done) return type==='delivery'?'Delivered! Enjoy your meal 🎉':type==='dine-in'?'Served! Enjoy your meal 🍽️':'Picked up! Thank you 🛍️';
+  const stage=steps[currentIndex]?.id;
+  if(stage==='pending') return 'Waiting for restaurant confirmation…';
+  if(stage==='preparing') return type==='dine-in'?'The kitchen is preparing your meal 👨‍🍳':'Chef is preparing your food fresh in the kitchen 👨‍🍳';
+  if(stage==='ready') return type==='delivery'?'Food is ready and awaiting rider pickup 🛍️':type==='dine-in'?'Food is ready! Serving to your table 🍽️':'Your order is ready for pickup at the counter! 🛍️';
+  if(stage==='picked_up') return 'Your rider has collected the food 🛵';
+  if(stage==='out_for_delivery') return 'Your rider is on the way to you 🛵';
+  if(stage==='arrived') return 'Your rider has arrived at the delivery destination 📍';
+  return 'Waiting for the latest order status…';
+}
