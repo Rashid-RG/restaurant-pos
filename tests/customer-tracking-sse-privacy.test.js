@@ -19,8 +19,8 @@ describe('customer SSE privacy boundary (CUST-136)',()=>{
     expect(calls).toHaveLength(1);
     expect(calls[0].params).toEqual(['driver-B','store-A','order-1']);
     expect(calls[0].sql).toMatch(/JOIN drivers d/);
-    expect(calls[0].sql).toMatch(/d\\.tenant_id = \\?/);
-    expect(calls[0].sql).toMatch(/dl\\.driverName = d\\.name/);
+    expect(calls[0].sql).toMatch(/d\.tenant_id = \?/);
+    expect(calls[0].sql).toMatch(/dl\.driverName = d\.name/);
   });
   it('preserves assignment notification without internal dispatch details',()=>{
     expect(publicTrackingEvent({type:'driver_assigned',orderId:'order-1',driverToken:'secret'})).toEqual({type:'driver_assigned',orderId:'order-1'});
