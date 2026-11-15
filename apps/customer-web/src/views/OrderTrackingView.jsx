@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
-import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
+import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
@@ -177,7 +177,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     const fix=normalizeDriverFix(data.driver);
     // An authoritative snapshot explicitly returning no assigned rider GPS
     // revokes the old marker. Event-only order updates omit driver entirely.
-    if(Object.hasOwn(update,'driver') && !fix){
+    if(shouldClearRiderMarker(update,fix)){
       driverFixRef.current=null;
       setDriverLoc(null);setDriverLastSeen(null);
     }else if(isNewerDriverFix(fix,driverFixRef.current)){
