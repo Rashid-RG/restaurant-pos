@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
-import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
+import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
@@ -27,6 +27,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const driverFixRef=useRef(null);
   const activeTrackedIdRef=useRef(null);
   const trackingFetchRef=useRef(null);
+  const streamHealthyRef=useRef(false);
+  const lastSnapshotRef=useRef(null);
   const [connectionWarning,setConnectionWarning]=useState('');
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
@@ -170,7 +172,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     }
     orderRef.current = data;
     setOrder(data);
-    setLastUpdate(Date.now());
+    lastSnapshotRef.current=Date.now();
+    setLastUpdate(lastSnapshotRef.current);
     const fix=normalizeDriverFix(data.driver);
     if(isNewerDriverFix(fix,driverFixRef.current)){
       driverFixRef.current=fix;setDriverLoc(fix);setDriverLastSeen(fix.updatedAt);
@@ -182,7 +185,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     trackingFetchRef.current=id;
     if (activeTrackedIdRef.current !== id) {
       activeTrackedIdRef.current=id;
-      driverFixRef.current=null;orderRef.current=null;
+      driverFixRef.current=null;orderRef.current=null;lastSnapshotRef.current=null;
       setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setRoadRoute(null);
       setDriverChatOpen(false);setDriverMessages([]);setRemainingMins(null);
     }
@@ -224,8 +227,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
       const streamUrl = stream.href;
       es = new EventSource(streamUrl);
-      es.onopen=()=>setStreamConnected(true);
-      es.onerror=()=>setStreamConnected(false);
+      es.onopen=()=>{streamHealthyRef.current=true;setStreamConnected(true);};
+      es.onerror=()=>{streamHealthyRef.current=false;setStreamConnected(false);};
       es.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
@@ -244,15 +247,20 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       };
     } catch (err) {}
 
-    // Polling fallback — reads orderId from orderRef so it is never stale
+    // Use 5-second polling only while SSE is unavailable. With a connected
+    // stream, reconcile a snapshot after 35 seconds without order events.
+    // This bounds server load while still recovering from missed updates.
     const interval = setInterval(() => {
-      if (orderRef.current?.id && document.visibilityState!=='hidden') fetchOrder(orderRef.current.id,{silent:true});
+      if (orderRef.current?.id && shouldPollTrackingSnapshot({streamConnected:streamHealthyRef.current,lastSnapshotAt:lastSnapshotRef.current,now:Date.now(),visible:document.visibilityState!=='hidden'})) {
+        fetchOrder(orderRef.current.id,{silent:true});
+      }
     }, 5000);
 
 
     return () => {
       clearInterval(interval);
       if (es) es.close();
+      streamHealthyRef.current=false;
       setStreamConnected(false);
     };
   }, [order?.id, order?.status]);
