@@ -13,7 +13,7 @@ import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
-import { createTrackingGuard, makeTrackingAccess } from './lib/order-tracking.js';
+import { createTrackingGuard, makeTrackingAccess, publicTrackingEvent } from './lib/order-tracking.js';
 import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
 import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
 import { initExpensesTable, createExpensesRouter } from './routes/expenses.js';
@@ -4699,8 +4699,9 @@ function notifyOrderUpdate(orderId, orderData) {
 // full order snapshots and lightweight events like driver_location pings).
 function notifyOrderStream(orderId, payload) {
   const subs = sseSubscribers.get(orderId);
-  if (subs) {
-    const frame = `data: ${JSON.stringify(payload)}\n\n`;
+  const customerEvent=publicTrackingEvent(payload);
+  if (subs && customerEvent) {
+    const frame = `data: ${JSON.stringify(customerEvent)}\n\n`;
     subs.forEach(res => {
       try { writeLiveFrame(res,frame); } catch (e) {}
     });
@@ -5042,13 +5043,13 @@ app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
   subs.add(res);
 
   try {
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
+    const order = await dbGet('SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, deliveryAddress, deliveryLat, deliveryLng, etaMinutes, acceptedAt, rejectedReason, customerName, customerPhone, invoiceNumber, paymentStatus FROM orders WHERE id = ? AND tenant_id = ?', [orderId, req.trackingTenant]);
     if (order) {
       const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [orderId]);
-      res.write(`data: ${JSON.stringify({ ...order, items })}\n\n`);
+      res.write(`data: ${JSON.stringify(publicTrackingEvent({ ...order, items }))}\n\n`);
       // Replay the latest driver location so a (re)connecting client sees the pin immediately.
       const loc = await dbGet('SELECT driverName, lat, lng, updatedAt, accuracyMeters FROM driver_locations WHERE orderId = ?', [orderId]);
-      if (loc) res.write(`data: ${JSON.stringify({ type: 'driver_location', ...loc })}\n\n`);
+      if (loc) res.write(`data: ${JSON.stringify(publicTrackingEvent({ type: 'driver_location', ...loc }))}\n\n`);
     }
   } catch (e) {}
 
