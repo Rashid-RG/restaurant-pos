@@ -5,7 +5,7 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
 import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
-import {shouldRetainTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
+import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
   const { t, dict: tr } = useLang();
@@ -199,7 +199,20 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       setFeedbackSubmitted(false);
     } catch (err) {
       if(activeTrackedIdRef.current!==id)return;
-      if(orderRef.current && shouldRetainTrackedOrder(err))setConnectionWarning('Connection interrupted. Showing the last confirmed order status.');
+      if(shouldClearTrackedOrder(err)){
+        // A revoked/expired link or unknown order must not leave the previous
+        // customer's private details on the screen or keep the SSE open.
+        orderRef.current=null;
+        driverFixRef.current=null;
+        lastSnapshotRef.current=null;
+        streamHealthyRef.current=false;
+        setOrder(null);setDriverLoc(null);setDriverLastSeen(null);
+        setDispatchStatus(null);setDynamicETA(null);setRoadRoute(null);
+        setDriverChatOpen(false);setDriverMessages([]);
+        setConnectionWarning('');
+        if(Number(err?.status)===401)localStorage.removeItem('gastroflow_order_access_'+id);
+        setError('This order tracking link is unavailable or has expired. Sign in to the owning account or open your original private order confirmation.');
+      }else if(orderRef.current && shouldRetainTrackedOrder(err))setConnectionWarning('Connection interrupted. Showing the last confirmed order status.');
       else if(!orderRef.current){setError(err.message||'Unable to load order.');setOrder(null);}
       else setConnectionWarning('Unable to refresh this order. Please retry.');
     } finally {
