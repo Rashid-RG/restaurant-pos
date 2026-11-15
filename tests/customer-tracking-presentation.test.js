@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {trackingSteps,trackingProgress,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
+import {trackingSteps,trackingProgress,trackingHeroMessage,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
 
 describe('GastroFood real order tracking presentation',()=>{
   it('separates ready-for-rider from actually out-for-delivery',()=>{
@@ -14,6 +14,19 @@ describe('GastroFood real order tracking presentation',()=>{
     expect(trackingProgress('completed','delivery').done).toBe(true);
     expect(trackingSteps('takeaway').length).toBe(4);
     expect(trackingSteps('dine-in').at(-1).label).toBe('Served');
+  });
+  it('keeps rider stages distinct from delivered in the customer hero',()=>{
+    for(const state of ['ready','picked_up','out_for_delivery','arrived']) {
+      expect(trackingProgress(state,'delivery').done).toBe(false);
+      expect(trackingHeroMessage(state,'delivery')).not.toMatch(/Delivered!/);
+    }
+    expect(trackingHeroMessage('ready','delivery')).toMatch(/awaiting rider pickup/);
+    expect(trackingHeroMessage('picked_up','delivery')).toMatch(/collected/);
+    expect(trackingHeroMessage('out_for_delivery','delivery')).toMatch(/on the way/);
+    expect(trackingHeroMessage('arrived','delivery')).toMatch(/arrived/);
+    expect(trackingHeroMessage('delivered','delivery')).toMatch(/Delivered!/);
+    expect(trackingHeroMessage('completed','takeaway')).toMatch(/Picked up/);
+    expect(trackingHeroMessage('completed','dine-in')).toMatch(/Served!/);
   });
   it('does not show cancelled orders as completed',()=>{
     expect(trackingProgress('cancelled','delivery').terminal).toBe(true);
