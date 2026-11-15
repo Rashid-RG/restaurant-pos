@@ -371,24 +371,6 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     return Array.from(map.values());
   };
 
-  // ── Dynamic Delivery Fee: Base + Distance × Rate × Rush-Hour Multiplier ──
-  const calculateDynamicFee = (dist, isInRange) => {
-    if (!isInRange) return 250;
-    const BASE = 80;
-    const RATE_PER_KM = 20; // LKR per km
-    const now = new Date();
-    const hour = now.getHours();
-    const isRushHour = (hour >= 12 && hour <= 14) || (hour >= 19 && hour <= 21);
-    const multiplier = isRushHour ? 1.3 : 1.0;
-    const raw = (BASE + dist * RATE_PER_KM) * multiplier;
-    return Math.min(600, Math.max(80, Math.round(raw)));
-  };
-
-  const isCurrentlyRushHour = () => {
-    const h = new Date().getHours();
-    return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
-  };
-
   const processStoreProximity = (uLat, uLng, rawStores = restaurants) => {
     if (!uLat || !uLng || rawStores.length === 0) return;
 
@@ -405,17 +387,6 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       const isOpenNow = acceptsOnlineOrders(r); // missing state must not be shown as open
       const isNew = r.isNew || false;
       const recScore = recommendationScore({ distanceKm: dist, maxDistanceKm: maxDist, rating: r.rating, ratingCount: r.ratingCount, orderCount: (() => { try { return JSON.parse(localStorage.getItem('gastroflow_order_history') || '[]').filter(o => o.restaurantId === r.id).length; } catch { return 0; } })(), hasVerifiedPromotion: Boolean(r.promoVerified === true), isNew, isOpen: isOpenNow });
-
-      // Fee breakdown for tooltip
-      const h = new Date().getHours();
-      const rushHour = (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
-      const feeBreakdown = inRange ? {
-        base: 80,
-        distFee: Math.round(dist * 20),
-        multiplier: rushHour ? 1.3 : 1.0,
-        isRush: rushHour,
-        total: fee
-      } : null;
 
       return {
         ...r,
@@ -890,10 +861,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 {Number.isFinite(r.distanceKm) && (
                   <span style={{
                     position: 'absolute', bottom: 10, left: 10,
-                    background: r.isDeliverable ? 'rgba(16,185,129,0.92)' : 'rgba(239,68,68,0.92)',
+                    background: 'rgba(15,23,42,0.88)',
                     color: '#fff', padding: '3px 10px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800, backdropFilter: 'blur(4px)'
                   }}>
-                    📍 {r.distanceKm} km · {r.isDeliverable ? 'In Range' : 'Out of Zone'}
+                    📍 {r.distanceKm} km straight-line · {r.isDeliverable ? 'Estimated nearby' : 'Beyond estimated radius'}
                   </span>
                 )}
 
