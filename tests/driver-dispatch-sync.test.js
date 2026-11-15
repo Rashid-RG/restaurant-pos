@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {createDispatchRequestGate,shouldRetainTrackedOrder,latestDispatchTickets} from '../apps/driver-web/src/utils/dispatch-sync.js';
+import {createDispatchRequestGate,shouldRetainTrackedOrder,shouldClearTrackedOrder,latestDispatchTickets} from '../apps/driver-web/src/utils/dispatch-sync.js';
 
 describe('GastroDriver dispatch refresh reliability',()=>{
  it('allows only one in-flight request and invalidates responses after logout',()=>{
@@ -21,6 +21,16 @@ describe('GastroDriver dispatch refresh reliability',()=>{
    expect(data.assigned).toEqual([{id:'o1'}]);
    expect(data.unassigned).toEqual([]);
    expect(data.completed).toEqual([]);
+ });
+ it('clears private tracking snapshots on revoked, expired and unknown-order access',()=>{
+   for(const status of [401,403,404,410]) {
+     expect(shouldClearTrackedOrder({status})).toBe(true);
+     expect(shouldRetainTrackedOrder({status})).toBe(false);
+   }
+   for(const error of [{status:408},{status:429},{status:503},new Error('Network lost')]) {
+     expect(shouldClearTrackedOrder(error)).toBe(false);
+     expect(shouldRetainTrackedOrder(error)).toBe(true);
+   }
  });
  it('preserves last known order during transient outages',()=>{
    expect(shouldRetainTrackedOrder(new Error('Failed to fetch'))).toBe(true);
