@@ -13,7 +13,7 @@ import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
-import { createTrackingGuard, makeTrackingAccess, publicTrackingEvent } from './lib/order-tracking.js';
+import { createTrackingGuard, makeTrackingAccess, publicTrackingEvent, loadAssignedDriverLocation } from './lib/order-tracking.js';
 import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
 import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
 import { initExpensesTable, createExpensesRouter } from './routes/expenses.js';
@@ -5048,7 +5048,7 @@ app.get('/api/stream/orders/:id', publicApiLimiter, async (req, res) => {
       const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [orderId]);
       res.write(`data: ${JSON.stringify(publicTrackingEvent({ ...order, items }))}\n\n`);
       // Replay the latest driver location so a (re)connecting client sees the pin immediately.
-      const loc = order.driverId ? await dbGet('SELECT dl.driverName, dl.lat, dl.lng, dl.updatedAt, dl.accuracyMeters FROM driver_locations dl JOIN drivers d ON d.id = ? AND d.tenant_id = ? AND (dl.driverName = d.name OR dl.driverName = d.id) WHERE dl.orderId = ?', [order.driverId, req.trackingTenant, orderId]) : null;
+      const loc = await loadAssignedDriverLocation(dbGet,orderId,req.trackingTenant,order.driverId);
       if (loc) res.write(`data: ${JSON.stringify(publicTrackingEvent({ type: 'driver_location', ...loc }))}\n\n`);
     }
   } catch (e) {}
@@ -5117,7 +5117,7 @@ app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
     const tenant = await dbGet('SELECT name FROM tenants WHERE id = ?', [tenantId]);
     const details = await getSettingsMap(tenantId, ['restaurantName', 'businessName', 'address', 'phone', 'logo']);
     const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [order.id]);
-    const driver = order.driverId ? await dbGet('SELECT dl.driverName, dl.lat, dl.lng, dl.updatedAt, dl.accuracyMeters FROM driver_locations dl JOIN drivers d ON d.id = ? AND d.tenant_id = ? AND (dl.driverName = d.name OR dl.driverName = d.id) WHERE dl.orderId = ?', [order.driverId, tenantId, order.id]) : null;
+    const driver = await loadAssignedDriverLocation(dbGet,order.id,tenantId,order.driverId);
     res.set('Cache-Control', 'no-store').json({
       ...publicTrackingEvent(order),
       tenantId,
