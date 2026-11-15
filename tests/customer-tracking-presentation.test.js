@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {trackingSteps,trackingProgress,trackingHeroMessage,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
+import {trackingSteps,trackingProgress,trackingHeroMessage,shouldPollTrackingSnapshot,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
 
 describe('GastroFood real order tracking presentation',()=>{
   it('separates ready-for-rider from actually out-for-delivery',()=>{
@@ -14,6 +14,14 @@ describe('GastroFood real order tracking presentation',()=>{
     expect(trackingProgress('completed','delivery').done).toBe(true);
     expect(trackingSteps('takeaway').length).toBe(4);
     expect(trackingSteps('dine-in').at(-1).label).toBe('Served');
+  });
+  it('reduces polling with a connected stream while retaining disconnect and stale recovery',()=>{
+    const now=100000;
+    expect(shouldPollTrackingSnapshot({streamConnected:false,lastSnapshotAt:now,now})).toBe(true);
+    expect(shouldPollTrackingSnapshot({streamConnected:true,lastSnapshotAt:now-1000,now})).toBe(false);
+    expect(shouldPollTrackingSnapshot({streamConnected:true,lastSnapshotAt:now-35000,now})).toBe(true);
+    expect(shouldPollTrackingSnapshot({streamConnected:true,lastSnapshotAt:null,now})).toBe(true);
+    expect(shouldPollTrackingSnapshot({streamConnected:false,lastSnapshotAt:null,now,visible:false})).toBe(false);
   });
   it('keeps rider stages distinct from delivered in the customer hero',()=>{
     for(const state of ['ready','picked_up','out_for_delivery','arrived']) {
