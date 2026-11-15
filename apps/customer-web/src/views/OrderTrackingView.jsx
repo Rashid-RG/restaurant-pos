@@ -175,7 +175,12 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     lastSnapshotRef.current=Date.now();
     setLastUpdate(lastSnapshotRef.current);
     const fix=normalizeDriverFix(data.driver);
-    if(isNewerDriverFix(fix,driverFixRef.current)){
+    // An authoritative snapshot explicitly returning no assigned rider GPS
+    // revokes the old marker. Event-only order updates omit driver entirely.
+    if(Object.hasOwn(update,'driver') && !fix){
+      driverFixRef.current=null;
+      setDriverLoc(null);setDriverLastSeen(null);
+    }else if(isNewerDriverFix(fix,driverFixRef.current)){
       driverFixRef.current=fix;setDriverLoc(fix);setDriverLastSeen(fix.updatedAt);
     }
   };
