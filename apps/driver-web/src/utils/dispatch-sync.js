@@ -11,6 +11,11 @@ export function createDispatchRequestGate() {
   };
 }
 
+export function shouldClearTrackedOrder(error) {
+  const status=Number(error?.status??error?.statusCode);
+  return [401,403,404,410].includes(status);
+}
+
 export function shouldRetainTrackedOrder(error) {
   const status=Number(error?.status||error?.statusCode);
   // Transport failures, timeouts and server errors do not invalidate
