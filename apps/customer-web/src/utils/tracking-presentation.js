@@ -90,3 +90,9 @@ export function shouldPollTrackingSnapshot({streamConnected=false,lastSnapshotAt
   if(!streamConnected)return true;
   return !Number.isFinite(lastSnapshotAt)||lastSnapshotAt<=0||now-lastSnapshotAt>=TRACKING_UPDATE_STALE_MS;
 }
+
+// A full server snapshot explicitly returning no usable rider fix revokes the
+// previous marker; lightweight order SSE events do not carry driver state.
+export function shouldClearRiderMarker(update,fix) {
+  return !!update && Object.hasOwn(update,'driver') && !fix;
+}
