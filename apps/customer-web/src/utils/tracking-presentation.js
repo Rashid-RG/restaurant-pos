@@ -82,3 +82,11 @@ export function trackingHeroMessage(status, type = 'takeaway') {
   if(stage==='arrived') return 'Your rider has arrived at the delivery destination 📍';
   return 'Waiting for the latest order status…';
 }
+
+// Poll promptly when SSE disconnects; avoid duplicate 5-second API requests
+// while a healthy stream is delivering updates. Periodically reconcile anyway.
+export function shouldPollTrackingSnapshot({streamConnected=false,lastSnapshotAt=null,now=Date.now(),visible=true}={}) {
+  if(!visible)return false;
+  if(!streamConnected)return true;
+  return !Number.isFinite(lastSnapshotAt)||lastSnapshotAt<=0||now-lastSnapshotAt>=TRACKING_UPDATE_STALE_MS;
+}
