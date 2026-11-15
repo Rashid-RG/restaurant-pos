@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {trackingSteps,trackingProgress,trackingHeroMessage,shouldPollTrackingSnapshot,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
+import {trackingSteps,trackingProgress,trackingHeroMessage,shouldPollTrackingSnapshot,shouldClearRiderMarker,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
 
 describe('GastroFood real order tracking presentation',()=>{
   it('separates ready-for-rider from actually out-for-delivery',()=>{
@@ -64,6 +64,12 @@ describe('GastroFood real order tracking presentation',()=>{
     const fresh={lat:6.92,lng:79.85,updatedAt:2000};
     expect(isNewerDriverFix(old,fresh)).toBe(false);
     expect(isNewerDriverFix(fresh,old)).toBe(true);
+  });
+  it('removes obsolete rider pins only when a full snapshot explicitly invalidates GPS',()=>{
+    expect(shouldClearRiderMarker({driver:null},null)).toBe(true);
+    expect(shouldClearRiderMarker({driver:{lat:0,lng:0,updatedAt:1}},null)).toBe(true);
+    expect(shouldClearRiderMarker({id:'order-1',status:'ready'},null)).toBe(false);
+    expect(shouldClearRiderMarker({driver:{lat:6.9,lng:79.8}},{lat:6.9,lng:79.8})).toBe(false);
   });
   it('visibly labels delayed and expired fixes instead of promising live GPS',()=>{
     const now=1_700_000_000_000;
