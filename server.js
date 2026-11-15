@@ -5119,7 +5119,7 @@ app.get('/api/public/orders/:id', publicApiLimiter, async (req, res) => {
     const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [order.id]);
     const driver = order.driverId ? await dbGet('SELECT dl.driverName, dl.lat, dl.lng, dl.updatedAt, dl.accuracyMeters FROM driver_locations dl JOIN drivers d ON d.id = ? AND d.tenant_id = ? AND (dl.driverName = d.name OR dl.driverName = d.id) WHERE dl.orderId = ?', [order.driverId, tenantId, order.id]) : null;
     res.set('Cache-Control', 'no-store').json({
-      ...order,
+      ...publicTrackingEvent(order),
       tenantId,
       storeName: details.restaurantName || details.businessName || tenant?.name || 'Restaurant',
       storeAddress: details.address || '',
