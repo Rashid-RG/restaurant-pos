@@ -4,34 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
-import {trackingProgress,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
+import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
-
-const STATUS_STEPS = [
-  { id: 'pending', label: 'Order Received', desc: 'Awaiting restaurant confirmation', icon: '📋' },
-  { id: 'preparing', label: 'Kitchen Preparing', desc: 'Chefs are crafting your meal', icon: '👨‍🍳' },
-  { id: 'ready', label: 'Ready / On The Way', desc: 'Prepared & heading to destination', icon: '🛵' },
-  { id: 'completed', label: 'Delivered / Completed', desc: 'Enjoy your meal!', icon: '🎉' }
-];
-
-function statusIndex(status) {
-  if (!status) return 0;
-  const s = status.toLowerCase();
-  if (s === 'delivered' || s === 'completed' || s === 'served') return 3;
-  if (['ready','picked_up','out_for_delivery','arrived'].includes(s)) return 2;
-  if (s === 'preparing' || s === 'in progress') return 1;
-  return 0;
-}
-
-function getProgressPercent(statusIndex) {
-  switch (statusIndex) {
-    case 0: return 15;
-    case 1: return 50;
-    case 2: return 82;
-    case 3: return 100;
-    default: return 10;
-  }
-}
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
   const { t, dict: tr } = useLang();
@@ -358,8 +332,6 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     }
   };
 
-  const curStep = order ? statusIndex(order.status) : -1;
-  const progressPct = order ? getProgressPercent(curStep) : 0;
   const isCancelled = ['cancelled','rejected','refunded','partially_refunded'].includes(String(order?.status||'').toLowerCase());
   const canCancel = order?.status === 'pending';
   const rawType = (order?.orderType || order?.diningType || 'takeaway').toLowerCase();
@@ -368,6 +340,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const isTakeaway = !isDelivery && !isDineIn;
   const trackingMode=isDelivery?'delivery':isDineIn?'dine-in':'takeaway';
   const actualProgress=trackingProgress(order?.status,trackingMode);
+  const isDone=actualProgress.done;
+  const currentStage=actualProgress.steps[actualProgress.currentIndex]?.id;
+  const heroMessage=trackingHeroMessage(order?.status,trackingMode);
   const gpsState=driverFreshness(driverLoc,nowClock);
   const hasRecentUpdates=lastUpdate && nowClock-lastUpdate<TRACKING_UPDATE_STALE_MS;
   const etaDisplay=trackingEtaMinutes(dynamicETA?.estimatedMinutes) ?? remainingMins;
@@ -408,14 +383,14 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           <div className="uber-hero-card">
             <div className="uber-hero-header">
               {!isCancelled && <img className="tracking-food-art" src={`${import.meta.env.BASE_URL}tracking-food-bowl.svg`} alt="" aria-hidden="true" loading="lazy" />}
-              {!isCancelled && <AnimatedFeatureIcon kind={curStep === 1 ? 'cooking' : curStep === 2 ? (isDelivery ? 'delivery' : 'ready') : curStep === 3 ? 'ready' : 'order'} size={72} active={curStep < 3}/>}
+              {!isCancelled && <AnimatedFeatureIcon kind={currentStage === 'preparing' ? 'cooking' : isDelivery && ['picked_up','out_for_delivery','arrived'].includes(currentStage) ? 'delivery' : currentStage === 'ready' ? 'ready' : 'order'} size={72} active={!isDone}/>}
               {isCancelled ? (
                 <div>
                   <div className="uber-status-badge cancelled">{t('statusCancelled')}</div>
                   <h1 className="uber-hero-title" style={{ color: 'var(--danger)' }}>{t('orderCancelledTitle')}</h1>
                   <p className="uber-hero-subtitle">{order.rejectedReason || 'The kitchen was unable to fulfill your order.'}</p>
                 </div>
-              ) : curStep === 3 ? (
+              ) : isDone ? (
                 <div>
                   <div className="uber-status-badge completed">{isDineIn ? 'Served' : isTakeaway ? 'Picked Up' : 'Delivered'}</div>
                   <h1 className="uber-hero-title">{isDineIn ? 'Food Served! 🍽️' : isTakeaway ? 'Order Picked Up! 🛍️' : 'Order Delivered! 🎉'}</h1>
@@ -428,24 +403,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                     {etaDisplay !== null ? `Approx. ${etaDisplay} min` : 'Awaiting estimate'}
                   </h1>
                   {etaDisplay !== null && <p className="gf-tracking-eta-note">Approximate only · depends on kitchen and road conditions</p>}
-                  <p className="uber-hero-subtitle">
-                    {isDineIn ? (
-                      curStep === 0 ? 'Waiting for restaurant confirmation…' :
-                      curStep === 1 ? 'Chef is preparing your food fresh in the kitchen 👨‍🍳' :
-                      curStep === 2 ? 'Food is ready! Serving to your table 🍽️' :
-                      'Served! Enjoy your meal 🍽️'
-                    ) : isTakeaway ? (
-                      curStep === 0 ? 'Waiting for restaurant confirmation…' :
-                      curStep === 1 ? 'Chef is preparing your order for pickup 👨‍🍳' :
-                      curStep === 2 ? 'Your order is ready for pickup at the counter! 🛍️' :
-                      'Picked up! Thank you 🛍️'
-                    ) : (
-                      curStep === 0 ? 'Waiting for restaurant confirmation…' :
-                      curStep === 1 ? 'Chef is preparing your food fresh in the kitchen 👨‍🍳' :
-                      curStep === 2 ? (order.status === 'out_for_delivery' ? 'Your rider is on the way 🛵' : 'Food is ready and awaiting delivery pickup 🛍️') :
-                      'Delivered! Enjoy your meal 🎉'
-                    )}
-                  </p>
+                  <p className="uber-hero-subtitle">{heroMessage}</p>
                 </div>
               )}
             </div>
@@ -458,7 +416,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             )}
 
             {/* Real live map — only for delivery orders with a pinned destination. */}
-            {!isCancelled && curStep < 3 && isDelivery && validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng}) && (
+            {!isCancelled && !isDone && isDelivery && validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng}) && (
               <div style={{ position: 'relative', margin: '16px 0' }}>
                 <TrackingMap
                   store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
@@ -473,7 +431,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
             {/* ── Real-time Driver Dispatch Panel — Delivery ONLY ── */}
-            {!isCancelled && curStep < 3 && isDelivery && dispatchStatus && (
+            {!isCancelled && !isDone && isDelivery && dispatchStatus && (
               <div style={{
                 margin: '12px 0',
                 padding: '14px 16px',
@@ -607,7 +565,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Order Reference</div>
                 <div style={{ fontSize: '0.82rem', fontWeight: 800, fontFamily: 'monospace', color: 'var(--brand)' }}>{order.id}</div>
               </div>
-              <span className={`chip chip-${isCancelled ? 'orange' : curStep >= 3 ? 'green' : curStep >= 2 ? 'yellow' : 'orange'}`}>
+              <span className={`chip chip-${isCancelled ? 'orange' : isDone ? 'green' : actualProgress.currentIndex >= 2 ? 'yellow' : 'orange'}`}>
                 {order.status || 'Pending'}
               </span>
             </div>
