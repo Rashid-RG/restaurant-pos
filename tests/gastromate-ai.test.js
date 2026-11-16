@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {
   normalizeGastroHistory, isGastroMenuItemAvailable, selectGastroMenu,
   gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse,
-  gastroBudget, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal
+  gastroBudget, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer
 } from '../lib/gastromate-ai.js';
 
 const tenantA = [
@@ -138,5 +138,28 @@ describe('GastroMate explicit ordering proposals', () => {
   });
   it('does not treat arbitrary questions as cart actions', () => {
     expect(gastroOrderProposal(menu,'How much does a chicken burger cost?')).toBe(null);
+  });
+});
+
+describe('GastroMate tenant-scoped public store facts', () => {
+  const a={name:'Cafe A',storeOpen:false,address:'123 Main Road',phone:'0112345678',prepMinutes:'25'};
+  const b={name:'Cafe B',storeOpen:true,address:'789 Side Road',phone:'0110000000'};
+  it('reports current open status, never fabricates opening hours', () => {
+    const reply=gastroStoreAnswer('Are you open?',a).reply;
+    expect(reply).toContain('closed for online orders');
+    expect(reply).toContain('not published');
+    expect(reply).not.toContain('9 AM');
+    expect(gastroStoreAnswer('Are you open?',b).reply).toContain('open for online orders');
+  });
+  it('only returns the restaurant facts that are supplied', () => {
+    expect(gastroStoreAnswer('What is the phone number?',a).reply).toContain('0112345678');
+    expect(gastroStoreAnswer('What is the phone number?',a).reply).not.toContain('0110000000');
+    expect(gastroStoreAnswer('Where is the restaurant located?',a).reply).toContain('123 Main Road');
+    expect(gastroStoreAnswer('What is the preparation time?',a).reply).toContain('25 minutes');
+  });
+  it('does not invent missing private or public facts', () => {
+    expect(gastroStoreAnswer('What is the phone number?',{name:'Cafe C'}).reply).toContain("don't have a verified");
+    expect(gastroStoreAnswer('What is the delivery charge?',a).reply).toContain('checkout');
+    expect(gastroStoreAnswer('Can I have extra sauce?',a)).toBe(null);
   });
 });
