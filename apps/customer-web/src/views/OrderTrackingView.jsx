@@ -10,6 +10,7 @@ import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
   const { t, dict: tr } = useLang();
+  const isPackagedNative = import.meta.env.MODE === 'native';
   const [trackId, setTrackId] = useState(orderId || '');
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -260,6 +261,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     let es;
     let missedConnection=false;
     try {
+      // Native cross-origin SSE cannot rely on the PWA's Strict same-site cookie.
+      // Poll with the existing private tracking token until a native stream is audited.
+      if (isPackagedNative) throw new Error('Use authenticated snapshot polling in native mode');
       const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
       const streamUrl = stream.href;
       es = new EventSource(streamUrl);
@@ -311,7 +315,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
   // Customer opt-in: permission must never be requested during page load.
   const enableNotifications=async()=>{
-    if(!order?.id || !storeInfo?.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))return;
+    if(isPackagedNative || !order?.id || !storeInfo?.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))return;
     setPushBusy(true);
     try {
       const permission=await Notification.requestPermission();
@@ -429,7 +433,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           )}
           <div className="customer-tracking-tools">
             <div className="customer-tracking-freshness" role="status" aria-live="polite"><strong>{streamConnected && hasRecentUpdates ? 'Live updates connected' : hasRecentUpdates ? 'Order updated · reconnecting' : 'Checking for order updates'}</strong><small>{lastUpdate ? 'Last confirmed '+new Date(lastUpdate).toLocaleTimeString() : 'Connecting…'}</small></div>
-            {storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
+            {!isPackagedNative && storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
               <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
             {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
