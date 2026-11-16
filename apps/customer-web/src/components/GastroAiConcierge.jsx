@@ -5,6 +5,7 @@ import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
 import { useCart } from '../context/CartContext.jsx';
 import { isMenuItemAvailable, maxMenuItemQuantity } from '../utils/menu-selection.js';
+import { getActiveTenant } from '../utils/tenant.js';
 import './gastromate-mascot.css';
 
 function BurgerMascot({ small = false, active = false }) {
@@ -13,7 +14,7 @@ function BurgerMascot({ small = false, active = false }) {
     <span className="gastromate-burger-body"><span className="gastromate-burger-face">•ᴗ•</span></span>
     <span className="gastromate-burger-arm right">✦</span>
     <span className="gastromate-burger-feet">⌣ ⌣</span>
-    {!small && <span className="gastromate-hello">Hi!</span>}
+    {!small && <span className="gastromate-hello">{active ? 'Thinking…' : 'Hi!'}</span>}
   </span>;
 }
 
@@ -180,13 +181,14 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       // Fetch live server data: AI response contents are never the source of truth.
       const menu = await apiFetch('/public/menu', { cache: 'no-store' });
       if (menu.offlineSnapshot) throw new Error('Please connect to the internet before adding items.');
+      if (String(menu.tenantId) !== String(getActiveTenant())) throw new Error('Restaurant changed. Reopen GastroMate for this restaurant.');
       if (menu.storeOpen !== true) throw new Error('This restaurant is currently closed for online orders.');
       const item = (menu.items || []).find(i => String(i.id) === String(proposal.itemId));
       if (!isMenuItemAvailable(item)) throw new Error('This item is currently unavailable.');
       if ((item.modifiers || []).length) {
-        setIsOpen(false);
-        onNavigate?.('store-menu');
-        throw new Error('Please choose this item and its options from the menu.');
+        setPendingAdd(null);
+        setMessages(prev => [...prev, {id: `mods_${Date.now()}`, sender:'ai', text:'This item has customization options. Please choose its options from the restaurant menu before adding it.'}]);
+        return;
       }
       const already = liveCartItems.filter(i => String(i.id) === String(item.id)).reduce((sum, i) => sum + Number(i.qty || 0), 0);
       const quantity = Math.min(20, Math.max(1, Math.trunc(Number(proposal.quantity) || 1)));
@@ -380,7 +382,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
 
           {/* AI suggested cart action requires an explicit customer confirmation. */}
           {pendingAdd && <div className="gastromate-confirm">
-            <span>Would you like to add this item to your cart?</span>
+            <span>Would you like to add this menu item to your cart? The price and stock will be checked again before adding.</span>
             <button type="button" disabled={addingItem} onClick={() => confirmAddToCart(pendingAdd)}>{addingItem ? 'Checking…' : 'Add to Cart'}</button>
             <button type="button" onClick={() => setPendingAdd(null)}>Cancel</button>
           </div>}
@@ -445,6 +447,12 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                         >
                           View
                         </button>
+                        <button type="button"
+                          onClick={() => setPendingAdd({type:'add_to_cart',itemId:String(item.id),quantity:1})}
+                          disabled={typing || addingItem}
+                          aria-label={`Select ${item.name} for cart confirmation`}
+                          style={{background:'#fff',color:'#176e4d',border:'1px solid #176e4d',borderRadius:6,padding:'3px 8px',fontSize:'0.7rem',fontWeight:700,cursor:'pointer'}}
+                        >Select +</button>
                       </div>
                     ))}
                   </div>
@@ -457,8 +465,20 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                       <button
                         key={idx}
                         onClick={() => {
-                          if (chip.includes('Support History') || chip.includes('Human Support')) {
+                          if (/Support History|Human Support|Contact Human Support|Live Agent/i.test(chip)) {
                             onNavigate && onNavigate('support');
+                            setIsOpen(false);
+                          } else if (/Track Order|Order Status/i.test(chip)) {
+                            onNavigate?.('track');
+                            setIsOpen(false);
+                          } else if (/Sign In/i.test(chip)) {
+                            onNavigate?.('account');
+                            setIsOpen(false);
+                          } else if (/Browse Menu|Return to Menu/i.test(chip)) {
+                            onNavigate?.('store-menu');
+                            setIsOpen(false);
+                          } else if (/View Cart|Checkout/i.test(chip)) {
+                            setCartOpen(true);
                             setIsOpen(false);
                           } else if (chip.includes('0760130922')) {
                             window.location.href = 'tel:0760130922';
