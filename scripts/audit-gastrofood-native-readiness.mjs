@@ -22,11 +22,13 @@ try {
 const pkg=readJson('package.json');
 if(!pkg.dependencies?.['@capacitor/core']) blockers.push('Capacitor core/native CLI and platforms are not yet installed or locked');
 const api=fs.readFileSync(path.join(root,'apps/customer-web/src/utils/api.js'),'utf8');
-if(!api.includes('VITE_') && api.includes('location.origin'))
-  blockers.push('Native origin routing is not supported yet: same-origin /api calls cannot reach Render from capacitor://localhost');
+if(!api.includes("import.meta.env.MODE==='native'") || !api.includes('VITE_NATIVE_API_ORIGIN'))
+  blockers.push('Native HTTPS API routing integration is missing');
+else blockers.push('Production API CORS allowlist must explicitly authorize the native WebView origin before device acceptance');
 const vite=fs.readFileSync(path.join(root,'apps/customer-web/vite.config.js'),'utf8');
-if(vite.includes("base: '/customer/'"))
-  blockers.push('Customer Vite base is /customer/: produce and test a separate relative-asset native build');
+if(!vite.includes("mode === 'native' ? './'"))
+  blockers.push('Customer native Vite relative-asset build is not configured');
+else blockers.push('Native relative-asset bundle and service-worker URLs require WebView device verification');
 for(const m of ['android','ios']){
   if(!fs.existsSync(path.join(root,'apps/customer-web',m))) blockers.push('Customer '+m+' native project has not been generated or tested');
 }
