@@ -1,6 +1,7 @@
 import { apiFetch } from '../utils/api.js';
 import {cartStorageKey,parseSavedCart} from '../utils/cart-storage.js';
 import {isMenuItemAvailable,maxMenuItemQuantity,menuItemTotal} from '../utils/menu-selection.js';
+import {applyGastroBatch} from '../utils/gastromate-batch.js';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const CartContext = createContext(null);
@@ -48,6 +49,11 @@ export function CartProvider({ children, tenantId }) {
     });
   }, []);
 
+  // One state transition for a confirmed multi-item GastroMate batch.
+  const addVerifiedBatch = useCallback((entries) => {
+    setItems(previous => applyGastroBatch(previous, entries));
+  }, []);
+
   const removeItem = useCallback((cartId) => {
     setItems(prev => {
       const existing = prev.find(i => i.cartId === cartId);
@@ -73,7 +79,7 @@ export function CartProvider({ children, tenantId }) {
   return (
     <CartContext.Provider value={{
       items, cartOpen, setCartOpen, rates, setRates,
-      addItem, removeItem, deleteItem, clearCart,
+      addItem, addVerifiedBatch, removeItem, deleteItem, clearCart,
       totalItems, subtotal
     }}>
       {children}
