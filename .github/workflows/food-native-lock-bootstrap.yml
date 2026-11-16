@@ -15,6 +15,7 @@ on:
       - 'scripts/harden-food-android.mjs'
       - 'scripts/generate-food-android-branding.py'
       - 'scripts/audit-food-android-apk.py'
+      - 'scripts/check-food-android-webview.mjs'
       - 'apps/customer-web/public/food-logo.png'
       - '.github/workflows/food-native-lock-bootstrap.yml'
 
@@ -248,13 +249,20 @@ jobs:
             adb shell screencap -p /sdcard/gastrofood-startup.png
             adb pull /sdcard/gastrofood-startup.png gastrofood-startup.png
             test -s gastrofood-startup.png
-            echo "GastroFlow Food clean-start smoke check passed"
-      - name: Upload Android emulator startup screenshot for manual visual review
+            adb logcat -d -v brief -s chromium:* cr_Console:* AndroidRuntime:* > gastrofood-emulator-console.txt || true
+            PID="$(adb shell pidof com.rstechnologies.gastrofood | tr -d '\\r')"
+            test -n "$PID"
+            adb forward tcp:9222 "localabstract:webview_devtools_remote_$PID"
+            node scripts/check-food-android-webview.mjs
+            echo "GastroFlow Food Android startup UI accepted"
+      - name: Upload Android emulator screenshot and browser console for visual review
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gastrofood-android-emulator-startup
-          path: gastrofood-startup.png
+          path: |
+            gastrofood-startup.png
+            gastrofood-emulator-console.txt
           if-no-files-found: warn
           retention-days: 7
 
