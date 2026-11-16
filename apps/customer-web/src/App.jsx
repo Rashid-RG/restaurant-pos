@@ -26,6 +26,10 @@ class ErrorBoundary extends Component {
   componentDidCatch(error, info) {
     // Error details are console-only: never display private state or credentials.
     console.error('[GastroFlow Food startup render error]', error?.name, error?.message, info?.componentStack);
+    if (import.meta.env.MODE === 'native') {
+      // Debug-shell diagnostics for CI inspection; no tokens, URLs or customer data.
+      window.__gastrofoodNativeRenderFailure = String(error?.name || 'Error') + ': ' + String(error?.message || 'Unknown render error').slice(0, 280);
+    }
   }
   render() {
     if (this.state.error) return (
