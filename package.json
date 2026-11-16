@@ -27,7 +27,8 @@
     "cap:ios": "npx cap add ios && npx cap sync",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mobile:audit": "node scripts/audit-customer-mobile-assets.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
