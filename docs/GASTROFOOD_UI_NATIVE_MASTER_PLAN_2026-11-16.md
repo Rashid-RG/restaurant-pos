@@ -202,3 +202,11 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **PENDING operations**: An authorized maintainer must explicitly set `CUSTOMER_NATIVE_ORIGINS=capacitor://localhost,https://localhost` (or the subset required) in staging when testing actual native shell requests. No Render environment variables were modified.
 - **PENDING native acceptance**: Verify initial document load, packaged app assets, secure API request headers/tenant isolation, event-stream auth, location permissions, push notifications, maps and geocoder; generate isolated Android/iOS native projects and lock Capacitor versions; do not claim an APK or IPA exists.
 - **PENDING CI evidence**: A GitHub workflow configuration/commit is not a passing build. Confirm build and test status independently.
+
+### Progress checkpoint — 2026-11-16: native tracking transport and installed-shell UX
+- **DONE (code)** `1e45970`, `12db197`, `953f315`: native-mode order tracking deliberately does **not** open the hosted site's cookie-bound SSE stream. It retains existing authenticated order snapshot polling via tenant-scoped customer API requests until a native event-stream access model is designed and tested. Browser/PWA SSE functionality is unchanged. This is a fallback, not a claim of instant native tracking.
+- **DONE (code)** The native shell hides web-only push-subscription controls; they require a separate mobile push provider and explicit device testing. No claim that native push notification registration works yet.
+- **DONE (code)** `a37821d`: native shell does not display the browser Add to Home Screen banner; hosted website behavior is preserved.
+- **DONE (tests and CI config)** `68e8854`, `f989485`: tests and customer CI configuration enforce the native-vs-hosted transport and push policy. A successful CI execution has not yet been confirmed.
+- **PENDING** Generate actual platform projects after pinned Capacitor dependency installation; test native GPS permissions, network/CORS, tracking fetches and background/foreground lifecycle on physical phones, then implement mobile push and authenticated streaming separately.
+- **RELEASE GUARDRAILS** No deployment, native publication, POS change, or Turso customer-data operation.
