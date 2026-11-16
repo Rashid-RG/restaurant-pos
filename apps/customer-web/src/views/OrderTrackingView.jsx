@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
+import {contactLinks} from '../utils/contact-actions.js';
 import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS,createTrackingSnapshotGate} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
@@ -397,6 +398,9 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const gpsState=driverFreshness(driverLoc,nowClock);
   const hasRecentUpdates=lastUpdate && nowClock-lastUpdate<TRACKING_UPDATE_STALE_MS;
   const etaDisplay=trackingEtaMinutes(dynamicETA?.estimatedMinutes) ?? remainingMins;
+  const restaurantContact=contactLinks(order?.storePhone || storeInfo?.phone);
+  const riderAssigned=isDelivery && !isCancelled && !isDone && Boolean(order?.driver?.id || order?.driverId || dispatchStatus?.driverId);
+  const riderContact=riderAssigned ? contactLinks(order?.driver?.phone || order?.driverPhone) : null;
 
   return (
     <div className="tracking-page fade-in gf-modern-tracking" style={{ padding: '20px 16px 90px' }}>
@@ -547,41 +551,48 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             )}
           </details>
 
-          {/* First-Class Contact & Conduct Action Buttons */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, margin: '12px 0' }}>
-            <a
-              href={order?.storePhone || storeInfo?.phone ? `tel:${order?.storePhone || storeInfo.phone}` : undefined}
-              className="btn btn-primary"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, textDecoration: 'none', padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700 }}
-            >
-              📞 Call Store
-            </a>
-            <a
-              href={order?.storePhone || storeInfo?.phone ? `https://wa.me/${String(order?.storePhone || storeInfo.phone).replace(/[^\d]/g,'').replace(/^0/, '94')}?text=${encodeURIComponent(`Hi, inquiry about GastroFlow Order #${order?.id}`)}` : undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, textDecoration: 'none', padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700, background: '#25D366', color: '#fff', border: 'none' }}
-            >
-              💬 Support
-            </a>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '10px 4px', fontSize: '0.78rem', fontWeight: 700, background: '#128C7E', color: '#fff', border: 'none' }}
-              onClick={() => {
-                const msg = `🧾 *${order?.storeName || storeInfo?.name || 'Restaurant'} — GastroFlow Invoice #${order?.invoiceNumber || order?.id.slice(-4).toUpperCase()}*\nCustomer: ${order?.customerName || 'Customer'}\nTotal: LKR ${Number(order?.total || 0).toFixed(2)}\nPowered by GastroFlow · Developed by RS Technologies\nTrack: ${window.location.href}`;
-                if (navigator.share) {
-                  navigator.share({ title: 'GastroFlow Invoice', text: msg, url: window.location.href }).catch(() => {});
-                } else {
-                  window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-                }
-              }}
-            >
-              📲 Share
-            </button>
-          </div>
-
+          <section className="gf-tracking-contact-card" aria-label="Delivery and restaurant contacts">
+            <div className="gf-tracking-contact-heading">
+              <div>
+                <span className="gf-tracking-contact-overline">NEED ASSISTANCE?</span>
+                <h2>{riderAssigned ? 'Your rider and restaurant' : 'Restaurant assistance'}</h2>
+              </div>
+              <span aria-hidden="true">☎</span>
+            </div>
+            {riderAssigned && (
+              <div className="gf-tracking-rider-contact">
+                <span className="gf-tracking-contact-avatar" aria-hidden="true">🛵</span>
+                <div className="gf-tracking-contact-identity">
+                  <strong>{order.driver?.name || driverLoc?.driverName || 'Assigned delivery rider'}</strong>
+                  <small>{gpsState.visible ? 'Last reported rider location available' : 'Rider assigned · location may be unavailable'}</small>
+                </div>
+                <div className="gf-tracking-contact-buttons">
+                  <button type="button" onClick={() => {setDriverChatOpen(true);fetchDriverMessages(order.id);}}>Message rider</button>
+                  {riderContact && <a href={riderContact.tel}>Call rider</a>}
+                </div>
+              </div>
+            )}
+            <div className="gf-tracking-store-contact">
+              <div className="gf-tracking-contact-identity">
+                <strong>{order.storeName || storeInfo?.name || 'Your restaurant'}</strong>
+                <small>{order.storeAddress || storeInfo?.address || 'Restaurant order support'}</small>
+              </div>
+              <div className="gf-tracking-contact-buttons">
+                {restaurantContact && <a href={restaurantContact.tel}>Call store</a>}
+                {restaurantContact?.whatsapp && <a href={restaurantContact.whatsapp} target="_blank" rel="noopener noreferrer">WhatsApp store</a>}
+                {!restaurantContact && <small role="status">No restaurant phone number available</small>}
+              </div>
+            </div>
+            {isDelivery && !riderAssigned && !isDone && !isCancelled && <p className="gf-tracking-contact-note">Rider contact options will appear after a confirmed assignment.</p>}
+            <button className="gf-tracking-share-button" type="button" onClick={() => {
+              const text = `Order ${order.id} · ${order.storeName || storeInfo?.name || 'GastroFlow restaurant'}`;
+              if (navigator.share) {
+                navigator.share({ title: 'GastroFlow order', text }).catch(() => {});
+              } else if (navigator.clipboard?.writeText) {
+                navigator.clipboard.writeText(text).then(() => toast('Order reference copied', 'success')).catch(() => toast('Unable to copy order reference', 'warning'));
+              } else toast(text, 'info');
+            }}>Share order reference</button>
+          </section>
 
           <div style={{ display: 'flex', gap: 10, margin: '8px 0 12px' }}>
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={onBack}>
@@ -668,14 +679,6 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             {isDelivery && order.deliveryAddress && (
               <div style={{ fontSize: '0.8rem', color: 'var(--text-1)', background: 'rgba(0,0,0,0.02)', padding: '8px 12px', borderRadius: 8, marginBottom: 12 }}>
                 📍 <strong>Delivery Address:</strong> {order.deliveryAddress}
-              </div>
-            )}
-
-            {/* Driver contact options only after a confirmed assignment. */}
-            {isDelivery && !isCancelled && (order.driver?.id || order.driverId || dispatchStatus?.driverId) && (
-              <div className="gf-tracking-driver-actions">
-                <button type="button" onClick={() => {setDriverChatOpen(true);fetchDriverMessages(order.id);}}>💬 Message rider</button>
-                {(order.driver?.phone || order.driverPhone) && <a href={`tel:${order.driver?.phone || order.driverPhone}`}>📞 Call rider</a>}
               </div>
             )}
 
