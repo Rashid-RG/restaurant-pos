@@ -55,6 +55,33 @@ describe('Live rider location quality controls', () => {
     expect(response.body.code).toBe('GPS_JUMP');
     expect((await dbGet('SELECT lat FROM driver_locations WHERE orderId=?',[orderId])).lat).toBe(6.9271);
   });
+  it('retires legacy GPS uploads so low-accuracy spoofed fixes cannot bypass validation',async()=>{
+    const response=await request(app).post('/api/public/orders/'+orderId+'/driver-location')
+      .set('Authorization',`Bearer ${token}`)
+      .send({lat:6.9,lng:79.9,driverName:'Forged rider'});
+    expect(response.status).toBe(410);
+    expect(response.body.code).toBe('DRIVER_GPS_ENDPOINT_RETIRED');
+    expect((await dbGet('SELECT lat FROM driver_locations WHERE orderId=?',[orderId])).lat).toBe(6.9271);
+  });
+  it('resets old GPS timestamp and motion baseline after an authorized rider reassignment',async()=>{
+    await dbRun("INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES ('quality-second','Second Rider','0773332222','active',?)",[tenantId]);
+    const newToken=jwt.sign({driverId:'quality-second',role:'driver',tenant_id:tenantId},process.env.JWT_SECRET);
+    try{
+      await dbRun("UPDATE orders SET driverId='quality-second' WHERE id=?",[orderId]);
+      const newFix=await request(app).post('/api/public/driver/location')
+        .set('Authorization',`Bearer ${newToken}`)
+        .send({orderId,lat:6.93,lng:79.87,accuracyMeters:12,recordedAt:Date.now()-1000});
+      expect(newFix.status,newFix.text).toBe(200);
+      const location=await dbGet('SELECT driverName,lat,lng FROM driver_locations WHERE orderId=?',[orderId]);
+      expect(location.driverName).toBe('quality-second');
+      expect(location.lat).toBe(6.93);
+      const oldDriver=await push({lat:6.9271,lng:79.8612,accuracyMeters:10,recordedAt:Date.now()});
+      expect(oldDriver.status).toBe(404);
+    }finally{
+      await dbRun('UPDATE orders SET driverId=? WHERE id=?',[driverId,orderId]);
+      await dbRun("DELETE FROM drivers WHERE id='quality-second' AND tenant_id=?",[tenantId]);
+    }
+  });
   it('does not allow another driver to overwrite this order location', async () => {
     const otherToken=jwt.sign({driverId:'other-driver',role:'driver',tenant_id:tenantId},process.env.JWT_SECRET);
     const response=await request(app).post('/api/public/driver/location')
