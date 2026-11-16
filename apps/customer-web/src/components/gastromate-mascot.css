@@ -34,3 +34,30 @@
  .gastromate-burger-active .gastromate-burger-arm.right,.gastromate-chat-active .gastromate-burger-face,
  .gastromate-type-cursor { animation:none!important; }
 }
+
+/* Speaking mouth and short celebration only after confirmed cart action.
+   Keep reduced-motion mode fully accessible. */
+.gastromate-burger-speaking .gastromate-burger-face {
+  animation:mate-speaking-mouth .19s ease-in-out infinite alternate;
+  transform-origin:center 75%;
+}
+.gastromate-burger-speaking .gastromate-hello {opacity:1;animation:none;}
+.gastromate-burger-celebrate {animation:mate-celebrate .42s ease-in-out 3;}
+.gastromate-burger-celebrate .gastromate-burger-arm.left,
+.gastromate-burger-celebrate .gastromate-burger-arm.right {
+  animation:mate-wave .32s ease-in-out infinite;
+}
+@keyframes mate-speaking-mouth {
+  from {transform:translateY(-2px) scaleY(.68)}
+  to {transform:translateY(-2px) scaleY(1.24)}
+}
+@keyframes mate-celebrate {
+  0%,100% {transform:translateY(0) rotate(0)}
+  50% {transform:translateY(-9px) rotate(8deg)}
+}
+@media (prefers-reduced-motion:reduce) {
+  .gastromate-burger-speaking .gastromate-burger-face,
+  .gastromate-burger-celebrate,
+  .gastromate-burger-celebrate .gastromate-burger-arm.left,
+  .gastromate-burger-celebrate .gastromate-burger-arm.right {animation:none!important}
+}
