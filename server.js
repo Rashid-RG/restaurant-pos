@@ -1,4 +1,4 @@
-import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,pushConfigured} from './lib/customer-push.js';
+import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
@@ -7178,6 +7178,8 @@ app.use((err, req, res, next) => {
 
 // Start Server — skip when imported by the test runner (supertest drives `app` directly).
 let server = null;
+let pushRecoveryTimer = null;
+let pushRecoveryBusy = false;
 if (!process.env.VITEST) {
   server = app.listen(PORT, () => {
     console.log(`===============================================`);
@@ -7188,6 +7190,19 @@ if (!process.env.VITEST) {
 
   dbReady.then(() => {
     console.log('[Startup] Database initialization and schema verification complete.');
+    // The database is the durable source of truth. Recheck recent subscribed
+    // orders on startup and periodically so failed pushes recover without a
+    // driver retry, including after a Render process restart.
+    const recover=async()=>{
+      if(pushRecoveryBusy||!pushConfigured())return;
+      pushRecoveryBusy=true;
+      try{await recoverPendingOrderPush(dbAll,dbRun);}
+      catch(error){console.error('[Order push recovery]',error?.message||'Recovery sweep failed');}
+      finally{pushRecoveryBusy=false;}
+    };
+    void recover();
+    pushRecoveryTimer=setInterval(()=>void recover(),90000);
+    pushRecoveryTimer.unref();
   }).catch((err) => {
     console.error('[Startup] Database startup failed. Shutting down:', err?.message || err);
     process.exitCode = 1;
@@ -7200,6 +7215,7 @@ if (!process.env.VITEST) {
 // Graceful Shutdown Handler
 const handleGracefulShutdown = (signal) => {
   if (!server) return;
+  if(pushRecoveryTimer){clearInterval(pushRecoveryTimer);pushRecoveryTimer=null;}
   console.log(`\n[Server] ${signal} signal received. Initiating graceful shutdown...`);
 
   for (const client of sseClients) client.end();
