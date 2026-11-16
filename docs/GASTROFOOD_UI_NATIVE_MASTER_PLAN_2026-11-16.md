@@ -101,7 +101,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Enforce mobile audit in customer build workflow | DONE (code) | `1c7a664` | Confirm workflow status in GitHub Actions |
 | Cart shortcut / bottom navigation safe-area CSS | DONE (code) | `8603881` | Physical iPhone/Android keyboard, notch and 320px checks |
 | Existing order map, SSE and GPS fallback | IMPLEMENTED BEFORE THIS REVIEW | `TrackingMap.jsx`, `OrderTrackingView.jsx` | Real-driver + cross-tenant tests |
-| New map-first tracking design matching approved image | NOT STARTED | Concept approved only | Screenshot, semantics and accessibility audit |
+| Map-first tracking first iteration | DONE (code), NOT YET VISUALLY VERIFIED | `977b20e`, `c713d9a` | Build/CI, screen captures, semantic accessibility and device audit; full image parity still pending |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -109,3 +109,9 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Render staging deployment of this phase | NOT DEPLOYED | Auto-deploy disabled for staging | Explicit approval and verified build |
 
 **Change policy:** these code commits do not modify DB schema, Turso customer/sales records, POS billing or pricing logic; staging remains unchanged until separately authorized.
+
+
+### Progress checkpoint — 2026-11-16: map-first tracking UI
+- **DONE (code)** `977b20e`: display existing authorized delivery map ahead of hero status for active delivery orders with destination coordinates; preserve the existing real route, server-backed ETA and rider GPS freshness semantics.
+- **DONE (code)** `c713d9a`: responsive map surface, heading, ETA chip, GPS freshness display, explicit straight-line fallback, and mobile-friendly sizing.
+- **NOT YET DONE:** verify CI/build and phone screenshots, compare against approved mockup (bottom-sheet, route contacts, typography), check feature with active order and stale fix. No claim of native release or deployment.
