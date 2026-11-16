@@ -29,7 +29,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [activeCuisine, setActiveCuisine] = useState('all');
 
   const [deliveryLocation, setDeliveryLocation] = useState(
-    localStorage.getItem('gastroflow_delivery_address') || 'Detecting Location...'
+    localStorage.getItem('gastroflow_delivery_address') || 'Choose delivery location'
   );
   const [showLocationModal, setShowLocationModal] = useState(false);
   const [isDetectingGps, setIsDetectingGps] = useState(false);
@@ -488,7 +488,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             <MapPin size={17}/> {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
           </div>
         </button>
-        <div className="restaurants-context-label">Order from local restaurants</div>
+        <button type="button" className="gf-discovery-use-gps" onClick={() => detectRealGpsLocation()} disabled={isDetectingGps} aria-label="Detect my current location">
+          <Navigation size={16} aria-hidden="true"/>
+          {isDetectingGps ? 'Locating…' : 'Use my location'}
+        </button>
       </div>
 
       {/* Location Picker Modal */}
