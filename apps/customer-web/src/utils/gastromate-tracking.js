@@ -3,7 +3,9 @@
 const TERMINAL = new Set(['delivered','completed','cancelled','rejected','refunded','partially_refunded']);
 export function isTrackingIntent(value) {
   const text=String(value || '').toLowerCase();
-  return /\b(track(?:ing)?(?:\s+my)?(?:\s+order)?|where(?:'s| is) my order|order status|my orders?|delivery status|where(?:'s| is) (?:my |the )?driver)\b/i.test(text);
+  return /\b(track(?:ing)?(?:\s+my)?(?:\s+order)?|where(?:'s| is) my order|order status|my orders?|delivery status|where(?:'s| is) (?:my |the )?driver)\b/i.test(text) ||
+    /(?:ඇණවුම|ඇණවුම්|ඩිලිවරි).*(?:කොහෙද|තත්ත්වය|ලුහුබඳි|අවලංගු|ප්‍රමාද|කවදා)/u.test(text) ||
+    /(?:ஆர்டர்|டெலிவரி|விநியோக).*(?:எங்கே|நிலை|கண்காணி|ரத்து|எப்போது|தாமதம்)/u.test(text);
 }
 export function selectTrackableOrders(data) {
   if (!Array.isArray(data)) return [];
