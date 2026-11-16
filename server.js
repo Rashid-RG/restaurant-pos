@@ -3,7 +3,7 @@ import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
 import { gastroContextualSuggestions } from './lib/gastromate-conversation.js';
-import { gastroClarifyOrder } from './lib/gastromate-clarification.js';
+import { gastroClarifyOrder, gastroVerifiedPriceQuestion } from './lib/gastromate-clarification.js';
 import { gastroLanguage, gastroMessage, gastroPlanIntro } from './lib/gastromate-i18n.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
@@ -3927,6 +3927,11 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
       });
     }
 
+
+    // Direct food-price questions receive live database-backed prices, not a
+    // free-form number from a generative model.
+    const menuPrice = gastroVerifiedPriceQuestion(menuItems, message);
+    if (menuPrice) return res.json(menuPrice);
 
     // Uncertain exact-item requests must ask the customer, never rely on a model guess.
     const clarification = gastroClarifyOrder(menuItems, message);
