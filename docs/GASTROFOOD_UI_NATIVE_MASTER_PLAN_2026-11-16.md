@@ -87,3 +87,25 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 2. Prepare isolated food app native build configuration only after deciding final app identifier; preserve existing root Capacitor config.
 3. Snapshot current customer UI and implement map-first tracking behind a reversible feature flag with actual server data.
 4. Add all screens to screenshot regression + accessibility tests and mark previously planned CUST-* stories with CI evidence.
+
+
+## Implementation status ledger — updated 2026-11-16
+
+**Status policy:** `DONE (code)` means committed to the existing branch, not deployed or verified on a phone. `PASS (CI)` requires a recorded successful CI run; `PASS (device)` requires physical phone evidence. Never automatically mark a milestone complete simply because code exists.
+
+| Work item | Status | Evidence | Next verification |
+|---|---|---|---|
+| Architecture and microfeature review | DONE (review) | This plan and earlier master review | Reconcile individual CUST-* stories after E2E testing |
+| App icon / manifest audit utility | DONE (code) | `95125f2` | Execute `npm run mobile:audit`; fix flagged dimensions |
+| Mobile audit npm command | DONE (code) | `3bf7a5f` | CI execution |
+| Enforce mobile audit in customer build workflow | DONE (code) | `1c7a664` | Confirm workflow status in GitHub Actions |
+| Cart shortcut / bottom navigation safe-area CSS | DONE (code) | `8603881` | Physical iPhone/Android keyboard, notch and 320px checks |
+| Existing order map, SSE and GPS fallback | IMPLEMENTED BEFORE THIS REVIEW | `TrackingMap.jsx`, `OrderTrackingView.jsx` | Real-driver + cross-tenant tests |
+| New map-first tracking design matching approved image | NOT STARTED | Concept approved only | Screenshot, semantics and accessibility audit |
+| Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
+| Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
+| Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
+| Background GPS driver app acceptance | NOT TESTED | Existing driver/web foundation | Real-device battery/background tests |
+| Render staging deployment of this phase | NOT DEPLOYED | Auto-deploy disabled for staging | Explicit approval and verified build |
+
+**Change policy:** these code commits do not modify DB schema, Turso customer/sales records, POS billing or pricing logic; staging remains unchanged until separately authorized.
