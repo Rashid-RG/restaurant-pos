@@ -1,0 +1,18 @@
+/* Lightweight, accessible GastroMate burger character — no external animation assets. */
+.gastromate-burger{display:inline-flex;position:relative;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;animation:mate-dance 5.6s ease-in-out infinite;transform-origin:50% 85%;vertical-align:middle}
+.gastromate-burger-body{position:relative;display:flex;align-items:center;justify-content:center;width:32px;height:27px;border-radius:46% 46% 36% 36%;background:linear-gradient(to bottom,#f7b74d 0 39%,#fff1bc 39% 47%,#4e9c43 47% 56%,#6d3526 56% 72%,#f8ba55 72%);box-shadow:inset 0 -2px 0 #c97d30,0 2px 4px #0002}
+.gastromate-burger-body:before{content:'•••';position:absolute;top:0;left:9px;font-size:9px;letter-spacing:2px;color:#fff5d4;transform:rotate(-8deg)}
+.gastromate-burger-face{font-size:11px;font-weight:900;color:#482718;white-space:nowrap;transform:translateY(-2px)}
+.gastromate-burger-arm{position:absolute;top:19px;font-size:12px;color:#ffbf69;z-index:0}
+.gastromate-burger-arm.left{left:-1px;transform:rotate(-28deg);animation:mate-wave 3.4s ease-in-out infinite}
+.gastromate-burger-arm.right{right:-1px;transform:rotate(28deg);animation:mate-wave 3.4s ease-in-out .6s infinite}
+.gastromate-burger-feet{position:absolute;bottom:-1px;left:11px;font-size:12px;font-weight:bold;color:#5f392b;white-space:nowrap}
+.gastromate-burger-small{width:26px;height:26px;transform:scale(.66);margin:-2px -5px}
+.gastromate-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:10px 14px;background:var(--bg-card,#f8fafc);color:var(--text-1,#1b4332);font-size:12px;border-bottom:1px solid var(--border-color,#ddd)}
+.gastromate-confirm span{flex-basis:100%}
+.gastromate-confirm button{padding:7px 12px;border-radius:10px;border:1px solid var(--border-color,#ddd);cursor:pointer;color:var(--text-1,#1b4332);background:transparent}
+.gastromate-confirm button:first-of-type{background:#176e4d;color:#fff;border:0}
+.gastromate-confirm button:disabled{opacity:.55;cursor:wait}
+@keyframes mate-dance{0%,13%,35%,100%{transform:rotate(0) translateY(0)}17%{transform:rotate(-12deg) translateY(-3px)}22%{transform:rotate(13deg) translateY(-5px)}28%{transform:rotate(-8deg) translateY(-2px)}}
+@keyframes mate-wave{0%,35%,100%{transform:rotate(28deg)}12%,21%{transform:rotate(-35deg)}17%,27%{transform:rotate(52deg)}}
+@media(prefers-reduced-motion:reduce){.gastromate-burger,.gastromate-burger-arm{animation:none!important}}
