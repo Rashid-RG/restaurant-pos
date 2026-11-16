@@ -4,6 +4,7 @@ import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPriv
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
 import { gastroContextualSuggestions } from './lib/gastromate-conversation.js';
 import { gastroClarifyOrder, gastroVerifiedPriceQuestion } from './lib/gastromate-clarification.js';
+import { gastroFoodSafetyAnswer } from './lib/gastromate-food-safety.js';
 import { gastroLanguage, gastroMessage, gastroPlanIntro } from './lib/gastromate-i18n.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
@@ -3862,6 +3863,10 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
       prepMinutes: publicFacts.defaultPrepTime
     });
     if (storeAnswer) return res.json(storeAnswer);
+    // Food allergy/ingredient questions require verified staff confirmation;
+    // never send sensitive allergy details to the model or assert allergen safety.
+    const foodSafety = gastroFoodSafetyAnswer(message, responseLanguage);
+    if (foodSafety) return res.json(foodSafety);
     if (!storeOpen) return res.json({ reply: gastroMessage(responseLanguage, 'closed'), recommendedItems: [], suggestions: ['Browse Menu', 'Contact Human Support'], action: null });
     const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock, isAvailable FROM menu_items WHERE tenant_id = ? AND (isAvailable = 1 OR isAvailable IS NULL) AND (stock IS NULL OR stock > 0)', [tenantId]);
     const baseFee = (await getSetting(tenantId, 'deliveryBaseFee')) || '99';
