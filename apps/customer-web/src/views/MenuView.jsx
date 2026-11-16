@@ -316,6 +316,45 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
       return 0; // Default featured/popular order
     });
 
+  // From GastroMate: deep-link only to a live menu item and reuse the existing
+  // modifier-selection modal. Never auto-add or bypass required options.
+  useEffect(() => {
+    if (loading || !menu.items.length) return;
+    const params = new URLSearchParams(window.location.search);
+    const requestedId = params.get('customize');
+    if (!requestedId) return;
+    const requestedTenant = params.get('tenant');
+    const requestedQty = Number(params.get('qty') || 1);
+    const cleanedUrl = new URL(window.location.href);
+    cleanedUrl.searchParams.delete('customize');
+    cleanedUrl.searchParams.delete('qty');
+    window.history.replaceState(window.history.state, '', cleanedUrl.toString());
+    if (requestedTenant && requestedTenant !== getActiveTenant()) {
+      toast('Restaurant changed. Please select this item from its own menu.', 'warning');
+      return;
+    }
+    if (menu.offlineSnapshot || menu.storeOpen !== true) {
+      toast('This restaurant is not accepting online orders.', 'warning');
+      return;
+    }
+    const item = menu.items.find(i => String(i.id) === requestedId);
+    if (!isMenuItemAvailable(item)) {
+      toast('That item is no longer available. Please select another.', 'warning');
+      return;
+    }
+    if (!Number.isInteger(requestedQty) || requestedQty < 1 || !validMenuQuantity(requestedQty, item)) {
+      toast('The requested quantity is unavailable. Please choose a new quantity.', 'warning');
+      return;
+    }
+    // The GastroMate deep-link only opens customization. The customer makes the
+    // final modifier selection and explicitly confirms adding to the cart.
+    setCustomizerItem(item);
+    setCustomizerQty(requestedQty);
+    setCustomizerNotes('');
+    setSelectedModifiers([]);
+    setShowCustomizerModal(true);
+  }, [loading, menu.items, menu.storeOpen, menu.offlineSnapshot]);
+
   // Open Customizer
   const handleItemAddClick = (item) => {
     if (!isMenuItemAvailable(item)) { toast('This item is currently unavailable.', 'warning'); return; }
