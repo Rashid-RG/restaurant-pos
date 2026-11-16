@@ -39,6 +39,7 @@ import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
 import { createDatabaseReadiness } from './lib/database-readiness.js';
 import { createOperationalMonitor } from './lib/operational-monitor.js';
+import { sendOperationalAlert } from './lib/ops-alerts.js';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -132,7 +133,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const operationalMonitor=createOperationalMonitor();
+const operationalMonitor=createOperationalMonitor({notify:event=>sendOperationalAlert(event).then(result=>{
+  if(!result.sent && result.reason!=='not_configured') console.error('[Operational alert] Delivery unsuccessful:',result.reason);
+})});
 app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false); // Trust reverse proxy on Render / Cloudflare for rate-limiting
 export { app };
 // Express 4 does not automatically forward rejected async handlers.
