@@ -12,6 +12,7 @@ on:
       - 'tests/customer-auth-resilience.test.js'
       - 'tests/customer-contact-actions.test.js'
       - 'tests/customer-discovery-search.test.js'
+      - 'tests/customer-menu-selection.test.js'
       - '.github/workflows/customer-staging-quality.yml'
   workflow_dispatch:
 
@@ -31,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=dev
       - name: Customer safety regression tests
-        run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js tests/customer-contact-actions.test.js tests/customer-discovery-search.test.js
+        run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js tests/customer-contact-actions.test.js tests/customer-discovery-search.test.js tests/customer-menu-selection.test.js
       - name: Verify customer and driver mobile install assets
         run: npm run mobile:audit
       - name: Build POS, customer and driver apps
