@@ -10,6 +10,9 @@ on:
       - codex/production-readiness
     paths:
       - 'apps/customer-web/package.json'
+      - 'apps/customer-web/vite.config.js'
+      - 'apps/customer-web/src/**'
+      - 'shared/ui/**'
       - 'apps/customer-web/package-lock.json'
       - 'scripts/verify-food-native-lock.mjs'
       - 'scripts/harden-food-android.mjs'
