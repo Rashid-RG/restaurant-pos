@@ -1,6 +1,7 @@
 import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/checkout-recovery.js';
 import { createSubmissionGuard } from '../utils/submission-guard.js';
 import { recoveryDecision, shouldFinalizeOnlinePayment } from '../utils/order-recovery-status.js';
+import {validOrderAcknowledgement,shouldClearCartAfterSubmit} from '../utils/order-acknowledgement.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
@@ -339,9 +340,13 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         };
       const attempt=checkoutIntent(payload);setPendingCheckout(attempt);
       const data=await apiFetch('/public/orders',{method:'POST',headers:{'Idempotency-Key':attempt.key},body:JSON.stringify({...attempt.payload,customerToken:token||null})});
+      if (!validOrderAcknowledgement(data)) {
+        throw new Error('The server did not return a confirmed order reference. Your cart and original checkout attempt are saved. Use Recover previous order before trying again.');
+      }
       if(['cancelled','rejected','refunded','partially_refunded'].includes(data.status)){finishRecovery();toast('This order already exists and is closed. Opening its current status.','info');onOrderPlaced&&onOrderPlaced(data.orderId);return;}
       if(data.paymentStatus==='paid'){
-        finishRecovery();clearCart();setCartOpen(false);onOrderPlaced&&onOrderPlaced(data.orderId);return;
+        if (shouldClearCartAfterSubmit(data,paymentMethod)) {finishRecovery();clearCart();}
+        setCartOpen(false);onOrderPlaced&&onOrderPlaced(data.orderId);return;
       }
 
       if (paymentMethod === 'payhere') {
@@ -397,7 +402,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           setPayhereRedirectData(redirect);
         }
       } else {
-        finishRecovery();clearCart();
+        if (shouldClearCartAfterSubmit(data,paymentMethod)) {finishRecovery();clearCart();}
         setCartOpen(false);
         toast(paymentMethod === 'bank_transfer' ? 'Order placed, awaiting bank transfer verification. Contact the restaurant for confirmed payment details.' : 'Order placed successfully! 🎉', paymentMethod === 'bank_transfer' ? 'info' : 'success');
         onOrderPlaced && onOrderPlaced(data.orderId);
@@ -508,7 +513,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       } else {
         toast('Payment settled successfully via PayHere! 💳', 'success');
       }
-      clearCart();
+      if (shouldFinalizeOnlinePayment(settled)) {finishRecovery();clearCart();}
       setCartOpen(false);
       setPayhereRedirectData(null);
       onOrderPlaced && onOrderPlaced(orderId);
