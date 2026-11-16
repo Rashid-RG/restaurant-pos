@@ -107,6 +107,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Marketplace search and filter accessibility | DONE (code), verification pending | `58891b6`, `85db423`, `cb50126`, `34c8389` | Run customer CI, browser interaction and multi-language real-device testing |
 | Menu modifier, stock and customizer guardrails | DONE (code), verification pending | `519318e`, `c8e9ee5`, `358b4bc`, `7fbd830`, `b52a309` | Run menu tests, full build and real checkout validation |
 | Delivery quote freshness and checkout eligibility | DONE (code), verification pending | `c6d4483`, `600d88a`, `da7829e`, `50ed5fa`, `0aec591`, `8506434` | Customer CI, API quote and cross-store / fast-address-switch E2E tests |
+| Order acknowledgement and interrupted payment cart retention | DONE (code), verification pending | `3f5f176`, `a27a1c8`, `96797b8`, `2e2aa46` | Run CI and real server idempotent recovery with injected timeouts and PayHere sandbox settlement |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -156,3 +157,10 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (code)** `0aec591`: mobile quote verification status styling; `da7829e`: quote freshness and out-of-zone regression cases; `8506434`: registered tests in CI.
 - **PENDING verification:** GitHub CI execution, API contract for numeric totalFee, real checkout and payment acceptance with two tenants, slow network and fast address switches. Server-side reprice and zone enforcement must be verified separately; browser quote is not authoritative.
 - **NOT DEPLOYED:** no live database or POS modifications.
+
+### Progress checkpoint — 2026-11-16: lost-response and payment recovery
+- **DONE (code)** `3f5f176`: explicit server order ID acknowledgement prerequisite for cart finalization. Invalid or missing order IDs are not treated as successful acceptance.
+- **DONE (code)** `a27a1c8`: actual checkout requires authoritative order reference before navigating or clearing cart; sandbox settlement helper keeps original cart/recovery intent unless the server confirms payment paid. Existing retry uses persisted idempotency key.
+- **DONE (code)** `96797b8`: regression coverage for malformed responses, closed orders and pending online payments; `2e2aa46`: included acknowledgement, interrupted recovery and duplicate-submit guard suites in the customer workflow.
+- **PENDING verification:** automated customer build/test result, real API and PayHere sandbox acceptance, two-tenant isolation and network timeout/reconnect simulation. No claim of production settlement or app-store readiness.
+- **NOT DEPLOYED:** no Render deployment or Turso migration authorized.
