@@ -7,6 +7,7 @@ import { useCart } from '../context/CartContext.jsx';
 import { isMenuItemAvailable, maxMenuItemQuantity } from '../utils/menu-selection.js';
 import { getActiveTenant } from '../utils/tenant.js';
 import { prepareGastroBatch } from '../utils/gastromate-batch.js';
+import { gastroVoiceLocale, gastroSpeechText, gastroVoiceForLocale } from '../utils/gastromate-voice.js';
 import './gastromate-mascot.css';
 import { isTrackingIntent, selectTrackableOrders, safeOrderChoice } from '../utils/gastromate-tracking.js';
 
@@ -23,7 +24,7 @@ function BurgerMascot({ small = false, active = false }) {
 export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const { customer, getToken } = useCustomerAuth();
   const token = getToken?.();
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const { addItem, addVerifiedBatch, setCartOpen, items: liveCartItems } = useCart();
   
   const [isOpen, setIsOpen] = useState(false);
@@ -89,18 +90,21 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   // Voice Input via Web Speech API
   const handleVoiceListen = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      alert('Speech recognition is not supported in your browser.');
+      setMessages(prev => [...prev, {id: `voice_unavailable_${Date.now()}`,sender:'ai',text:'Voice recognition is not supported by this browser. Please type your question instead.'}]);
       return;
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.lang = 'en-US';
+    recognition.lang = gastroVoiceLocale(lang);
 
     recognition.onstart = () => setIsListening(true);
     recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
+    recognition.onerror = () => {
+      setIsListening(false);
+      setMessages(prev => [...prev, {id: `voice_error_${Date.now()}`,sender:'ai',text:'I could not hear that clearly. Please type your question or try again in a supported browser.'}]);
+    };
 
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
@@ -116,8 +120,12 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     if (!('speechSynthesis' in window)) return;
     try {
       window.speechSynthesis.cancel();
-      const clean = text.replace(/[*_#`~[\]()]/g, '');
+      const clean = gastroSpeechText(text);
+      if (!clean) return;
       const utterance = new SpeechSynthesisUtterance(clean);
+      utterance.lang = gastroVoiceLocale(lang, clean);
+      const voice = gastroVoiceForLocale(window.speechSynthesis.getVoices(), utterance.lang);
+      if (voice) utterance.voice = voice;
       utterance.rate = 1.0;
       window.speechSynthesis.speak(utterance);
     } catch (_) {}
