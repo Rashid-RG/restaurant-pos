@@ -4372,7 +4372,7 @@ app.post('/api/users',authenticateToken,requireRole(['owner','manager']),validat
 
 app.patch('/api/users/:id/pin', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { pin } = req.body || {};
-  if (typeof pin !== 'string' || !/^\\d{4,8}$/.test(pin)) {
+  if (typeof pin !== 'string' || !/^\d{4,8}$/.test(pin)) {
     return res.status(400).json({ error: 'PIN must contain 4 to 8 digits.' });
   }
   try {
