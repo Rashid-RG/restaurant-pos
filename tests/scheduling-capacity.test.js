@@ -1,5 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from '../lib/scheduling-capacity.js';
+import {kitchenPreparationDue} from '../lib/kitchen.js';
 describe('tenant calendar order reservation validation',()=>{
   const now=Date.parse('2026-11-11T09:00:00Z');
   it('accepts a future aligned 15-minute slot',()=>{
@@ -22,4 +23,22 @@ describe('tenant calendar order reservation validation',()=>{
     expect(slots[0]%SLOT_MS).toBe(0);
     expect(slots[1]-slots[0]).toBe(SLOT_MS);
   });
+});
+
+describe('scheduled order preparation window (GastroFood → GastroPOS)',()=>{
+ const now=Date.parse('2026-11-16T09:00:00Z');
+ it('keeps future kitchen orders reserved but out of the active board',()=>{
+   expect(kitchenPreparationDue({scheduledTime:now+4*3600000},30,now)).toBe(false);
+   expect(kitchenPreparationDue({scheduledTime:now+31*60000},30,now)).toBe(false);
+   expect(kitchenPreparationDue({scheduledTime:now+30*60000},30,now)).toBe(true);
+ });
+ it('uses the configured prep window for each restaurant/order type',()=>{
+   expect(kitchenPreparationDue({scheduledTime:now+90*60000},120,now)).toBe(true);
+   expect(kitchenPreparationDue({scheduledTime:now+90*60000},45,now)).toBe(false);
+ });
+ it('keeps immediate orders visible and rejects invalid schedule timestamps',()=>{
+   expect(kitchenPreparationDue({scheduledTime:null},30,now)).toBe(true);
+   expect(kitchenPreparationDue({},30,now)).toBe(true);
+   expect(kitchenPreparationDue({scheduledTime:'bad'},30,now)).toBe(false);
+ });
 });
