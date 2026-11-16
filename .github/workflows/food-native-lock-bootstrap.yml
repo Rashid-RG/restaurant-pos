@@ -140,9 +140,24 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || test "${PIPESTATUS[1]}" = 0
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
           test -f "$ANDROID_HOME/platforms/android-36/android.jar"
-      - name: Compile test-only GastroFlow Food Android debug APK
+      - name: Cache verified Gradle wrapper and dependencies
+        uses: gradle/actions/setup-gradle@v4
+      - name: Compile test-only GastroFlow Food Android debug APK with bounded Maven retry
         working-directory: apps/customer-web/android
-        run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if bash ./gradlew :app:assembleDebug --no-daemon --stacktrace; then
+              echo "Android debug compile successful on attempt $attempt"
+              exit 0
+            fi
+            if [ "$attempt" -ge 3 ]; then
+              echo "Gradle failed after three attempts; check Maven/Google repository limits and compiler logs."
+              exit 1
+            fi
+            echo "Gradle attempt $attempt failed (possibly transient Maven HTTP 429); retrying."
+            sleep $((attempt * 25))
+          done
       - name: Verify compiled Android debug APK identity and signing
         run: |
           set -euo pipefail
