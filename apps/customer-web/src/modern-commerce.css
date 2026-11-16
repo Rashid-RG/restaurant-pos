@@ -508,3 +508,14 @@
   background:#fff6e7;border:1px solid #f2deba;
   border-radius:10px;padding:9px 11px;margin:9px 0;
 }
+
+
+/* Checkout never presents an unverified delivery fee as an accepted quote. */
+.customer-premium .gf-checkout-delivery-quote-status{
+  display:flex;flex-direction:column;gap:5px;
+  padding:11px 12px;border-radius:11px;
+  border:1px solid #edd4ae;background:#fff7eb;
+  color:#845720;line-height:1.5;font-size:.78rem;
+}
+.customer-premium .gf-checkout-delivery-quote-status strong{font-weight:800}
+.customer-premium .gf-checkout-delivery-quote-status span{color:#755e3f}
