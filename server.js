@@ -4906,6 +4906,20 @@ const createPublicOrder = async (req, res) => {
       return res.status(400).json({ error: `Minimum order for delivery is Rs. ${minimumOrder}. Your subtotal is Rs. ${bill.subtotal}.` });
     }
 
+    // Optional client price consent protects the newest customer PWA while
+    // older POS/public API clients retain their existing checkout contract.
+    // This is only a guard: all final prices still come from the database.
+    if (Object.hasOwn(req.body,'expectedSubtotal')) {
+      const expected = req.body.expectedSubtotal;
+      if (typeof expected !== 'number' || !Number.isFinite(expected) || expected < 0 ||
+          Math.abs(Math.round(expected*100)-Math.round(bill.subtotal*100))>1) {
+        return res.status(409).set('Cache-Control','no-store').json({
+          error:'Menu prices or selected options changed. Refresh the restaurant menu and review your cart before ordering.',
+          code:'MENU_PRICE_CHANGED'
+        });
+      }
+    }
+
     const requestedSchedule = scheduledTime == null ? {valid:true,scheduled:false} : validateSchedule(scheduledTime,Date.now(),Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30)));
     if(!requestedSchedule.valid)return res.status(400).json({error:requestedSchedule.error});
     const orderId = `ord_online_${crypto.randomUUID()}`;
