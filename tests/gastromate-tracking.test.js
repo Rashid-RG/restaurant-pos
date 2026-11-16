@@ -9,6 +9,9 @@ describe('GastroMate secure order handoff', () => {
     }
     expect(isTrackingIntent('recommend a spicy burger')).toBe(false);
     expect(isTrackingIntent('order 2 burgers')).toBe(false);
+    expect(isTrackingIntent('මගේ ඇණවුම කොහෙද')).toBe(true);
+    expect(isTrackingIntent('என் ஆர்டர் எங்கே')).toBe(true);
+    expect(isTrackingIntent('கோழி பர்கர் விலை')).toBe(false);
   });
   it('never trusts malformed or unbounded order identifiers', () => {
     const result=selectTrackableOrders([
