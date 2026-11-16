@@ -7,7 +7,8 @@ import path from 'node:path';
 import { testCheckoutProof } from './checkout-proof-fixture.js';
 process.env.DATABASE_FILE=path.join(os.tmpdir(),`order-safety-${crypto.randomUUID()}.db`);
 process.env.JWT_SECRET='safety-staff-test';process.env.CUSTOMER_JWT_SECRET='safety-customer-test';
-const {app,dbReady,dbRun,dbGet}=await import('../server.js');
+const {app,dbReady,dbRun,dbGet,dbAll}=await import('../server.js');
+const {loadVerifiedDispatchPings}=await import('../lib/driver-dispatch.js');
 const staff=(tenant='safe_A',id=tenant+'_owner')=>({Authorization:'Bearer '+jwt.sign({id,role:'owner',tenant_id:tenant},process.env.JWT_SECRET)});
 const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer',tenantId:'safe_A',sessionVersion:crypto.createHmac('sha256',process.env.CUSTOMER_JWT_SECRET).update('fixture').digest('hex').slice(0,24)},process.env.CUSTOMER_JWT_SECRET)});
 const driver=(id='safe_driver',tenant='safe_A')=>({Authorization:'Bearer '+jwt.sign({driverId:id,role:'driver',name:'Forged Name',tenant_id:tenant},process.env.JWT_SECRET)});
@@ -317,4 +318,28 @@ it('rejects weak or malformed checkout recovery keys',async()=>expect((await ret
 it('returns the stored phone-verification flag without exposing customer credentials',async()=>{
  await dbRun("UPDATE customer_accounts SET phoneVerified=1 WHERE id='safe_customer'");
  const response=await request(app).get('/api/customer/auth/me?tenant=safe_A').set(customer('safe_customer'));expect(response.status).toBe(200);expect(response.body.phoneVerified).toBe(1);expect(response.body.passwordHash).toBeUndefined();
+});
+
+it('autodispatch GPS candidates use canonical assigned driver IDs, not display names',async()=>{
+ const stamp=Date.now();
+ const orderA=await ticket();
+ await dbRun("UPDATE orders SET driverId='safe_driver',diningType='delivery',orderType='delivery' WHERE id=?",[orderA]);
+ await dbRun('INSERT INTO driver_locations (orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',[orderA,'Verified Driver',6.98,79.87,stamp-500,20]);
+ const candidates=await loadVerifiedDispatchPings(dbAll,'safe_A',stamp-3000);
+ expect(candidates.find(x=>x.driverId==='safe_driver')?.driverName).toBe('Verified Driver');
+ expect(candidates.some(x=>x.driverId==='foreign_driver')).toBe(false);
+ // A second rider with the same display name makes legacy name-only GPS
+ // ambiguous: do not select either one from that name.
+ await dbRun("INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES ('same_name_driver','Verified Driver','0770000044','available','safe_A')");
+ try{
+  const ambiguous=await loadVerifiedDispatchPings(dbAll,'safe_A',stamp-3000);
+  expect(ambiguous.some(x=>x.driverId==='safe_driver')).toBe(false);
+  // New canonical ID pings remain valid even if names collide.
+  await dbRun('UPDATE driver_locations SET driverName=? WHERE orderId=?',['safe_driver',orderA]);
+  const confirmed=await loadVerifiedDispatchPings(dbAll,'safe_A',stamp-3000);
+  expect(confirmed.some(x=>x.driverId==='safe_driver')).toBe(true);
+ }finally{
+  await dbRun('DELETE FROM driver_locations WHERE orderId=?',[orderA]);
+  await dbRun("DELETE FROM drivers WHERE id='same_name_driver' AND tenant_id='safe_A'");
+ }
 });
