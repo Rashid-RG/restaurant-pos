@@ -2114,7 +2114,7 @@ function UserManagementSection({ showToast, currentUser }) {
     const message = !cleanUsername ? 'Enter a username.' :
       !/^[a-zA-Z0-9_.-]{3,50}$/.test(cleanUsername) ? 'Username must have 3–50 letters, numbers, underscores, dots or hyphens.' :
       password.length < 12 ? 'Set a password with at least 12 characters.' :
-      !/^\\d{4,8}$/.test(pin) ? 'Enter a private PIN of 4–8 digits.' :
+      !/^\d{4,8}$/.test(pin) ? 'Enter a private PIN of 4–8 digits.' :
       role === 'owner' && currentUser?.role !== 'owner' ? 'Only owners can create another owner.' : '';
     if (message) { setFormError(message); return; }
     try {
@@ -2178,7 +2178,7 @@ function UserManagementSection({ showToast, currentUser }) {
             </select>
           </label>
           <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Private POS PIN (4–8 digits)
-            <input className="form-input" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={e => setPin(e.target.value.replace(/\\D/g, '').slice(0, 8))} placeholder="Choose a unique PIN" required />
+            <input className="form-input" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Choose a unique PIN" required />
           </label>
           <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Login password (12+ characters)
             <div style={{ display: 'flex', gap: '8px' }}>
