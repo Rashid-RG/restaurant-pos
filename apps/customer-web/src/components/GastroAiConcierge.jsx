@@ -7,6 +7,7 @@ import { useCart } from '../context/CartContext.jsx';
 import { isMenuItemAvailable, maxMenuItemQuantity } from '../utils/menu-selection.js';
 import { getActiveTenant } from '../utils/tenant.js';
 import './gastromate-mascot.css';
+import { isTrackingIntent, selectTrackableOrders, safeOrderChoice } from '../utils/gastromate-tracking.js';
 
 function BurgerMascot({ small = false, active = false }) {
   return <span className={`gastromate-burger ${small ? 'gastromate-burger-small' : ''} ${active ? 'gastromate-burger-active' : ''}`} aria-hidden="true">
@@ -19,7 +20,8 @@ function BurgerMascot({ small = false, active = false }) {
 }
 
 export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
-  const { customer, token } = useCustomerAuth();
+  const { customer, getToken } = useCustomerAuth();
+  const token = getToken?.();
   const { t } = useLang();
   const { addItem, setCartOpen, items: liveCartItems } = useCart();
   
@@ -37,6 +39,10 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [isListening, setIsListening] = useState(false);
   const [pendingAdd, setPendingAdd] = useState(null);
   const [addingItem, setAddingItem] = useState(false);
+  const [trackingChoices, setTrackingChoices] = useState([]);
+  const [trackingBusy, setTrackingBusy] = useState(false);
+  const trackRequestRef = useRef(0);
+  const trackBusyRef = useRef(false);
   const [reveal, setReveal] = useState({ id: null, count: 0 });
   const latestMessage = messages[messages.length - 1];
   const isReplyAppearing = reveal.id === latestMessage?.id && reveal.count < String(latestMessage?.text || '').length;
@@ -115,10 +121,62 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     } catch (_) {}
   };
 
+  // Signed-in order discovery bypasses the LLM entirely. Never include
+  // customer order IDs, location or status in AI chat prompts/history.
+  const showMyOrders = async () => {
+    if (trackBusyRef.current) return;
+    const request = ++trackRequestRef.current;
+    setPendingAdd(null);
+    setTrackingChoices([]);
+    if (!customer || !getToken?.()) {
+      setMessages(prev => [...prev, { id: `track_signin_${Date.now()}`, sender: 'ai', text: 'Please sign in to securely see your orders. If you have a private order confirmation link, open its Track Order page instead.', suggestions: ['Sign In', 'Track Order Page'] }]);
+      return;
+    }
+    const tenant = getActiveTenant();
+    if (!tenant) {
+      setMessages(prev => [...prev, { id: `track_store_${Date.now()}`, sender: 'ai', text: 'Please select the restaurant where you placed your order first.', suggestions: ['Browse Restaurants'] }]);
+      return;
+    }
+    trackBusyRef.current = true;
+    setTrackingBusy(true);
+    try {
+      const orders = await apiFetch('/customer/orders', { headers: { Authorization: `Bearer ${getToken()}` }, cache: 'no-store' });
+      if (request !== trackRequestRef.current || tenant !== getActiveTenant()) return;
+      const choices = selectTrackableOrders(orders);
+      setTrackingChoices(choices);
+      setMessages(prev => [...prev, { id: `track_list_${Date.now()}`, sender: 'ai', text: choices.length ? 'These are your recent orders for this restaurant. Select one below to open its secure tracking page.' : 'No recent orders found for your account at this restaurant. You can open a private tracking link from your order confirmation or contact support.', suggestions: choices.length ? [] : ['Track Order Page', 'Contact Human Support'] }]);
+    } catch (error) {
+      if (request !== trackRequestRef.current) return;
+      setMessages(prev => [...prev, { id: `track_error_${Date.now()}`, sender:'ai', text:'I could not retrieve your orders securely. Please sign in again or try the order tracking page.', suggestions:['Sign In','Track Order Page'] }]);
+    } finally {
+      trackBusyRef.current = false;
+      if (request === trackRequestRef.current) setTrackingBusy(false);
+    }
+  };
+
+  const openMyOrder = order => {
+    const choice = safeOrderChoice(order, trackingChoices);
+    if (!choice) return;
+    // Existing tracking route performs the real authorization and refreshes live status.
+    setTrackingChoices([]);
+    setIsOpen(false);
+    onNavigate?.('track', { track: choice.id, tenant: getActiveTenant() });
+  };
+
+  useEffect(() => () => { trackRequestRef.current += 1; }, []);
+
   // Send message to GastroAI server endpoint
   const sendMessage = async (textToSend, fromVoice = false) => {
     const queryText = (textToSend || input).trim();
     if (!queryText || typing) return;
+    // Private order questions are fulfilled locally via authenticated APIs,
+    // never forwarded into Gemini or stored in conversational model history.
+    if (isTrackingIntent(queryText)) {
+      setInput('');
+      await showMyOrders();
+      return;
+    }
+    setTrackingChoices([]);
 
     const userMsgId = `msg_${Date.now()}`;
     setMessages(prev => [...prev, { id: userMsgId, sender: 'user', text: queryText }]);
@@ -390,6 +448,16 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             <button type="button" onClick={() => setPendingAdd(null)}>Cancel</button>
           </div>}
 
+          {/* Only account-owned, tenant-scoped orders can appear here. No private
+               tracking data is sent to the AI provider or persisted in chat history. */}
+          {trackingBusy && <div role="status" style={{padding:'8px 14px',fontSize:'.8rem'}}>Looking up your orders securely…</div>}
+          {trackingChoices.length > 0 && <div className="gastromate-orders" aria-label="Your recent orders" style={{padding:'8px 14px',display:'grid',gap:8}}>
+            {trackingChoices.map(order => <button key={order.id} type="button" onClick={() => openMyOrder(order)}
+              style={{border:'1px solid #b7d6c5',borderRadius:12,background:'#f4f8f2',color:'#173c2d',padding:'10px 12px',textAlign:'left',cursor:'pointer'}}>
+              <strong>Order #{order.label}</strong> · {order.statusLabel}
+              <div style={{fontSize:'.76rem',opacity:.85}}>{order.dateLabel} · View live tracking</div>
+            </button>)}
+          </div>}
           {/* Chat Messages Body */}
           <div style={{ flex: 1, padding: 14, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
             {messages.map(msg => (
@@ -471,11 +539,16 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                           if (/Support History|Human Support|Contact Human Support|Live Agent/i.test(chip)) {
                             onNavigate && onNavigate('support');
                             setIsOpen(false);
-                          } else if (/Track Order|Order Status/i.test(chip)) {
-                            onNavigate?.('track');
+                          } else if (/Track Order Page/i.test(chip)) {
+                            onNavigate?.('track', { track: null });
                             setIsOpen(false);
+                          } else if (/Track Order|Order Status/i.test(chip)) {
+                            showMyOrders();
                           } else if (/Sign In/i.test(chip)) {
                             onNavigate?.('account');
+                            setIsOpen(false);
+                          } else if (/Browse Restaurants/i.test(chip)) {
+                            onNavigate?.('restaurants');
                             setIsOpen(false);
                           } else if (/Browse Menu|Return to Menu/i.test(chip)) {
                             onNavigate?.('store-menu');
