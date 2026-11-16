@@ -389,3 +389,61 @@
   .customer-premium .gf-track-map-eta{font-size:.7rem}
   .customer-premium .gf-track-map-surface .tm-map{height:38dvh;min-height:240px}
 }
+
+
+/* Accessible order-status bottom disclosure. Stages come exclusively from server status. */
+.customer-premium .gf-tracking-journey-sheet{
+  border:1px solid #dce8dc;background:#fff;border-radius:22px;
+  margin:14px 0;box-shadow:0 8px 26px rgba(13,60,40,.065);overflow:hidden;
+}
+.customer-premium .gf-tracking-journey-summary{
+  display:flex;align-items:center;gap:12px;position:relative;
+  min-height:76px;padding:19px 18px 14px;cursor:pointer;list-style:none;
+}
+.customer-premium .gf-tracking-journey-summary::-webkit-details-marker{display:none}
+.customer-premium .gf-tracking-journey-summary:focus-visible{outline:3px solid #e77932;outline-offset:-4px}
+.customer-premium .gf-tracking-journey-grip{
+  width:31px;height:5px;border-radius:8px;background:#b8c9bd;
+  position:absolute;top:7px;left:calc(50% - 15px);
+}
+.customer-premium .gf-tracking-journey-heading{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}
+.customer-premium .gf-tracking-journey-heading strong{font-size:1rem;color:#183d2a;font-weight:850}
+.customer-premium .gf-tracking-journey-heading small{font-size:.78rem;color:#65786b;line-height:1.45;overflow-wrap:anywhere}
+.customer-premium .gf-tracking-journey-expand{
+  display:grid;place-items:center;font-size:1.35rem;font-weight:800;
+  width:34px;height:34px;border-radius:12px;background:#eaf5ef;color:#196b48;
+  transition:transform .18s ease;
+}
+.customer-premium .gf-tracking-journey-sheet[open] .gf-tracking-journey-expand{transform:rotate(180deg)}
+.customer-premium .gf-tracking-journey-steps{list-style:none;margin:0;padding:6px 18px 14px}
+.customer-premium .gf-tracking-journey-steps li{display:flex;align-items:flex-start;gap:12px;position:relative;min-height:60px;padding:6px 0 12px}
+.customer-premium .gf-tracking-journey-steps li:not(:last-child):before{
+  content:"";position:absolute;left:15px;top:37px;bottom:-7px;width:2px;background:#e4e9e4;
+}
+.customer-premium .gf-tracking-journey-steps li.completed:not(:last-child):before{background:#1d986b}
+.customer-premium .gf-tracking-step-dot{
+  width:32px;height:32px;flex:0 0 32px;border-radius:50%;
+  display:grid;place-items:center;font-weight:800;font-size:.78rem;
+  background:#f0f2f0;color:#728176;border:1px solid #dfe6e0;
+}
+.customer-premium li.completed .gf-tracking-step-dot{background:#15865d;color:#fff;border-color:#15865d}
+.customer-premium li.current .gf-tracking-step-dot{background:#fff0e6;color:#aa4c1d;border:2px solid #eb8543}
+.customer-premium .gf-tracking-step-content{display:flex;flex-direction:column;flex:1;gap:4px;min-width:0}
+.customer-premium .gf-tracking-step-content strong{font-size:.86rem;color:#254433;line-height:1.4}
+.customer-premium .gf-tracking-step-content small{font-size:.74rem;color:#68776f;line-height:1.5}
+.customer-premium .gf-tracking-step-now{
+  font-size:.68rem;font-weight:800;background:#fff0e6;color:#925019;
+  padding:5px 8px;border-radius:999px;flex-shrink:0;
+}
+.customer-premium .gf-tracking-journey-note{
+  margin:0 18px 18px;border-top:1px solid #edf0ec;padding-top:12px;
+  color:#68786c;font-size:.75rem;line-height:1.55;
+}
+@media(max-width:420px){
+  .customer-premium .gf-tracking-journey-summary{padding-inline:14px}
+  .customer-premium .gf-tracking-journey-steps{padding-inline:14px}
+  .customer-premium .gf-tracking-step-now{font-size:.61rem;padding:4px 6px}
+}
+@media(prefers-reduced-motion:reduce){
+  .customer-premium .gf-tracking-journey-expand{transition:none}
+}
