@@ -50,6 +50,43 @@ describe('Production environment validation', () => {
   it('rejects unvalidated pooled Postgres transactions', () => expect(() => validateProductionConfig({ ...env, DATABASE_URL: 'postgres://localhost/db' })).toThrow(/PostgreSQL/));
 });
 
+describe('POS staff PIN reset authorization', () => {
+  it('resets an employee PIN without disclosing the PIN in any response', async () => {
+    const username = `pinreset_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+    const creation = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username, role: 'cashier', password: 'UniqueTestPassword!567', pin: '468291' });
+    expect(creation.status).toBe(200);
+    const id = creation.body.id;
+    const oldRow = await dbGet('SELECT pin FROM users WHERE id = ?', [id]);
+    const reset = await request(app).patch(`/api/users/${id}/pin`).set(auth(admin())).send({ pin: '819345' });
+    expect(reset.status).toBe(200);
+    expect(reset.body.success).toBe(true);
+    expect(reset.body.pin).toBeUndefined();
+    const newRow = await dbGet('SELECT pin FROM users WHERE id = ?', [id]);
+    expect(newRow.pin).not.toBe(oldRow.pin);
+    expect(newRow.pin).not.toBe('819345');
+    const listing = await request(app).get('/api/users').set(auth(admin()));
+    expect(listing.body.find(user => user.id === id).pin).toBeUndefined();
+  });
+
+  it('rejects invalid PINs and unauthorized cashiers', async () => {
+    const bad = await request(app).patch('/api/users/user_admin/pin').set(auth(admin())).send({ pin: '12a4' });
+    expect(bad.status).toBe(400);
+    const blocked = await request(app).patch('/api/users/user_admin/pin').set(auth(cashier())).send({ pin: '738291' });
+    expect(blocked.status).toBe(403);
+  });
+
+  it('does not allow owner of another restaurant to reset the PIN', async () => {
+    const username = `isolated_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+    const creation = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username, role: 'cashier', password: 'UniqueTestPassword!567', pin: '468291' });
+    expect(creation.status).toBe(200);
+    const blocked = await request(app).patch(`/api/users/${creation.body.id}/pin`)
+      .set(auth(bOwner())).send({ pin: '738291' });
+    expect(blocked.status).toBe(404);
+  });
+});
+
 describe('POS staff account creation', () => {
   it('creates a staff account with secure credentials and lists it only for its tenant', async () => {
     const username = `staff_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
