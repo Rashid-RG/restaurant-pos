@@ -216,6 +216,23 @@ it('reserves the final scheduled kitchen slot once across independent concurrent
   await dbRun("DELETE FROM settings WHERE tenant_id='safe_A' AND key='scheduledOrdersPerSlot'");
  }
 });
+it('blocks a changed checkout subtotal before creating an order or consuming inventory',async()=>{
+ const before=await stock(),raw=await ingredient();
+ const body={...recoveryBody(),expectedSubtotal:200};
+ await dbRun("UPDATE menu_items SET price=375 WHERE id='safe_item' AND tenant_id='safe_A'");
+ try{
+  const blocked=await retryCheckout(crypto.randomUUID(),body);
+  expect(blocked.status).toBe(409);
+  expect(blocked.body.code).toBe('MENU_PRICE_CHANGED');
+  expect(await stock()).toEqual(before);
+  expect(await ingredient()).toEqual(raw);
+  const updated=await retryCheckout(crypto.randomUUID(),{...body,expectedSubtotal:750});
+  expect(updated.status,updated.text).toBe(201);
+  expect(updated.body.subtotal).toBe(750);
+ }finally{
+  await dbRun("UPDATE menu_items SET price=100 WHERE id='safe_item' AND tenant_id='safe_A'");
+ }
+});
 it('uses updated restaurant prices instead of trusting a stale customer cart',async()=>{
  const before=await stock();
  await dbRun("UPDATE menu_items SET price=375 WHERE id='safe_item' AND tenant_id='safe_A'");
