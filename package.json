@@ -13,6 +13,7 @@
     "backup": "node scripts/backup.js",
     "backup:check": "node scripts/check-backup-freshness.js",
     "backup:crypto": "node scripts/backup-crypto.js",
+    "backup:upload": "node scripts/upload-encrypted-backup.js",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
     "start:all": "npx concurrently -k -n \"BACKEND,POS,FOOD,DRIVER\" -c \"cyan,blue,green,magenta\" \"npm run server\" \"npm run dev\" \"npm run customer:dev\" \"npm run driver:dev\"",
     "customer:dev": "vite apps/customer-web --port 3001 --host",
