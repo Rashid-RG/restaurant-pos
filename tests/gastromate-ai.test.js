@@ -49,6 +49,10 @@ describe('GastroMate stateless trust boundary',()=>{
     expect(gastroPrivateOrderQuestion('Where is my order?')).toBe(true);
     expect(gastroPrivateOrderQuestion('Cancel my order')).toBe(true);
     expect(gastroPrivateOrderQuestion('What is your best burger?')).toBe(false);
+    expect(gastroPrivateOrderQuestion('මගේ ඇණවුම කොහෙද')).toBe(true);
+    expect(gastroPrivateOrderQuestion('என் ஆர்டர் எங்கே')).toBe(true);
+    expect(gastroPrivateOrderQuestion('මට බර්ගර් ඕන')).toBe(false);
+    expect(gastroPrivateOrderQuestion('கோழி பர்கர் விலை')).toBe(false);
   });
   it('validates all recommendations and rejects wrong tenant actions',()=>{
     const response=validateGastroResponse({
