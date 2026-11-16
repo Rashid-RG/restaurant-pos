@@ -34,6 +34,7 @@ function harness({selectedTenant=tenant,selectedOrder=order,headers={}}={}){
 }
 describe('N1 private order tracking capabilities',()=>{
  it('allows a scoped, unexpired guest capability and sets httpOnly SSE cookie',async()=>{
+  process.env.CUSTOMER_JWT_SECRET=secret;
   const token=makeTrackingAccess(order.id,tenant);
   const h=harness({headers:{'x-order-tracking':token}});
   await h.run();expect(h.next).toHaveBeenCalledOnce();
