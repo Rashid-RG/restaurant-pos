@@ -200,6 +200,51 @@ it('does not advertise scheduled slots while the restaurant is closed',async()=>
   await dbRun("UPDATE settings SET value='true' WHERE key='storeOpen' AND tenant_id='safe_A'");
  }
 });
+it('reserves the final scheduled kitchen slot once across independent concurrent customers',async()=>{
+ const when=Math.ceil((Date.now()+2*60*60000)/(15*60000))*(15*60000);
+ await dbRun("INSERT OR REPLACE INTO settings (key,value,tenant_id) VALUES ('scheduledOrdersPerSlot','1','safe_A')");
+ const before=await stock(),raw=await ingredient(),body={...recoveryBody(),scheduledTime:when};
+ try{
+  const [first,second]=await Promise.all([retryCheckout(crypto.randomUUID(),body),retryCheckout(crypto.randomUUID(),body)]);
+  const statuses=[first.status,second.status].sort((a,b)=>a-b);
+  expect(statuses,JSON.stringify([first.body,second.body])).toEqual([201,409]);
+  expect((await stock()).stock).toBe(before.stock-2);
+  expect((await ingredient()).stock).toBe(raw.stock-1);
+  const count=await dbGet("SELECT COUNT(*) AS n FROM orders WHERE tenant_id='safe_A' AND source='online' AND orderType='takeaway' AND scheduledTime=?",[when]);
+  expect(Number(count.n)).toBe(1);
+ }finally{
+  await dbRun("DELETE FROM settings WHERE tenant_id='safe_A' AND key='scheduledOrdersPerSlot'");
+ }
+});
+it('uses updated restaurant prices instead of trusting a stale customer cart',async()=>{
+ const before=await stock();
+ await dbRun("UPDATE menu_items SET price=375 WHERE id='safe_item' AND tenant_id='safe_A'");
+ try{
+  const key=crypto.randomUUID();
+  const body={...recoveryBody(),items:[{id:'safe_item',quantity:2,price:1,unitPrice:1,lineTotal:2}]};
+  const created=await retryCheckout(key,body);
+  expect(created.status,created.text).toBe(201);
+  expect(created.body.subtotal).toBe(750);
+  expect(created.body.total).toBe(750);
+  expect((await stock()).stock).toBe(before.stock-2);
+  const record=await dbGet('SELECT items,total FROM orders WHERE id=?',[created.body.orderId]);
+  expect(JSON.parse(record.items)[0].unitPrice).toBe(375);
+  expect(record.total).toBe(750);
+ }finally{
+  await dbRun("UPDATE menu_items SET price=100 WHERE id='safe_item' AND tenant_id='safe_A'");
+ }
+});
+it('does not create an order or spend stock when a cart modifier was removed',async()=>{
+ const mod='safe_removed_mod';
+ await dbRun("INSERT INTO modifiers (id,menuItemId,name,groupName,priceDelta,tenant_id) VALUES (?,?,?,?,?,?)",[mod,'safe_item','Extra','Sides',45,'safe_A']);
+ await dbRun('DELETE FROM modifiers WHERE id=? AND tenant_id=?',[mod,'safe_A']);
+ const before=await stock(),raw=await ingredient();
+ const created=await retryCheckout(crypto.randomUUID(),{...recoveryBody(),items:[{id:'safe_item',quantity:2,selectedModifiers:[{id:mod}]}]});
+ expect(created.status).not.toBe(201);
+ expect(created.body.error).toMatch(/modifier/i);
+ expect(await stock()).toEqual(before);
+ expect(await ingredient()).toEqual(raw);
+});
 it('blocks new orders while closed but still recovers an already saved checkout',async()=>{
  const key=crypto.randomUUID(),created=await retryCheckout(key);expect(created.status).toBe(201);
  await dbRun("UPDATE settings SET value='false' WHERE key='storeOpen' AND tenant_id='safe_A'");expect((await retryCheckout(crypto.randomUUID())).status).toBe(409);
