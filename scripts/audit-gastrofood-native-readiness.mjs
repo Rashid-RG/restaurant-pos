@@ -24,11 +24,17 @@ if(!pkg.dependencies?.['@capacitor/core']) blockers.push('Capacitor core/native 
 const api=fs.readFileSync(path.join(root,'apps/customer-web/src/utils/api.js'),'utf8');
 if(!api.includes("import.meta.env.MODE==='native'") || !api.includes('VITE_NATIVE_API_ORIGIN'))
   blockers.push('Native HTTPS API routing integration is missing');
-else blockers.push('Production API CORS allowlist must explicitly authorize the native WebView origin before device acceptance');
+else {
+  const corsModule=fs.readFileSync(path.join(root,'lib/customer-native-origins.js'),'utf8');
+  const server=fs.readFileSync(path.join(root,'server.js'),'utf8');
+  if(!corsModule.includes('configuredNativeOrigins')||!server.includes('CUSTOMER_NATIVE_ORIGINS'))
+    blockers.push('Native production CORS allowlist integration is missing');
+  else blockers.push('Configure CUSTOMER_NATIVE_ORIGINS for approved Android/iOS origins on staging; verify authentication and preflight on devices');
+}
 const vite=fs.readFileSync(path.join(root,'apps/customer-web/vite.config.js'),'utf8');
 if(!vite.includes("mode === 'native' ? './'"))
   blockers.push('Customer native Vite relative-asset build is not configured');
-else blockers.push('Native relative-asset bundle and service-worker URLs require WebView device verification');
+else blockers.push('Native bundle generation is configured; confirm native assets, WebView routing and service-worker absence on a simulator/device');
 for(const m of ['android','ios']){
   if(!fs.existsSync(path.join(root,'apps/customer-web',m))) blockers.push('Customer '+m+' native project has not been generated or tested');
 }
