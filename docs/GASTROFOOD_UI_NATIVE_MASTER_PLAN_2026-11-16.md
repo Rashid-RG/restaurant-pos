@@ -103,6 +103,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Existing order map, SSE and GPS fallback | IMPLEMENTED BEFORE THIS REVIEW | `TrackingMap.jsx`, `OrderTrackingView.jsx` | Real-driver + cross-tenant tests |
 | Map-first tracking first iteration | DONE (code), NOT YET VISUALLY VERIFIED | `977b20e`, `c713d9a` | Build/CI, screen captures, semantic accessibility and device audit; full image parity still pending |
 | Expandable status timeline / bottom disclosure | DONE (code), verification pending | `3779df8`, `47dcb63` | Build, real order stages, screen reader and 320px phone checks |
+| Assigned-rider and restaurant contact panel | DONE (code), verification pending | `28a8f66`, `9419996`, `6949b83`, `5e0ed0a`, `3cddc63` | CI safety tests, authorized chat, phone and messaging on devices |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -122,3 +123,10 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (code)** `47dcb63`: mobile-friendly bottom-disclosure panel styling, current/completed/future stage markers, focus-visible and reduced-motion support.
 - **PENDING (verification)** CI/build, screen-reader/keyboard, screenshot comparison, genuine order status transitions, 320px/390px phone screens. Does not yet replicate every element of the concept image.
 - **PENDING (release)** No Render deploy or native app publication has been authorized for these changes.
+
+### Progress checkpoint — 2026-11-16: contact panel
+- **DONE (code)** Real rider chat/call controls are consolidated near the tracking progress panel. Rider actions require a confirmed active assignment; calling also requires a validated number. Restaurant actions appear only when a valid phone number is available.
+- **DONE (code)** Sri Lankan local number normalization for restaurant WhatsApp links; international numbers preserve explicit country code. No invented phone numbers or driver profile details.
+- **DONE (code)** Removed duplicated rider actions from receipt; shared order-reference text no longer automatically includes private tracking URL or customer details.
+- **DONE (code)** Added contact-action regression tests and registered them in the customer CI job.
+- **PENDING** GitHub CI outcome, browser/mobile visuals, deep-link behavior, and end-to-end chat/phone testing. This is not a claim of deployment or commercial-ready communication.
