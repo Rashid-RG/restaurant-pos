@@ -208,3 +208,52 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "chore(food-native): lock verified isolated Capacitor 8.6.2 dependencies [skip ci]"
           git push origin HEAD:codex/production-readiness
+
+  android-emulator-launch-smoke:
+    needs: android-source-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the verified test-only APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gastrofood-android-debug-apk
+          path: native-smoke/
+      - name: Verify downloaded debug APK artifact exists
+        run: test -s native-smoke/app-debug.apk
+      - name: Enable KVM acceleration for Android emulator
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+      - name: Launch GastroFlow Food on a clean emulator (no login or test orders)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: google_apis
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r native-smoke/app-debug.apk
+            adb shell am start -W -n com.rstechnologies.gastrofood/.MainActivity
+            sleep 15
+            adb shell pidof com.rstechnologies.gastrofood
+            adb shell dumpsys activity activities | grep -F com.rstechnologies.gastrofood
+            adb shell screencap -p /sdcard/gastrofood-startup.png
+            adb pull /sdcard/gastrofood-startup.png gastrofood-startup.png
+            test -s gastrofood-startup.png
+            echo "GastroFlow Food clean-start smoke check passed"
+      - name: Upload Android emulator startup screenshot for manual visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-android-emulator-startup
+          path: gastrofood-startup.png
+          if-no-files-found: warn
+          retention-days: 7
