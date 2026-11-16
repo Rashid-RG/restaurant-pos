@@ -3970,7 +3970,10 @@ Return valid JSON:
           const rawText = gData.candidates?.[0]?.content?.parts?.[0]?.text;
           if (rawText) {
             const parsed = JSON.parse(rawText);
-            const safe = validateGastroResponse(parsed, menuItems);
+            const safe = validateGastroResponse(parsed, menuItems, {
+              allowCartAction: /^(?:please\s+)?(?:add|order|put|i want to order|can i order)\b/i.test(message.trim()),
+              allowSupportAction: /\b(support|contact|agent|human|staff|manager|complain|issue|problem|help|ticket|careers?|jobs?)\b|ගැටලුව|උදව්|உதவி|பிரச்சனை/i.test(message)
+            });
             // Model-selected recommendations are displayed with server prices, not invented text.
             if (safe.recommendedItems.length && !safe.action) safe.reply = gastroVerifiedReply(safe.recommendedItems);
             return res.json(safe);
