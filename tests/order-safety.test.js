@@ -95,7 +95,7 @@ it('reconciles a lost kitchen response without duplicating events or changing an
  const initial=tickets.body.find(row=>row.orderId===orderId);
  expect(initial).toBeTruthy();
  const endpoint='/api/kitchen/tickets/'+orderId;
- const action={revision:initial.revision,state:'preparing'};
+ const action={revision:initial.revision,state:'preparing',retryKey:crypto.randomUUID()};
  const first=await request(app).post(endpoint).set(staff()).send(action);
  expect(first.status,first.text).toBe(200);
  expect(first.body.revision).toBe(initial.revision+1);
@@ -105,6 +105,8 @@ it('reconciles a lost kitchen response without duplicating events or changing an
  expect(replay.body.revision).toBe(first.body.revision);
  expect((await dbGet('SELECT COUNT(*) AS n FROM kitchen_events WHERE orderId=? AND tenant_id=?',[orderId,'safe_A'])).n).toBe(count.n);
  expect((await dbGet('SELECT status FROM orders WHERE id=?',[orderId])).status).toBe('preparing');
+ const differentRetry=await request(app).post(endpoint).set(staff()).send({...action,retryKey:crypto.randomUUID()});
+ expect(differentRetry.status).toBe(409);
  const staleOtherAction=await request(app).post(endpoint).set(staff()).send({revision:initial.revision,state:'ready'});
  expect(staleOtherAction.status).toBe(409);
  const foreign=await request(app).post(endpoint).set(staff('safe_B')).send(action);
@@ -118,7 +120,7 @@ it('rejects a kitchen retry from another staff member without repeating changes'
  const orderId=created.body.orderId,endpoint='/api/kitchen/tickets/'+orderId;
  const tickets=await request(app).get('/api/kitchen/tickets').set(staff());
  const initial=tickets.body.find(row=>row.orderId===orderId);expect(initial).toBeTruthy();
- const action={revision:initial.revision,state:'preparing'};
+ const action={revision:initial.revision,state:'preparing',retryKey:crypto.randomUUID()};
  expect((await request(app).post(endpoint).set(staff()).send(action)).status).toBe(200);
  await dbRun("INSERT INTO users (id,username,role,tenant_id) VALUES ('other_kitchen_operator','other_kitchen_operator','owner','safe_A')");
  try{
