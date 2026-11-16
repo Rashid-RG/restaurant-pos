@@ -77,6 +77,11 @@ describe('GastroMate stateless trust boundary',()=>{
     expect(validateGastroResponse({action:{type:'add_to_cart',itemId:'a-burger',quantity:5}},tenantA).action).toBe(null);
     expect(validateGastroResponse({action:{type:'delete_orders'}},tenantA).action).toBe(null);
   });
+  it('rejects model-proposed cart and support actions without matching user intent',()=>{
+    expect(validateGastroResponse({action:{type:'add_to_cart',itemId:'a-burger',quantity:1}},tenantA,{allowCartAction:false}).action).toBe(null);
+    expect(validateGastroResponse({action:{type:'connect_support'}},tenantA,{allowSupportAction:false}).action).toBe(null);
+    expect(validateGastroResponse({action:{type:'connect_support'}},tenantA,{allowSupportAction:true}).action).toEqual({type:'connect_support'});
+  });
   it('never recommends anything when there are no eligible items',()=>{
     expect(selectGastroMenu([tenantA[2],tenantA[3]],'pizza')).toEqual([]);
     expect(validateGastroResponse({recommendedItemIds:['a-out']},tenantA).recommendedItems).toEqual([]);
