@@ -133,6 +133,8 @@ function InstallPrompt() {
   const [showSteps, setShowSteps] = useState(false);
 
   useEffect(() => {
+    // Native shells are already installed; do not recommend Add to Home Screen.
+    if (import.meta.env.MODE === 'native') return;
     // Check if already in standalone/installed mode
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
     if (isStandalone) return;
