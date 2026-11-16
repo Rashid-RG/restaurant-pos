@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
-  base: '/customer/',
+export default defineConfig(({mode}) => ({
+  // Native WebViews load packaged assets; the hosted PWA keeps /customer/ URLs.
+  base: mode === 'native' ? './' : '/customer/',
   plugins: [react()],
   server: {
     host: true,
@@ -14,4 +15,4 @@ export default defineConfig({
       }
     }
   }
-});
+}));
