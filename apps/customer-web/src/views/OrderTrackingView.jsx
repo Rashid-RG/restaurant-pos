@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
-import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
+import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS,createTrackingSnapshotGate} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
@@ -26,7 +26,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   const [streamConnected,setStreamConnected]=useState(false);
   const driverFixRef=useRef(null);
   const activeTrackedIdRef=useRef(null);
-  const trackingFetchRef=useRef(null);
+  const trackingGateRef=useRef(createTrackingSnapshotGate());
   const streamHealthyRef=useRef(false);
   const lastSnapshotRef=useRef(null);
   const [connectionWarning,setConnectionWarning]=useState('');
@@ -186,8 +186,8 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
   };
 
   const fetchOrder = async (id,{silent=false}={}) => {
-    if (!id || trackingFetchRef.current===id)return;
-    trackingFetchRef.current=id;
+    const request=trackingGateRef.current.start(id);
+    if(!request)return;
     if (activeTrackedIdRef.current !== id) {
       activeTrackedIdRef.current=id;
       driverFixRef.current=null;orderRef.current=null;lastSnapshotRef.current=null;
@@ -197,13 +197,13 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if(!silent)setLoading(true);
     if(!silent)setError('');
     try {
-      const data = await apiFetch(`/public/orders/${id}`);
-      if(activeTrackedIdRef.current!==id)return;
+      const data = await apiFetch(`/public/orders/${encodeURIComponent(id)}`,{signal:request.signal});
+      if(!trackingGateRef.current.isCurrent(request)||activeTrackedIdRef.current!==id)return;
       applyOrderUpdate(data);
       setConnectionWarning('');
       setFeedbackSubmitted(false);
     } catch (err) {
-      if(activeTrackedIdRef.current!==id)return;
+      if(!trackingGateRef.current.isCurrent(request)||activeTrackedIdRef.current!==id)return;
       if(shouldClearTrackedOrder(err)){
         // A revoked/expired link or unknown order must not leave the previous
         // customer's private details on the screen or keep the SSE open.
@@ -221,7 +221,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       else if(!orderRef.current){setError(err.message||'Unable to load order.');setOrder(null);}
       else setConnectionWarning('Unable to refresh this order. Please retry.');
     } finally {
-      if(trackingFetchRef.current===id){trackingFetchRef.current=null;if(!silent)setLoading(false);}
+      if(trackingGateRef.current.finish(request) && !silent)setLoading(false);
     }
   };
 
@@ -233,7 +233,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       // Moving from an order-specific AI deep link to the generic tracking
       // page must clear the previous customer's status and rider position.
       activeTrackedIdRef.current = null;
-      trackingFetchRef.current = null;
+      trackingGateRef.current.invalidate();
       orderRef.current = null;
       driverFixRef.current = null;
       lastSnapshotRef.current = null;
@@ -557,7 +557,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={onBack}>
               ⬅ Back to Menu
             </button>
-            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { activeTrackedIdRef.current=null;driverFixRef.current=null;orderRef.current=null;setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setOrder(null);setTrackId(''); }}>
+            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { trackingGateRef.current.invalidate();activeTrackedIdRef.current=null;driverFixRef.current=null;orderRef.current=null;setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setOrder(null);setTrackId(''); }}>
               🔍 Track Another
             </button>
           </div>
