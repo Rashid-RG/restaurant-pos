@@ -14,4 +14,9 @@ describe('GastroFlow Food reduced-motion layout safety',()=>{
     const css=readFileSync('apps/customer-web/src/index.css','utf8');
     expect(css).toContain('transform: translateX(-50%)');
   });
+  it('keeps the search accessibility label screen-reader-only on phones',()=>{
+    const css=readFileSync('apps/customer-web/src/views/MarketplaceMenu.css','utf8');
+    expect(css).toContain('.marketplace-search .sr-only{position:absolute!important;');
+    expect(css).toContain('clip:rect(0,0,0,0)!important;');
+  });
 });
