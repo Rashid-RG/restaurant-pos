@@ -34,7 +34,7 @@ describe('Safe operational monitoring',()=>{
  });
  it('never emits personal request URLs, tokens or arbitrary route strings',()=>{
   const logs=[];const m=createOperationalMonitor({log:row=>logs.push(row)});
-  m.recordRequest({method:'GET',route:'/api/orders/secret-person?token=secret',status:200,durationMs:4000});
+  m.recordRequest({method:'GET',route:'/api/orders/secret-person?token=secret',status:200,durationMs:1900});
   m.recordRequest({method:'BREACH',route:'/api/orders/jane@example.test',status:902,durationMs:4000});
   expect(logs).toHaveLength(1);
   expect(logs[0]).toMatchObject({method:'OTHER',route:'[unmatched]',status:500});
