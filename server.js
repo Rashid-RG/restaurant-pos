@@ -5255,6 +5255,10 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
     // Network retry after a committed save returns the original receipt without overwriting evidence.
     if (status === 'delivered' && order.status === 'delivered' && existingProof) {
       await dbRun('COMMIT'); transaction = false;
+      // A committed delivery can be retried after a lost response or a push
+      // provider outage. The persisted push receipt suppresses successful
+      // sends; failed sends may be retried without touching proof or settlement.
+      void sendOrderPush(dbAll,dbRun,orderId,t,'delivered').catch(()=>{});
       return res.json({ success: true, status, proof: existingProof, alreadySaved: true });
     }
     const transitions = {
