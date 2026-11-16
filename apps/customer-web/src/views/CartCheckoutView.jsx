@@ -9,6 +9,7 @@ import { apiFetch } from '../utils/api.js';
 import { getActiveTenant } from '../utils/tenant.js';
 import { Store, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/LocationPicker.jsx';
+import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
 
 const ORDER_TYPES = [
   { id: 'dine-in', label: 'Dine In (QR)', icon: '🪑' },
@@ -64,6 +65,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [customTip, setCustomTip] = useState('');
   // Dynamic delivery zone fee breakdown from server
   const [deliveryFeeBreakdown, setDeliveryFeeBreakdown] = useState(null);
+  const [deliveryQuote, setDeliveryQuote] = useState({key:null,status:'needs-location',data:null});
 
   // Promo & Loyalty
   const [promoCode, setPromoCode] = useState('');
@@ -166,26 +168,43 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     if (store?.prepTime) setStorePrepTime(store.prepTime);
   }, [store?.tenantId, store?.deliveryFee, store?.minimumOrder, store?.prepTime]);
 
-  // ── Dynamic delivery fee calculation when location is picked ──
+  // Only show a delivery quote for the selected restaurant, pinned location
+  // and current subtotal. Ignore late results from superseded requests.
+  const activeQuoteKey = deliveryQuoteKey({
+    tenantId:store?.tenantId || getActiveTenant(),
+    lat:geoLocation?.lat,lng:geoLocation?.lng,subtotal
+  });
+  const deliveryQuoteConfirmed=deliveryQuoteReady({type:orderType,key:activeQuoteKey,quote:deliveryQuote});
   useEffect(() => {
-    if (orderType === 'delivery' && geoLocation?.lat && geoLocation?.lng) {
-      apiFetch(`/public/delivery-fee?lat=${geoLocation.lat}&lng=${geoLocation.lng}&subtotal=${subtotal}`)
-        .then(data => {
-          setDeliveryFeeBreakdown(data);
-          if (data.isOutOfRange) {
-            setDeliveryFee(0);
-            toast && toast(`❌ Your location is ${data.distanceKm} km away — outside our ${data.maxRadiusKm} km delivery zone.`, 'error');
-          } else if (data.isFreeDelivery) {
-            setDeliveryFee(0);
-          } else {
-            setDeliveryFee(data.totalFee);
-          }
-        })
-        .catch(() => {});
-    } else {
+    if (orderType !== 'delivery' || !activeQuoteKey) {
       setDeliveryFeeBreakdown(null);
+      setDeliveryFee(0);
+      setDeliveryQuote({key:activeQuoteKey,status:'needs-location',data:null});
+      return;
     }
-  }, [orderType, geoLocation?.lat, geoLocation?.lng, subtotal]);
+    let disposed=false;
+    setDeliveryQuote({key:activeQuoteKey,status:'checking',data:null});
+    setDeliveryFeeBreakdown(null);
+    setDeliveryFee(0);
+    apiFetch(`/public/delivery-fee?lat=${encodeURIComponent(geoLocation.lat)}&lng=${encodeURIComponent(geoLocation.lng)}&subtotal=${encodeURIComponent(subtotal)}`)
+      .then(data => {
+        if (disposed) return;
+        if (data?.isOutOfRange === true) {
+          setDeliveryQuote({key:activeQuoteKey,status:'out-of-range',data});
+          setDeliveryFeeBreakdown(data);
+        } else if (validDeliveryQuote(data)) {
+          setDeliveryQuote({key:activeQuoteKey,status:'ready',data});
+          setDeliveryFeeBreakdown(data);
+          setDeliveryFee(data.totalFee);
+        } else {
+          setDeliveryQuote({key:activeQuoteKey,status:'unavailable',data:null});
+        }
+      })
+      .catch(() => {
+        if (!disposed) setDeliveryQuote({key:activeQuoteKey,status:'unavailable',data:null});
+      });
+    return () => {disposed=true;};
+  }, [orderType,activeQuoteKey]);
 
   // Totals calculations
   const loyaltyAvailable = customer?.loyaltyPoints || 0;
@@ -287,6 +306,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       return;
     }
     if(isScheduled && (!scheduledTimeVal||scheduleLoading||scheduleError)){toast('Choose an available scheduled time before ordering.','error');return;}
+    if (!deliveryQuoteReady({type:orderType,key:activeQuoteKey,quote:deliveryQuote})) {
+      toast('Delivery location and fee must be confirmed before submitting. Your cart is saved.', 'warning'); return;
+    }
     setLoading(true);
     try {
       const token = getToken();
@@ -397,6 +419,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     if(typeof navigator!=='undefined' && navigator.onLine===false){toast('You are offline. Your cart is saved on this device; reconnect before placing an order. No order was submitted.','warning');return;}
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
     if (!canOrder) { toast('Restaurant availability cannot be confirmed. Your cart is saved.', 'warning'); return; }
+    if (!deliveryQuoteConfirmed) { toast('Delivery is not yet confirmed for this pinned address. Check the delivery fee before placing an order.', 'warning'); return; }
     if (appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) { toast('Your cart changed. Please apply the promotion again.', 'warning'); return; }
     if ((paymentMethod === 'payhere' && !rates.payhereEnabled) || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
     if (!name.trim()) { toast('Please enter your name.', 'error'); return; }
@@ -884,8 +907,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                     const sel = savedAddresses.find(a => a.id === e.target.value);
                     if (sel) {
                       setAddress(sel.addressLine);
-                      if (typeof sel.lat === 'number' && typeof sel.lng === 'number') {
+                      if (typeof sel.lat === 'number' && Number.isFinite(sel.lat) && typeof sel.lng === 'number' && Number.isFinite(sel.lng)) {
                         setGeoLocation({ lat: sel.lat, lng: sel.lng, label: sel.addressLine });
+                      } else {
+                        setGeoLocation(null); // An address without a pin cannot reuse the previous address's delivery quote.
                       }
                     }
                   }}
@@ -1163,8 +1188,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                     )}
                   </>
                 ) : (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
-                    <span>{t.deliveryFee}</span><span>Rs. {deliveryFee.toFixed(2)}</span>
+                  <div role="status" className="gf-checkout-delivery-quote-status">
+                    <strong>{!activeQuoteKey ? 'Select a map pin to check delivery' : deliveryQuote.key===activeQuoteKey && deliveryQuote.status==='unavailable' ? 'Delivery quote unavailable' : 'Checking delivery fee and eligibility…'}</strong>
+                    <span>No delivery fee is confirmed yet. The restaurant will validate the final charges before accepting your order.</span>
                   </div>
                 )}
               </div>
@@ -1193,7 +1219,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           <button
             type="submit"
             className="btn btn-brand"
-            disabled={loading || !canOrder || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
+            disabled={loading || !canOrder || !deliveryQuoteConfirmed || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
             {loading ? `⏳ ${t.processing}` : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}
