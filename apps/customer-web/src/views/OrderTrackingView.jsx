@@ -5,6 +5,7 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
 import {contactLinks} from '../utils/contact-actions.js';
+import { canUseHostedOrderStream, canUseHostedWebPush } from '../utils/native-tracking-policy.js';
 import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS,createTrackingSnapshotGate} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
@@ -263,7 +264,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     try {
       // Native cross-origin SSE cannot rely on the PWA's Strict same-site cookie.
       // Poll with the existing private tracking token until a native stream is audited.
-      if (isPackagedNative) throw new Error('Use authenticated snapshot polling in native mode');
+      if (!canUseHostedOrderStream(isPackagedNative)) throw new Error('Use authenticated snapshot polling in native mode');
       const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
       const streamUrl = stream.href;
       es = new EventSource(streamUrl);
@@ -315,7 +316,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
   // Customer opt-in: permission must never be requested during page load.
   const enableNotifications=async()=>{
-    if(isPackagedNative || !order?.id || !storeInfo?.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))return;
+    if(!canUseHostedWebPush(isPackagedNative) || !order?.id || !storeInfo?.vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))return;
     setPushBusy(true);
     try {
       const permission=await Notification.requestPermission();
@@ -433,7 +434,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
           )}
           <div className="customer-tracking-tools">
             <div className="customer-tracking-freshness" role="status" aria-live="polite"><strong>{streamConnected && hasRecentUpdates ? 'Live updates connected' : hasRecentUpdates ? 'Order updated · reconnecting' : 'Checking for order updates'}</strong><small>{lastUpdate ? 'Last confirmed '+new Date(lastUpdate).toLocaleTimeString() : 'Connecting…'}</small></div>
-            {!isPackagedNative && storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
+            {canUseHostedWebPush(isPackagedNative) && storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
               <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
             {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
