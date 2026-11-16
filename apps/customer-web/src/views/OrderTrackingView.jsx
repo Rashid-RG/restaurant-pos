@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
-import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
+import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
 export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
@@ -241,12 +241,19 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
     // SSE Stream setup
     let es;
+    let missedConnection=false;
     try {
       const stream = new URL(`/api/stream/orders/${order.id}`, window.location.origin); stream.searchParams.set('tenantId', getActiveTenant() || 'default_tenant');
       const streamUrl = stream.href;
       es = new EventSource(streamUrl);
-      es.onopen=()=>{streamHealthyRef.current=true;setStreamConnected(true);};
-      es.onerror=()=>{streamHealthyRef.current=false;setStreamConnected(false);};
+      es.onopen=()=>{
+        streamHealthyRef.current=true;setStreamConnected(true);
+        // An SSE reconnection is not an event replay. Recover the canonical
+        // snapshot after a transport gap so missed status changes are visible.
+        if(shouldRefreshOnStreamReconnect(missedConnection))fetchOrder(order.id,{silent:true});
+        missedConnection=false;
+      };
+      es.onerror=()=>{missedConnection=true;streamHealthyRef.current=false;setStreamConnected(false);};
       es.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
