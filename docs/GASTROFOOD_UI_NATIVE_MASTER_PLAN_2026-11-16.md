@@ -105,6 +105,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Expandable status timeline / bottom disclosure | DONE (code), verification pending | `3779df8`, `47dcb63` | Build, real order stages, screen reader and 320px phone checks |
 | Assigned-rider and restaurant contact panel | DONE (code), verification pending | `28a8f66`, `9419996`, `6949b83`, `5e0ed0a`, `3cddc63` | CI safety tests, authorized chat, phone and messaging on devices |
 | Marketplace search and filter accessibility | DONE (code), verification pending | `58891b6`, `85db423`, `cb50126`, `34c8389` | Run customer CI, browser interaction and multi-language real-device testing |
+| Menu modifier, stock and customizer guardrails | DONE (code), verification pending | `519318e`, `c8e9ee5`, `358b4bc`, `7fbd830`, `b52a309` | Run menu tests, full build and real checkout validation |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -138,3 +139,11 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (code)** `cb50126`: multilingual and punctuation-aware search unit tests, including Sinhala/Tamil; `34c8389`: included in customer CI.
 - **PENDING:** CI build and test run, browser focus/keyboard and mobile visual checks; server-authoritative delivery-zone and fee checks remain separate P0 acceptance requirements.
 - **NO DEPLOYMENT:** branch code only; no schema, Turso or POS changes.
+
+### Progress checkpoint — 2026-11-16: menu customizer and quantity checks
+- **DONE (code)** `519318e`: shared selection validator rejects unknown modifier IDs, required groups without a selection, duplicates and multiple options in exclusive groups; remaining stock calculation includes quantity already placed in customer cart.
+- **DONE (code)** `c8e9ee5`: menu customizer radio/checkbox selections use centralized consistent group handling; mandatory options and remaining stock are checked again in add-to-cart handler (not only disabled-button UI). Mobile quantity selector limits additional stock against existing variants.
+- **DONE (code)** `358b4bc`: unit regression coverage for exclusive/multiple groups, missing required options, unknown modifiers and cart stock constraints.
+- **DONE (code)** `7fbd830`: remaining-stock explanation in customizer. `b52a309`: include menu regression tests in customer quality workflow.
+- **NOT YET VERIFIED:** full GitHub CI, mobile customizer accessibility, group-cart acceptance, price reconciliation and server-side option validation. The backend remains authoritative; frontend checks are not an authorization/security boundary.
+- **NOT DEPLOYED:** no database migrations, live sales or POS changes.
