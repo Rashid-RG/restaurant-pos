@@ -17,6 +17,8 @@ on:
       - 'tests/customer-menu-selection.test.js'
       - 'tests/customer-delivery-quote.test.js'
       - 'tests/customer-order-acknowledgement.test.js'
+      - 'tests/customer-location-acquisition.test.js'
+      - 'tests/customer-native-api-origin.test.js'
       - '.github/workflows/customer-staging-quality.yml'
   workflow_dispatch:
 
@@ -36,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=dev
       - name: Customer safety regression tests
-        run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js tests/customer-contact-actions.test.js tests/customer-discovery-search.test.js tests/customer-menu-selection.test.js tests/customer-delivery-quote.test.js tests/customer-order-acknowledgement.test.js tests/customer-checkout-recovery-status.test.js tests/customer-checkout-submission-guard.test.js
+        run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js tests/customer-contact-actions.test.js tests/customer-discovery-search.test.js tests/customer-menu-selection.test.js tests/customer-delivery-quote.test.js tests/customer-order-acknowledgement.test.js tests/customer-checkout-recovery-status.test.js tests/customer-checkout-submission-guard.test.js tests/customer-location-acquisition.test.js tests/customer-native-api-origin.test.js
       - name: Verify customer and driver mobile install assets
         run: npm run mobile:audit
       - name: Check isolated GastroFood native identity and readiness blockers
