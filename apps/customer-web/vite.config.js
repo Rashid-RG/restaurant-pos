@@ -12,6 +12,12 @@ export default defineConfig(({mode}) => {
   // Native WebViews load packaged assets; the hosted PWA keeps /customer/ URLs.
   base: mode === 'native' ? './' : '/customer/',
   plugins: [react()],
+  // Customer app imports components from ../../../shared. When CI installs both
+  // root and customer dependencies, Vite can otherwise bundle two React copies,
+  // causing "Invalid hook call" and a blank native startup error screen.
+  resolve: {
+    dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  },
   server: {
     host: true,
     port: 3001,
