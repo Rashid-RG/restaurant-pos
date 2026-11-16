@@ -225,6 +225,7 @@ function InnerApp({ switchRestaurant }) {
     return params.get('tenant') ? 'store-menu' : 'menu';
   });
   const [trackingOrderId, setTrackingOrderId] = useState(null);
+  const [aiCustomize, setAiCustomize] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
   const { items, totalItems, setCartOpen, cartOpen } = useCart();
@@ -273,6 +274,9 @@ function InnerApp({ switchRestaurant }) {
   }, []);
 
   const navigate = (v, extraParams = {}) => {
+    if (v === 'store-menu' && extraParams.customize) {
+      setAiCustomize({ itemId: String(extraParams.customize), quantity: Number(extraParams.qty) || 1, tenantId: String(extraParams.tenant || ''), requestId: Date.now() });
+    }
     setView(v);
     try {
       const url = new URL(window.location.href);
@@ -398,7 +402,7 @@ function InnerApp({ switchRestaurant }) {
           navigate('store-menu', {tenant: rest.id, group: null, track: null});
           switchRestaurant(rest.id);
         }} />}
-        {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
+        {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} aiCustomize={aiCustomize} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
