@@ -6001,14 +6001,26 @@ const posDistPath = path.join(__dirname, 'dist');
 const customerDistPath = path.join(__dirname, 'apps', 'customer-web', 'dist');
 const driverDistPath = path.join(__dirname, 'apps', 'driver-web', 'dist');
 
+// HTML shell must always be revalidated across Render deployments. Hashed
+// Vite assets can retain their normal cache policy, but an old index.html
+// must never pin the Windows desktop/PWA terminal to an obsolete JS bundle.
+const frontendStaticOptions = {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  },
+};
 if (fs.existsSync(customerDistPath)) {
-  app.use('/customer', express.static(customerDistPath));
+  app.use('/customer', express.static(customerDistPath, frontendStaticOptions));
 }
 if (fs.existsSync(driverDistPath)) {
-  app.use('/driver-app', express.static(driverDistPath));
+  app.use('/driver-app', express.static(driverDistPath, frontendStaticOptions));
 }
 if (fs.existsSync(posDistPath)) {
-  app.use(express.static(posDistPath));
+  app.use(express.static(posDistPath, frontendStaticOptions));
 }
 
 // Serve index.html for browser client-side navigation (non-API GET requests)
@@ -6018,14 +6030,17 @@ app.get('*', (req, res, next) => {
   }
 
   if (req.path.startsWith('/customer') && fs.existsSync(path.join(customerDistPath, 'index.html'))) {
+    res.set('Cache-Control', 'no-store, max-age=0');
     return res.sendFile(path.join(customerDistPath, 'index.html'));
   }
   if (req.path.startsWith('/driver-app') && fs.existsSync(path.join(driverDistPath, 'index.html'))) {
+    res.set('Cache-Control', 'no-store, max-age=0');
     return res.sendFile(path.join(driverDistPath, 'index.html'));
   }
 
   const posIndex = path.join(posDistPath, 'index.html');
   if (fs.existsSync(posIndex)) {
+    res.set('Cache-Control', 'no-store, max-age=0');
     return res.sendFile(posIndex);
   }
 
