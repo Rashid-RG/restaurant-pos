@@ -712,11 +712,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px', fontWeight: 700 }}
               />
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
               <button 
                 type="button"
                 className="btn btn-brand gastrofood-otp-submit" 
-                style={{ flex: 1 }}
+                style={{ width: '100%', minHeight: 48, whiteSpace: 'normal', lineHeight: 1.3 }}
                 onClick={() => otpGuard.current.run(async () => {
                   const cleanPhone = phone.trim().replace(/[\s-]/g, '');
                   const dest = otpChannel === 'email' ? (email.trim() || customer?.email) : cleanPhone;
@@ -744,7 +744,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 Verify & place order
               </button>
               <button 
-                type="button" className="btn btn-ghost" 
+                type="button" className="btn btn-ghost" style={{ width: '100%', minHeight: 44 }} 
                 onClick={() => setShowOtpModal(false)}
               >
                 Cancel
