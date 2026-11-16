@@ -71,6 +71,17 @@ describe('GastroFood delivery push notifications',()=>{
     expect(sent).toHaveBeenCalledTimes(2);
     expect(receipts.size).toBe(1);
   });
+  it('recovers a failed delivered milestone on a safe retry without resending successful notifications',async()=>{
+    sent.mockRejectedValueOnce(new Error('temporary gateway outage')).mockResolvedValueOnce({statusCode:201});
+    await sendOrderPush(dbAll,dbRun,order,tenant,'delivered');
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(receipts.size).toBe(0);
+    await sendOrderPush(dbAll,dbRun,order,tenant,'delivered');
+    expect(sent).toHaveBeenCalledTimes(2);
+    expect([...receipts.values()][0].deliveredAt).toEqual(expect.any(Number));
+    await sendOrderPush(dbAll,dbRun,order,tenant,'delivered');
+    expect(sent).toHaveBeenCalledTimes(2);
+  });
   it('does not send unknown statuses or when push is not configured',async()=>{
     await sendOrderPush(dbAll,dbRun,order,tenant,'mystery');
     expect(sent).not.toHaveBeenCalled();
