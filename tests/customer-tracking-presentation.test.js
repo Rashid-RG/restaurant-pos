@@ -1,7 +1,41 @@
-import {describe,it,expect} from 'vitest';
-import {trackingSteps,trackingProgress,trackingHeroMessage,shouldPollTrackingSnapshot,shouldRefreshOnStreamReconnect,shouldClearRiderMarker,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
+import {describe,it,expect,vi} from 'vitest';
+import {trackingSteps,trackingProgress,trackingHeroMessage,shouldPollTrackingSnapshot,shouldRefreshOnStreamReconnect,shouldClearRiderMarker,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS,createTrackingSnapshotGate} from '../apps/customer-web/src/utils/tracking-presentation.js';
 
 describe('GastroFood real order tracking presentation',()=>{
+  it('aborts stalled order snapshots then permits another reconciliation request',()=>{
+    vi.useFakeTimers();
+    try{
+      const gate=createTrackingSnapshotGate();
+      const a=gate.start('order-a');
+      expect(a?.signal.aborted).toBe(false);
+      expect(gate.start('order-a')).toBeNull();
+      vi.advanceTimersByTime(12000);
+      expect(a.signal.aborted).toBe(true);
+      expect(gate.isCurrent(a)).toBe(true);
+      expect(gate.finish(a)).toBe(true);
+      const refreshed=gate.start('order-a');
+      expect(refreshed).not.toBeNull();
+      expect(refreshed.signal.aborted).toBe(false);
+      gate.invalidate();
+      expect(refreshed.signal.aborted).toBe(true);
+      expect(gate.isCurrent(refreshed)).toBe(false);
+    }finally{vi.useRealTimers();}
+  });
+  it('cancels an old order request when switching restaurants or tracking links',()=>{
+    vi.useFakeTimers();
+    try{
+      const gate=createTrackingSnapshotGate();
+      const first=gate.start('order-a');
+      const second=gate.start('order-b');
+      expect(first.signal.aborted).toBe(true);
+      expect(gate.isCurrent(first)).toBe(false);
+      expect(gate.finish(first)).toBe(false);
+      expect(gate.isCurrent(second)).toBe(true);
+      expect(gate.finish(second)).toBe(true);
+      expect(gate.start('order-a')?.signal.aborted).toBe(false);
+      gate.invalidate();
+    }finally{vi.useRealTimers();}
+  });
   it('separates ready-for-rider from actually out-for-delivery',()=>{
     const steps=trackingSteps('delivery');
     expect(steps.map(x=>x.id)).toEqual(['pending','preparing','ready','picked_up','out_for_delivery','arrived','completed']);
