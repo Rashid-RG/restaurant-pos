@@ -274,3 +274,61 @@
     width:100%;padding-left:58px;
   }
 }
+
+
+/* GastroFood mobile usability baseline: fixed bars, safe areas and keyboard sizes.
+   Presentation only; intentionally does not change order state or pricing. */
+.customer-premium .bottom-nav{
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+}
+.customer-premium .bottom-nav .nav-item{
+  min-width:0;
+  min-height:44px;
+  overflow-wrap:anywhere;
+}
+.customer-premium .bottom-nav .nav-item:focus-visible,
+.customer-premium .customer-fixed-cart-action button:focus-visible,
+.customer-premium .gf-modern-cart-sheet button:focus-visible{
+  outline:3px solid #e77932;
+  outline-offset:2px;
+}
+.customer-premium .gf-modern-cart-sheet{
+  max-height:min(85dvh,calc(100dvh - env(safe-area-inset-top,0px) - 10px));
+}
+.customer-premium .gf-modern-cart-sheet .cart-body{
+  min-height:0;
+  overscroll-behavior:contain;
+}
+@media(max-width:420px){
+  .customer-premium .customer-fixed-cart-action{
+    left:max(12px,env(safe-area-inset-left,0px));
+    right:max(12px,env(safe-area-inset-right,0px));
+    bottom:calc(var(--bottom-bar,64px) + env(safe-area-inset-bottom,0px) + 12px);
+    display:flex;
+    justify-content:center;
+  }
+  .customer-premium .customer-fixed-cart-action button{
+    min-height:48px;
+    justify-content:center;
+    max-width:100%;
+    min-width:min(250px,100%);
+  }
+  .customer-premium .gf-modern-cart-sheet .cart-footer{
+    padding-bottom:max(12px,env(safe-area-inset-bottom,0px));
+  }
+  .customer-premium .bottom-nav .nav-item{
+    font-size:clamp(.58rem,2.45vw,.7rem);
+    letter-spacing:0;
+    padding-inline:2px;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .customer-premium .bottom-nav .nav-item,
+  .customer-premium .bottom-nav .nav-icon,
+  .customer-premium .customer-fixed-cart-action button,
+  .customer-premium .gf-modern-cart-sheet{
+    animation:none!important;
+    transition:none!important;
+  }
+}
