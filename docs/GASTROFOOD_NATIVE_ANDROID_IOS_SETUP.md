@@ -1,0 +1,70 @@
+# GastroFlow Food — isolated native Android/iOS bootstrap
+
+**Branch:** `codex/production-readiness` only. **No deployment or signing authorized.**
+These commands create **GastroFlow Food** app projects, not the root POS project. This is an engineering setup guide; actual package installation, APK/IPA generation, and device validation are still pending.
+
+## Confirmed requirements
+- Capacitor **8.6.2** (exactly pinned in `apps/customer-web/package.json`).
+- Node.js 22+, project currently targets Node.js 24.
+- Android: current Android Studio and SDK; iOS: a Mac with Xcode 26+.
+- Staging API for testing: `https://gastroflow-staging.onrender.com` only. Do not use production or live customer credentials.
+- Customer package ID `com.rstechnologies.gastrofood` is provisional until RS Technologies confirms ownership.
+
+## 1. Safely generate customer-only lockfile
+From the existing repository, **do not use the root `cap:android` or `cap:ios` scripts**: those target the shared POS Capacitor config.
+
+```sh
+git checkout codex/production-readiness
+cd apps/customer-web
+npm install --package-lock-only --ignore-scripts
+npm ci --include=dev
+```
+
+Review and commit `apps/customer-web/package-lock.json` on this branch after ensuring the four Capacitor packages resolve to 8.6.2. The root lockfile and root POS config must not change.
+
+## 2. Build packaged web content
+
+**From `apps/customer-web`:**
+
+```sh
+# In PowerShell:
+$env:VITE_NATIVE_API_ORIGIN="https://gastroflow-staging.onrender.com"
+npm run native:build:web
+
+# On macOS/Linux:
+# VITE_NATIVE_API_ORIGIN=https://gastroflow-staging.onrender.com npm run native:build:web
+```
+
+The native-mode Vite build intentionally fails if the HTTPS API origin is absent/invalid. Packaged assets use relative URLs; the regular web app retains `/customer/`.
+
+## 3. Generate only the customer native project
+
+**From `apps/customer-web` (NEVER the repository root):**
+
+```sh
+npm run native:add:android
+npm run native:sync:android
+```
+
+On macOS with Xcode 26+ you can also run:
+
+```sh
+npm run native:add:ios
+npm run native:sync:ios
+```
+
+The guard checks current directory, exact Capacitor dependency versions, customer lockfile, app identity and `dist/index.html`. It aborts if any are missing. Generated Android and iOS folders must be reviewed carefully for package ID, release permissions, Google/Firebase setup, splash/icon assets, App Transport Security and signing before any release. Do not commit signing keys, provisioning profiles, tokens or `.env` files.
+
+## 4. Staging API and native security gate
+Production-mode CORS currently does **not** grant native origins automatically. When real devices are ready for testing, set the staging service's `CUSTOMER_NATIVE_ORIGINS` explicitly to the origins actually used (`https://localhost` for Android, `capacitor://localhost` for iOS), after authorization. The backend's allowed native origins are exact matches and do not replace tenant authentication. **Do not change Render environment or deploy without explicit approval.**
+
+Native order tracking currently uses authorized snapshot polling; hosted SSE and browser push are intentionally disabled inside native mode pending authenticated native transport and mobile push implementation. Real-device background behavior, notification registration, location permission strings, order links and checkout behavior are not yet verified.
+
+## 5. Required acceptance checks
+1. Run `npm run food:native:preflight` from repository root; resolve reported blockers.
+2. Run isolated customer CI and native-mode customer web build; require passing results.
+3. Verify Android/iOS packages do not share root POS app IDs or logos; ensure home-screen icon and splash are correct.
+4. Test customer signup/OTP, restaurant selection, location permission (grant/deny/revoke), weak GPS, map pin, cross-tenant isolation, order checkout, reconnect tracking, rider assignment and background/foreground recovery.
+5. Only after explicit approval: stage non-customer test orders; validate no POS/sales changes; prepare release signing and store distribution.
+
+**No APK/IPA, native project folders, installed packages or lockfile are claimed as produced by this guide.**
