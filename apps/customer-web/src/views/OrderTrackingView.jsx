@@ -521,6 +521,32 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             )}
           </div>
 
+          {/* Native disclosure keeps the order timeline accessible without hiding the live map. */}
+          <details className="gf-tracking-journey-sheet" open={false}>
+            <summary className="gf-tracking-journey-summary">
+              <span className="gf-tracking-journey-grip" aria-hidden="true" />
+              <span className="gf-tracking-journey-heading">
+                <strong>{isCancelled ? 'Order update' : 'Order progress'}</strong>
+                <small>{isCancelled ? 'This order is no longer active' : isDone ? 'All stages completed' : actualProgress.steps[actualProgress.currentIndex]?.label || 'Waiting for an update'}</small>
+              </span>
+              <span className="gf-tracking-journey-expand" aria-hidden="true">⌄</span>
+            </summary>
+            <ol className="gf-tracking-journey-steps" aria-label="Confirmed order stages">
+              {actualProgress.steps.map((step,index)=>{
+                const completed=!isCancelled && (isDone || index<actualProgress.currentIndex);
+                const current=!isCancelled && !isDone && index===actualProgress.currentIndex;
+                return <li key={step.id} className={completed?'completed':current?'current':'upcoming'} aria-current={current?'step':undefined}>
+                  <span className="gf-tracking-step-dot" aria-hidden="true">{completed?'✓':index+1}</span>
+                  <span className="gf-tracking-step-content"><strong>{step.label}</strong><small>{step.description}</small></span>
+                  {current && <span className="gf-tracking-step-now">Current</span>}
+                </li>;
+              })}
+            </ol>
+            {isDelivery && !isCancelled && !isDone && (
+              <p className="gf-tracking-journey-note">Progress reflects restaurant and rider updates. Live GPS availability may differ from the current order stage.</p>
+            )}
+          </details>
+
           {/* First-Class Contact & Conduct Action Buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, margin: '12px 0' }}>
             <a
