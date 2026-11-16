@@ -6,15 +6,24 @@
   "scripts": {
     "dev": "vite --port 3001",
     "build": "vite build",
-    "preview": "vite preview --port 3001"
+    "preview": "vite preview --port 3001",
+    "native:build:web": "npm run customer:native:build --prefix ../..",
+    "native:add:android": "node ../../scripts/check-food-native-project.mjs && cap add android",
+    "native:add:ios": "node ../../scripts/check-food-native-project.mjs && cap add ios",
+    "native:sync:android": "node ../../scripts/check-food-native-project.mjs && cap sync android",
+    "native:sync:ios": "node ../../scripts/check-food-native-project.mjs && cap sync ios"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@capacitor/core": "8.6.2",
+    "@capacitor/android": "8.6.2",
+    "@capacitor/ios": "8.6.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.2.1",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "@capacitor/cli": "8.6.2"
   }
 }
