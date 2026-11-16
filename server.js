@@ -1,6 +1,7 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
+import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
@@ -3864,6 +3865,25 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
     const recentHistory = normalizeGastroHistory(history);
     const contextMenu = selectGastroMenu(menuItems, message, recentHistory);
     const trustedCart = gastroCartContext(cartItems, menuItems);
+    // Multi-item requests are a read-only draft, never a cart/payment mutation.
+    // Resolve names only against this tenant's current, available menu.
+    const multiPlan = gastroMultiItemPlan(menuItems, message);
+    if (multiPlan) {
+      const unresolved = multiPlan.lines.filter(line => line.status !== 'available');
+      const budgetMessage = multiPlan.budget == null ? ''
+        : multiPlan.withinBudget === false ? ' The known base total exceeds your budget.'
+        : multiPlan.withinBudget === null ? ' The budget cannot be confirmed until you choose the missing items.'
+        : ' The base prices fit within your budget.';
+      return res.json({
+        reply: unresolved.length
+          ? 'I found part of your request. Please choose the exact restaurant menu item for each unclear or unavailable selection.' + budgetMessage
+          : 'Here is your food selection for review.' + budgetMessage + ' No items have been added yet.',
+        recommendedItems: [],
+        suggestions: ['Browse Menu', 'View Cart'],
+        action: null,
+        plan: multiPlan
+      });
+    }
     // Budget and dietary requests must use verified, currently orderable menu records.
     // This deterministic route also works when the external AI provider is unavailable.
     const grounded = groundedGastroRecommendations(menuItems, message, recentHistory);
