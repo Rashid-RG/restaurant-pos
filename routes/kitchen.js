@@ -139,7 +139,7 @@ export function createKitchenRouter({
   router.post(
     "/kitchen/tickets/:id",
     wrap(async (req, res) => {
-      const { revision, state, lineId, etaMinutes } = req.body || {};
+      const { revision, state, lineId, etaMinutes, retryKey } = req.body || {};
       if (
         !Number.isSafeInteger(revision) ||
         !["preparing", "ready", "served"].includes(state)
@@ -152,6 +152,8 @@ export function createKitchenRouter({
           etaMinutes > 240)
       )
         throw fail("ETA must be 1 to 240 minutes.");
+      if(retryKey!==undefined && (typeof retryKey!=='string'||!/^[a-zA-Z0-9_-]{16,128}$/.test(retryKey)))
+        throw fail('Provide a valid kitchen retry key.');
       await dbRun("BEGIN TRANSACTION");
       let updated;
       try {
@@ -174,14 +176,14 @@ export function createKitchenRouter({
           // retry an already committed kitchen transition. Accept only the
           // immediately previous revision and exactly matching last action;
           // never replay an older or competing update.
-          if (current.revision === revision + 1) {
+          if (retryKey && current.revision === revision + 1) {
             const last = await dbGet(
               "SELECT actorId,action,details FROM kitchen_events WHERE tenant_id=? AND orderId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1",
               [req.tenantId,current.orderId],
             );
             const requestedLine=lineId || "whole_ticket";
             const sameAction=last?.actorId===req.user.id &&
-              last.action===state && last.details===requestedLine &&
+              last.action===state && last.details===`retry:${retryKey}:${requestedLine}` &&
               (lineId
                 ? current.lines.some(line=>line.id===lineId && line.state===state)
                 : current.state===state) &&
@@ -263,7 +265,7 @@ export function createKitchenRouter({
             current.orderId,
             req.user.id,
             state,
-            lineId || "whole_ticket",
+            retryKey ? `retry:${retryKey}:${lineId || 'whole_ticket'}` : (lineId || "whole_ticket"),
             now,
           ],
         );
