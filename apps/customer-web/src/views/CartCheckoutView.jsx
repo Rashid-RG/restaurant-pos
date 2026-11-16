@@ -310,6 +310,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           promoCode: appliedPromo?.code || null,
           scheduledTime: isScheduled ? scheduledTimeVal : null,
           tip: tipAmount,
+          expectedSubtotal: Math.round(subtotal*100)/100,
           paymentMethod: paymentMethod === 'payhere' ? 'online_pending' : paymentMethod === 'bank_transfer' ? 'bank_transfer' : 'cash'
         };
       const attempt=checkoutIntent(payload);setPendingCheckout(attempt);
@@ -378,6 +379,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         onOrderPlaced && onOrderPlaced(data.orderId);
       }
     } catch (err) {
+      if(err?.code==='MENU_PRICE_CHANGED'){
+        // This rejection happens before the server creates an order. The
+        // previous checkout key must not block the customer's revised cart.
+        finishRecovery();
+      }
       toast(err.message || 'Failed to place order', 'error');
     } finally {
       setLoading(false);
