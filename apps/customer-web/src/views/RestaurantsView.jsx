@@ -218,11 +218,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       setIsSearchingAddress(true);
       try {
         const query = encodeURIComponent(customAddressInput.trim());
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=lk&limit=5`);
-        if (res.ok) {
-          const data = await res.json();
-          setAddressSearchResults(data || []);
-        }
+        const data = await apiFetch(`/public/geocode?q=${query}`);
+        setAddressSearchResults(Array.isArray(data) ? data : []);
       } catch (err) {
         console.warn('Forward geocoding search error:', err);
       } finally {
@@ -236,10 +233,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const handleSelectAddressSuggestion = (item) => {
     locationRequestRef.current++;
     const lat = parseFloat(item.lat);
-    const lng = parseFloat(item.lon);
-    const displayParts = (item.display_name || '').split(',');
+    const lng = Number(item.lng ?? item.lon);
+    const displayParts = String(item.label || item.display_name || '').split(',');
     const shortAddr = displayParts.slice(0, 3).join(', ').trim() || 'Custom Pin';
 
+    if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
     setUserCoords({ lat, lng });
     setDeliveryLocation(shortAddr);
     localStorage.setItem('gastroflow_delivery_address', shortAddr);
@@ -261,13 +259,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     const manualAddr = customAddressInput.trim();
     try {
       const query = encodeURIComponent(manualAddr);
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=lk&limit=1`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.length > 0) {
-          handleSelectAddressSuggestion(data[0]);
-          return;
-        }
+      const data = await apiFetch(`/public/geocode?q=${query}`);
+      if (Array.isArray(data) && data.length > 0) {
+        handleSelectAddressSuggestion(data[0]);
+        return;
       }
     } catch (err) {
       console.warn('Geocoding submit error:', err);
@@ -298,21 +293,21 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const handlePinLocationChange = async (lat, lng) => {
     const requestId=++locationRequestRef.current;
+    if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
     setUserCoords({ lat, lng });
-    localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng }));
+    localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng,source:'manual-pin' }));
     processStoreProximity(lat, lng);
-
+    const fallback=`Selected pin (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+    setDeliveryLocation(fallback);
+    localStorage.setItem('gastroflow_delivery_address',fallback);
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&countrycodes=lk`);
-      if (res.ok) {
-        const data = await res.json();
-        const addr = data.address || {};
-        const shortStr = `${addr.suburb || addr.road || addr.village || 'Custom Pin'}, ${addr.city || addr.town || addr.county || 'Sri Lanka'}`;
-        if(requestId!==locationRequestRef.current)return;
-        setDeliveryLocation(shortStr);
-        localStorage.setItem('gastroflow_delivery_address', shortStr);
+      const data=await apiFetch(`/public/reverse-geocode?lat=${lat}&lng=${lng}`);
+      if(requestId!==locationRequestRef.current)return;
+      if(typeof data?.label==='string'&&data.label.trim()){
+        setDeliveryLocation(data.label.trim());
+        localStorage.setItem('gastroflow_delivery_address',data.label.trim());
       }
-    } catch (_) {}
+    } catch (_) { /* Keep the selected pin without an address label. */ }
   };
 
   useEffect(() => {
