@@ -18,3 +18,19 @@
 @keyframes mate-greet{0%,35%,100%{opacity:0;transform:translateY(3px)}10%,29%{opacity:1;transform:translateY(0)}}
 @keyframes mate-wave{0%,35%,100%{transform:rotate(28deg)}12%,21%{transform:rotate(-35deg)}17%,27%{transform:rotate(52deg)}}
 @media(prefers-reduced-motion:reduce){.gastromate-burger,.gastromate-burger-arm,.gastromate-hello{animation:none!important}.gastromate-hello{opacity:1}}
+
+/* New chat-state animations: active only while a question is being answered. */
+.gastromate-burger-active { animation: mate-thinking-dance .7s ease-in-out infinite; }
+.gastromate-burger-active .gastromate-burger-arm.left { animation: mate-wave .8s ease-in-out infinite; }
+.gastromate-burger-active .gastromate-burger-arm.right { animation: mate-wave .8s ease-in-out .2s infinite; }
+.gastromate-chat-active .gastromate-burger-face { animation: mate-happy-face 1.1s ease-in-out infinite; }
+.gastromate-type-cursor { display:inline-block; margin-left:2px; color:#17744c; animation:mate-cursor .7s steps(1) infinite; }
+.gastromate-thinking-label { display:flex; align-items:center; gap:5px; }
+@keyframes mate-thinking-dance { 0%,100% { transform:translateY(0) rotate(-7deg) } 50% { transform:translateY(-6px) rotate(9deg) } }
+@keyframes mate-happy-face { 0%,100% { transform:translateY(-2px) scale(1) } 50% { transform:translateY(-2px) scale(1.1) } }
+@keyframes mate-cursor { 0%,49% { opacity:1 } 50%,100% { opacity:0 } }
+@media (prefers-reduced-motion:reduce) {
+ .gastromate-burger-active,.gastromate-burger-active .gastromate-burger-arm.left,
+ .gastromate-burger-active .gastromate-burger-arm.right,.gastromate-chat-active .gastromate-burger-face,
+ .gastromate-type-cursor { animation:none!important; }
+}
