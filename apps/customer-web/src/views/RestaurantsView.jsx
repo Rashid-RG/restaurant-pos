@@ -7,6 +7,7 @@ import { useLang } from '../context/LanguageContext.jsx';
 import { calculateHaversineDistanceKm, resolveAddressToCoords, evaluateStoreProximity } from '../utils/geo.js';
 import { acceptsOnlineOrders, recommendationScore, recommendedOpenStores } from '../utils/marketplace-availability.js';
 import { restaurantRatingText, restaurantDeliveryText, restaurantEmptyState, sortRestaurants } from '../utils/discovery-display.js';
+import {matchesRestaurantQuery} from '../utils/discovery-search.js';
 
 
 const CUISINE_CATEGORIES = [
@@ -372,7 +373,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   };
 
   const processStoreProximity = (uLat, uLng, rawStores = restaurants) => {
-    if (!uLat || !uLng || rawStores.length === 0) return;
+    if (!Number.isFinite(uLat) || !Number.isFinite(uLng) || rawStores.length === 0) return;
 
     const uniqueRaw = deduplicateStores(rawStores);
     const distances = uniqueRaw.map(r => Number.isFinite(r.lat) && Number.isFinite(r.lng) ? calculateHaversineKm(uLat,uLng,r.lat,r.lng) : null);
@@ -418,12 +419,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     setLoadError('');
     try {
       const coords = overrideCoords || userCoords;
-      const q = coords && coords.lat && coords.lng ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
+      const q = coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng) ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
       const data = await apiFetch(`/public/restaurants${q}`);
       const storeList = deduplicateStores(data || []).map(store => ({ ...store, isOpen: acceptsOnlineOrders(store), isOpenNow: acceptsOnlineOrders(store) }));
       setRestaurants(storeList);
 
-      if (coords && coords.lat && coords.lng) {
+      if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
         processStoreProximity(coords.lat, coords.lng, storeList);
       } else {
         const savedAddr = localStorage.getItem('gastroflow_delivery_address');
@@ -459,10 +460,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const filtered = sortRestaurants(deduplicateStores(
     restaurants.filter(r => {
-      const name = String(r.name || '').toLocaleLowerCase();
-      const cuisine = String(r.cuisine || '').toLocaleLowerCase();
-      const query = search.trim().toLocaleLowerCase();
-      const matchesSearch = !query || name.includes(query) || cuisine.includes(query);
+      const matchesSearch = matchesRestaurantQuery(r, search);
       const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
       const matchesOpen = !openOnly || acceptsOnlineOrders(r);
       const matchesDelivery = !deliveryOnly || r.isDeliverable === true;
@@ -677,10 +675,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
       <div className="stores-modern-search" role="search">
         <Search size={20}/>
-        <input type="search" enterKeyHint="search" autoComplete="off" aria-label="Search restaurants or cuisines" placeholder="Search restaurants, pizza, burgers, rice…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        <input type="search" enterKeyHint="search" autoComplete="off" aria-label="Search restaurants, cuisines or areas" placeholder="Search restaurants, cuisines or areas…" value={search} onChange={e=>setSearch(e.target.value)}/>
         {search && <button type="button" aria-label="Clear search" onClick={()=>setSearch('')}>×</button>}
       </div>
-      <div className="stores-quick-filters" aria-label="Availability filters">
+      <div className="stores-quick-filters" role="group" aria-label="Availability filters">
         <button type="button" aria-pressed={openOnly} className={openOnly?'active':''} onClick={()=>setOpenOnly(v=>!v)}><CheckCircle2 size={17}/> Open now</button>
         <button type="button" aria-pressed={deliveryOnly} className={deliveryOnly?'active':''} disabled={!hasPreciseLocation} title={!hasPreciseLocation?'Select your location first':'Only stores that can deliver to your location'} onClick={()=>setDeliveryOnly(v=>!v)}><Bike size={17}/> Delivers here</button>
         <button type="button" onClick={()=>setShowLocationModal(true)}><MapPinned size={17}/> Change location</button>
@@ -688,7 +686,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       </div>
 
       {/* Discovery sorting — available restaurants always appear first. */}
-      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
+      <div role="group" aria-label="Sort restaurants" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
         {[
           { id: 'recommendation', label: 'Browse', desc: 'Available restaurants first' },
           { id: 'fastest', label: 'Prep estimate', desc: 'Restaurant-supplied' },
@@ -697,6 +695,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         ].map(tab => (
           <button
             key={tab.id}
+            type="button"
+            aria-pressed={sortBy === tab.id}
+            title={tab.desc}
             onClick={() => setSortBy(tab.id)}
             style={{
               padding: '6px 14px',
@@ -717,10 +718,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       </div>
 
       {/* Cuisine Tag Selector */}
-      <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 16, scrollbarWidth: 'none' }}>
+      <div role="group" aria-label="Cuisine filters" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 16, scrollbarWidth: 'none' }}>
         {CUISINE_CATEGORIES.map(c => (
           <button
             key={c.id}
+            type="button"
+            aria-pressed={activeCuisine === c.id}
             onClick={() => setActiveCuisine(c.id)}
             style={{
               padding: '8px 14px',
@@ -748,9 +751,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>Restaurants accepting orders near you</span>
+              <span>Open restaurants near your location</span>
             </h3>
-            <span style={{ fontSize: '0.75rem', color: 'var(--brand)', fontWeight: 700 }}>Based on verified availability</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--brand)', fontWeight: 700 }}>Open status from restaurant · proximity estimated</span>
           </div>
 
           <div style={{ display: 'flex', gap: 14, overflowX: 'auto', paddingBottom: 8, scrollbarWidth: 'none' }}>
