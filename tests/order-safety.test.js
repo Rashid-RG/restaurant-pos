@@ -88,6 +88,46 @@ it('propagates kitchen preparation to the original customer tracking order',asyn
  expect(customer.body.status).toBe('preparing');
  expect((await request(app).get('/api/kitchen/tickets').set(staff('safe_B'))).body.some(x=>x.orderId===created.body.orderId)).toBe(false);
 });
+it('reconciles a lost kitchen response without duplicating events or changing another tenant',async()=>{
+ const created=await publicOrder();expect(created.status,created.text).toBe(201);
+ const orderId=created.body.orderId;
+ const tickets=await request(app).get('/api/kitchen/tickets').set(staff());
+ const initial=tickets.body.find(row=>row.orderId===orderId);
+ expect(initial).toBeTruthy();
+ const endpoint='/api/kitchen/tickets/'+orderId;
+ const action={revision:initial.revision,state:'preparing'};
+ const first=await request(app).post(endpoint).set(staff()).send(action);
+ expect(first.status,first.text).toBe(200);
+ expect(first.body.revision).toBe(initial.revision+1);
+ const count=await dbGet('SELECT COUNT(*) AS n FROM kitchen_events WHERE orderId=? AND tenant_id=?',[orderId,'safe_A']);
+ const replay=await request(app).post(endpoint).set(staff()).send(action);
+ expect(replay.status,replay.text).toBe(200);
+ expect(replay.body.revision).toBe(first.body.revision);
+ expect((await dbGet('SELECT COUNT(*) AS n FROM kitchen_events WHERE orderId=? AND tenant_id=?',[orderId,'safe_A'])).n).toBe(count.n);
+ expect((await dbGet('SELECT status FROM orders WHERE id=?',[orderId])).status).toBe('preparing');
+ const staleOtherAction=await request(app).post(endpoint).set(staff()).send({revision:initial.revision,state:'ready'});
+ expect(staleOtherAction.status).toBe(409);
+ const foreign=await request(app).post(endpoint).set(staff('safe_B')).send(action);
+ expect(foreign.status).toBe(404);
+ const customer=await request(app).get('/api/public/orders/'+orderId+'?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken);
+ expect(customer.status).toBe(200);
+ expect(customer.body.status).toBe('preparing');
+});
+it('rejects a kitchen retry from another staff member without repeating changes',async()=>{
+ const created=await publicOrder();expect(created.status,created.text).toBe(201);
+ const orderId=created.body.orderId,endpoint='/api/kitchen/tickets/'+orderId;
+ const tickets=await request(app).get('/api/kitchen/tickets').set(staff());
+ const initial=tickets.body.find(row=>row.orderId===orderId);expect(initial).toBeTruthy();
+ const action={revision:initial.revision,state:'preparing'};
+ expect((await request(app).post(endpoint).set(staff()).send(action)).status).toBe(200);
+ await dbRun("INSERT INTO users (id,username,role,tenant_id) VALUES ('other_kitchen_operator','other_kitchen_operator','owner','safe_A')");
+ try{
+  const stranger=await request(app).post(endpoint).set(staff('safe_A','other_kitchen_operator')).send(action);
+  expect(stranger.status).toBe(409);
+ }finally{
+  await dbRun("DELETE FROM users WHERE id='other_kitchen_operator' AND tenant_id='safe_A'");
+ }
+});
 it('rejects non-delivery driver claims and assignments',async()=>{
  const id=await ticket();
  const manual=await request(app).post('/api/delivery/assign').set(staff()).send({orderId:id,driverId:'safe_driver'});
