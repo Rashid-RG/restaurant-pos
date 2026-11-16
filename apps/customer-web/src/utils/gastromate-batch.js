@@ -7,7 +7,8 @@ function validQuantity(value) {
 }
 export function prepareGastroBatch(plan, menu, cartItems = [], tenantId = '') {
   const fail = reason => ({ ok: false, reason, items: [], subtotal: 0 });
-  if (!tenantId || !menu || String(menu.tenantId) !== String(tenantId) || menu.offlineSnapshot) {
+  if (!tenantId || !menu || String(plan?.tenantId) !== String(tenantId) ||
+      String(menu.tenantId) !== String(tenantId) || menu.offlineSnapshot) {
     return fail('Restaurant selection changed or menu is offline. Please reload the restaurant menu.');
   }
   if (menu.storeOpen !== true) return fail('This restaurant is not accepting online orders.');
