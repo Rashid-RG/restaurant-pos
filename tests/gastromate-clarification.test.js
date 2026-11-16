@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {gastroClarifyOrder} from '../lib/gastromate-clarification.js';
+import {gastroClarifyOrder,gastroVerifiedPriceQuestion} from '../lib/gastromate-clarification.js';
 
 const items=[
   {id:'burger1',name:'Chicken Burger',price:1200,isAvailable:1,stock:10},
@@ -38,11 +38,28 @@ describe('GastroMate order clarification',()=>{
    expect(gastroClarifyOrder(items,'What is the best burger?')).toBe(null);
    expect(gastroClarifyOrder(items,'Where is my order?')).toBe(null);
  });
+ it('answers an exact food price from the verified menu only',()=>{
+   const result=gastroVerifiedPriceQuestion(items,'How much is Chicken Burger?');
+   expect(result.reply).toContain('Rs. 1200.00');
+   expect(result.recommendedItems.map(i=>i.id)).toEqual(['burger1']);
+   expect(result.reply).toContain('checkout fees');
+ });
+ it('clarifies generic price queries without inventing numbers',()=>{
+   const result=gastroVerifiedPriceQuestion(items,'price of burger');
+   expect(result.recommendedItems.map(i=>i.id)).toEqual(['burger1','burger2']);
+   expect(result.reply).not.toContain('Rs.');
+   expect(gastroVerifiedPriceQuestion(items,'price of Other Shop Pizza').recommendedItems).toEqual([]);
+ });
+ it('does not hijack general tax, delivery or unrelated questions',()=>{
+   expect(gastroVerifiedPriceQuestion(items,'What are the delivery fees?')).toBe(null);
+   expect(gastroVerifiedPriceQuestion(items,'Could you recommend food?')).toBe(null);
+ });
  it('integrates clarification before the model and preserves quantity in the UI',()=>{
    const server=readFileSync('server.js','utf8');
    const ui=readFileSync('apps/customer-web/src/components/GastroAiConcierge.jsx','utf8');
    const chat=server.slice(server.indexOf("app.post('/api/ai/chat'"));
    expect(chat.indexOf('gastroClarifyOrder(menuItems, message)')).toBeLessThan(chat.indexOf('const geminiKey'));
+   expect(chat.indexOf('gastroVerifiedPriceQuestion(menuItems, message)')).toBeLessThan(chat.indexOf('const geminiKey'));
    expect(ui).toContain("res.clarification?.kind === 'choose_menu_item'");
    expect(ui).toContain('quantity:msg.clarification?.quantity || 1');
  });
