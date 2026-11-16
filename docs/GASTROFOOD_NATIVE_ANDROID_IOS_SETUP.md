@@ -20,6 +20,16 @@ npm install --package-lock-only --ignore-scripts
 npm ci --include=dev
 ```
 
+**Known blocker:** A customer-specific `package-lock.json` already exists, but it predates the native package additions and is missing the four Capacitor packages. Do not run `npm ci` against that stale lockfile or declare native readiness.
+
+**GitHub-runner option:** Open **Actions → GastroFlow Food native dependency lock bootstrap → Run workflow** on `codex/production-readiness`. This also runs on relevant branch changes. The workflow resolves dependencies **only inside `apps/customer-web`**, verifies the pinned packages, ensures the root POS `package-lock.json` checksum is unchanged, and uploads `gastrofood-customer-package-lock-candidate` as an artifact. It neither commits nor deploys. Download the generated `package-lock.json`, review it, replace **only** `apps/customer-web/package-lock.json`, and commit it to the same branch.
+
+To validate after obtaining the lock:
+
+```sh
+node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+```
+
 Review and commit `apps/customer-web/package-lock.json` on this branch after ensuring the four Capacitor packages resolve to 8.6.2. The root lockfile and root POS config must not change.
 
 ## 2. Build packaged web content
