@@ -38,6 +38,7 @@ import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.j
 import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
 import { createDatabaseReadiness } from './lib/database-readiness.js';
+import { createOperationalMonitor } from './lib/operational-monitor.js';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -131,6 +132,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+const operationalMonitor=createOperationalMonitor();
 app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false); // Trust reverse proxy on Render / Cloudflare for rate-limiting
 export { app };
 // Express 4 does not automatically forward rejected async handlers.
@@ -150,6 +152,19 @@ app.use((req, res, next) => databaseGate.withContext(() => {
   res.once('close', cleanup);
   next();
 }));
+// Log aggregate route-pattern latency, never raw paths, query strings or identities.
+// Response timing is observational only and cannot block an API response.
+app.use((req,res,next)=>{
+  const started=process.hrtime.bigint();
+  res.once('finish',()=>{
+    try{
+      const durationMs=Number(process.hrtime.bigint()-started)/1e6;
+      const route=typeof req.route?.path==='string'?req.route.path:null;
+      operationalMonitor.recordRequest({method:req.method,route,status:res.statusCode,durationMs});
+    }catch{} // Monitoring must never interrupt billing or order processing.
+  });
+  next();
+});
 const PORT = process.env.PORT || 5000;
 
 // Error-response helper: never leak internal/DB error detail to clients in production.
@@ -7310,8 +7325,10 @@ if (!process.env.VITEST) {
           new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Database readiness probe timed out')),8000);timer.unref?.();})
         ]);
         databaseReadiness.recordSuccess();
+        operationalMonitor.probeSucceeded();
       }catch(error){
         databaseReadiness.recordFailure();
+        operationalMonitor.probeFailed();
         console.error('[Database readiness]',error?.message||'Health probe failed');
       }finally{if(timer)clearTimeout(timer);databaseProbeBusy=false;}
     };
