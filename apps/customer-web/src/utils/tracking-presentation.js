@@ -96,3 +96,9 @@ export function shouldPollTrackingSnapshot({streamConnected=false,lastSnapshotAt
 export function shouldClearRiderMarker(update,fix) {
   return !!update && Object.hasOwn(update,'driver') && !fix;
 }
+
+// EventSource reconnects automatically but does not replay missed order events
+// until durable event IDs are available. Reconcile with the canonical API.
+export function shouldRefreshOnStreamReconnect(hadTransportGap) {
+  return hadTransportGap===true;
+}
