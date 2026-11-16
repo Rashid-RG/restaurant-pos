@@ -2088,6 +2088,8 @@ function UserManagementSection({ showToast, currentUser }) {
   const [formError, setFormError] = useState('');
   const [listError, setListError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [staffSearch, setStaffSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
 
   const fetchUsers = async () => {
     try {
@@ -2160,6 +2162,11 @@ function UserManagementSection({ showToast, currentUser }) {
     }
   };
 
+  const visibleUsers = usersList.filter(user =>
+    (roleFilter === 'all' || user.role === roleFilter) &&
+    user.username.toLowerCase().includes(staffSearch.trim().toLowerCase())
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       <form onSubmit={handleCreateUser} style={{ background: 'var(--bg-surface)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
@@ -2194,8 +2201,25 @@ function UserManagementSection({ showToast, currentUser }) {
       </form>
 
       {listError && <div role="alert" style={{ color: 'var(--danger, #b91c1c)' }}>{listError} <button className="btn" onClick={fetchUsers}>Retry</button></div>}
-      <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px' }}>Team directory</h3>
+          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{usersList.length} account{usersList.length === 1 ? '' : 's'} for this restaurant</span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          <input className="form-input" type="search" aria-label="Search staff by username" placeholder="Search staff…" value={staffSearch} onChange={e => setStaffSearch(e.target.value)} style={{ minWidth: '180px' }} />
+          <select className="form-input" aria-label="Filter staff by role" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+            <option value="all">All roles</option>
+            <option value="owner">Owner</option>
+            <option value="manager">Manager</option>
+            <option value="cashier">Cashier</option>
+            <option value="kitchen">Kitchen</option>
+            <option value="staff">Staff</option>
+          </select>
+        </div>
+      </div>
+      <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)', overflowX: 'auto' }}>
+        <table style={{ width: '100%', minWidth: '560px', borderCollapse: 'collapse', fontSize: '14px' }}>
           <thead>
             <tr style={{ background: 'var(--bg-card)', textTransform: 'uppercase', fontSize: '11px', color: 'var(--text-muted)' }}>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>Username</th>
@@ -2205,8 +2229,8 @@ function UserManagementSection({ showToast, currentUser }) {
             </tr>
           </thead>
           <tbody>
-            {usersList.length === 0 && <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>No staff accounts to display.</td></tr>}
-            {usersList.map(u => (
+            {visibleUsers.length === 0 && <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>{usersList.length === 0 ? 'No staff accounts to display.' : 'No staff match your search or filter.'}</td></tr>}
+            {visibleUsers.map(u => (
               <tr key={u.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                 <td style={{ padding: '12px 16px', fontWeight: 700 }}>👤 {u.username}</td>
                 <td style={{ padding: '12px 16px' }}>
