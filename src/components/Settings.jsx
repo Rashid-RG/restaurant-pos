@@ -2088,6 +2088,13 @@ function UserManagementSection({ showToast, currentUser }) {
   const [formError, setFormError] = useState('');
   const [listError, setListError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [resetAccount, setResetAccount] = useState(null);
+  const [resetPin, setResetPin] = useState('');
+  const [showResetPin, setShowResetPin] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState('');
   const [staffSearch, setStaffSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
 
@@ -2136,6 +2143,9 @@ function UserManagementSection({ showToast, currentUser }) {
       setUsername('');
       setPin('');
       setPassword('');
+      setShowCreate(false);
+      setShowPin(false);
+      setShowPassword(false);
       await fetchUsers();
       showToast(`Staff account ${cleanUsername} created successfully.`, 'success');
     } catch (err) {
@@ -2162,6 +2172,35 @@ function UserManagementSection({ showToast, currentUser }) {
     }
   };
 
+  const handleResetPin = async (e) => {
+    e.preventDefault();
+    if (!resetAccount || resetBusy) return;
+    if (!/^\\d{4,8}$/.test(resetPin)) {
+      setResetError('PIN must contain 4 to 8 digits.');
+      return;
+    }
+    try {
+      setResetBusy(true);
+      setResetError('');
+      const token = localStorage.getItem('gastroflow_token');
+      const res = await fetch(`/api/users/${encodeURIComponent(resetAccount.id)}/pin`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ pin: resetPin })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not reset staff PIN.');
+      setResetAccount(null);
+      setResetPin('');
+      setShowResetPin(false);
+      showToast(`PIN updated for ${resetAccount.username}. Share the new PIN privately.`, 'success');
+    } catch (err) {
+      setResetError(err.message || 'Could not reset staff PIN.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
   const visibleUsers = usersList.filter(user =>
     (roleFilter === 'all' || user.role === roleFilter) &&
     user.username.toLowerCase().includes(staffSearch.trim().toLowerCase())
@@ -2169,7 +2208,16 @@ function UserManagementSection({ showToast, currentUser }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <form onSubmit={handleCreateUser} style={{ background: 'var(--bg-surface)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: '0 0 4px' }}>Staff & Users</h3>
+          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Manage employee logins and private POS PINs for this restaurant.</span>
+        </div>
+        <button className="btn btn-primary" type="button" onClick={() => { setShowCreate(value => !value); setFormError(''); }} aria-expanded={showCreate}>
+          {showCreate ? 'Close form' : '+ Add staff'}
+        </button>
+      </div>
+      {showCreate && <form onSubmit={handleCreateUser} style={{ background: 'var(--bg-surface)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
         <h3 style={{ margin: '0 0 8px' }}>Add a staff member</h3>
         <p style={{ color: 'var(--text-muted)', margin: '0 0 20px', fontSize: '13px' }}>Give each employee their own login and private POS PIN. No default credentials are used.</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '16px' }}>
@@ -2185,10 +2233,13 @@ function UserManagementSection({ showToast, currentUser }) {
             </select>
           </label>
           <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Private POS PIN (4–8 digits)
-            <input className="form-input" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Choose a unique PIN" required />
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', minWidth: 0 }}>
+              <input className="form-input" style={{ flex: 1, minWidth: 0 }} type={showPin ? 'text' : 'password'} inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Choose a unique PIN" required />
+              <button className="btn" type="button" onClick={() => setShowPin(value => !value)} aria-label={showPin ? 'Hide new PIN' : 'Show new PIN'}>{showPin ? 'Hide' : 'Show'}</button>
+            </div>
           </label>
           <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Login password (12+ characters)
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'stretch', minWidth: 0 }}>
               <input className="form-input" style={{ minWidth: 0, flex: 1 }} type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={72} value={password} onChange={e => setPassword(e.target.value)} placeholder="Choose a strong password" required />
               <button className="btn" type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button>
             </div>
@@ -2198,7 +2249,7 @@ function UserManagementSection({ showToast, currentUser }) {
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
           <button className="btn btn-primary" type="submit" disabled={loading} style={{ minWidth: '190px', padding: '12px 18px' }}>{loading ? 'Creating account…' : '+ Create staff account'}</button>
         </div>
-      </form>
+      </form>}
 
       {listError && <div role="alert" style={{ color: 'var(--danger, #b91c1c)' }}>{listError} <button className="btn" onClick={fetchUsers}>Retry</button></div>}
       <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
@@ -2207,8 +2258,8 @@ function UserManagementSection({ showToast, currentUser }) {
           <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{usersList.length} account{usersList.length === 1 ? '' : 's'} for this restaurant</span>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-          <input className="form-input" type="search" aria-label="Search staff by username" placeholder="Search staff…" value={staffSearch} onChange={e => setStaffSearch(e.target.value)} style={{ minWidth: '180px' }} />
-          <select className="form-input" aria-label="Filter staff by role" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+          <input className="form-input" type="search" aria-label="Search staff by username" placeholder="Search staff…" value={staffSearch} onChange={e => setStaffSearch(e.target.value)} style={{ minWidth: '180px', maxWidth: '260px', flex: '1 1 180px' }} />
+          <select className="form-input" style={{ width: '160px', flex: '0 1 160px' }} aria-label="Filter staff by role" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
             <option value="all">All roles</option>
             <option value="owner">Owner</option>
             <option value="manager">Manager</option>
@@ -2224,7 +2275,7 @@ function UserManagementSection({ showToast, currentUser }) {
             <tr style={{ background: 'var(--bg-card)', textTransform: 'uppercase', fontSize: '11px', color: 'var(--text-muted)' }}>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>Username</th>
               <th style={{ padding: '12px 16px', textAlign: 'left' }}>Role</th>
-              <th style={{ padding: '12px 16px', textAlign: 'left' }}>PIN</th>
+              <th style={{ padding: '12px 16px', textAlign: 'left' }}>POS PIN</th>
               <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
@@ -2236,17 +2287,38 @@ function UserManagementSection({ showToast, currentUser }) {
                 <td style={{ padding: '12px 16px' }}>
                   <span className="badge badge-primary" style={{ textTransform: 'capitalize' }}>{u.role}</span>
                 </td>
-                <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>🔒 Hidden</td>
+                <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>🔒 Secured</td>
                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                  <button className="btn btn-danger" disabled={u.id === currentUser?.id || (u.role === 'owner' && currentUser?.role !== 'owner')} onClick={() => handleDeleteUser(u.id, u.username)} style={{ padding: '4px 10px', fontSize: '12px' }}>
-                    🗑️ Delete
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button className="btn" type="button" disabled={u.role === 'owner' && currentUser?.role !== 'owner'} onClick={() => { setResetAccount(u); setResetPin(''); setShowResetPin(false); setResetError(''); }} style={{ padding: '6px 10px', fontSize: '12px' }}>Reset PIN</button>
+                    <button className="btn btn-danger" type="button" disabled={u.id === currentUser?.id || (u.role === 'owner' && currentUser?.role !== 'owner')} onClick={() => handleDeleteUser(u.id, u.username)} style={{ padding: '6px 10px', fontSize: '12px' }}>Delete</button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {resetAccount && (
+        <div role="dialog" aria-modal="true" aria-label={`Reset PIN for ${resetAccount.username}`} style={{ position: 'fixed', inset: 0, zIndex: 2500, display: 'grid', placeItems: 'center', padding: '20px', background: 'rgba(12, 25, 20, 0.6)' }}>
+          <form onSubmit={handleResetPin} style={{ width: '100%', maxWidth: '440px', padding: '24px', background: 'var(--bg-card, #fff)', borderRadius: '16px', boxShadow: '0 15px 50px rgba(0,0,0,.18)', display: 'grid', gap: '14px' }}>
+            <h3 style={{ margin: 0 }}>Reset POS PIN</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>Set a new PIN for <strong>{resetAccount.username}</strong>. Existing PINs cannot be viewed. The new PIN will only be visible while you enter it.</p>
+            <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>
+              New PIN (4–8 digits)
+              <div style={{ display: 'flex', gap: '8px', minWidth: 0 }}>
+                <input className="form-input" style={{ flex: 1, minWidth: 0 }} autoFocus type={showResetPin ? 'text' : 'password'} inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} required value={resetPin} onChange={e => setResetPin(e.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="Enter new private PIN" />
+                <button className="btn" type="button" onClick={() => setShowResetPin(value => !value)}>{showResetPin ? 'Hide' : 'Show'}</button>
+              </div>
+            </label>
+            {resetError && <p role="alert" style={{ color: 'var(--danger, #b91c1c)', margin: 0 }}>{resetError}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button className="btn" type="button" disabled={resetBusy} onClick={() => { setResetAccount(null); setResetPin(''); }}>Cancel</button>
+              <button className="btn btn-primary" type="submit" disabled={resetBusy}>{resetBusy ? 'Saving…' : 'Save new PIN'}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
