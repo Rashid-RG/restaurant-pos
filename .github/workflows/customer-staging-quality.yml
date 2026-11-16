@@ -6,6 +6,8 @@ on:
       - codex/production-readiness
     paths:
       - 'apps/customer-web/**'
+      - 'scripts/audit-customer-mobile-assets.mjs'
+      - 'package.json'
       - 'tests/customer-marketplace-availability.test.js'
       - 'tests/customer-auth-resilience.test.js'
       - '.github/workflows/customer-staging-quality.yml'
@@ -28,5 +30,7 @@ jobs:
         run: npm ci --include=dev
       - name: Customer safety regression tests
         run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js
+      - name: Verify customer and driver mobile install assets
+        run: npm run mobile:audit
       - name: Build POS, customer and driver apps
         run: npm run build:all
