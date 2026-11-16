@@ -1,7 +1,8 @@
 import {describe,it,expect} from 'vitest';
 import {
   normalizeGastroHistory, isGastroMenuItemAvailable, selectGastroMenu,
-  gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse
+  gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse,
+  gastroBudget, groundedGastroRecommendations, gastroVerifiedReply
 } from '../lib/gastromate-ai.js';
 
 const tenantA = [
@@ -75,5 +76,44 @@ describe('GastroMate stateless trust boundary',()=>{
   it('never recommends anything when there are no eligible items',()=>{
     expect(selectGastroMenu([tenantA[2],tenantA[3]],'pizza')).toEqual([]);
     expect(validateGastroResponse({recommendedItemIds:['a-out']},tenantA).recommendedItems).toEqual([]);
+  });
+});
+
+
+describe('GastroMate grounded discovery', () => {
+  const items = [
+    {id:'spicy',name:'Spicy Chicken Burger',price:1550,stock:4,isAvailable:1,dietaryTags:'spicy'},
+    {id:'veg',name:'Veg Rice',price:1100,stock:5,isAvailable:1,dietaryTags:'vegetarian'},
+    {id:'vegan',name:'Vegan Bowl',price:1700,stock:3,isAvailable:1,dietaryTags:'vegan'},
+    {id:'expensive',name:'Premium Meal',price:3900,stock:5,isAvailable:1},
+    {id:'out',name:'Spicy Wings',price:600,stock:0,isAvailable:1,dietaryTags:'spicy'}
+  ];
+  it('recognizes supported budgets with LKR and comma grouping', () => {
+    expect(gastroBudget('under Rs. 2,000')).toBe(2000);
+    expect(gastroBudget('budget of LKR 2500')).toBe(2500);
+    expect(gastroBudget('three chicken meals')).toBe(null);
+  });
+  it('does not recommend a more expensive item for a strict budget', () => {
+    const result=groundedGastroRecommendations(items,'spicy chicken under 2000');
+    expect(result.budget).toBe(2000);
+    expect(result.recommendedItems.map(x=>x.id)).toEqual(['spicy']);
+    expect(result.recommendedItems.every(x=>x.price<=2000)).toBe(true);
+  });
+  it('does not label standard vegetarian items vegan', () => {
+    const result=groundedGastroRecommendations(items,'I need vegan food');
+    expect(result.recommendedItems.map(x=>x.id)).toEqual(['vegan']);
+  });
+  it('uses most recent prior budget in follow-up context', () => {
+    const history=[{role:'user',content:'show me meals under Rs 1500'},{role:'assistant',content:'Here are options'}];
+    const result=groundedGastroRecommendations(items,'show vegetarian choices',history);
+    expect(result.budget).toBe(1500);
+    expect(result.recommendedItems.map(x=>x.id)).toEqual(['veg']);
+  });
+  it('never invents prices or returns sold-out items in customer replies', () => {
+    const result=groundedGastroRecommendations(items,'spicy');
+    const text=gastroVerifiedReply(result.recommendedItems);
+    expect(text).toContain('Rs. 1550');
+    expect(text).not.toContain('Spicy Wings');
+    expect(gastroVerifiedReply([])).toContain('could not find');
   });
 });
