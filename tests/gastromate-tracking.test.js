@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { isTrackingIntent, selectTrackableOrders, safeOrderChoice } from '../apps/customer-web/src/utils/gastromate-tracking.js';
 
 describe('GastroMate secure order handoff', () => {
@@ -41,5 +42,29 @@ describe('GastroMate secure order handoff', () => {
     expect(Object.keys(result[0]).sort()).toEqual(['dateLabel','id','label','statusLabel']);
     expect(JSON.stringify(result)).not.toContain('0712223333');
     expect(JSON.stringify(result)).not.toContain('private house');
+  });
+});
+
+describe('GastroMate integration security regressions', () => {
+  it('requires customer authentication and restaurant scope in the history query', () => {
+    const server=readFileSync('server.js','utf8');
+    const start=server.indexOf("app.get('/api/customer/orders'");
+    expect(start).toBeGreaterThan(0);
+    const block=server.slice(start,server.indexOf('// POST /api/customer/loyalty/redeem',start));
+    expect(block).toContain('authenticateCustomer');
+    expect(block).toContain('customerAccountId = ? AND tenant_id = ?');
+    expect(block).toContain('[req.customer.id, req.customer.tenant_id]');
+  });
+  it('never forwards order lookup to the AI model', () => {
+    const concierge=readFileSync('apps/customer-web/src/components/GastroAiConcierge.jsx','utf8');
+    expect(concierge).toContain('if (isTrackingIntent(queryText))');
+    expect(concierge).toContain("apiFetch('/customer/orders'");
+    expect(concierge).toContain('safeOrderChoice(order, trackingChoices)');
+  });
+  it('opens tracking with a selected order and clears it for generic tracking', () => {
+    const app=readFileSync('apps/customer-web/src/App.jsx','utf8');
+    expect(app).toContain("if (v === 'track') setTrackingOrderId(extraParams.track ? String(extraParams.track) : null)");
+    const tracking=readFileSync('apps/customer-web/src/views/OrderTrackingView.jsx','utf8');
+    expect(tracking).toContain('setDriverLoc(null)');
   });
 });
