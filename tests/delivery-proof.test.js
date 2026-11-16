@@ -70,10 +70,12 @@ describe('Delivery evidence and completion', () => {
     expect(saved.driverId).toBe('proof_driver'); expect(saved.cashReceived).toBe(1);
     const settled = await dbGet('SELECT status,paymentStatus,invoiceNumber FROM orders WHERE id=?', [o.id]);
     expect(settled.status).toBe('delivered'); expect(settled.paymentStatus).toBe('paid'); expect(settled.invoiceNumber).toBeGreaterThan(0);
+    const originalProof=await dbGet('SELECT * FROM delivery_proofs WHERE orderId=?',[o.id]);
     const before = await dbGet('SELECT * FROM invoice_counter');
     expect((await complete(o, { signature: null })).body.alreadySaved).toBe(true);
     expect(await dbGet('SELECT * FROM invoice_counter')).toEqual(before);
     expect((await dbGet('SELECT signature FROM delivery_proofs WHERE orderId=?', [o.id])).signature).toBe(png);
+    expect(await dbGet('SELECT * FROM delivery_proofs WHERE orderId=?',[o.id])).toEqual(originalProof);
   });
   it('does not recollect prepaid cash at delivery', async () => {
     const o = await delivery();
