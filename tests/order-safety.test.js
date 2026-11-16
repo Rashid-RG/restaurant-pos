@@ -143,6 +143,34 @@ it('rejects non-delivery driver claims and assignments',async()=>{
  expect(accepted.status,accepted.text).toBe(200);
  expect((await dbGet('SELECT driverId FROM orders WHERE id=?',[deliveryOrder])).driverId).toBe('safe_driver');
 });
+it('recovers lost self-claim responses but never gives two riders the same delivery',async()=>{
+ const winner='claim_rider_'+crypto.randomUUID(),challenger='claim_other_'+crypto.randomUUID();
+ const id=crypto.randomUUID();
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[winner,'Rider One',winner,'available','safe_A']);
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[challenger,'Rider Two',challenger,'available','safe_A']);
+ await dbRun("INSERT INTO orders(id,status,tenant_id,diningType,orderType) VALUES (?,'ready','safe_A','delivery','delivery')",[id]);
+ const url='/api/public/driver/assign';
+ const claim=rider=>request(app).post(url).set(driver(rider)).send({orderId:id});
+ try{
+  const results=await Promise.all([claim(winner),claim(challenger)]);
+  expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+  const assigned=(await dbGet('SELECT driverId FROM orders WHERE id=?',[id])).driverId;
+  expect([winner,challenger]).toContain(assigned);
+  const other=assigned===winner?challenger:winner;
+  const replay=await claim(assigned);
+  expect(replay.status,replay.text).toBe(200);
+  expect(replay.body).toMatchObject({success:true,alreadyAssigned:true});
+  const blocked=await claim(other);
+  expect(blocked.status).toBe(409);
+  expect((await request(app).post(url).set(driver(assigned,'safe_B')).send({orderId:id})).status).toBe(403);
+  expect((await dbGet('SELECT driverId FROM orders WHERE id=?',[id])).driverId).toBe(assigned);
+  await dbRun("UPDATE orders SET status='delivered' WHERE id=?",[id]);
+  expect((await claim(assigned)).status).toBe(409);
+ }finally{
+  await dbRun('DELETE FROM orders WHERE id=?',[id]);
+  await dbRun('DELETE FROM drivers WHERE id IN (?,?)',[winner,challenger]);
+ }
+});
 it('binds dispatch to the restaurant and preserves kitchen state',async()=>{
  const id=await ticket();
  await dbRun("UPDATE orders SET diningType='delivery',orderType='delivery' WHERE id=?",[id]);
