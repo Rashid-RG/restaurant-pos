@@ -11,6 +11,7 @@
     "start:production": "node server.js",
     "check": "node scripts/check-syntax.js",
     "backup": "node scripts/backup.js",
+    "backup:check": "node scripts/check-backup-freshness.js",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
     "start:all": "npx concurrently -k -n \"BACKEND,POS,FOOD,DRIVER\" -c \"cyan,blue,green,magenta\" \"npm run server\" \"npm run dev\" \"npm run customer:dev\" \"npm run driver:dev\"",
     "customer:dev": "vite apps/customer-web --port 3001 --host",
