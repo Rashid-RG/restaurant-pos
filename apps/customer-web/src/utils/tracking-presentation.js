@@ -102,3 +102,37 @@ export function shouldClearRiderMarker(update,fix) {
 export function shouldRefreshOnStreamReconnect(hadTransportGap) {
   return hadTransportGap===true;
 }
+
+
+// Order tracking is a private snapshot stream. A stalled request must never
+// block reconnect reconciliation, and an old order response must not overwrite
+// the current customer's order after a switch. One request per order at a time.
+export function createTrackingSnapshotGate(){
+  let sequence=0,active=null;
+  const abandon=()=>{
+    if(!active)return;
+    clearTimeout(active.timer);
+    active.controller.abort();
+    active=null;
+  };
+  return {
+    start(orderId,timeoutMs=12000){
+      if(!orderId||active?.orderId===orderId)return null;
+      abandon();
+      const controller=new AbortController();
+      const timeout=Math.max(1000,Math.min(60000,Number(timeoutMs)||12000));
+      const request={orderId,token:++sequence,controller,signal:controller.signal};
+      request.timer=setTimeout(()=>controller.abort(),timeout);
+      active=request;
+      return request;
+    },
+    isCurrent(request){return !!request && active===request && !request.signal.aborted;},
+    finish(request){
+      if(active!==request)return false;
+      clearTimeout(active.timer);
+      active=null;
+      return true;
+    },
+    invalidate(){abandon();sequence++;},
+  };
+}
