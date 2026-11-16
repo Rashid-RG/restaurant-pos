@@ -165,3 +165,46 @@ jobs:
           path: apps/customer-web/android/
           if-no-files-found: error
           retention-days: 14
+
+  commit-verified-customer-lock:
+    needs: [lockfile-candidate, android-source-candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # Commit the reviewed, pinned lockfile to the *existing* branch only.
+    # GITHUB_TOKEN commits do not trigger new push workflows; no deployment.
+    if: github.ref == 'refs/heads/codex/production-readiness'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/production-readiness
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Keep original root POS lock checksum
+        run: sha256sum package-lock.json > "$RUNNER_TEMP/root-pos-lock.sha256"
+      - name: Download successfully built customer lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: gastrofood-customer-package-lock-candidate
+          path: apps/customer-web
+      - name: Verify customer lock and enforce no POS mutation
+        run: |
+          node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+          sha256sum -c "$RUNNER_TEMP/root-pos-lock.sha256"
+          test "$(git diff --name-only | grep -v '^apps/customer-web/package-lock.json$' | wc -l)" -eq 0
+      - name: Commit customer-only verified lockfile if changed
+        run: |
+          set -euo pipefail
+          git add -- apps/customer-web/package-lock.json
+          if git diff --cached --quiet; then
+            echo "Customer lockfile already synchronized"
+            exit 0
+          fi
+          test "$(git diff --cached --name-only)" = "apps/customer-web/package-lock.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(food-native): lock verified isolated Capacitor 8.6.2 dependencies [skip ci]"
+          git push origin HEAD:codex/production-readiness
