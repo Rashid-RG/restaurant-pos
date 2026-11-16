@@ -37,6 +37,7 @@ import { restaurantTimeZone, dateAtRestaurant, restaurantDayBounds } from './src
 import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.js';
 import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
+import { createDatabaseReadiness } from './lib/database-readiness.js';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -305,6 +306,7 @@ const sqlite = libsqlStore ? null : (await import('sqlite3')).default.verbose();
 // never race the async seed (note: /api/health returns 200 before seeding finishes).
 let _resolveDbReady, _rejectDbReady;
 let databaseIsReady = false;
+const databaseReadiness=createDatabaseReadiness();
 export const dbReady = new Promise((resolve, reject) => { _resolveDbReady = resolve; _rejectDbReady = reject; });
 
 // HEALTH CHECK ENDPOINT (Public, unauthenticated for Docker/K8s/Render/Uptime monitoring)
@@ -312,19 +314,13 @@ export const dbReady = new Promise((resolve, reject) => { _resolveDbReady = reso
 // while correctly reporting 503 until database initialization is complete.
 app.get(['/api/health', '/healthz'], (req, res) => {
   const uptime = Math.floor(process.uptime());
-  if (!databaseIsReady) {
-    return res.status(503).json({
-      status: 'starting',
-      timestamp: new Date().toISOString(),
-      uptime,
-      database: 'initializing'
-    });
-  }
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
+  const ready=databaseReadiness.isReady(databaseIsReady);
+  res.set('Cache-Control','no-store');
+  return res.status(ready?200:503).json({
+    status:ready?'ok':databaseIsReady?'degraded':'starting',
+    timestamp:new Date().toISOString(),
     uptime,
-    database: 'connected'
+    database:databaseReadiness.status(databaseIsReady)
   });
 });
 
@@ -353,11 +349,11 @@ const db = sqlite ? new sqlite.Database(dbPath, (err) => {
       if (err) console.error('Failed to set synchronous mode:', err.message);
       else console.log('SQLite synchronous level set to NORMAL.');
     });
-    databaseGate.withContext(() => initTables()).then(() => { databaseIsReady = true; _resolveDbReady(); }).catch(_rejectDbReady);
+    databaseGate.withContext(() => initTables()).then(() => { databaseIsReady = true; databaseReadiness.recordSuccess(); _resolveDbReady(); }).catch(_rejectDbReady);
   }
 }) : null;
 if (libsqlStore) {
-  setImmediate(() => databaseGate.withContext(() => initTables()).then(() => { databaseIsReady = true; _resolveDbReady(); }).catch(_rejectDbReady));
+  setImmediate(() => databaseGate.withContext(() => initTables()).then(() => { databaseIsReady = true; databaseReadiness.recordSuccess(); _resolveDbReady(); }).catch(_rejectDbReady));
 }
 
 // Helper functions for promise-based database calls (SQLite & Postgres / Neon DB)
@@ -7289,6 +7285,8 @@ app.use((err, req, res, next) => {
 // Start Server — skip when imported by the test runner (supertest drives `app` directly).
 let server = null;
 let pushRecoveryTimer = null;
+let databaseProbeTimer=null;
+let databaseProbeBusy=false;
 let pushRecoveryBusy = false;
 if (!process.env.VITEST) {
   server = app.listen(PORT, () => {
@@ -7300,6 +7298,26 @@ if (!process.env.VITEST) {
 
   dbReady.then(() => {
     console.log('[Startup] Database initialization and schema verification complete.');
+    // Check Turso or SQLite responsiveness without mutating customer records.
+    // A bounded probe avoids reporting successful startup as permanent health.
+    const probe=async()=>{
+      if(databaseProbeBusy)return;
+      databaseProbeBusy=true;
+      let timer;
+      try{
+        await Promise.race([
+          dbGet('SELECT 1 AS ready'),
+          new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Database readiness probe timed out')),8000);timer.unref?.();})
+        ]);
+        databaseReadiness.recordSuccess();
+      }catch(error){
+        databaseReadiness.recordFailure();
+        console.error('[Database readiness]',error?.message||'Health probe failed');
+      }finally{if(timer)clearTimeout(timer);databaseProbeBusy=false;}
+    };
+    void probe();
+    databaseProbeTimer=setInterval(()=>void probe(),30000);
+    databaseProbeTimer.unref();
     // The database is the durable source of truth. Recheck recent subscribed
     // orders on startup and periodically so failed pushes recover without a
     // driver retry, including after a Render process restart.
@@ -7326,6 +7344,7 @@ if (!process.env.VITEST) {
 const handleGracefulShutdown = (signal) => {
   if (!server) return;
   if(pushRecoveryTimer){clearInterval(pushRecoveryTimer);pushRecoveryTimer=null;}
+  if(databaseProbeTimer){clearInterval(databaseProbeTimer);databaseProbeTimer=null;}
   console.log(`\n[Server] ${signal} signal received. Initiating graceful shutdown...`);
 
   for (const client of sseClients) client.end();
