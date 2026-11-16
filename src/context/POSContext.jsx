@@ -451,16 +451,52 @@ export const POSProvider = ({ children }) => {
   }, [currentUser, sessionChecking]);
 
   const acceptOnlineOrder = async (orderId, etaMinutes = 20) => {
-    const res = await fetch(`/api/orders/${orderId}/accept`, {
+    const token = localStorage.getItem('gastroflow_token');
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    };
+    const parseResponse = async (response, fallback) => {
+      await handleAuthResponse(response);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = new Error(data.error || data.message || fallback);
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    };
+
+    // Acceptance is a versioned kitchen transition, not the retired
+    // /api/orders/:id/accept endpoint. Fetch the current ticket revision
+    // so concurrent kitchen operators cannot silently overwrite each other.
+    const ticketsResponse = await fetch('/api/kitchen/tickets', { headers });
+    const tickets = await parseResponse(ticketsResponse, 'Unable to load kitchen tickets.');
+    const ticket = Array.isArray(tickets)
+      ? tickets.find((entry) => String(entry.orderId) === String(orderId))
+      : null;
+    if (!ticket) {
+      throw new Error('This order has no active kitchen ticket. Open Kitchen and refresh the board; scheduled orders may not be due yet.');
+    }
+    if (ticket.state !== 'pending') {
+      throw new Error('This order has already moved to ' + ticket.state + '. Refresh Online Orders.');
+    }
+    const minutes = Number(etaMinutes);
+    if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 240) {
+      throw new Error('Kitchen estimate must be between 1 and 240 minutes.');
+    }
+    const retryKey = crypto.randomUUID().replace(/-/g, '');
+    const response = await fetch(`/api/kitchen/tickets/${encodeURIComponent(orderId)}`, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}`
-      },
-      body: JSON.stringify({ etaMinutes })
+      headers,
+      body: JSON.stringify({
+        revision: ticket.revision,
+        state: 'preparing',
+        etaMinutes: minutes,
+        retryKey
+      })
     });
-    await handleAuthResponse(res);
-    if (!res.ok) throw new Error('Failed to accept order');
+    await parseResponse(response, 'Unable to accept the online order.');
     await loadAllData(false);
   };
 
