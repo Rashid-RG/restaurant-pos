@@ -5321,7 +5321,11 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
   try {
     const existing = await dbGet("SELECT tenant_id FROM orders WHERE id=? AND driverId=? AND status IN ('ready','picked_up','out_for_delivery','arrived')", [orderId, driverId]);
     if (!existing || existing.tenant_id !== tenantId) return res.status(404).json({ error: 'Order not found.' });
-    const previous = await dbGet('SELECT lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=?', [orderId]);
+    const existingFix = await dbGet('SELECT driverName,lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=?', [orderId]);
+    // A reassigned rider starts a fresh GPS trajectory. Never compare their
+    // first fix against another rider's historical position or timestamp.
+    const previous = existingFix && (existingFix.driverName === driverId || existingFix.driverName === driverName)
+      ? existingFix : null;
     if (previous && Number(previous.updatedAt) >= measuredAt) {
       return res.status(409).json({ error: 'An equal or newer location update already exists.', code: 'GPS_FIX_OLD' });
     }
@@ -5339,7 +5343,7 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
       }
     }
     await dbRun('INSERT OR REPLACE INTO driver_locations (orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',
-      [orderId, driverName, lat, lng, measuredAt, accuracy]);
+      [orderId, driverId, lat, lng, measuredAt, accuracy]);
     notifyOrderStream(orderId, { type: 'driver_location', lat, lng, driverName, updatedAt: measuredAt, accuracyMeters: accuracy });
     res.set('Cache-Control','no-store').json({ success: true, updatedAt: measuredAt, accuracyMeters: accuracy });
   } catch (err) {
@@ -5787,27 +5791,14 @@ app.get('/api/public/reverse-geocode', geocodeLimiter, async (req, res) => {
   }
 });
 
-// ── Driver location for live delivery tracking ───────────────────────────────
-// The driver opens a link (issued by staff) that posts their GPS here. The order id
-// acts as the bearer token (same model as the public status/cancel routes). Each ping
-// is stored and pushed to the customer's live tracking stream.
-app.post('/api/public/orders/:id/driver-location', publicApiLimiter, authenticateDriver, async (req, res) => {
-  const { lat, lng, driverName } = req.body || {};
-  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) return res.status(400).json({ error: 'lat and lng (numbers) are required.' });
-  try {
-    const order = await dbGet('SELECT id, status FROM orders WHERE id = ? AND tenant_id = ? AND driverId = ?', [req.params.id, req.tenantId, req.driver.driverId]);
-    if (!order) return res.status(404).json({ error: 'Order not found.' });
-    await dbRun(
-      `INSERT INTO driver_locations (orderId, driverName, lat, lng, updatedAt) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(orderId) DO UPDATE SET driverName = excluded.driverName, lat = excluded.lat, lng = excluded.lng, updatedAt = excluded.updatedAt`,
-      [order.id, driverName || 'Driver', lat, lng, Date.now()]
-    );
-    // Push to the order's live stream as a distinct event type.
-    notifyOrderStream(order.id, { type: 'driver_location', lat, lng, driverName: driverName || 'Driver', updatedAt: Date.now() });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
-  }
+// Deprecated legacy location route. Drivers use /api/public/driver/location,
+// which enforces assigned identity, measuredAt, accuracy and motion plausibility.
+// Refuse legacy writes rather than allow bypass or spoofed rider display names.
+app.post('/api/public/orders/:id/driver-location', publicApiLimiter, authenticateDriver, (_req,res)=>{
+  res.status(410).set('Cache-Control','no-store').json({
+    error:'Update the driver app to send verified location through /api/public/driver/location.',
+    code:'DRIVER_GPS_ENDPOINT_RETIRED'
+  });
 });
 
 // ── 3.5 PayHere Payment Gateway Sandbox & Live Integration (Public) ──
