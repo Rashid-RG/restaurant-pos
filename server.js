@@ -1,6 +1,6 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
-import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply } from './lib/gastromate-ai.js';
+import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal } from './lib/gastromate-ai.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
@@ -3868,6 +3868,19 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
         action: null
       });
     }
+    // Explicit add/order commands get an unambiguous, stock-checked proposal.
+    // No cart mutation occurs until the customer confirms in the client.
+    const orderProposal = gastroOrderProposal(menuItems, message);
+    if (orderProposal) {
+      const chosen = menuItems.find(item => String(item.id) === orderProposal.itemId);
+      return res.json({
+        reply: `I found ${chosen.name} at Rs. ${Number(chosen.price)} each. Confirm the quantity (${orderProposal.quantity}) below to add it to your cart.`,
+        recommendedItems: [chosen],
+        suggestions: ['View Cart', 'Browse Menu'],
+        action: orderProposal
+      });
+    }
+
 
     // ── Configurable Gemini API, bounded tenant-scoped chat context ──
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
