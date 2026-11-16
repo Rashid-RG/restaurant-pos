@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {
   normalizeGastroHistory, isGastroMenuItemAvailable, selectGastroMenu,
   gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse,
-  gastroBudget, groundedGastroRecommendations, gastroVerifiedReply
+  gastroBudget, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal
 } from '../lib/gastromate-ai.js';
 
 const tenantA = [
@@ -115,5 +115,28 @@ describe('GastroMate grounded discovery', () => {
     expect(text).toContain('Rs. 1550');
     expect(text).not.toContain('Spicy Wings');
     expect(gastroVerifiedReply([])).toContain('could not find');
+  });
+});
+
+describe('GastroMate explicit ordering proposals', () => {
+  const menu = [
+    {id:'a',name:'Chicken Burger',price:1200,stock:5,isAvailable:1},
+    {id:'b',name:'Chicken Burger Large',price:1650,stock:3,isAvailable:1},
+    {id:'c',name:'Veg Rice',price:900,stock:0,isAvailable:1}
+  ];
+  it('honors an explicit quantity and full name', () => {
+    expect(gastroOrderProposal(menu,'add 2 Chicken Burger to my cart')).toEqual({type:'add_to_cart',itemId:'a',quantity:2});
+    expect(gastroOrderProposal(menu,'order 3 Chicken Burger Large')).toEqual({type:'add_to_cart',itemId:'b',quantity:3});
+  });
+  it('never guesses between similarly named items', () => {
+    expect(gastroOrderProposal(menu,'add burger')).toBe(null);
+  });
+  it('enforces stock, availability and maximum quantities', () => {
+    expect(gastroOrderProposal(menu,'order 6 Chicken Burger')).toBe(null);
+    expect(gastroOrderProposal(menu,'add Veg Rice')).toBe(null);
+    expect(gastroOrderProposal(menu,'add 21 Chicken Burger')).toBe(null);
+  });
+  it('does not treat arbitrary questions as cart actions', () => {
+    expect(gastroOrderProposal(menu,'How much does a chicken burger cost?')).toBe(null);
   });
 });
