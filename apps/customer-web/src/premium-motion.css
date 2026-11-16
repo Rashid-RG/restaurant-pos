@@ -73,7 +73,7 @@
 @media(max-width:920px){.restaurants-result-grid{grid-template-columns:1fr}.customer-premium .menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 @media(max-width:600px){.restaurants-location-row{align-items:flex-start!important;flex-wrap:wrap}.restaurants-context-label{white-space:normal}.customer-premium .menu-card:hover,.restaurants-result-grid>[role=button]:hover{transform:none}.customer-premium .menu-card-emoji{height:150px!important}.customer-premium .menu-card-body{padding:11px!important}.customer-premium .menu-grid{gap:10px!important}.customer-premium .checkout-view{padding-inline:12px!important}.customer-premium .bottom-nav .nav-item{font-size:.72rem}}
 @media(max-width:390px){.customer-premium .menu-card-emoji{height:130px!important}.customer-premium .menu-card-name{font-size:.85rem!important}}
-@media(prefers-reduced-motion:reduce){.customer-premium *,.customer-premium *::before,.customer-premium *::after,.restaurants-view *,.restaurants-view *::before,.restaurants-view *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;transform:none!important}}
+@media(prefers-reduced-motion:reduce){.customer-premium *,.customer-premium *::before,.customer-premium *::after,.restaurants-view *,.restaurants-view *::before,.restaurants-view *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 /* Order tracking and order progress, with accessible device-sized actions. */
 .customer-premium .tracking-page{max-width:820px;margin-inline:auto}
