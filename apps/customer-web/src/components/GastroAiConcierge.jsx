@@ -7,8 +7,8 @@ import { useCart } from '../context/CartContext.jsx';
 import { isMenuItemAvailable, maxMenuItemQuantity } from '../utils/menu-selection.js';
 import './gastromate-mascot.css';
 
-function BurgerMascot({ small = false }) {
-  return <span className={`gastromate-burger ${small ? 'gastromate-burger-small' : ''}`} aria-hidden="true">
+function BurgerMascot({ small = false, active = false }) {
+  return <span className={`gastromate-burger ${small ? 'gastromate-burger-small' : ''} ${active ? 'gastromate-burger-active' : ''}`} aria-hidden="true">
     <span className="gastromate-burger-arm left">✦</span>
     <span className="gastromate-burger-body"><span className="gastromate-burger-face">•ᴗ•</span></span>
     <span className="gastromate-burger-arm right">✦</span>
@@ -36,6 +36,30 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [isListening, setIsListening] = useState(false);
   const [pendingAdd, setPendingAdd] = useState(null);
   const [addingItem, setAddingItem] = useState(false);
+  const [reveal, setReveal] = useState({ id: null, count: 0 });
+  const latestMessage = messages[messages.length - 1];
+  const isReplyAppearing = reveal.id === latestMessage?.id && reveal.count < String(latestMessage?.text || '').length;
+  const isGastroAnimating = typing || isReplyAppearing;
+
+  // Show a brief typewriter effect for new answers; never delay users who prefer reduced motion.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.sender !== 'ai' || last.id === 'welcome') return undefined;
+    const answer = String(last.text || '');
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setReveal({ id: last.id, count: answer.length });
+      return undefined;
+    }
+    let chars = 0;
+    const step = Math.max(1, Math.ceil(answer.length / 75));
+    setReveal({ id: last.id, count: 0 });
+    const timer = window.setInterval(() => {
+      chars = Math.min(answer.length, chars + step);
+      setReveal({ id: last.id, count: chars });
+      if (chars >= answer.length) window.clearInterval(timer);
+    }, 24);
+    return () => window.clearInterval(timer);
+  }, [messages]);
 
   // Guest Verification state for Human Support escalation
   const [verifyingGuest, setVerifyingGuest] = useState(false);
@@ -93,7 +117,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   // Send message to GastroAI server endpoint
   const sendMessage = async (textToSend, fromVoice = false) => {
     const queryText = (textToSend || input).trim();
-    if (!queryText) return;
+    if (!queryText || typing) return;
 
     const userMsgId = `msg_${Date.now()}`;
     setMessages(prev => [...prev, { id: userMsgId, sender: 'user', text: queryText }]);
@@ -104,7 +128,12 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       const res = await apiFetch('/ai/chat', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: JSON.stringify({ message: queryText, cartItems })
+        body: JSON.stringify({
+          message: queryText,
+          cartItems,
+          history: messages.filter(m => m.id !== 'welcome' && (m.sender === 'user' || m.sender === 'ai'))
+            .slice(-8).map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: String(m.text || '').slice(0, 600) }))
+        })
       });
 
       const aiMsgId = `ai_${Date.now()}`;
@@ -269,7 +298,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
               gap: 6
             }}
           >
-            <BurgerMascot small />
+            <BurgerMascot small active={isGastroAnimating} />
             <span className="gastro-ai-pill-text">Ask GastroMate</span>
           </div>
         )}
@@ -295,7 +324,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             flexShrink: 0
           }}
         >
-          {isOpen ? <X size={22} /> : <BurgerMascot small />}
+          {isOpen ? <X size={22} /> : <BurgerMascot small active={isGastroAnimating} />}
           {!isOpen && (
             <span
               style={{
@@ -315,7 +344,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
 
       {/* 💬 GastroMate AI Drawer Modal */}
       {isOpen && (
-        <div className="gastro-ai-modal gastro-mate-modal" role="dialog" aria-modal="true" aria-label="GastroMate AI assistant">
+        <div className={`gastro-ai-modal gastro-mate-modal ${isGastroAnimating ? 'gastromate-chat-active' : ''}`} role="dialog" aria-modal="true" aria-label="GastroMate AI assistant">
           {/* Header */}
           <div
             style={{
@@ -329,7 +358,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ fontSize: '1.5rem', background: 'rgba(255,255,255,0.2)', padding: '6px 8px', borderRadius: 14 }}>
-                <BurgerMascot />
+                <BurgerMascot active={isGastroAnimating} />
               </div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1rem', letterSpacing: '-0.2px' }}>
@@ -373,7 +402,11 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                   border: msg.sender === 'user' ? 'none' : '1px solid var(--border-color, #334155)'
                 }}
               >
-                <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                  {msg.sender === 'ai' && reveal.id === msg.id ? msg.text.slice(0, reveal.count) : msg.text}
+                  {msg.sender === 'ai' && reveal.id === msg.id && reveal.count < msg.text.length && <span className="gastromate-type-cursor" aria-hidden="true">▍</span>}
+                </div>
+                {msg.sender === 'ai' && <span className="sr-only" aria-live="polite">{msg.text}</span>}
 
                 {/* Speaker Voice Icon */}
                 {msg.sender === 'ai' && (
@@ -406,7 +439,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                         <button
                           onClick={() => {
                             setIsOpen(false);
-                            onNavigate && onNavigate('menu');
+                            onNavigate && onNavigate('store-menu');
                           }}
                           style={{ background: '#176e4d', color: '#fff', border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
                         >
@@ -455,7 +488,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             {/* Typing Indicator */}
             {typing && (
               <div style={{ alignSelf: 'flex-start', background: 'rgba(255,255,255,0.06)', padding: '8px 14px', borderRadius: 16, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                ⏳ GastroAI is typing...
+                <span className="gastromate-thinking-label">🍔 GastroMate is thinking <span className="typing-dots" aria-hidden="true"><span/><span/><span/></span></span>
               </div>
             )}
 
