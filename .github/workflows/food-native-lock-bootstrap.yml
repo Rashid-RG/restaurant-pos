@@ -257,3 +257,64 @@ jobs:
           path: gastrofood-startup.png
           if-no-files-found: warn
           retention-days: 7
+
+  commit-reviewed-android-source:
+    needs: [commit-verified-customer-lock, android-emulator-launch-smoke]
+    if: github.ref == 'refs/heads/codex/production-readiness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/production-readiness
+          persist-credentials: true
+      - name: Capture root POS lock checksum
+        run: sha256sum package-lock.json > "$RUNNER_TEMP/root-lock.sha256"
+      - name: Download reviewed Android source candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: gastrofood-android-source-candidate
+          path: apps/customer-web/android
+      - name: Verify native source identity, backup isolation and branded launcher
+        run: |
+          set -euo pipefail
+          test -f apps/customer-web/android/gradlew
+          grep -F 'applicationId "com.rstechnologies.gastrofood"' apps/customer-web/android/app/build.gradle
+          grep -F 'android:allowBackup="false"' apps/customer-web/android/app/src/main/AndroidManifest.xml
+          test -s apps/customer-web/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          test -s apps/customer-web/android/app/src/main/assets/public/index.html
+          sha256sum -c "$RUNNER_TEMP/root-lock.sha256"
+          if find apps/customer-web/android -type f \( -iname '*.jks' -o -iname '*.keystore' -o -name 'google-services.json' -o -name 'local.properties' \) | grep .; then
+            echo "Refusing to commit native signing keys, services config or local machine paths"
+            exit 1
+          fi
+      - name: Exclude generated build and local machine files
+        run: |
+          cat > apps/customer-web/android/.gitignore <<'EOF'
+          .gradle/
+          .idea/
+          local.properties
+          **/build/
+          captures/
+          *.jks
+          *.keystore
+          google-services.json
+          EOF
+      - name: Commit ONLY isolated customer Android source if changed
+        run: |
+          set -euo pipefail
+          git add -- apps/customer-web/android
+          if git diff --cached --quiet; then
+            echo "Native Android source already synchronized"
+            exit 0
+          fi
+          if git diff --cached --name-only | grep -v '^apps/customer-web/android/'; then
+            echo "Blocked unrelated staged paths"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(food-native): check in verified isolated Android source and GastroFood branding [skip ci]"
+          git push origin HEAD:codex/production-readiness
