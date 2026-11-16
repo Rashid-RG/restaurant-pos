@@ -4758,6 +4758,10 @@ app.get('/api/public/schedule/slots', publicApiLimiter, async(req,res)=>{
     const tenantId=await resolvePublicTenant(req);
     const type=String(req.query.type||'takeaway');
     if(!['takeaway','delivery','dine-in'].includes(type))return res.status(400).json({error:'Invalid order type.'});
+    // A closed/suspended restaurant must not advertise bookable slots. The
+    // final order transaction independently revalidates acceptance and capacity.
+    if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')!=='true')
+      return res.status(409).set('Cache-Control','no-store').json({error:'This restaurant is not accepting scheduled orders right now.'});
     const prep=Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30));
     const capacity=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
     const now=Date.now();
