@@ -1,5 +1,5 @@
 import {startStoreUpdates} from '../utils/live-store.js';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { isMenuItemAvailable, maxMenuItemQuantity, validMenuQuantity, menuItemTotal, isRequiredModifierMissing } from '../utils/menu-selection.js';
 import { useCart } from '../context/CartContext.jsx';
@@ -18,7 +18,8 @@ function renderChatText(text) {
   });
 }
 
-export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
+export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize = null }) {
+  const lastAiRequestRef = useRef(null);
   const { t, dict } = useLang();
 
   const [menu, setMenu] = useState({ categories: [], items: [], restaurantName: '', logo: null });
@@ -321,10 +322,12 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
   useEffect(() => {
     if (loading || !menu.items.length) return;
     const params = new URLSearchParams(window.location.search);
-    const requestedId = params.get('customize');
+    const requestedId = aiCustomize?.itemId || params.get('customize');
     if (!requestedId) return;
-    const requestedTenant = params.get('tenant');
-    const requestedQty = Number(params.get('qty') || 1);
+    if (aiCustomize && lastAiRequestRef.current === aiCustomize.requestId) return;
+    if (aiCustomize) lastAiRequestRef.current = aiCustomize.requestId;
+    const requestedTenant = aiCustomize?.tenantId || params.get('tenant');
+    const requestedQty = Number(aiCustomize?.quantity ?? params.get('qty') ?? 1);
     const cleanedUrl = new URL(window.location.href);
     cleanedUrl.searchParams.delete('customize');
     cleanedUrl.searchParams.delete('qty');
@@ -353,7 +356,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast }) {
     setCustomizerNotes('');
     setSelectedModifiers([]);
     setShowCustomizerModal(true);
-  }, [loading, menu.items, menu.storeOpen, menu.offlineSnapshot]);
+  }, [loading, menu.items, menu.storeOpen, menu.offlineSnapshot, aiCustomize]);
 
   // Open Customizer
   const handleItemAddClick = (item) => {
