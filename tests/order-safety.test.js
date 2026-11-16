@@ -30,6 +30,17 @@ beforeAll(async()=>{
  for(const id of ['safe_customer','other_customer'])await dbRun('INSERT INTO customer_accounts (id,name,email,phone,tenant_id,passwordHash) VALUES (?,?,?,?,?,?)',[id,id,id+'@test.invalid','0770000000','safe_A','fixture']);
  await dbRun("INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES ('safe_driver','Verified Driver','0770000001','available','safe_A'),('foreign_driver','Other Driver','0770000002','available','safe_B')");
 },30000);
+it('uses a tenant-and-driver index for rider dispatch history without mixing restaurants',async()=>{
+ const indexes=await dbAll("PRAGMA index_info('idx_orders_tenant_driver_status_time')");
+ expect(indexes.map(c=>c.name)).toEqual(['tenant_id','driverId','status','timestamp']);
+ const plan=await dbAll(
+   "EXPLAIN QUERY PLAN SELECT * FROM orders WHERE tenant_id=? AND driverId=? AND status='delivered' ORDER BY timestamp DESC LIMIT 100",
+   ['safe_A','safe_driver']
+ );
+ expect(plan.map(row=>row.detail||'').join(' ')).toContain('idx_orders_tenant_driver_status_time');
+ const other=await dbAll("SELECT id FROM orders WHERE tenant_id=? AND driverId=? AND status='delivered'",['safe_B','safe_driver']);
+ expect(other).toEqual([]);
+});
 it('reserves both menu and recipe stock and reverses the saved recipe once across concurrent cancellation',async()=>{
  const before=await stock(),raw=await ingredient(),created=await publicOrder();expect(created.status,created.text).toBe(201);
  expect((await stock()).stock).toBe(before.stock-2);expect((await ingredient()).stock).toBe(raw.stock-1);
