@@ -89,6 +89,7 @@ it('propagates kitchen preparation to the original customer tracking order',asyn
 });
 it('binds dispatch to the restaurant and preserves kitchen state',async()=>{
  const id=await ticket();
+ await dbRun("UPDATE orders SET diningType='delivery',orderType='delivery' WHERE id=?",[id]);
  expect((await request(app).post('/api/delivery/assign').send({orderId:id,driverId:'safe_driver'})).status).toBe(401);
  expect((await request(app).post('/api/delivery/assign').set(staff()).send({orderId:id,driverId:'foreign_driver'})).status).toBe(404);
  expect((await request(app).post('/api/delivery/assign').set(staff()).send({orderId:id,driverId:'safe_driver'})).status).toBe(200);
