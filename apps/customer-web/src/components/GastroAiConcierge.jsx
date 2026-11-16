@@ -208,7 +208,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         text: res.reply,
         recommendedItems: res.recommendedItems || [],
         suggestions: res.suggestions || [],
-        action: res.action || null
+        action: res.action || null,
+        plan: res.plan?.type === 'multi_item_preview' ? res.plan : null
       }]);
 
       if (res.action?.type === 'add_to_cart') setPendingAdd(res.action);
@@ -532,6 +533,40 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                         >Select +</button>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* Server-grounded multi-item draft. Never mutate the cart automatically. */}
+                {msg.plan?.type === 'multi_item_preview' && Array.isArray(msg.plan.lines) && (
+                  <div className="gastromate-plan" style={{marginTop:10,display:'grid',gap:7}}>
+                    <strong style={{fontSize:'.85rem'}}>Your food selection (not yet added)</strong>
+                    {msg.plan.lines.slice(0,6).map((line, index) => (
+                      <div key={index} style={{padding:9,border:'1px solid #b9d5c8',borderRadius:10,background:'#fff'}}>
+                        <div style={{fontSize:'.79rem',color:'#183d2b'}}>
+                          {line.quantity} × {line.name || line.phrase}
+                          {line.status === 'available' ? ` — Rs. ${Number(line.lineTotal).toFixed(2)}` : ' — Please choose an exact item'}
+                        </div>
+                        {line.status === 'available' ? (
+                          <button type="button" disabled={typing || addingItem}
+                            style={{marginTop:6,border:'1px solid #176e4d',borderRadius:7,padding:'5px 9px',color:'#176e4d',background:'#fff',cursor:'pointer'}}
+                            onClick={() => setPendingAdd({type:'add_to_cart',itemId:String(line.itemId),quantity:Number(line.quantity)})}>
+                            Review and add this item
+                          </button>
+                        ) : (
+                          <button type="button" style={{marginTop:6,border:'1px solid #176e4d',borderRadius:7,padding:'5px 9px',color:'#176e4d',background:'#fff',cursor:'pointer'}}
+                            onClick={() => {setIsOpen(false);onNavigate?.('store-menu', {tenant:getActiveTenant()});}}>
+                            Choose from restaurant menu
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <div style={{fontSize:'.81rem',fontWeight:700}}>
+                      {msg.plan.totalKnown ? 'Base subtotal: ' : 'Known items subtotal: '}
+                      Rs. {Number(msg.plan.subtotal || 0).toFixed(2)}
+                      {msg.plan.budget != null && ` · Budget: Rs. ${Number(msg.plan.budget).toFixed(2)}`}
+                    </div>
+                    {msg.plan.withinBudget === false && <div role="status" style={{color:'#a23b23',fontSize:'.78rem'}}>Base subtotal exceeds the stated budget. Nothing has been added.</div>}
+                    <small style={{lineHeight:1.4,color:'#52685c'}}>{msg.plan.note}</small>
                   </div>
                 )}
 
