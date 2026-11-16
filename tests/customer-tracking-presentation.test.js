@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {trackingSteps,trackingProgress,trackingHeroMessage,shouldPollTrackingSnapshot,shouldClearRiderMarker,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
+import {trackingSteps,trackingProgress,trackingHeroMessage,shouldPollTrackingSnapshot,shouldRefreshOnStreamReconnect,shouldClearRiderMarker,trackingEtaMinutes,validGeoPoint,normalizeDriverFix,isNewerDriverFix,driverFreshness,TRACKING_GPS_EXPIRE_MS,TRACKING_GPS_FRESH_MS} from '../apps/customer-web/src/utils/tracking-presentation.js';
 
 describe('GastroFood real order tracking presentation',()=>{
   it('separates ready-for-rider from actually out-for-delivery',()=>{
@@ -14,6 +14,11 @@ describe('GastroFood real order tracking presentation',()=>{
     expect(trackingProgress('completed','delivery').done).toBe(true);
     expect(trackingSteps('takeaway').length).toBe(4);
     expect(trackingSteps('dine-in').at(-1).label).toBe('Served');
+  });
+  it('reconciles the authoritative snapshot after SSE transport reconnect',()=>{
+    expect(shouldRefreshOnStreamReconnect(false)).toBe(false);
+    expect(shouldRefreshOnStreamReconnect(true)).toBe(true);
+    expect(shouldRefreshOnStreamReconnect(undefined)).toBe(false);
   });
   it('reduces polling with a connected stream while retaining disconnect and stale recovery',()=>{
     const now=100000;
