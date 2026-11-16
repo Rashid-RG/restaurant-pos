@@ -23,6 +23,8 @@ export async function apiFetch(endpoint, options = {}) {
   const trackingAccess = trackedOrder && localStorage.getItem(`gastroflow_order_access_${trackedOrder}`);
   const customerTokenKey = 'gastroflow_customer_token:' + encodeURIComponent(activeTenant || 'default_tenant');
   const customerToken = localStorage.getItem(customerTokenKey);
+  const isPublicDiscovery=cleanPath==='/api/public/restaurants' && (!options.method || options.method.toUpperCase()==='GET');
+  const hasRequestBody=options.body!==undefined && options.body!==null;
   const cachePublicMenu=cleanPath==='/api/public/menu' && (!options.method || options.method==='GET');
   const cacheKey='gastroflow_public_menu_snapshot:'+encodeURIComponent(activeTenant||'default_tenant');
   const offlineMenu=()=>{
@@ -39,11 +41,13 @@ export async function apiFetch(endpoint, options = {}) {
     res = await fetch(absoluteUrl, {
       ...options,
       headers: {
-        'Content-Type': 'application/json',
+        // Anonymous restaurant discovery needs no tenant or JSON request headers.
+        // This avoids an unnecessary CORS preflight on cross-origin native GETs.
+        ...(!isPublicDiscovery && hasRequestBody ? { 'Content-Type': 'application/json' } : {}),
         ...(trackingAccess ? { 'X-Order-Tracking': trackingAccess } : {}),
         ...(trackedOrder && customerToken ? { Authorization: `Bearer ${customerToken}` } : {}),
         ...(/\/(?:customer|public)\/support\//.test(cleanPath) && customerToken ? { Authorization: `Bearer ${customerToken}` } : {}),
-        ...(activeTenant ? { 'X-Tenant-Id': activeTenant } : {}),
+        ...(!isPublicDiscovery && activeTenant ? { 'X-Tenant-Id': activeTenant } : {}),
         ...(options.headers || {})
       }
     });
