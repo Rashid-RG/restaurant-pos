@@ -3832,7 +3832,7 @@ app.get('/api/public/delivery-zone-info', publicApiLimiter, async (req, res) => 
 // ── POST /api/ai/chat — GastroAI Brilliant Customer Assistant Engine ──
 app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
   const { message, cartItems } = req.body;
-  if (!message || typeof message !== 'string') {
+  if (!message || typeof message !== 'string' || !message.trim() || message.length > 2000) {
     return res.status(400).json({ error: 'Message text is required.' });
   }
 
@@ -3841,13 +3841,18 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
   try {
     // 1. Fetch live menu items and store settings from database (tenant-scoped)
     const tenantId = await resolvePublicTenant(req);
-    const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock FROM menu_items WHERE tenant_id = ? AND (stock IS NULL OR stock > 0)', [tenantId]);
+    const storeMeta = await getTenantMeta(tenantId);
+    if (storeMeta.status !== 'active') return res.status(404).json({ error: 'Restaurant unavailable.' });
+    const storeOpen = (await getSetting(tenantId, 'storeOpen')) === 'true';
+    const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock, isAvailable FROM menu_items WHERE tenant_id = ? AND (isAvailable = 1 OR isAvailable IS NULL) AND (stock IS NULL OR stock > 0)', [tenantId]);
+    if (!storeOpen) return res.json({ reply: 'This restaurant is currently closed for online orders. You can browse its menu, but ordering is unavailable until it opens.', recommendedItems: [], suggestions: ['Browse Menu', 'Contact Human Support'], action: null });
     const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
     const baseFee = (await getSetting(tenantId, 'deliveryBaseFee')) || '99';
     const freeThreshold = (await getSetting(tenantId, 'deliveryFreeThreshold')) || '3000';
 
     // ── Google Gemini 1.5 Flash API LLM Engine ──
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
     if (geminiKey) {
       try {
         const sysContext = `You are GastroAI, the official 24/7 Intelligent Customer Assistant & Dining Concierge for "${storeName}".
@@ -3856,6 +3861,7 @@ Your goal is to help customers politely, cleanly, and professionally with ALL qu
 2. Order status, live delivery tracking, prep times, cancellation rules.
 3. Customer Care, Support & Career Inquiries: When the user asks about contacting support, customer care, careers, jobs (e.g. "conductcareer", "contact care", "agent", "call manager"), understand their intent immediately and present clean escalation options.
 4. Location, opening hours, payment methods, feedback.
+Never claim an item was added to cart, an order placed or a support ticket created before the app confirms it. Never invent live order status, delivery fees, allergens, payment availability or opening hours.
 
 Available menu items: ${JSON.stringify(menuItems.slice(0, 20).map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, tags: i.dietaryTags })))}
 Customer Cart: ${JSON.stringify(cartItems || [])}
@@ -3870,7 +3876,7 @@ Return valid JSON:
   "action": null or {"type": "add_to_cart", "itemId": "item_id", "quantity": 1} or {"type": "connect_support"}
 }`;
 
-        const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`, {
+        const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${geminiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3884,12 +3890,17 @@ Return valid JSON:
           const rawText = gData.candidates?.[0]?.content?.parts?.[0]?.text;
           if (rawText) {
             const parsed = JSON.parse(rawText);
-            const recs = (parsed.recommendedItemIds || []).map(id => menuItems.find(i => i.id === id)).filter(Boolean);
+            const recs = (Array.isArray(parsed.recommendedItemIds) ? parsed.recommendedItemIds : []).map(id => menuItems.find(i => String(i.id) === String(id))).filter(Boolean).slice(0, 5);
+            const proposal = parsed.action;
+            const safeAction = proposal?.type === 'connect_support' ? { type: 'connect_support' }
+              : proposal?.type === 'add_to_cart' && menuItems.some(i => String(i.id) === String(proposal.itemId))
+                ? { type: 'add_to_cart', itemId: String(proposal.itemId), quantity: Math.max(1, Math.min(20, Math.trunc(Number(proposal.quantity) || 1))) }
+                : null;
             return res.json({
-              reply: parsed.reply,
+              reply: typeof parsed.reply === 'string' ? parsed.reply.slice(0, 4000) : 'Please choose a menu item below.',
               recommendedItems: recs,
-              suggestions: parsed.suggestions || ['💬 Connect with Live Agent', '📞 Call 0760130922', '🌶️ Spicy Dishes'],
-              action: parsed.action || null
+              suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.filter(s => typeof s === 'string').slice(0, 4) : ['Browse Menu', 'Contact Human Support'],
+              action: safeAction
             });
           }
         }
@@ -3959,9 +3970,9 @@ Return valid JSON:
       const matched = menuItems.find(i => i.name.toLowerCase().includes(queryItem));
       if (matched) {
         action = { type: 'add_to_cart', itemId: matched.id, quantity: 1 };
-        reply = `✨ Added *${matched.name}* (Rs. ${matched.price}) to your cart! 🛒\n` +
+        reply = `✨ I found *${matched.name}* (Rs. ${matched.price}). Tap Add to Cart to confirm. 🛒\n` +
           `Would you like to add a refreshing drink or dessert to complete your meal?`;
-        recommendedItems = menuItems.filter(i => i.category === 'drinks' || i.category === 'desserts').slice(0, 2);
+        recommendedItems = [matched, ...menuItems.filter(i => i.id !== matched.id && (i.category === 'drinks' || i.category === 'desserts')).slice(0, 2)];
         suggestions = ['🛒 View Cart & Checkout', '🍹 Add Refreshing Drink', '🍰 Add Dessert'];
         return res.json({ reply, recommendedItems, suggestions, action });
       }
@@ -4005,20 +4016,15 @@ Return valid JSON:
     }
     // Intent: Budget / Combo / Low Price
     else if (msg.includes('combo') || msg.includes('cheap') || msg.includes('budget') || msg.includes('under') || msg.includes('ගණන් අඩු') || msg.includes('மலிவான')) {
-      const budgetItems = menuItems.filter(i => i.price <= 1500).slice(0, 3);
+      const budgetLimit = Number(msg.match(/(?:under|below|rs\.?|lkr)\s*(\d{2,6})/i)?.[1] || 1500);
+      const budgetItems = menuItems.filter(i => Number(i.price) <= budgetLimit).slice(0, 3);
       recommendedItems = budgetItems;
-      reply = `💡 Here are our best value budget-friendly meals under Rs. 1500:\n` +
-        `Orders above Rs. ${freeThreshold} automatically qualify for *FREE Delivery*! 🎉`;
+      reply = `💡 Here are available meals under Rs. ${budgetLimit}. Final totals and delivery fees are calculated at checkout.`;
       suggestions = ['💡 Budget Meal', '🎉 Free Delivery Info', '🍹 Add Drink'];
     }
     // Intent: Delivery Fee & Store Info
     else if (msg.includes('delivery') || msg.includes('fee') || msg.includes('rain') || msg.includes('බෙදාහැරීම') || msg.includes('டெலிவரி')) {
-      reply = `🛵 *GastroFlow Delivery Economics*:\n` +
-        `• Base Delivery Fee: Rs. ${baseFee}\n` +
-        `• Free Radius: First 2.0 km free per-km charge\n` +
-        `• Beyond 2km: Rs. 50/km\n` +
-        `• FREE Delivery: Orders above Rs. ${freeThreshold} get 100% Free Delivery!\n` +
-        `• Payment Methods: Cash on Delivery (COD) & PayHere Online Cards`;
+      reply = `🛵 Delivery pricing and payment options depend on the restaurant, address, and current checkout settings. Please open checkout for an accurate total and currently available payment methods.`;
       suggestions = ['🛵 Check Delivery Fee to My Area', '💳 Payment Options', '🍽️ Browse Menu'];
     }
     // Default Intelligent Assistant Response
