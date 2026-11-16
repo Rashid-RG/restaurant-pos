@@ -19,8 +19,22 @@ try {
   if(food.server?.cleartext===true) errors.push('Food Android cleartext is enabled');
   if(food.server?.url) errors.push('Food native shell must not depend on a remote WebView URL');
 } catch(e) {errors.push('Unable to load isolated customer Capacitor config: '+e.message);}
-const pkg=readJson('package.json');
-if(!pkg.dependencies?.['@capacitor/core']) blockers.push('Capacitor core/native CLI and platforms are not yet installed or locked');
+const nativePkg=readJson('apps/customer-web/package.json');
+const requiredNative=['@capacitor/core','@capacitor/cli','@capacitor/android','@capacitor/ios'];
+for(const name of requiredNative){
+  const version=nativePkg.dependencies?.[name] || nativePkg.devDependencies?.[name];
+  if(version!=='8.6.2') errors.push('Customer '+name+' must be pinned at exact 8.6.2 (currently '+(version||'missing')+')');
+}
+if(!fs.existsSync('apps/customer-web/package-lock.json'))
+  blockers.push('Customer native dependency lock missing: run npm install inside apps/customer-web and commit the generated lockfile before cap add');
+else {
+  try{
+    const lock=readJson('apps/customer-web/package-lock.json');
+    for(const name of requiredNative)
+      if(lock.packages?.['node_modules/'+name]?.version!=='8.6.2')
+        errors.push('Customer native package-lock mismatched for '+name);
+  }catch{errors.push('Customer native package-lock.json is invalid')}
+}
 const api=fs.readFileSync(path.join(root,'apps/customer-web/src/utils/api.js'),'utf8');
 if(!api.includes("import.meta.env.MODE==='native'") || !api.includes('VITE_NATIVE_API_ORIGIN'))
   blockers.push('Native HTTPS API routing integration is missing');
@@ -35,6 +49,8 @@ const vite=fs.readFileSync(path.join(root,'apps/customer-web/vite.config.js'),'u
 if(!vite.includes("mode === 'native' ? './'"))
   blockers.push('Customer native Vite relative-asset build is not configured');
 else blockers.push('Native bundle generation is configured; confirm native assets, WebView routing and service-worker absence on a simulator/device');
+if(!fs.existsSync('scripts/check-food-native-project.mjs'))
+  errors.push('Native project isolation guard is missing');
 for(const m of ['android','ios']){
   if(!fs.existsSync(path.join(root,'apps/customer-web',m))) blockers.push('Customer '+m+' native project has not been generated or tested');
 }
