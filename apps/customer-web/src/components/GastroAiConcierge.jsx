@@ -49,7 +49,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [reveal, setReveal] = useState({ id: null, count: 0 });
   const latestMessage = messages[messages.length - 1];
   const isReplyAppearing = reveal.id === latestMessage?.id && reveal.count < String(latestMessage?.text || '').length;
-  const isGastroAnimating = typing || trackingBusy || isReplyAppearing;
+  const isGastroAnimating = typing || trackingBusy || addingItem || isReplyAppearing;
 
   // Show a brief typewriter effect for new answers; never delay users who prefer reduced motion.
   useEffect(() => {
@@ -196,6 +196,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     setTrackingChoices([]);
     setPendingBatch(null);
 
+    const tenantAtRequest = getActiveTenant();
     const userMsgId = `msg_${Date.now()}`;
     setMessages(prev => [...prev, { id: userMsgId, sender: 'user', text: queryText }]);
     setInput('');
@@ -213,6 +214,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         })
       });
 
+      if (tenantAtRequest !== getActiveTenant()) throw new Error('Restaurant changed while generating the reply. Please ask again for your selected restaurant.');
       const aiMsgId = `ai_${Date.now()}`;
       setMessages(prev => [...prev, {
         id: aiMsgId,
@@ -221,10 +223,11 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         recommendedItems: res.recommendedItems || [],
         suggestions: res.suggestions || [],
         action: res.action || null,
+        tenantId: tenantAtRequest,
         plan: res.plan?.type === 'multi_item_preview' ? res.plan : null
       }]);
 
-      if (res.action?.type === 'add_to_cart') setPendingAdd(res.action);
+      if (res.action?.type === 'add_to_cart') setPendingAdd({...res.action, tenantId: tenantAtRequest});
       else setPendingAdd(null);
       if (fromVoice) speakText(res.reply);
 
@@ -283,8 +286,10 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     if (addingItem || !proposal?.itemId) return;
     setAddingItem(true);
     try {
+      if (!proposal.tenantId || String(proposal.tenantId) !== String(getActiveTenant())) throw new Error('Restaurant changed. Please ask GastroMate again.');
       // Fetch live server data: AI response contents are never the source of truth.
       const menu = await apiFetch('/public/menu', { cache: 'no-store' });
+      if (proposal.tenantId !== getActiveTenant()) throw new Error('Restaurant changed during confirmation. Please ask GastroMate again.');
       if (menu.offlineSnapshot) throw new Error('Please connect to the internet before adding items.');
       if (String(menu.tenantId) !== String(getActiveTenant())) throw new Error('Restaurant changed. Reopen GastroMate for this restaurant.');
       if (menu.storeOpen !== true) throw new Error('This restaurant is currently closed for online orders.');
@@ -573,7 +578,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                           View
                         </button>
                         <button type="button"
-                          onClick={() => setPendingAdd({type:'add_to_cart',itemId:String(item.id),quantity:1})}
+                          onClick={() => {setPendingBatch(null);setPendingAdd({type:'add_to_cart',itemId:String(item.id),quantity:1,tenantId:msg.tenantId});}}
                           disabled={typing || addingItem}
                           aria-label={`Select ${item.name} for cart confirmation`}
                           style={{background:'#fff',color:'#176e4d',border:'1px solid #176e4d',borderRadius:6,padding:'3px 8px',fontSize:'0.7rem',fontWeight:700,cursor:'pointer'}}
@@ -596,7 +601,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                         {line.status === 'available' ? (
                           <button type="button" disabled={typing || addingItem}
                             style={{marginTop:6,border:'1px solid #176e4d',borderRadius:7,padding:'5px 9px',color:'#176e4d',background:'#fff',cursor:'pointer'}}
-                            onClick={() => setPendingAdd({type:'add_to_cart',itemId:String(line.itemId),quantity:Number(line.quantity)})}>
+                            onClick={() => {setPendingBatch(null);setPendingAdd({type:'add_to_cart',itemId:String(line.itemId),quantity:Number(line.quantity),tenantId:msg.plan.tenantId});}}>
                             Review and add this item
                           </button>
                         ) : (
