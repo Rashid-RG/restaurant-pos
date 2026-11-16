@@ -45,6 +45,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [dismissedCoverage, setDismissedCoverage] = useState(false);
   const [userAccuracy, setUserAccuracy] = useState(null);
   const locationRequestRef = useRef(0);
+  const restaurantsFetchRef = useRef(0);
 
   // Render location dialogs outside scrolling app ancestors and freeze the
   // underlying page while either dialog is visible (especially important on iOS).
@@ -169,7 +170,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       const fallback=`GPS pin (${lat.toFixed(5)}, ${lng.toFixed(5)}) · accuracy ~${accuracy}m`;
       setDeliveryLocation(fallback);
       localStorage.setItem('gastroflow_delivery_address',fallback);
-      processStoreProximity(lat,lng);
+      fetchRestaurants({lat,lng});
       try {
         // Reuse the server's geocoder instead of directly querying the public Nominatim API.
         const result=await apiFetch(`/public/reverse-geocode?lat=${lat}&lng=${lng}`);
@@ -199,7 +200,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     if (coords) {
       setUserCoords(coords);
       localStorage.setItem('gastroflow_user_coords', JSON.stringify({...coords,source:'city-approximation'}));
-      processStoreProximity(coords.lat, coords.lng);
+      fetchRestaurants(coords);
     }
   };
 
@@ -243,7 +244,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     localStorage.setItem('gastroflow_delivery_address', shortAddr);
     localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng,source:'geocoded-address' }));
 
-    processStoreProximity(lat, lng);
+    fetchRestaurants({lat,lng});
     setShowLocationModal(false);
     setCustomAddressInput('');
     setAddressSearchResults([]);
@@ -275,7 +276,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     if (matchedCoords) {
       setUserCoords(matchedCoords);
       localStorage.setItem('gastroflow_user_coords', JSON.stringify({...matchedCoords,source:'city-approximation'}));
-      processStoreProximity(matchedCoords.lat, matchedCoords.lng);
+      fetchRestaurants(matchedCoords);
     } else {
       // A textual address cannot inherit GPS coordinates from an earlier address.
       setUserCoords(null);
@@ -296,7 +297,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
     setUserCoords({ lat, lng });
     localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng,source:'manual-pin' }));
-    processStoreProximity(lat, lng);
+    fetchRestaurants({lat,lng});
     const fallback=`Selected pin (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
     setDeliveryLocation(fallback);
     localStorage.setItem('gastroflow_delivery_address',fallback);
@@ -409,12 +410,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   };
 
   const fetchRestaurants = async (overrideCoords = null) => {
+    const requestId=++restaurantsFetchRef.current;
     setLoading(true);
     setLoadError('');
     try {
       const coords = overrideCoords || userCoords;
       const q = coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng) ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
       const data = await apiFetch(`/public/restaurants${q}`);
+      if(requestId!==restaurantsFetchRef.current)return;
       const storeList = deduplicateStores(data || []).map(store => ({ ...store, isOpen: acceptsOnlineOrders(store), isOpenNow: acceptsOnlineOrders(store) }));
       setRestaurants(storeList);
 
@@ -446,9 +449,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
     } catch (err) {
       console.error('Error fetching restaurants:', err);
-      setLoadError('Unable to load restaurants. Check your connection and retry.');
+      if(requestId===restaurantsFetchRef.current)setLoadError('Unable to load restaurants. Check your connection and retry.');
     } finally {
-      setLoading(false);
+      if(requestId===restaurantsFetchRef.current)setLoading(false);
     }
   };
 
