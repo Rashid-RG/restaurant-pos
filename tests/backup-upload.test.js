@@ -33,7 +33,7 @@ describe('Encrypted off-host upload gate',()=>{
    const {filename,cleanup}=fixture();try{
      const mock=vi.fn().mockResolvedValue({status:200});
      const result=await uploadEncryptedBackup(filename,{
-       url:'https://storage.example.test/backup?token=private',expectedHost:'storage.example.test',fetchImpl:mock
+       url:'https://storage.example.test/backup?token=private',expectedHost:'storage.example.test',encryptionSecret:secret,fetchImpl:mock
      });
      expect(result.uploaded).toBe(true);
      expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
@@ -44,10 +44,22 @@ describe('Encrypted off-host upload gate',()=>{
      expect(validateEncryptedArchive(request.body)).toBe(result.sha256);
    }finally{cleanup();}
  });
+ it('refuses wrong-key or tampered encrypted archives before networking',async()=>{
+   const {filename,cleanup}=fixture();try{
+     const fetchMock=vi.fn();
+     const args={url:'https://storage.example.test/object',expectedHost:'storage.example.test',fetchImpl:fetchMock};
+     await expect(uploadEncryptedBackup(filename,{...args,encryptionSecret:'another-secure-test-secret-more-than-32-bytes'})).rejects.toThrow(/authentication failed/);
+     const envelope=JSON.parse(fs.readFileSync(filename,'utf8'));
+     envelope.ciphertext=Buffer.from('not-a-real-ciphertext').toString('base64');
+     fs.writeFileSync(filename,JSON.stringify(envelope));
+     await expect(uploadEncryptedBackup(filename,{...args,encryptionSecret:secret})).rejects.toThrow(/authentication failed/);
+     expect(fetchMock).not.toHaveBeenCalled();
+   }finally{cleanup();}
+ });
  it('does not upload plaintext, symlinks or malformed envelopes',async()=>{
    const {filename,directory,cleanup}=fixture();try{
      const mock=vi.fn();
-     const args={url:'https://storage.example.test/object',expectedHost:'storage.example.test',fetchImpl:mock};
+     const args={url:'https://storage.example.test/object',expectedHost:'storage.example.test',encryptionSecret:secret,fetchImpl:mock};
      fs.writeFileSync(filename,'{"customer":"not encrypted"}');
      await expect(uploadEncryptedBackup(filename,args)).rejects.toThrow(/archive|envelope/i);
      const linked=path.join(directory,'linked.enc.json');
@@ -58,7 +70,7 @@ describe('Encrypted off-host upload gate',()=>{
  });
  it('fails on rejected storage or unreachable service without logging presigned secrets',async()=>{
    const {filename,cleanup}=fixture();try{
-     const args={url:'https://storage.example.test/object?token=secret',expectedHost:'storage.example.test'};
+     const args={url:'https://storage.example.test/object?token=secret',expectedHost:'storage.example.test',encryptionSecret:secret};
      await expect(uploadEncryptedBackup(filename,{...args,fetchImpl:vi.fn().mockResolvedValue({status:403})})).rejects.toThrow('Encrypted off-host backup upload failed.');
      await expect(uploadEncryptedBackup(filename,{...args,fetchImpl:vi.fn().mockRejectedValue(new Error('private token'))})).rejects.toThrow('Encrypted off-host backup upload failed.');
    }finally{cleanup();}
