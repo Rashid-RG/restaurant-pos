@@ -102,6 +102,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Cart shortcut / bottom navigation safe-area CSS | DONE (code) | `8603881` | Physical iPhone/Android keyboard, notch and 320px checks |
 | Existing order map, SSE and GPS fallback | IMPLEMENTED BEFORE THIS REVIEW | `TrackingMap.jsx`, `OrderTrackingView.jsx` | Real-driver + cross-tenant tests |
 | Map-first tracking first iteration | DONE (code), NOT YET VISUALLY VERIFIED | `977b20e`, `c713d9a` | Build/CI, screen captures, semantic accessibility and device audit; full image parity still pending |
+| Expandable status timeline / bottom disclosure | DONE (code), verification pending | `3779df8`, `47dcb63` | Build, real order stages, screen reader and 320px phone checks |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -115,3 +116,9 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (code)** `977b20e`: display existing authorized delivery map ahead of hero status for active delivery orders with destination coordinates; preserve the existing real route, server-backed ETA and rider GPS freshness semantics.
 - **DONE (code)** `c713d9a`: responsive map surface, heading, ETA chip, GPS freshness display, explicit straight-line fallback, and mobile-friendly sizing.
 - **NOT YET DONE:** verify CI/build and phone screenshots, compare against approved mockup (bottom-sheet, route contacts, typography), check feature with active order and stale fix. No claim of native release or deployment.
+
+### Progress checkpoint — 2026-11-16: order-status bottom disclosure
+- **DONE (code)** `3779df8`: native keyboard-accessible expandable order-progress section using the existing canonical delivery/dine-in/takeaway steps and actual server status; no fabricated stage transitions.
+- **DONE (code)** `47dcb63`: mobile-friendly bottom-disclosure panel styling, current/completed/future stage markers, focus-visible and reduced-motion support.
+- **PENDING (verification)** CI/build, screen-reader/keyboard, screenshot comparison, genuine order status transitions, 320px/390px phone screens. Does not yet replicate every element of the concept image.
+- **PENDING (release)** No Render deploy or native app publication has been authorized for these changes.
