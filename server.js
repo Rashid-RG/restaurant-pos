@@ -4370,6 +4370,29 @@ app.get('/api/users', authenticateToken, requireRole(['owner', 'manager']), asyn
 
 app.post('/api/users',authenticateToken,requireRole(['owner','manager']),validateRequest(userCreateSchema),createStaffUser);
 
+app.patch('/api/users/:id/pin', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
+  const { pin } = req.body || {};
+  if (typeof pin !== 'string' || !/^\\d{4,8}$/.test(pin)) {
+    return res.status(400).json({ error: 'PIN must contain 4 to 8 digits.' });
+  }
+  try {
+    const target = await dbGet('SELECT id, role FROM users WHERE id = ? AND tenant_id = ?', [req.params.id, req.tenantId]);
+    if (!target) return res.status(404).json({ error: 'Staff account not found.' });
+    if (target.role === 'owner' && req.user.role !== 'owner') {
+      return res.status(403).json({ error: 'Only an owner can reset an owner account PIN.' });
+    }
+    if (await dbGet('SELECT userId FROM platform_ownership WHERE userId = ?', [target.id])) {
+      return res.status(403).json({ error: 'Platform owner credentials cannot be reset here.' });
+    }
+    const pinHash = await bcrypt.hash(pin, 12);
+    await dbRun('UPDATE users SET pin = ? WHERE id = ? AND tenant_id = ?', [pinHash, target.id, req.tenantId]);
+    await writeAuditLog(req.user.id, req.user.username, 'reset_staff_pin', `Reset PIN for staff account ${target.id}`);
+    res.json({ success: true, message: 'Staff PIN reset successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: errMsg(err) });
+  }
+});
+
 app.delete('/api/users/:id', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id } = req.params;
   try {
