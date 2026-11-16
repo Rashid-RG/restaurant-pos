@@ -3881,7 +3881,7 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
         recommendedItems: [],
         suggestions: ['Browse Menu', 'View Cart'],
         action: null,
-        plan: multiPlan
+        plan: {...multiPlan, tenantId}
       });
     }
     // Budget and dietary requests must use verified, currently orderable menu records.
