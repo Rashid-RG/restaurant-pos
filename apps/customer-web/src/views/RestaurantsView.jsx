@@ -473,7 +473,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const openCount = restaurants.filter(acceptsOnlineOrders).length;
   const deliverableCount = restaurants.filter(r => acceptsOnlineOrders(r) && r.isDeliverable === true).length;
   const savedLocationSource=(()=>{try{return JSON.parse(localStorage.getItem('gastroflow_user_coords')||'null')?.source}catch{return null}})();
-  const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng) && savedLocationSource!=='city-approximation');
+  const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng) && ['gps','geocoded-address','manual-pin'].includes(savedLocationSource));
 
   return (
     <div className="restaurants-view gastrofood-discovery" style={{ padding: '16px', maxWidth: 1120, margin: '0 auto', paddingBottom: 96, fontFamily: 'inherit' }}>
