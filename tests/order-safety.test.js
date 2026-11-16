@@ -62,6 +62,31 @@ it('requires private order ownership for feedback and validates rating bounds',a
  expect((await request(app).post('/api/public/feedback?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken).send({...body,rating:6})).status).toBe(400);
  expect((await request(app).post('/api/public/feedback?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken).send(body)).status).toBe(200);
 });
+it('keeps future scheduled online orders out of the active kitchen queue until preparation is due',async()=>{
+ const when=Math.ceil((Date.now()+4*60*60000)/(15*60000))*(15*60000);
+ const checkoutProof=await testCheckoutProof(dbRun,'safe_A','0770000000');
+ const created=await request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof,customerName:'Scheduled Kitchen',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',scheduledTime:when,items:[{id:'safe_item',quantity:1}]});
+ expect(created.status,created.text).toBe(201);
+ const tickets=await request(app).get('/api/kitchen/tickets').set(staff());
+ expect(tickets.status,tickets.text).toBe(200);
+ expect(tickets.body.some(x=>x.orderId===created.body.orderId)).toBe(false);
+ const other=await request(app).get('/api/kitchen/tickets').set(staff('safe_B'));
+ expect(other.status,other.text).toBe(200);
+ expect(other.body.some(x=>x.orderId===created.body.orderId)).toBe(false);
+});
+it('propagates kitchen preparation to the original customer tracking order',async()=>{
+ const created=await publicOrder();expect(created.status,created.text).toBe(201);
+ const board=await request(app).get('/api/kitchen/tickets').set(staff());
+ expect(board.status,board.text).toBe(200);
+ const ticket=board.body.find(x=>x.orderId===created.body.orderId);
+ expect(ticket).toBeTruthy();
+ const action=await request(app).post('/api/kitchen/tickets/'+ticket.orderId).set(staff()).send({revision:ticket.revision,state:'preparing'});
+ expect(action.status,action.text).toBe(200);
+ const customer=await request(app).get('/api/public/orders/'+created.body.orderId+'?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken);
+ expect(customer.status,customer.text).toBe(200);
+ expect(customer.body.status).toBe('preparing');
+ expect((await request(app).get('/api/kitchen/tickets').set(staff('safe_B'))).body.some(x=>x.orderId===created.body.orderId)).toBe(false);
+});
 it('binds dispatch to the restaurant and preserves kitchen state',async()=>{
  const id=await ticket();
  expect((await request(app).post('/api/delivery/assign').send({orderId:id,driverId:'safe_driver'})).status).toBe(401);
