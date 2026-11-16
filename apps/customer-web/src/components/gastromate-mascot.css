@@ -7,6 +7,7 @@
 .gastromate-burger-arm.left{left:-1px;transform:rotate(-28deg);animation:mate-wave 3.4s ease-in-out infinite}
 .gastromate-burger-arm.right{right:-1px;transform:rotate(28deg);animation:mate-wave 3.4s ease-in-out .6s infinite}
 .gastromate-burger-feet{position:absolute;bottom:-1px;left:11px;font-size:12px;font-weight:bold;color:#5f392b;white-space:nowrap}
+.gastromate-hello{position:absolute;top:-9px;right:-16px;padding:1px 5px;border-radius:8px 8px 8px 2px;background:#fff;color:#176e4d;font-size:10px;font-weight:900;box-shadow:0 1px 4px #0002;animation:mate-greet 5.6s ease-in-out infinite}
 .gastromate-burger-small{width:26px;height:26px;transform:scale(.66);margin:-2px -5px}
 .gastromate-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:10px 14px;background:var(--bg-card,#f8fafc);color:var(--text-1,#1b4332);font-size:12px;border-bottom:1px solid var(--border-color,#ddd)}
 .gastromate-confirm span{flex-basis:100%}
@@ -14,5 +15,6 @@
 .gastromate-confirm button:first-of-type{background:#176e4d;color:#fff;border:0}
 .gastromate-confirm button:disabled{opacity:.55;cursor:wait}
 @keyframes mate-dance{0%,13%,35%,100%{transform:rotate(0) translateY(0)}17%{transform:rotate(-12deg) translateY(-3px)}22%{transform:rotate(13deg) translateY(-5px)}28%{transform:rotate(-8deg) translateY(-2px)}}
+@keyframes mate-greet{0%,35%,100%{opacity:0;transform:translateY(3px)}10%,29%{opacity:1;transform:translateY(0)}}
 @keyframes mate-wave{0%,35%,100%{transform:rotate(28deg)}12%,21%{transform:rotate(-35deg)}17%,27%{transform:rotate(52deg)}}
-@media(prefers-reduced-motion:reduce){.gastromate-burger,.gastromate-burger-arm{animation:none!important}}
+@media(prefers-reduced-motion:reduce){.gastromate-burger,.gastromate-burger-arm,.gastromate-hello{animation:none!important}.gastromate-hello{opacity:1}}
