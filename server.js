@@ -5307,7 +5307,18 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
     const order = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
     if (!order || order.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
     const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
-    if (claimed.changes !== 1) return res.status(409).json({ error: 'This order is not an available, unassigned delivery.' });
+    if (claimed.changes !== 1) {
+      // Network recovery: an acknowledged or lost response must not turn
+      // this driver's already-saved assignment into a false conflict.
+      // Never count another tenant, another rider, or a closed delivery.
+      const saved = await dbGet(
+        "SELECT driverId,status FROM orders WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery')",
+        [orderId,t]
+      );
+      if (saved?.driverId===driverId && ['pending','preparing','ready','picked_up','out_for_delivery','arrived'].includes(saved.status))
+        return res.json({success:true,alreadyAssigned:true});
+      return res.status(409).json({ error: 'This order is not an available, unassigned delivery.' });
+    }
     notifyPOS({ type: 'driver_assigned', orderId, driverId }, t);
     notifyOrderStream(orderId,{type:'driver_assigned',orderId});
     void sendOrderPush(dbAll,dbRun,orderId,t,'driver_assigned').catch(()=>{});
