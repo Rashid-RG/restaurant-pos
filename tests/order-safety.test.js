@@ -88,6 +88,66 @@ it('propagates kitchen preparation to the original customer tracking order',asyn
  expect(customer.body.status).toBe('preparing');
  expect((await request(app).get('/api/kitchen/tickets').set(staff('safe_B'))).body.some(x=>x.orderId===created.body.orderId)).toBe(false);
 });
+it('accepts a tenant-isolated customer delivery across checkout, kitchen, dispatch, tracking and proof',async()=>{
+  const address='123 Main Street, Colombo 03, Sri Lanka';
+  for(const [key,value] of [['storeLat','6.9271'],['storeLng','79.8612']]){
+    await dbRun('INSERT OR REPLACE INTO settings(key,value,tenant_id) VALUES (?,?,?)',[key,value,'safe_A']);
+  }
+  const before=await stock(),raw=await ingredient();
+  const checkoutProof=await testCheckoutProof(dbRun,'safe_A','0770000000');
+  const placed=await request(app).post('/api/public/orders?tenant=safe_A').send({
+    checkoutProof,customerName:'Delivery Acceptance',customerPhone:'0770000000',
+    orderType:'delivery',paymentMethod:'cash',deliveryAddress:address,
+    deliveryLat:6.93,deliveryLng:79.87,items:[{id:'safe_item',quantity:2}]
+  });
+  expect(placed.status,placed.text).toBe(201);
+  const id=placed.body.orderId,access=placed.body.trackingToken;
+  expect(access).toBeTruthy();
+  const track=()=>request(app).get('/api/public/orders/'+id+'?tenant=safe_A').set('X-Order-Tracking',access);
+  expect((await request(app).get('/api/public/orders/'+id+'?tenant=safe_B').set('X-Order-Tracking',access)).status).toBe(404);
+  expect((await request(app).get('/api/public/driver/orders').set(driver('foreign_driver','safe_B'))).body.unassigned.some(o=>o.id===id)).toBe(false);
+  expect((await stock()).stock).toBe(before.stock-2);
+  expect((await ingredient()).stock).toBe(raw.stock-1);
+  let board=await request(app).get('/api/kitchen/tickets').set(staff());
+  expect(board.status,board.text).toBe(200);
+  let ticket=board.body.find(x=>x.orderId===id);expect(ticket).toBeTruthy();
+  const prepare=await request(app).post('/api/kitchen/tickets/'+id).set(staff()).send({revision:ticket.revision,state:'preparing'});
+  expect(prepare.status,prepare.text).toBe(200);
+  expect((await track()).body.status).toBe('preparing');
+  ticket=prepare.body;
+  const ready=await request(app).post('/api/kitchen/tickets/'+id).set(staff()).send({revision:ticket.revision,state:'ready'});
+  expect(ready.status,ready.text).toBe(200);
+  expect((await track()).body.status).toBe('ready');
+  expect((await request(app).post('/api/public/driver/assign').set(driver('foreign_driver','safe_B')).send({orderId:id})).status).toBe(404);
+  const claimed=await request(app).post('/api/public/driver/assign').set(driver()).send({orderId:id});
+  expect(claimed.status,claimed.text).toBe(200);
+  const pickup=await request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'picked_up'});
+  expect(pickup.status,pickup.text).toBe(200);
+  expect((await track()).body.status).toBe('picked_up');
+  const onRoute=await request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'out_for_delivery'});
+  expect(onRoute.status,onRoute.text).toBe(200);
+  expect((await track()).body.status).toBe('out_for_delivery');
+  const arrived=await request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'arrived'});
+  expect(arrived.status,arrived.text).toBe(200);
+  expect((await track()).body.status).toBe('arrived');
+  const signature='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jO5cAAAAASUVORK5CYII=';
+  const deliver=()=>request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'delivered',signature,cashReceived:true});
+  const completed=await deliver();
+  expect(completed.status,completed.text).toBe(200);
+  expect(completed.body.proof?.savedAt).toBeTruthy();
+  expect((await track()).body.status).toBe('delivered');
+  const saved=await dbGet('SELECT status,driverId,invoiceNumber,paymentStatus FROM orders WHERE id=?',[id]);
+  expect(saved).toMatchObject({status:'delivered',driverId:'safe_driver',paymentStatus:'paid'});
+  expect(saved.invoiceNumber).toBeTruthy();
+  const duplicate=await deliver();
+  expect(duplicate.status,duplicate.text).toBe(200);
+  expect(duplicate.body.alreadySaved).toBe(true);
+  expect((await dbGet('SELECT invoiceNumber FROM orders WHERE id=?',[id])).invoiceNumber).toBe(saved.invoiceNumber);
+  expect((await dbGet('SELECT COUNT(*) AS n FROM delivery_proofs WHERE orderId=? AND tenant_id=?',[id,'safe_A'])).n).toBe(1);
+  expect((await stock()).stock).toBe(before.stock-2);
+  expect((await ingredient()).stock).toBe(raw.stock-1);
+  expect((await request(app).get('/api/orders/'+id+'/delivery-proof').set(staff('safe_B'))).status).toBe(404);
+});
 it('reconciles a lost kitchen response without duplicating events or changing another tenant',async()=>{
  const created=await publicOrder();expect(created.status,created.text).toBe(201);
  const orderId=created.body.orderId;
