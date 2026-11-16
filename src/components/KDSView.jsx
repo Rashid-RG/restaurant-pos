@@ -1,5 +1,6 @@
 import ServiceExceptions from "./ServiceExceptions.jsx";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {createKitchenAction,isTransientKitchenFailure} from "../utils/kitchen-recovery.js";
 import { createPortal } from "react-dom";
 import { usePOS } from "../context/POSContext";
 import { prepareThermalPrint, cleanupThermalPrint } from "../utils/printer";
@@ -42,6 +43,9 @@ export default function KDSView() {
     [lastSync, setLastSync] = useState(null),
     [routing, setRouting] = useState(null),
     [now, setNow] = useState(Date.now());
+  const [pendingAction,setPendingAction]=useState(null);
+  const pendingActionRef=useRef(null);
+  const actionBusyRef=useRef(false);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -60,7 +64,11 @@ export default function KDSView() {
       ...(body ? { method: "POST", body: JSON.stringify(body) } : {}),
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.error || "Kitchen unavailable");
+    if (!r.ok) {
+      const error=new Error(data.error || "Kitchen unavailable");
+      error.status=r.status;
+      throw error;
+    }
     return data;
   }, []);
 
@@ -86,25 +94,54 @@ export default function KDSView() {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  async function act(ticket, state, lineId) {
-    if (busy) return;
+  function clearPendingAction(){
+    pendingActionRef.current=null;
+    setPendingAction(null);
+  }
+
+  async function submitKitchenAction(pending){
+    if(actionBusyRef.current || !pending)return;
+    actionBusyRef.current=true;
     setBusy(true);
-    try {
-      await api("tickets/" + ticket.orderId, {
-        revision: ticket.revision,
-        state,
-        lineId,
-        ...(ticket.state === "pending" ? { etaMinutes: 25 } : {}),
-      });
+    try{
+      await api("tickets/"+pending.orderId,pending.body);
+      clearPendingAction();
+      setError("");
       await refresh();
-    } catch (e) {
-      setError(
-        e.message + " Refresh to confirm the saved state before retrying.",
-      );
-    } finally {
+    }catch(e){
+      if(isTransientKitchenFailure(e)){
+        // Keep one unresolved write and its original key until acknowledged.
+        pendingActionRef.current=pending;
+        setPendingAction(pending);
+        setError("Kitchen connection interrupted. Retry the saved action; do not start a second action.");
+      }else{
+        clearPendingAction();
+        setError(e.message+" Refresh the board before taking another action.");
+        await refresh();
+      }
+    }finally{
+      actionBusyRef.current=false;
       setBusy(false);
     }
   }
+
+  function act(ticket,state,lineId){
+    if(actionBusyRef.current||pendingActionRef.current)return;
+    const pending={orderId:ticket.orderId,body:createKitchenAction(ticket,state,lineId)};
+    pendingActionRef.current=pending;
+    setPendingAction(pending);
+    void submitKitchenAction(pending);
+  }
+
+  // Replay only the original action after reconnecting, never a new write.
+  useEffect(()=>{
+    const onOnline=()=>{if(pendingActionRef.current&&!actionBusyRef.current)void submitKitchenAction(pendingActionRef.current);};
+    window.addEventListener("online",onOnline);
+    return()=>window.removeEventListener("online",onOnline);
+  },[api,refresh]);
+
+  // Unresolved actions must not cross staff or restaurant boundaries.
+  useEffect(()=>{clearPendingAction();},[currentUser?.id,currentUser?.tenant_id]);
 
   const visible = tickets
     .map((t) => ({
@@ -257,7 +294,7 @@ export default function KDSView() {
                         fontSize: compactMode ? '12px' : '13px',
                         fontWeight: 700
                       }}
-                      disabled={busy || !!error}
+                      disabled={busy || !!error || !!pendingAction}
                       onClick={() => act(t, "preparing", l.id)}
                     >
                       Start {l.name}
@@ -276,7 +313,7 @@ export default function KDSView() {
                         background: '#10b981',
                         borderColor: '#10b981'
                       }}
-                      disabled={busy || !!error}
+                      disabled={busy || !!error || !!pendingAction}
                       onClick={() => act(t, "ready", l.id)}
                     >
                       Ready: {l.name}
@@ -299,7 +336,7 @@ export default function KDSView() {
                   fontWeight: 700,
                   background: '#10b981'
                 }}
-                disabled={busy || !!error}
+                disabled={busy || !!error || !!pendingAction}
                 onClick={() => act(t, "served")}
               >
                 ✓ Confirm Served / Handed Over
@@ -386,6 +423,15 @@ export default function KDSView() {
         <p className="service-alert" role="alert">
           {error}
         </p>
+      )}
+      {pendingAction && (
+        <section className="service-panel" role="status" aria-live="polite">
+          <strong>Unconfirmed kitchen action for order #{pendingAction.orderId.slice(-6).toUpperCase()}</strong>
+          <p>The connection may have failed after the server saved the change. Retrying uses the original action key without duplicating kitchen work.</p>
+          <button className="btn btn-primary" disabled={busy} onClick={()=>void submitKitchenAction(pendingAction)}>
+            {busy?"Checking saved action…":"Retry saved action"}
+          </button>
+        </section>
       )}
 
       {routing && (
