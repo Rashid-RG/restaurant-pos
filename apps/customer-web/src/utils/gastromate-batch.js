@@ -53,3 +53,36 @@ export function prepareGastroBatch(plan, menu, cartItems = [], tenantId = '') {
   }
   return {ok:true, reason:'', items:verified, subtotal};
 }
+
+
+/** Atomic reducer for a confirmed batch. Any stale/invalid line leaves cart untouched. */
+export function applyGastroBatch(currentItems, verifiedItems) {
+  if (!Array.isArray(currentItems) || !Array.isArray(verifiedItems) ||
+      verifiedItems.length < 2 || verifiedItems.length > 6) return currentItems;
+  const copy = currentItems.slice();
+  const counts = new Map();
+  for (const row of verifiedItems) {
+    const item = row?.item;
+    const quantity = row?.quantity;
+    if (!item || !validQuantity(quantity) || !isMenuItemAvailable(item) ||
+        (Array.isArray(item.modifiers) && item.modifiers.length > 0) ||
+        menuItemTotal(item, quantity) == null) return currentItems;
+    counts.set(String(item.id), (counts.get(String(item.id)) || 0) + quantity);
+  }
+  for (const [id, qty] of counts) {
+    const item = verifiedItems.find(row => String(row.item.id) === id).item;
+    const existingQty = copy.filter(row => String(row.id) === id)
+      .reduce((sum,row)=>sum + Number(row.qty||0),0);
+    if (!Number.isFinite(existingQty) || existingQty + qty > maxMenuItemQuantity(item))
+      return currentItems;
+  }
+  for (const [id, qty] of counts) {
+    const item = verifiedItems.find(row => String(row.item.id) === id).item;
+    const uniqueId = String(item.id) + '__';
+    const price = menuItemTotal(item, 1);
+    const index = copy.findIndex(row => row.cartId === uniqueId);
+    if (index >= 0) copy[index] = {...copy[index], qty:Number(copy[index].qty)+qty, unitPrice:price};
+    else copy.push({...item, cartId:uniqueId, qty, selectedModifiers:[],notes:'',unitPrice:price});
+  }
+  return copy;
+}
