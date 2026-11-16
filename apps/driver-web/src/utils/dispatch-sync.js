@@ -30,3 +30,12 @@ export function latestDispatchTickets(payload) {
     completed:Array.isArray(payload?.completed)?payload.completed:[],
   };
 }
+
+// Every dispatch refresh must terminate even if the network hangs. An AbortController
+// cancels the fetch and releases the gate on timeout, logout and account changes.
+export function createDispatchTimeout(timeoutMs=12000){
+  const controller=new AbortController();
+  const delay=Math.max(1000,Math.min(60000,Number(timeoutMs)||12000));
+  const timer=setTimeout(()=>controller.abort(),delay);
+  return {signal:controller.signal,cancel:()=>{clearTimeout(timer);controller.abort();},finish:()=>clearTimeout(timer)};
+}
