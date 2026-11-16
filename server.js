@@ -28,6 +28,7 @@ import { initStaffPayroll, createStaffPayrollRouter } from './routes/staff-payro
 import { initWorkday, createWorkdayRouter } from './routes/workday.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
+import { configuredNativeOrigins, invalidNativeOriginEntries } from './lib/customer-native-origins.js';
 import express from 'express';
 import { amountInCents, validateManualTender, staffReceipt } from './lib/tenders.js';
 import { validateDeliveryProof } from './lib/delivery-proof.js';
@@ -222,8 +223,13 @@ const allowedOrigins = [
   'http://127.0.0.1:3001',
   'http://localhost:5173',
   'http://localhost:5174'] : []),
+  ...configuredNativeOrigins(process.env.CUSTOMER_NATIVE_ORIGINS),
   ...String(process.env.CORS_ORIGIN || '').split(',').map(s => s.trim())
 ].filter(Boolean);
+
+// Ignore invalid native origin entries instead of widening the production CORS policy.
+if (invalidNativeOriginEntries(process.env.CUSTOMER_NATIVE_ORIGINS).length)
+  console.warn('Ignoring unsupported CUSTOMER_NATIVE_ORIGINS entries; allow only capacitor://localhost or https://localhost.');
 
 // Match any private-LAN origin (phones/tablets on the same Wi-Fi) during development.
 const isLanOrigin = (origin) =>
