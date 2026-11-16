@@ -3,10 +3,23 @@ import { Sparkles, X, Bot, Mic, Send, Volume2, CircleHelp, Utensils, PackageChec
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
+import { useCart } from '../context/CartContext.jsx';
+import { isMenuItemAvailable, maxMenuItemQuantity } from '../utils/menu-selection.js';
+import './gastromate-mascot.css';
+
+function BurgerMascot({ small = false }) {
+  return <span className={`gastromate-burger ${small ? 'gastromate-burger-small' : ''}`} aria-hidden="true">
+    <span className="gastromate-burger-arm left">✦</span>
+    <span className="gastromate-burger-body"><span className="gastromate-burger-face">•ᴗ•</span></span>
+    <span className="gastromate-burger-arm right">✦</span>
+    <span className="gastromate-burger-feet">⌣ ⌣</span>
+  </span>;
+}
 
 export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const { customer, token } = useCustomerAuth();
   const { t } = useLang();
+  const { addItem, setCartOpen, items: liveCartItems } = useCart();
   
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
@@ -20,6 +33,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [pendingAdd, setPendingAdd] = useState(null);
+  const [addingItem, setAddingItem] = useState(false);
 
   // Guest Verification state for Human Support escalation
   const [verifyingGuest, setVerifyingGuest] = useState(false);
@@ -101,6 +116,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         action: res.action || null
       }]);
 
+      if (res.action?.type === 'add_to_cart') setPendingAdd(res.action);
+      else setPendingAdd(null);
       if (fromVoice) speakText(res.reply);
 
       // Support escalation trigger
@@ -124,6 +141,33 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     } finally {
       setTyping(false);
     }
+  };
+
+  const confirmAddToCart = async (proposal) => {
+    if (addingItem || !proposal?.itemId) return;
+    setAddingItem(true);
+    try {
+      // Fetch live server data: AI response contents are never the source of truth.
+      const menu = await apiFetch('/public/menu', { cache: 'no-store' });
+      if (menu.offlineSnapshot) throw new Error('Please connect to the internet before adding items.');
+      if (menu.storeOpen !== true) throw new Error('This restaurant is currently closed for online orders.');
+      const item = (menu.items || []).find(i => String(i.id) === String(proposal.itemId));
+      if (!isMenuItemAvailable(item)) throw new Error('This item is currently unavailable.');
+      if ((item.modifiers || []).length) {
+        setIsOpen(false);
+        onNavigate?.('store-menu');
+        throw new Error('Please choose this item and its options from the menu.');
+      }
+      const already = liveCartItems.filter(i => String(i.id) === String(item.id)).reduce((sum, i) => sum + Number(i.qty || 0), 0);
+      const quantity = Math.min(20, Math.max(1, Math.trunc(Number(proposal.quantity) || 1)));
+      if (already + quantity > maxMenuItemQuantity(item)) throw new Error('Not enough stock available for this quantity.');
+      addItem(item, quantity);
+      setPendingAdd(null);
+      setMessages(prev => [...prev, { id: `cart_${Date.now()}`, sender: 'ai', text: `🛒 ${quantity} × ${item.name} selected for your cart. Review your cart before checkout.` }]);
+      setCartOpen(true);
+    } catch (err) {
+      setMessages(prev => [...prev, { id: `cart_error_${Date.now()}`, sender: 'ai', text: err.message || 'Could not add this item.' }]);
+    } finally { setAddingItem(false); }
   };
 
   // Trigger Guest OTP code sending (Email or SMS)
@@ -224,7 +268,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
               gap: 6
             }}
           >
-            <Sparkles size={17} color="#17744c"/>
+            <BurgerMascot small />
             <span className="gastro-ai-pill-text">Ask GastroMate</span>
           </div>
         )}
@@ -250,7 +294,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             flexShrink: 0
           }}
         >
-          {isOpen ? '✕' : (
+          {isOpen ? '✕' : <BurgerMascot small />}
+          {false && (
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
               <path d="M19 2L19.8 4.2L22 5L19.8 5.8L19 8L18.2 5.8L16 5L18.2 4.2L19 2Z" fill="rgba(255,255,255,0.85)" />
@@ -289,7 +334,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ fontSize: '1.5rem', background: 'rgba(255,255,255,0.2)', padding: '6px 8px', borderRadius: 14 }}>
-                <Bot size={22}/>
+                <BurgerMascot />
               </div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1rem', letterSpacing: '-0.2px' }}>
@@ -308,6 +353,13 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
               <X size={18}/>
             </button>
           </div>
+
+          {/* AI suggested cart action requires an explicit customer confirmation. */}
+          {pendingAdd && <div className="gastromate-confirm">
+            <span>Would you like to add this item to your cart?</span>
+            <button type="button" disabled={addingItem} onClick={() => confirmAddToCart(pendingAdd)}>{addingItem ? 'Checking…' : 'Add to Cart'}</button>
+            <button type="button" onClick={() => setPendingAdd(null)}>Cancel</button>
+          </div>}
 
           {/* Chat Messages Body */}
           <div style={{ flex: 1, padding: 14, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
