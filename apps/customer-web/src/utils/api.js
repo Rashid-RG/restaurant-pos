@@ -1,9 +1,12 @@
 import { getActiveTenant } from './tenant.js';
+import { resolveApiUrl } from './native-api-origin.js';
 
 export function apiUrl(endpoint, location = window.location) {
-  const dev = location.port === '3001' || location.port === '3002';
-  const origin = dev ? `${location.protocol}//${location.hostname}:5000` : location.origin;
-  return new URL(endpoint, origin).href;
+  return resolveApiUrl(endpoint,{
+    location,
+    nativeBuild:import.meta.env.MODE==='native',
+    configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN,
+  });
 }
 
 export async function apiFetch(endpoint, options = {}) {
