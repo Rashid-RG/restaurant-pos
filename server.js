@@ -1,4 +1,5 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,pushConfigured} from './lib/customer-push.js';
+import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
@@ -3411,21 +3412,22 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     const order = await dbGet("SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ? AND tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId = '')", [orderId,tenantId]);
     if (!order || !order.deliveryLat || !order.deliveryLng) return;
 
-    // Get all drivers with recent GPS pings (within last 30 min)
-    const thirtyMinAgo = Date.now() - 5 * 60 * 1000;
-    const driverPings = await dbAll(
-      'SELECT dl.orderId,dl.driverName,dl.lat,dl.lng,dl.updatedAt FROM driver_locations dl JOIN orders o ON o.id=dl.orderId WHERE o.tenant_id=? AND dl.updatedAt>? ORDER BY dl.updatedAt DESC',
-      [tenantId,thirtyMinAgo]
-    );
+    // Recent GPS pings must resolve to verified, tenant-bound driver IDs.
+    const recentFixSince = Date.now() - 5 * 60 * 1000;
+    const driverPings = await loadVerifiedDispatchPings(dbAll,tenantId,recentFixSince);
 
-    // Get store location for fallback
+    // Never rank drivers relative to fabricated default store coordinates.
     const dispatchStore = await getSettingsMap(tenantId, ['storeLat', 'storeLng']);
-    const storeLat = parseFloat(dispatchStore.storeLat || 6.9271);
-    const storeLng = parseFloat(dispatchStore.storeLng || 79.8612);
+    const storeLat = Number(dispatchStore.storeLat);
+    const storeLng = Number(dispatchStore.storeLng);
+    if(!dispatchStore.storeLat||!dispatchStore.storeLng||!Number.isFinite(storeLat)||!Number.isFinite(storeLng)||
+      Math.abs(storeLat)>90||Math.abs(storeLng)>180){
+      notifyPOS({type:'dispatch_escalation',orderId,reason:'Restaurant pickup location needs configuration',customerName:order.customerName},tenantId);
+      return;
+    }
 
     // Calculate distance from each driver to the STORE (pickup point)
-    const seenDrivers=new Set();
-    const driversWithDistance = driverPings.filter(d=>{if(seenDrivers.has(d.driverName))return false;seenDrivers.add(d.driverName);return true;}).map(d => ({
+    const driversWithDistance = driverPings.map(d => ({
       ...d,
       distToStore: haversineDistanceKm(d.lat, d.lng, storeLat, storeLng)
     }));
@@ -3437,19 +3439,24 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     for (const driver of driversWithDistance) {
       const activeDelivery = await dbGet(
         "SELECT id FROM orders WHERE driverId=? AND tenant_id=? AND status IN ('pending','preparing','ready','picked_up','out_for_delivery','arrived')",
-        [driver.driverName,tenantId]
+        [driver.driverId,tenantId]
       );
       if (!activeDelivery) {
         // Auto-assign this driver
         const claimed=await dbRun(
-          "UPDATE orders SET driverId=?, dispatchMode=? WHERE id=? AND tenant_id=? AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')",
-          [driver.driverName,'auto',orderId,tenantId]
+          `UPDATE orders SET driverId=?, dispatchMode=? WHERE id=? AND tenant_id=?
+           AND (diningType='delivery' OR orderType='delivery')
+           AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')
+           AND EXISTS (SELECT 1 FROM drivers d WHERE d.id=? AND d.tenant_id=? AND d.status IN ('available','active'))
+           AND NOT EXISTS (SELECT 1 FROM orders another WHERE another.driverId=? AND another.tenant_id=?
+             AND another.id<>? AND another.status IN ('pending','preparing','ready','picked_up','out_for_delivery','arrived'))`,
+          [driver.driverId,'auto',orderId,tenantId,driver.driverId,tenantId,driver.driverId,tenantId,orderId]
         );
         if(claimed.changes!==1)return;
-        notifyPOS({ type: 'driver_auto_assigned', orderId, driverId: driver.driverName, distanceKm: Math.round(driver.distToStore * 10) / 10 }, tenantId);
+        notifyPOS({ type: 'driver_auto_assigned', orderId, driverId: driver.driverId, distanceKm: Math.round(driver.distToStore * 10) / 10 }, tenantId);
         notifyOrderStream(orderId,{type:'driver_assigned',orderId});
         void sendOrderPush(dbAll,dbRun,orderId,tenantId,'driver_assigned').catch(()=>{});
-        console.log(`[Auto-Dispatch] Assigned ${driver.driverName} to order ${orderId} (${driver.distToStore.toFixed(1)} km from store)`);
+        console.log(`[Auto-Dispatch] Assigned driver ${driver.driverId} to order ${orderId} (${driver.distToStore.toFixed(1)} km from store)`);
         return;
       }
     }
