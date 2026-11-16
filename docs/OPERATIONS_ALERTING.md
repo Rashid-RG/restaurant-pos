@@ -29,3 +29,20 @@ Run `npm run backup:check` **from an operator-controlled external scheduler** af
 This is **not a scheduler**: no automatic backup jobs are enabled on Render. The checker confirms a recent locally stored SQLite-format file or a matching Turso logical snapshot checksum; it does not prove that a SQLite snapshot can be restored, that any copy is stored off host, or that the latest backup includes every expected record. Preserve sensitive backups off-host with access controls and independently test a restore to a new database.
 
 The webhook is best suited to an HTTPS automation or incident receiver that can route these minimal event codes to the authorized operator. Avoid logging incoming webhook URLs or forwarding them to unrelated services. Test on staging before enabling in production.
+
+
+## Encrypted backup export preparation
+
+The optional `npm run backup:crypto -- encrypt INPUT OUTPUT` command creates an AES-256-GCM authenticated, password-protected archive **only from a preexisting local backup file**. `npm run backup:crypto -- decrypt INPUT OUTPUT` restores decrypted *backup bytes* into a **new file only**; it never imports them into a database or overwrites an existing file.
+
+Configure `BACKUP_ENCRYPTION_SECRET` privately in the operator environment (at least 32 UTF-8 bytes, ideally a randomly generated high-entropy secret). Store the secret separately from encrypted archives, and retain a tested recovery copy of the secret. Losing it means losing access to encrypted backups. Never commit the secret, put it into a command argument, or print it in logs.
+
+Example, after a successful `npm run backup`:
+
+```bash
+npm run backup:crypto -- encrypt /private/backups/gastroflow-example.json /private/export/gastroflow-example.enc.json
+npm run backup:crypto -- decrypt /private/export/gastroflow-example.enc.json /private/verification/recovered.json
+node scripts/verify-restore.js /private/verification/recovered.json
+```
+
+The last verification command is appropriate for **Turso logical JSON** backups; an SQLite `.db` backup requires separate SQLite integrity/recovery testing. Both encryption commands reject symlink inputs and existing output paths. This procedure **does not upload files** and the original unencrypted source remains present, so operators must secure or dispose of plaintext copies according to an approved retention procedure. No cloud storage provider, recurring schedule, automated retention, or encrypted off-host upload is configured by this implementation. Never connect these scripts directly to live production credentials without a separately approved backup/recovery runbook.
