@@ -542,14 +542,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               {addressSearchResults.length > 0 && (
                 <div style={{ background: '#1f2937', border: '1px solid #ff6b35', borderRadius: 8, marginTop: 4, maxHeight: 180, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 10 }}>
                   {addressSearchResults.map((item, idx) => (
-                    <div
+                    <button type="button"
                       key={idx}
                       onClick={() => handleSelectAddressSuggestion(item)}
-                      style={{ padding: '10px 12px', borderBottom: '1px solid #374151', cursor: 'pointer', fontSize: '0.82rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 6 }}
+                      style={{ width:'100%',background:'transparent',textAlign:'left', padding: '10px 12px', border:'none', borderBottom: '1px solid #374151', cursor: 'pointer', fontSize: '0.82rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                       <span>📍</span>
-                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.display_name}</span>
-                    </div>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label || item.display_name}</span>
+                    </button>
                   ))}
                 </div>
               )}
