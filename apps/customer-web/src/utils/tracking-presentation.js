@@ -126,7 +126,7 @@ export function createTrackingSnapshotGate(){
       active=request;
       return request;
     },
-    isCurrent(request){return !!request && active===request && !request.signal.aborted;},
+    isCurrent(request){return !!request && active===request;},
     finish(request){
       if(active!==request)return false;
       clearTimeout(active.timer);
