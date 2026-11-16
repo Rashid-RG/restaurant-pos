@@ -46,7 +46,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [reveal, setReveal] = useState({ id: null, count: 0 });
   const latestMessage = messages[messages.length - 1];
   const isReplyAppearing = reveal.id === latestMessage?.id && reveal.count < String(latestMessage?.text || '').length;
-  const isGastroAnimating = typing || isReplyAppearing;
+  const isGastroAnimating = typing || trackingBusy || isReplyAppearing;
 
   // Show a brief typewriter effect for new answers; never delay users who prefer reduced motion.
   useEffect(() => {
@@ -162,6 +162,12 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     setIsOpen(false);
     onNavigate?.('track', { track: choice.id, tenant: getActiveTenant() });
   };
+
+  // A logout/account switch invalidates any in-flight private order lookup.
+  useEffect(() => {
+    trackRequestRef.current += 1;
+    setTrackingChoices([]);
+  }, [customer?.id]);
 
   useEffect(() => () => { trackRequestRef.current += 1; }, []);
 
