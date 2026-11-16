@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {recoveryDecision} from '../apps/customer-web/src/utils/order-recovery-status.js';
+import {recoveryDecision,shouldFinalizeOnlinePayment} from '../apps/customer-web/src/utils/order-recovery-status.js';
 
 describe('GastroFood interrupted checkout recovery',()=>{
   it('does not mark a pending online payment as completed',()=>{
@@ -7,8 +7,17 @@ describe('GastroFood interrupted checkout recovery',()=>{
     const result=recoveryDecision(order,'online_pending');
     expect(result.action).toBe('track');
     expect(result.clearCart).toBe(false);
+    expect(result.keepRecovery).toBe(true);
     expect(result.message).toMatch(/not confirmed/i);
     expect(recoveryDecision({...order,paymentStatus:'unpaid'},'payhere').clearCart).toBe(false);
+  });
+  it('keeps original checkout attempt when PayHere callback arrives before actual settlement',()=>{
+    expect(shouldFinalizeOnlinePayment(false)).toBe(false);
+    expect(shouldFinalizeOnlinePayment(null)).toBe(false);
+    expect(shouldFinalizeOnlinePayment(undefined)).toBe(false);
+    expect(shouldFinalizeOnlinePayment(true)).toBe(true);
+    expect(recoveryDecision({orderId:'existing',paymentStatus:'pending'},'online_pending').keepRecovery).toBe(true);
+    expect(recoveryDecision({orderId:'existing',paymentStatus:'paid'},'online_pending').keepRecovery).toBeUndefined();
   });
   it('clears a matching cart for server-confirmed paid orders',()=>{
     expect(recoveryDecision({orderId:'o1',paymentStatus:'paid'},'online_pending').clearCart).toBe(true);
