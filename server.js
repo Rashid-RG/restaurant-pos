@@ -3258,8 +3258,8 @@ app.get('/api/customer/orders', authenticateCustomer, async (req, res) => {
   try {
     const orders = await dbAll(
       `SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, source, deliveryAddress, invoiceNumber
-       FROM orders WHERE customerAccountId = ? ORDER BY timestamp DESC LIMIT 50`,
-      [req.customer.id]
+       FROM orders WHERE customerAccountId = ? AND tenant_id = ? ORDER BY timestamp DESC LIMIT 50`,
+      [req.customer.id, req.customer.tenant_id]
     );
     const result = await Promise.all(orders.map(async (o) => {
       const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [o.id]);
