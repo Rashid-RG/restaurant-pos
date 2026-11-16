@@ -1,7 +1,7 @@
 import {startStoreUpdates} from '../utils/live-store.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { isMenuItemAvailable, maxMenuItemQuantity, validMenuQuantity, menuItemTotal, isRequiredModifierMissing } from '../utils/menu-selection.js';
+import { isMenuItemAvailable, maxMenuItemQuantity, validMenuQuantity, menuItemTotal, isRequiredModifierMissing, toggleMenuModifier, validateMenuModifiers, remainingMenuQuantity } from '../utils/menu-selection.js';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -377,21 +377,17 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
 
   // Handle Modifiers Selection
   const handleModifierToggle = (modifier, groupName, isMultiSelect) => {
-    setSelectedModifiers(prev => {
-      if (isMultiSelect) {
-        const exists = prev.find(m => m.id === modifier.id);
-        if (exists) return prev.filter(m => m.id !== modifier.id);
-        return [...prev, modifier];
-      } else {
-        const filtered = prev.filter(m => m.groupName !== groupName);
-        return [...filtered, modifier];
-      }
-    });
+    setSelectedModifiers(prev => toggleMenuModifier(prev, modifier, groupName, isMultiSelect));
   };
 
   // Add customized item to cart (local or group)
   const handleAddToCart = async (item, qty, modifiers, notes) => {
-    if (!validMenuQuantity(qty,item) || menuItemTotal(item,qty,modifiers) === null) { toast('This selection is unavailable or exceeds remaining stock.', 'warning'); return; }
+    if (!validateMenuModifiers(item, modifiers)) {
+      toast('Choose valid menu options before adding this item.', 'warning'); return;
+    }
+    if (!validMenuQuantity(qty,item) || (!groupId && qty > remainingMenuQuantity(item, getQty(item.id))) || menuItemTotal(item,qty,modifiers) === null) {
+      toast('This selection is unavailable or exceeds remaining stock.', 'warning'); return;
+    }
     if (menu.storeOpen !== true || menu.offlineSnapshot) {
       toast('This restaurant is not accepting online orders.', 'warning'); return;
     }
@@ -528,8 +524,12 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
     : {};
 
   // Compute live price delta in customizer
+  const availableCustomizerQty = customizerItem
+    ? (groupId ? maxMenuItemQuantity(customizerItem) : remainingMenuQuantity(customizerItem, getQty(customizerItem.id)))
+    : 0;
   const totalCustomizerPrice = customizerItem ? menuItemTotal(customizerItem,customizerQty,selectedModifiers) : null;
   const requiredMissing = customizerItem ? isRequiredModifierMissing(groupedModifiers,selectedModifiers) : false;
+  const invalidOptions = customizerItem ? !validateMenuModifiers(customizerItem,selectedModifiers) : true;
   useEffect(()=>{
     if(!showCustomizerModal)return;
     const onKey=e=>{if(e.key==='Escape')setShowCustomizerModal(false)};
@@ -899,6 +899,8 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
               {customizerItem.imageUrl ? <img className="customer-customizer-image" src={customizerItem.imageUrl} alt={customizerItem.name} onError={e=>{e.currentTarget.style.display='none'}} /> : <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>}
               <h4 style={{ margin: '8px 0 4px', fontSize: '1.05rem', fontWeight: 700 }}>{customizerItem.name}</h4>
+              {availableCustomizerQty < 1 && <p role="status" className="gf-menu-remaining-stock">Stock limit reached for this item in your cart.</p>}
+              {availableCustomizerQty > 0 && availableCustomizerQty <= 5 && <p role="status" className="gf-menu-remaining-stock">{availableCustomizerQty} more available to add</p>}
               <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>{customizerItem.description}</p>
             </div>
 
@@ -947,7 +949,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
               <div className="qty-control" style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <button type="button" className="dec" aria-label="Decrease quantity" disabled={customizerQty<=1} onClick={() => setCustomizerQty(prev => Math.max(1, prev - 1))}>−</button>
                 <span className="qty" style={{ fontWeight: 700 }}>{customizerQty}</span>
-                <button type="button" className="inc" aria-label="Increase quantity" disabled={customizerQty >= maxMenuItemQuantity(customizerItem)} onClick={() => setCustomizerQty(prev => Math.min(maxMenuItemQuantity(customizerItem),prev + 1))}>+</button>
+                <button type="button" className="inc" aria-label="Increase quantity" disabled={customizerQty >= availableCustomizerQty} onClick={() => setCustomizerQty(prev => Math.min(availableCustomizerQty,prev + 1))}>+</button>
               </div>
             </div>
 
@@ -969,10 +971,10 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
             <button 
               className="btn btn-brand" 
               style={{ width: '100%', padding: '12px' }}
-              disabled={requiredMissing || totalCustomizerPrice === null || menu.storeOpen!==true || menu.offlineSnapshot}
+              disabled={invalidOptions || totalCustomizerPrice === null || customizerQty > availableCustomizerQty || menu.storeOpen!==true || menu.offlineSnapshot}
               onClick={() => handleAddToCart(customizerItem, customizerQty, selectedModifiers, customizerNotes)}
             >
-              {requiredMissing ? 'Choose required options' : t.addToCart} · Rs. {totalCustomizerPrice === null ? '—' : totalCustomizerPrice.toFixed(0)}
+              {requiredMissing ? 'Choose required options' : invalidOptions ? 'Check selected options' : customizerQty > availableCustomizerQty ? 'Stock limit reached' : t.addToCart} · Rs. {totalCustomizerPrice === null ? '—' : totalCustomizerPrice.toFixed(0)}
             </button>
           </div>
         </div>
