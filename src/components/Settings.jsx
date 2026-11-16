@@ -1105,7 +1105,7 @@ export default function Settings() {
                   Create and manage staff accounts, roles, access permissions, and quick-access POS PINs.
                 </p>
 
-                <UserManagementSection />
+                <UserManagementSection showToast={showToast} currentUser={currentUser} />
               </div>
             )}
 
@@ -2078,24 +2078,28 @@ export default function Settings() {
   );
 }
 
-function UserManagementSection() {
+function UserManagementSection({ showToast, currentUser }) {
   const [usersList, setUsersList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [username, setUsername] = useState('');
   const [role, setRole] = useState('cashier');
-  const [pin, setPin] = useState('1234');
-  const [password, setPassword] = useState('123456');
+  const [pin, setPin] = useState('');
+  const [password, setPassword] = useState('');
+  const [formError, setFormError] = useState('');
+  const [listError, setListError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const fetchUsers = async () => {
     try {
+      setListError('');
       const token = localStorage.getItem('gastroflow_token');
       const res = await fetch('/api/users', { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setUsersList(data);
-      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Unable to load staff accounts.');
+      if (!Array.isArray(data)) throw new Error('Unexpected response loading staff accounts.');
+      setUsersList(data);
     } catch (err) {
-      console.error('Failed to fetch users:', err);
+      setListError(err.message || 'Unable to load staff accounts.');
     }
   };
 
@@ -2105,74 +2109,91 @@ function UserManagementSection() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!username || !role) return showToast('Please enter username and role.', 'warning');
+    if (loading) return;
+    const cleanUsername = username.trim();
+    const message = !cleanUsername ? 'Enter a username.' :
+      !/^[a-zA-Z0-9_.-]{3,50}$/.test(cleanUsername) ? 'Username must have 3–50 letters, numbers, underscores, dots or hyphens.' :
+      password.length < 12 ? 'Set a password with at least 12 characters.' :
+      !/^\\d{4,8}$/.test(pin) ? 'Enter a private PIN of 4–8 digits.' :
+      role === 'owner' && currentUser?.role !== 'owner' ? 'Only owners can create another owner.' : '';
+    if (message) { setFormError(message); return; }
     try {
       setLoading(true);
+      setFormError('');
       const token = localStorage.getItem('gastroflow_token');
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ username, role, pin, password })
+        body: JSON.stringify({ username: cleanUsername, role, pin, password })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      showToast(`User ${username} created successfully!`, 'success');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.error || data.message || (res.status === 402 ? 'Staff limit reached for this plan.' : 'Unable to create staff member.');
+        throw new Error(detail);
+      }
       setUsername('');
-      fetchUsers();
+      setPin('');
+      setPassword('');
+      await fetchUsers();
+      showToast(`Staff account ${cleanUsername} created successfully.`, 'success');
     } catch (err) {
-      showToast('Error creating user: ' + err.message, 'error');
+      setFormError(err.message || 'Unable to create staff member.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteUser = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to delete staff account ${name}?`)) return;
+    if (!window.confirm(`Delete staff account ${name}? This removes their access to this restaurant.`)) return;
     try {
       const token = localStorage.getItem('gastroflow_token');
-      const res = await fetch(`/api/users/${id}`, {
+      const res = await fetch(`/api/users/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error('Failed to delete user');
-      showToast(`User ${name} deleted.`, 'info');
-      fetchUsers();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Unable to delete staff account.');
+      showToast(`Account ${name} deleted.`, 'info');
+      await fetchUsers();
     } catch (err) {
-      showToast('Error deleting user: ' + err.message, 'error');
+      setListError(err.message || 'Unable to delete staff account.');
     }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <form onSubmit={handleCreateUser} style={{ background: 'var(--bg-surface)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', alignItems: 'end' }}>
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 700 }}>Username</label>
-          <input className="form-input" type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="e.g. cashier_john" required />
+      <form onSubmit={handleCreateUser} style={{ background: 'var(--bg-surface)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+        <h3 style={{ margin: '0 0 8px' }}>Add a staff member</h3>
+        <p style={{ color: 'var(--text-muted)', margin: '0 0 20px', fontSize: '13px' }}>Give each employee their own login and private POS PIN. No default credentials are used.</p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '16px' }}>
+          <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Username
+            <input className="form-input" type="text" autoComplete="off" value={username} onChange={e => setUsername(e.target.value)} placeholder="e.g. cashier_nimal" minLength={3} maxLength={50} required />
+          </label>
+          <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Staff role
+            <select className="form-input" value={role} onChange={e => setRole(e.target.value)}>
+              <option value="cashier">Cashier — POS & checkout</option>
+              <option value="manager">Manager — management & reports</option>
+              <option value="kitchen">Kitchen — kitchen display</option>
+              {currentUser?.role === 'owner' && <option value="owner">Owner — full restaurant access</option>}
+            </select>
+          </label>
+          <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Private POS PIN (4–8 digits)
+            <input className="form-input" type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={e => setPin(e.target.value.replace(/\\D/g, '').slice(0, 8))} placeholder="Choose a unique PIN" required />
+          </label>
+          <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>Login password (12+ characters)
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input className="form-input" style={{ minWidth: 0, flex: 1 }} type={showPassword ? 'text' : 'password'} autoComplete="new-password" minLength={12} maxLength={72} value={password} onChange={e => setPassword(e.target.value)} placeholder="Choose a strong password" required />
+              <button className="btn" type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button>
+            </div>
+          </label>
         </div>
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 700 }}>Role</label>
-          <select className="form-input" value={role} onChange={e => setRole(e.target.value)}>
-            <option value="owner">Owner (Full Admin Access)</option>
-            <option value="manager">Manager (Reports & Inventory)</option>
-            <option value="cashier">Cashier (POS & Checkout)</option>
-            <option value="kitchen">Kitchen Staff (KDS Only)</option>
-          </select>
-        </div>
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 700 }}>4-Digit Quick PIN</label>
-          <input className="form-input" type="text" maxLength={4} value={pin} onChange={e => setPin(e.target.value)} placeholder="1234" required />
-        </div>
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 700 }}>Password</label>
-          <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••" required />
-        </div>
-        <div>
-          <button className="btn btn-primary" type="submit" disabled={loading} style={{ width: '100%', padding: '10px' }}>
-            ➕ Create Staff User
-          </button>
+        {formError && <p role="alert" style={{ color: 'var(--danger, #b91c1c)', marginTop: '16px', fontWeight: 600 }}>{formError}</p>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+          <button className="btn btn-primary" type="submit" disabled={loading} style={{ minWidth: '190px', padding: '12px 18px' }}>{loading ? 'Creating account…' : '+ Create staff account'}</button>
         </div>
       </form>
 
+      {listError && <div role="alert" style={{ color: 'var(--danger, #b91c1c)' }}>{listError} <button className="btn" onClick={fetchUsers}>Retry</button></div>}
       <div style={{ background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
           <thead>
@@ -2184,15 +2205,16 @@ function UserManagementSection() {
             </tr>
           </thead>
           <tbody>
+            {usersList.length === 0 && <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>No staff accounts to display.</td></tr>}
             {usersList.map(u => (
               <tr key={u.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                 <td style={{ padding: '12px 16px', fontWeight: 700 }}>👤 {u.username}</td>
                 <td style={{ padding: '12px 16px' }}>
                   <span className="badge badge-primary" style={{ textTransform: 'capitalize' }}>{u.role}</span>
                 </td>
-                <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>🔑 {u.pin || '----'}</td>
+                <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>🔒 Hidden</td>
                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                  <button className="btn btn-danger" onClick={() => handleDeleteUser(u.id, u.username)} style={{ padding: '4px 10px', fontSize: '12px' }}>
+                  <button className="btn btn-danger" disabled={u.id === currentUser?.id || (u.role === 'owner' && currentUser?.role !== 'owner')} onClick={() => handleDeleteUser(u.id, u.username)} style={{ padding: '4px 10px', fontSize: '12px' }}>
                     🗑️ Delete
                   </button>
                 </td>
