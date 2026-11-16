@@ -1,5 +1,5 @@
-import {describe,it,expect} from 'vitest';
-import {createDispatchRequestGate,shouldRetainTrackedOrder,shouldClearTrackedOrder,latestDispatchTickets} from '../apps/driver-web/src/utils/dispatch-sync.js';
+import {describe,it,expect,vi} from 'vitest';
+import {createDispatchRequestGate,createDispatchTimeout,shouldRetainTrackedOrder,shouldClearTrackedOrder,latestDispatchTickets} from '../apps/driver-web/src/utils/dispatch-sync.js';
 
 describe('GastroDriver dispatch refresh reliability',()=>{
  it('allows only one in-flight request and invalidates responses after logout',()=>{
@@ -31,6 +31,24 @@ describe('GastroDriver dispatch refresh reliability',()=>{
      expect(shouldClearTrackedOrder(error)).toBe(false);
      expect(shouldRetainTrackedOrder(error)).toBe(true);
    }
+ });
+ it('aborts a stalled refresh after a bounded timeout and lets the gate recover',()=>{
+   vi.useFakeTimers();
+   try{
+     const gate=createDispatchRequestGate();
+     const first=gate.start();
+     const request=createDispatchTimeout(12000);
+     expect(request.signal.aborted).toBe(false);
+     vi.advanceTimersByTime(12000);
+     expect(request.signal.aborted).toBe(true);
+     gate.finish(first);
+     const next=gate.start();
+     expect(next).not.toBe(first);
+     request.finish();
+     const cancelled=createDispatchTimeout(12000);
+     cancelled.cancel();
+     expect(cancelled.signal.aborted).toBe(true);
+   }finally{vi.useRealTimers();}
  });
  it('preserves last known order during transient outages',()=>{
    expect(shouldRetainTrackedOrder(new Error('Failed to fetch'))).toBe(true);
