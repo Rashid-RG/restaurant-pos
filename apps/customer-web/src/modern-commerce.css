@@ -519,3 +519,18 @@
 }
 .customer-premium .gf-checkout-delivery-quote-status strong{font-weight:800}
 .customer-premium .gf-checkout-delivery-quote-status span{color:#755e3f}
+
+
+/* One-tap customer GPS opt-in, available directly from restaurant discovery. */
+.customer-premium .gf-discovery-use-gps{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:44px;padding:10px 13px;flex:0 0 auto;
+  border:1px solid #b8ddc7;border-radius:13px;background:#eaf8ef;color:#136644;
+  font:inherit;font-size:.79rem;font-weight:800;cursor:pointer;
+}
+.customer-premium .gf-discovery-use-gps:disabled{opacity:.65;cursor:progress}
+.customer-premium .gf-discovery-use-gps:focus-visible{outline:3px solid #e78a47;outline-offset:2px}
+@media(max-width:425px){
+  .customer-premium .restaurants-location-row{gap:8px;flex-wrap:wrap}
+  .customer-premium .gf-discovery-use-gps{width:100%}
+}
