@@ -11,13 +11,13 @@ import { gastroVoiceLocale, gastroSpeechText, gastroVoiceForLocale } from '../ut
 import './gastromate-mascot.css';
 import { isTrackingIntent, selectTrackableOrders, safeOrderChoice } from '../utils/gastromate-tracking.js';
 
-function BurgerMascot({ small = false, active = false }) {
-  return <span className={`gastromate-burger ${small ? 'gastromate-burger-small' : ''} ${active ? 'gastromate-burger-active' : ''}`} aria-hidden="true">
+function BurgerMascot({ small = false, active = false, speaking = false, celebrating = false }) {
+  return <span className={`gastromate-burger ${small ? 'gastromate-burger-small' : ''} ${active ? 'gastromate-burger-active' : ''} ${speaking ? 'gastromate-burger-speaking' : ''} ${celebrating ? 'gastromate-burger-celebrate' : ''}`} aria-hidden="true">
     <span className="gastromate-burger-arm left">✦</span>
     <span className="gastromate-burger-body"><span className="gastromate-burger-face">•ᴗ•</span></span>
     <span className="gastromate-burger-arm right">✦</span>
     <span className="gastromate-burger-feet">⌣ ⌣</span>
-    {!small && <span className="gastromate-hello">{active ? 'Thinking…' : 'Hi!'}</span>}
+    {!small && <span className="gastromate-hello">{speaking ? 'Speaking!' : celebrating ? 'Yay!' : active ? 'Thinking…' : 'Hi!'}</span>}
   </span>;
 }
 
@@ -42,6 +42,10 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [pendingAdd, setPendingAdd] = useState(null);
   const [pendingBatch, setPendingBatch] = useState(null);
   const [addingItem, setAddingItem] = useState(false);
+  const [pendingSupport, setPendingSupport] = useState(null);
+  const [supportBusy, setSupportBusy] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [celebrating, setCelebrating] = useState(false);
   const [trackingChoices, setTrackingChoices] = useState([]);
   const [trackingBusy, setTrackingBusy] = useState(false);
   const trackRequestRef = useRef(0);
@@ -80,6 +84,17 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [pendingTicketText, setPendingTicketText] = useState('');
 
   const chatEndRef = useRef(null);
+  const celebrationTimerRef = useRef(null);
+  const speechRef = useRef(null);
+  useEffect(() => () => {
+    if (celebrationTimerRef.current) window.clearTimeout(celebrationTimerRef.current);
+    window.speechSynthesis?.cancel?.();
+  }, []);
+  const celebrate = () => {
+    if (celebrationTimerRef.current) window.clearTimeout(celebrationTimerRef.current);
+    setCelebrating(true);
+    celebrationTimerRef.current = window.setTimeout(() => setCelebrating(false), 1550);
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -123,12 +138,16 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       const clean = gastroSpeechText(text);
       if (!clean) return;
       const utterance = new SpeechSynthesisUtterance(clean);
+      utterance.onstart = () => setSpeaking(true);
+      utterance.onend = () => setSpeaking(false);
+      utterance.onerror = () => setSpeaking(false);
+      speechRef.current = utterance;
       utterance.lang = gastroVoiceLocale(lang, clean);
       const voice = gastroVoiceForLocale(window.speechSynthesis.getVoices(), utterance.lang);
       if (voice) utterance.voice = voice;
       utterance.rate = 1.0;
       window.speechSynthesis.speak(utterance);
-    } catch (_) {}
+    } catch (_) { setSpeaking(false); }
   };
 
   // Signed-in order discovery bypasses the LLM entirely. Never include
@@ -138,6 +157,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     const request = ++trackRequestRef.current;
     setPendingAdd(null);
     setPendingBatch(null);
+    setPendingSupport(null);
     setTrackingChoices([]);
     if (!customer || !getToken?.()) {
       setMessages(prev => [...prev, { id: `track_signin_${Date.now()}`, sender: 'ai', text: 'Please sign in to securely see your orders. If you have a private order confirmation link, open its Track Order page instead.', suggestions: ['Sign In', 'Track Order Page'] }]);
@@ -195,6 +215,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     }
     setTrackingChoices([]);
     setPendingBatch(null);
+    setPendingSupport(null);
 
     const tenantAtRequest = getActiveTenant();
     const userMsgId = `msg_${Date.now()}`;
@@ -231,16 +252,9 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       else setPendingAdd(null);
       if (fromVoice) speakText(res.reply);
 
-      // Support escalation trigger
-      if (res.action && res.action.type === 'connect_support') {
-        if (customer) {
-          // Logged in customer: automatically create real support ticket
-          await createSupportTicket(queryText, customer.email || customer.phone, customer.name);
-        } else {
-          // Guest user: prompt for OTP verification
-          setPendingTicketText(queryText);
-          setVerifyingGuest(true);
-        }
+      // An AI suggestion is never authorization to create a support ticket.
+      if (res.action?.type === 'connect_support') {
+        setPendingSupport({text:queryText.slice(0,500),tenantId:tenantAtRequest});
       }
     } catch (err) {
       setMessages(prev => [...prev, {
@@ -265,6 +279,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       const prepared = prepareGastroBatch(plan, menu, liveCartItems, tenantAtStart);
       if (!prepared.ok) throw new Error(prepared.reason);
       addVerifiedBatch(prepared.items);
+      celebrate();
       setPendingBatch(null);
       setMessages(prev => [...prev, {
         id: `multi_added_${Date.now()}`,sender:'ai',
@@ -307,12 +322,38 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       const quantity = Math.min(20, Math.max(1, Math.trunc(Number(proposal.quantity) || 1)));
       if (already + quantity > maxMenuItemQuantity(item)) throw new Error('Not enough stock available for this quantity.');
       addItem(item, quantity);
+      celebrate();
       setPendingAdd(null);
       setMessages(prev => [...prev, { id: `cart_${Date.now()}`, sender: 'ai', text: `🛒 ${quantity} × ${item.name} selected for your cart. Review your cart before checkout.` }]);
       setCartOpen(true);
     } catch (err) {
       setMessages(prev => [...prev, { id: `cart_error_${Date.now()}`, sender: 'ai', text: err.message || 'Could not add this item.' }]);
     } finally { setAddingItem(false); }
+  };
+
+  // Explicit user consent for sharing an inquiry with restaurant support.
+  const confirmSupportRequest = async () => {
+    if (supportBusy || !pendingSupport) return;
+    const proposal = pendingSupport;
+    if (proposal.tenantId !== getActiveTenant()) {
+      setPendingSupport(null);
+      setMessages(prev => [...prev, {id:`support_store_${Date.now()}`,sender:'ai',text:'The restaurant changed. Please start a new support request.'}]);
+      return;
+    }
+    setPendingSupport(null);
+    if (!customer || !getToken?.()) {
+      setPendingTicketText(proposal.text);
+      setVerifyingGuest(true);
+      return;
+    }
+    setSupportBusy(true);
+    try {
+      await createSupportTicket(proposal.text, customer.email || customer.phone || '', customer.name || 'Customer');
+    } catch (_) {
+      // createSupportTicket already reports a clear failure to the customer.
+    } finally {
+      setSupportBusy(false);
+    }
   };
 
   // Trigger Guest OTP code sending (Email or SMS)
@@ -353,8 +394,11 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         })
       });
       if (vr.valid || vr.success) {
+        const text = pendingTicketText;
+        if (!text) throw new Error('Support request expired. Please start again.');
+        await createSupportTicket(text, guestContact.trim(), 'Verified Guest Customer');
         setVerifyingGuest(false);
-        await createSupportTicket(pendingTicketText || 'Guest inquiry', guestContact.trim(), 'Verified Guest Customer');
+        setPendingTicketText('');
       } else {
         alert('Invalid or expired OTP code. Please try again.');
       }
@@ -387,6 +431,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       }]);
     } catch (err) {
       console.warn('Support ticket creation error:', err);
+      setMessages(prev => [...prev, {id:`tkt_error_${Date.now()}`,sender:'ai',text:'Your support ticket could not be confirmed. Please retry or open the support desk.'}]);
+      throw err;
     }
   };
 
@@ -413,7 +459,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
               gap: 6
             }}
           >
-            <BurgerMascot small active={isGastroAnimating} />
+            <BurgerMascot small active={isGastroAnimating} speaking={speaking} celebrating={celebrating} />
             <span className="gastro-ai-pill-text">Ask GastroMate</span>
           </div>
         )}
@@ -473,7 +519,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ fontSize: '1.5rem', background: 'rgba(255,255,255,0.2)', padding: '6px 8px', borderRadius: 14 }}>
-                <BurgerMascot active={isGastroAnimating} />
+                <BurgerMascot active={isGastroAnimating} speaking={speaking} celebrating={celebrating} />
               </div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1rem', letterSpacing: '-0.2px' }}>
@@ -506,6 +552,13 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
               {addingItem ? 'Checking menu…' : 'Confirm complete selection'}
             </button>
             <button type="button" disabled={addingItem} onClick={() => setPendingBatch(null)}>Cancel</button>
+          </div>}
+          {pendingSupport && <div className="gastromate-confirm" role="group" aria-label="Confirm support ticket">
+            <span>Send this inquiry to the selected restaurant support team? It may include your contact details. No ticket will be created unless you confirm.</span>
+            <button type="button" disabled={supportBusy} onClick={confirmSupportRequest}>
+              {supportBusy ? 'Sending…' : 'Confirm support request'}
+            </button>
+            <button type="button" disabled={supportBusy} onClick={() => setPendingSupport(null)}>Cancel</button>
           </div>}
           {/* Only account-owned, tenant-scoped orders can appear here. No private
                tracking data is sent to the AI provider or persisted in chat history. */}
