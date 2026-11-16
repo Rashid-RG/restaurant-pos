@@ -1,6 +1,6 @@
 import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/checkout-recovery.js';
 import { createSubmissionGuard } from '../utils/submission-guard.js';
-import { recoveryDecision } from '../utils/order-recovery-status.js';
+import { recoveryDecision, shouldFinalizeOnlinePayment } from '../utils/order-recovery-status.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
@@ -91,7 +91,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       const decision=recoveryDecision(result,pendingCheckout.payload.paymentMethod);
       if(decision.action !== 'track'){toast(decision.message,'warning');return;}
       if(decision.clearCart && JSON.stringify(pendingCheckout.payload.items) === JSON.stringify(items.map(i=>({menuItemId:i.id,quantity:i.qty,notes:i.notes||'',selectedModifiers:i.selectedModifiers||[]}))))clearCart();
-      finishRecovery();
+      if(!decision.keepRecovery)finishRecovery();
       setCartOpen(false);
       toast(decision.message,decision.clearCart?'success':'info');
       onOrderPlaced&&onOrderPlaced(result.orderId);
@@ -332,7 +332,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         if (window.payhere) {
           window.payhere.onCompleted = async function onPaymentCompleted(orderId) {
             const settled=await pollOrderPaid(data.orderId);
-            finishRecovery();clearCart();
+            // Browser gateway callbacks are not proof of payment. Preserve
+            // the cart and original idempotency key until the server confirms.
+            if(shouldFinalizeOnlinePayment(settled)){finishRecovery();clearCart();}
             setCartOpen(false);
             toast(settled?'Payment confirmed by the server.':'Payment is still processing. Check order tracking before trying another payment.',settled?'success':'info');
             onOrderPlaced && onOrderPlaced(data.orderId);
