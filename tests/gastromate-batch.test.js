@@ -63,5 +63,8 @@ describe('GastroMate atomic cart validation',()=>{
   expect(component).toContain('Confirm complete selection');
   expect(component).toContain('prepareGastroBatch(plan, menu, liveCartItems, tenantAtStart)');
   expect(component).toContain("addVerifiedBatch(prepared.items)");
+  expect(component).toContain('tenantAtRequest !== getActiveTenant()');
+  expect(component).toContain('proposal.tenantId !== getActiveTenant()');
+  expect(component).toContain('tenantId:msg.plan.tenantId');
  });
 });
