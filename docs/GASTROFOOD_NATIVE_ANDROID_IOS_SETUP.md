@@ -97,3 +97,13 @@ Native order tracking currently uses authorized snapshot polling; hosted SSE and
 
 ## CI-generated native source artifacts (review before use)
 The workflow `.github/workflows/food-native-lock-bootstrap.yml` creates two candidates if jobs succeed: the customer-only `package-lock.json` and a generated `apps/customer-web/android/` source project. Their presence must be confirmed in GitHub Actions; writing the workflow does **not** prove they exist. Download the artifacts, verify Gradle settings, application ID, icon/splash placeholders and AndroidManifest permissions, then introduce reviewed source files on the existing branch. No signing, publishing, staging deployment or device installation is performed by this workflow. iOS still requires a macOS/Xcode project-generation and build gate.
+
+## Verified Android build artifact and branding review (17 November 2026)
+
+GitHub Actions run [43932069024](https://github.com/Rashid-RG/restaurant-pos/actions/runs/43932069024) successfully produced a customer-only lockfile candidate (artifact `14259006527`) and Android **source** candidate (artifact `14258956648`). Both jobs passed. Source inspection confirmed `com.rstechnologies.gastrofood` and foreground GPS permissions. **No signed or unsigned APK was produced by that workflow.**
+
+The earlier source candidate still contained default Capacitor app launcher/splash resources. The updated workflow adds `scripts/generate-food-android-branding.py`, which reads the existing approved `apps/customer-web/public/food-logo.png`, generates adaptive and legacy launcher PNGs, and replaces generated splash PNG assets in the isolated customer Android project. Image processing requires Pillow on the CI runner. Verify the **new** Android source artifact before considering branding complete; the old artifact remains unbranded.
+
+The standalone customer quality job previously failed after 61 tests passed because its native audit detected the stale customer lockfile. The updated quality workflow regenerates the customer-only lock in its runner before native preflight, but an actual passing run must still be checked.
+
+**Review before release:** Android adaptive icon cropping (circular/squircle), status-bar splash rendering, light/dark contrast, permission prompts, tenant-safe HTTPS/CORS requests, deep-link/order routing, and Gradle debug build. The iOS icon/launch-screen resources require a distinct Xcode acceptance stage.
