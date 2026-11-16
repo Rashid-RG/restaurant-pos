@@ -125,8 +125,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Prepare Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Prepare Android 36 SDK from runner command-line tools
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+          test -n "${ANDROID_HOME:-}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -Vr | head -n 1)"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || test "${PIPESTATUS[1]}" = 0
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          test -f "$ANDROID_HOME/platforms/android-36/android.jar"
       - name: Compile test-only GastroFlow Food Android debug APK
         working-directory: apps/customer-web/android
         run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace
