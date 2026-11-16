@@ -5,7 +5,7 @@ import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
 import {shouldSendDriverFix} from './utils/gps-transmission.js';
-import {createDispatchRequestGate,latestDispatchTickets} from './utils/dispatch-sync.js';
+import {createDispatchRequestGate,createDispatchTimeout,latestDispatchTickets} from './utils/dispatch-sync.js';
 
 
 // ── Auth token storage ──
@@ -76,6 +76,7 @@ export default function App() {
   // the latest count without a stale closure.
   const prevUnassignedCountRef = useRef(0);
   const dispatchGateRef=useRef(createDispatchRequestGate());
+  const dispatchAbortRef=useRef(null);
   const [dispatchLastSynced,setDispatchLastSynced]=useState(null);
   const [dispatchSyncError,setDispatchSyncError]=useState(false);
   const [driverClock,setDriverClock]=useState(Date.now());
@@ -143,6 +144,7 @@ export default function App() {
     setAvailableOrders([]);
     activeOrdersRef.current = [];
     prevUnassignedCountRef.current = 0;
+    dispatchAbortRef.current?.cancel();dispatchAbortRef.current=null;
     dispatchGateRef.current.invalidate();
     setDispatchLastSynced(null);setDispatchSyncError(false);
     localStorage.removeItem(TOKEN_KEY);
@@ -189,9 +191,11 @@ export default function App() {
     const gate=dispatchGateRef.current;
     const request=gate.start();
     if(request===null)return;
+    const timeout=createDispatchTimeout(12000);
+    dispatchAbortRef.current=timeout;
     setLoading(true);
     try {
-      const data = await apiFetch('/public/driver/orders');
+      const data = await apiFetch('/public/driver/orders',{signal:timeout.signal});
       if(!gate.isCurrent(request))return;
       const tickets=latestDispatchTickets(data);
       const newUnassigned=tickets.unassigned;
@@ -217,6 +221,8 @@ export default function App() {
       if (/token/i.test(err.message)) { handleLogout(); showToast('Session expired — please sign in again', 'warning'); }
       else setDispatchSyncError(true); // Preserve last confirmed tickets on a transient outage.
     } finally {
+      timeout.finish();
+      if(dispatchAbortRef.current===timeout)dispatchAbortRef.current=null;
       if(gate.isCurrent(request)){setLoading(false);gate.finish(request);}
     }
   };
@@ -229,7 +235,7 @@ export default function App() {
       const onOnline=()=>fetchDriverOrders();
       document.addEventListener('visibilitychange',onResume);
       window.addEventListener('online',onOnline);
-      return () => {clearInterval(interval);document.removeEventListener('visibilitychange',onResume);window.removeEventListener('online',onOnline);dispatchGateRef.current.invalidate();};
+      return () => {clearInterval(interval);document.removeEventListener('visibilitychange',onResume);window.removeEventListener('online',onOnline);dispatchAbortRef.current?.cancel();dispatchAbortRef.current=null;dispatchGateRef.current.invalidate();};
     }
   }, [driver?.id]);
 
