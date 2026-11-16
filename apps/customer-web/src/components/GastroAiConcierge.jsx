@@ -13,6 +13,7 @@ function BurgerMascot({ small = false }) {
     <span className="gastromate-burger-body"><span className="gastromate-burger-face">•ᴗ•</span></span>
     <span className="gastromate-burger-arm right">✦</span>
     <span className="gastromate-burger-feet">⌣ ⌣</span>
+    {!small && <span className="gastromate-hello">Hi!</span>}
   </span>;
 }
 
@@ -294,13 +295,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             flexShrink: 0
           }}
         >
-          {isOpen ? '✕' : <BurgerMascot small />}
-          {false && (
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="currentColor" />
-              <path d="M19 2L19.8 4.2L22 5L19.8 5.8L19 8L18.2 5.8L16 5L18.2 4.2L19 2Z" fill="rgba(255,255,255,0.85)" />
-            </svg>
-          )}
+          {isOpen ? <X size={22} /> : <BurgerMascot small />}
           {!isOpen && (
             <span
               style={{
