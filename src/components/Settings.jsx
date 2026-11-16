@@ -2175,7 +2175,7 @@ function UserManagementSection({ showToast, currentUser }) {
   const handleResetPin = async (e) => {
     e.preventDefault();
     if (!resetAccount || resetBusy) return;
-    if (!/^\\d{4,8}$/.test(resetPin)) {
+    if (!/^\d{4,8}$/.test(resetPin)) {
       setResetError('PIN must contain 4 to 8 digits.');
       return;
     }
@@ -2287,10 +2287,9 @@ function UserManagementSection({ showToast, currentUser }) {
                 <td style={{ padding: '12px 16px' }}>
                   <span className="badge badge-primary" style={{ textTransform: 'capitalize' }}>{u.role}</span>
                 </td>
-                <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>🔒 Secured</td>
+                <td style={{ padding: '12px 16px' }}><button className="btn" type="button" disabled={u.role === 'owner' && currentUser?.role !== 'owner'} onClick={() => { setResetAccount(u); setResetPin(''); setShowResetPin(false); setResetError(''); }} aria-label={`Manage PIN for ${u.username}`} style={{ padding: '6px 10px', fontSize: '12px' }}>🔒 Manage PIN</button></td>
                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    <button className="btn" type="button" disabled={u.role === 'owner' && currentUser?.role !== 'owner'} onClick={() => { setResetAccount(u); setResetPin(''); setShowResetPin(false); setResetError(''); }} style={{ padding: '6px 10px', fontSize: '12px' }}>Reset PIN</button>
                     <button className="btn btn-danger" type="button" disabled={u.id === currentUser?.id || (u.role === 'owner' && currentUser?.role !== 'owner')} onClick={() => handleDeleteUser(u.id, u.username)} style={{ padding: '6px 10px', fontSize: '12px' }}>Delete</button>
                   </div>
                 </td>
@@ -2300,10 +2299,10 @@ function UserManagementSection({ showToast, currentUser }) {
         </table>
       </div>
       {resetAccount && (
-        <div role="dialog" aria-modal="true" aria-label={`Reset PIN for ${resetAccount.username}`} style={{ position: 'fixed', inset: 0, zIndex: 2500, display: 'grid', placeItems: 'center', padding: '20px', background: 'rgba(12, 25, 20, 0.6)' }}>
+        <div role="dialog" aria-modal="true" aria-label={`Manage PIN for ${resetAccount.username}`} style={{ position: 'fixed', inset: 0, zIndex: 2500, display: 'grid', placeItems: 'center', padding: '20px', background: 'rgba(12, 25, 20, 0.6)' }}>
           <form onSubmit={handleResetPin} style={{ width: '100%', maxWidth: '440px', padding: '24px', background: 'var(--bg-card, #fff)', borderRadius: '16px', boxShadow: '0 15px 50px rgba(0,0,0,.18)', display: 'grid', gap: '14px' }}>
-            <h3 style={{ margin: 0 }}>Reset POS PIN</h3>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>Set a new PIN for <strong>{resetAccount.username}</strong>. Existing PINs cannot be viewed. The new PIN will only be visible while you enter it.</p>
+            <h3 style={{ margin: 0 }}>Manage POS PIN</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>Set a new PIN for <strong>{resetAccount.username}</strong>. Existing PINs cannot be recovered because they are securely hashed. You can view the new PIN as you type it before saving. Keep it private.</p>
             <label style={{ display: 'grid', gap: '8px', fontWeight: 600 }}>
               New PIN (4–8 digits)
               <div style={{ display: 'flex', gap: '8px', minWidth: 0 }}>
