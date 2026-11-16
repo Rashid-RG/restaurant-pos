@@ -186,8 +186,11 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       const item = (menu.items || []).find(i => String(i.id) === String(proposal.itemId));
       if (!isMenuItemAvailable(item)) throw new Error('This item is currently unavailable.');
       if ((item.modifiers || []).length) {
+        // Reuse the actual restaurant customizer. No AI-generated modifier IDs or
+        // prices are ever added to the cart without explicit user selection.
         setPendingAdd(null);
-        setMessages(prev => [...prev, {id: `mods_${Date.now()}`, sender:'ai', text:'This item has customization options. Please choose its options from the restaurant menu before adding it.'}]);
+        setIsOpen(false);
+        onNavigate?.('store-menu', {tenant: getActiveTenant(), customize: String(item.id), qty: Math.min(20, Math.max(1, Number(proposal.quantity) || 1))});
         return;
       }
       const already = liveCartItems.filter(i => String(i.id) === String(item.id)).reduce((sum, i) => sum + Number(i.qty || 0), 0);
@@ -441,7 +444,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                         <button
                           onClick={() => {
                             setIsOpen(false);
-                            onNavigate && onNavigate('store-menu');
+                            onNavigate?.('store-menu', {tenant: getActiveTenant(), customize: String(item.id), qty: 1});
                           }}
                           style={{ background: '#176e4d', color: '#fff', border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
                         >
