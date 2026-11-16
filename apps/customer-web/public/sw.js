@@ -1,6 +1,6 @@
 // Offline shell only. Never cache authenticated API responses or other apps.
 const PREFIX = 'gastroflow-customer-';
-const CACHE = `${PREFIX}v9`;
+const CACHE = `${PREFIX}v10`;
 const BASE = new URL('./', self.location.href).pathname;
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll([BASE, `${BASE}offline.html`])));
@@ -36,7 +36,7 @@ self.addEventListener('push',event=>{
   const body=typeof data.body==='string'?data.body:'Your order status changed.';
   const tag=typeof data.orderId==='string'?'gastroflow-'+data.orderId:'gastroflow-order';
   event.waitUntil(self.registration.showNotification(title,{
-    body,tag,icon:BASE+'food-logo-192.png?v=6',badge:BASE+'food-logo-192.png?v=6',
+    body,tag,icon:BASE+'food-logo-192.png?v=7',badge:BASE+'food-logo-192.png?v=7',
     data:{orderId:typeof data.orderId==='string'?data.orderId:'',tenantId:typeof data.tenantId==='string'?data.tenantId:''}
   }));
 });
