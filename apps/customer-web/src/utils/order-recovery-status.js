@@ -7,6 +7,12 @@ export function recoveryDecision(order, paymentMethod = 'cash') {
     return {action:'track',clearCart:false,message:'This order already exists but is closed. See its current status.'};
   if (paymentStatus === 'paid') return {action:'track',clearCart:true,message:'Payment confirmed. Opening your existing order.'};
   if (paymentMethod === 'payhere' || paymentMethod === 'online_pending')
-    return {action:'track',clearCart:false,message:'The order exists, but online payment is not confirmed. Check its payment status before trying again.'};
+    return {action:'track',clearCart:false,keepRecovery:true,message:'The order exists, but online payment is not confirmed. Check its payment status before trying again.'};
   return {action:'track',clearCart:true,message:'Your existing order has been found. Opening order tracking.'};
+}
+
+// Never discard a private idempotency/recovery key before provider-backed
+// settlement is confirmed. A PayHere browser callback alone is not settlement.
+export function shouldFinalizeOnlinePayment(serverConfirmedPaid) {
+  return serverConfirmedPaid===true;
 }
