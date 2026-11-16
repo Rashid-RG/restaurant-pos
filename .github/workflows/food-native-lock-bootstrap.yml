@@ -14,6 +14,7 @@ on:
       - 'scripts/verify-food-native-lock.mjs'
       - 'scripts/harden-food-android.mjs'
       - 'scripts/generate-food-android-branding.py'
+      - 'scripts/audit-food-android-apk.py'
       - 'apps/customer-web/public/food-logo.png'
       - '.github/workflows/food-native-lock-bootstrap.yml'
 
@@ -141,8 +142,15 @@ jobs:
       - name: Compile test-only GastroFlow Food Android debug APK
         working-directory: apps/customer-web/android
         run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace
-      - name: Verify debug APK has been generated
-        run: test -s apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Verify compiled Android debug APK identity and signing
+        run: |
+          set -euo pipefail
+          APK=apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.rstechnologies.gastrofood'"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
+      - name: Audit debug APK packaged assets and staging-only API
+        run: python3 scripts/audit-food-android-apk.py apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
       - name: Upload test-only Android debug APK (not release signed)
         uses: actions/upload-artifact@v4
         with:
