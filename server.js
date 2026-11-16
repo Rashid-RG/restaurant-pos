@@ -1307,6 +1307,9 @@ async function initTables() {
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)`);
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_tenant_timestamp ON orders(tenant_id, timestamp DESC)`);
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_tenant_status ON orders(tenant_id, status)`);
+    // Delivery dispatch/completed rider lists filter by restaurant and canonical driver.
+    // Additive index only: no existing order, invoice or customer row is changed.
+    await dbRun(`CREATE INDEX IF NOT EXISTS idx_orders_tenant_driver_status_time ON orders(tenant_id, driverId, status, timestamp DESC)`);
     // Enforce that a fiscal invoice number is never reused (NULLs allowed for unsettled orders).
     await dbRun(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_invoice ON orders(invoiceNumber)`);
     await dbRun(`CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(orderId)`);
