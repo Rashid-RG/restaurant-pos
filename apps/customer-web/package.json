@@ -13,7 +13,8 @@
     "native:sync:android": "node ../../scripts/check-food-native-project.mjs && cap sync android",
     "native:sync:ios": "node ../../scripts/check-food-native-project.mjs && cap sync ios",
     "native:permissions:android": "node ../../scripts/setup-food-native-location-permissions.mjs android",
-    "native:permissions:ios": "node ../../scripts/setup-food-native-location-permissions.mjs ios"
+    "native:permissions:ios": "node ../../scripts/setup-food-native-location-permissions.mjs ios",
+    "native:harden:android": "node ../../scripts/harden-food-android.mjs"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
