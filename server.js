@@ -4376,12 +4376,22 @@ app.post('/api/delivery/assign',authenticateToken,requireRole(['owner','manager'
  let open=false;
  try{
   await dbRun('BEGIN TRANSACTION');open=true;
-  const order=await dbGet('SELECT id,status,driverId FROM orders WHERE id=? AND tenant_id=?',[orderId,req.tenantId]);
+  const order=await dbGet('SELECT id,status,driverId,diningType,orderType FROM orders WHERE id=? AND tenant_id=?',[orderId,req.tenantId]);
   const driver=await dbGet('SELECT id,name,status FROM drivers WHERE id=? AND tenant_id=?',[driverId,req.tenantId]);
   if(!order||!driver){await dbRun('ROLLBACK');open=false;return res.status(404).json({error:'Order or driver not found.'});}
+  if(order.diningType!=='delivery'&&order.orderType!=='delivery'){
+    await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Only delivery orders can be assigned a driver.'});
+  }
   if(!['pending','preparing','ready'].includes(order.status)||!['available','active','busy'].includes(driver.status)){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Order or driver is not available for assignment.'});}
   if(order.driverId&&order.driverId!==driverId){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Order already has another driver.'});}
-  await dbRun('UPDATE orders SET driverId=? WHERE id=? AND tenant_id=?',[driverId,orderId,req.tenantId]);
+  const updatedAssignment=await dbRun(
+    "UPDATE orders SET driverId=? WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId='' OR driverId=?)",
+    [driverId,orderId,req.tenantId,driverId]
+  );
+  if(updatedAssignment.changes!==1){
+    await dbRun('ROLLBACK');open=false;
+    return res.status(409).json({error:'Order assignment changed. Refresh before trying again.'});
+  }
   await dbRun("UPDATE drivers SET status='busy' WHERE id=? AND tenant_id=?",[driverId,req.tenantId]);
   await writeAuditLog(req.user.id,req.user.username,'assign_driver',`Assigned ${driverId} to ${orderId}`);
   await dbRun('COMMIT');open=false;
@@ -5193,8 +5203,8 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
   try {
     const order = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
     if (!order || order.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
-    const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
-    if (claimed.changes !== 1) return res.status(409).json({ error: 'This delivery has already been assigned or closed.' });
+    const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
+    if (claimed.changes !== 1) return res.status(409).json({ error: 'This order is not an available, unassigned delivery.' });
     notifyPOS({ type: 'driver_assigned', orderId, driverId }, t);
     notifyOrderStream(orderId,{type:'driver_assigned',orderId});
     void sendOrderPush(dbAll,dbRun,orderId,t,'driver_assigned').catch(()=>{});
