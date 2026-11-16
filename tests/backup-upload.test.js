@@ -68,6 +68,17 @@ describe('Encrypted off-host upload gate',()=>{
      expect(mock).not.toHaveBeenCalled();
    }finally{cleanup();}
  });
+ it('rejects oversized sparse archives before reading or sending data',async()=>{
+   const {filename,cleanup}=fixture();try{
+     fs.truncateSync(filename,701*1024*1024);
+     const fetchMock=vi.fn();
+     await expect(uploadEncryptedBackup(filename,{
+       url:'https://storage.example.test/object',expectedHost:'storage.example.test',
+       encryptionSecret:secret,fetchImpl:fetchMock
+     })).rejects.toThrow(/archive size/);
+     expect(fetchMock).not.toHaveBeenCalled();
+   }finally{cleanup();}
+ });
  it('fails on rejected storage or unreachable service without logging presigned secrets',async()=>{
    const {filename,cleanup}=fixture();try{
      const args={url:'https://storage.example.test/object?token=secret',expectedHost:'storage.example.test',encryptionSecret:secret};
