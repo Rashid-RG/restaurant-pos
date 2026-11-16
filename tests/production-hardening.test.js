@@ -50,6 +50,40 @@ describe('Production environment validation', () => {
   it('rejects unvalidated pooled Postgres transactions', () => expect(() => validateProductionConfig({ ...env, DATABASE_URL: 'postgres://localhost/db' })).toThrow(/PostgreSQL/));
 });
 
+describe('POS staff account creation', () => {
+  it('creates a staff account with secure credentials and lists it only for its tenant', async () => {
+    const username = `staff_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const response = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username, role: 'cashier', password: 'UniqueTestPassword!567', pin: '739165' });
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    const stored = await dbGet('SELECT id, username, role, tenant_id, pin, passwordHash FROM users WHERE username = ?', [username]);
+    expect(stored.tenant_id).toBe('default_tenant');
+    expect(stored.role).toBe('cashier');
+    expect(stored.pin).not.toBe('739165');
+    expect(stored.passwordHash).not.toBe('UniqueTestPassword!567');
+    const ownerList = await request(app).get('/api/users').set(auth(admin()));
+    const otherList = await request(app).get('/api/users').set(auth(bOwner()));
+    expect(ownerList.body.some(user => user.username === username)).toBe(true);
+    expect(otherList.body.some(user => user.username === username)).toBe(false);
+  });
+
+  it('rejects weak passwords and invalid PINs through request validation', async () => {
+    const weak = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username: `weak_${crypto.randomUUID().slice(0, 8)}`, role: 'cashier', password: 'short', pin: '7391' });
+    expect(weak.status).toBe(400);
+    const badPin = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username: `badpin_${crypto.randomUUID().slice(0, 8)}`, role: 'cashier', password: 'UniqueTestPassword!567', pin: 'abcd' });
+    expect(badPin.status).toBe(400);
+  });
+
+  it('rejects unauthorized staff creation', async () => {
+    const response = await request(app).post('/api/users').set(auth(cashier()))
+      .send({ username: 'cashier_created_user', role: 'cashier', password: 'UniqueTestPassword!567', pin: '7391' });
+    expect(response.status).toBe(403);
+  });
+});
+
 describe('Actual HTTP authorization and tenant isolation', () => {
   it('rejects a driver JWT on a staff endpoint', async () => {
     const driver = jwt.sign({ driverId: 'drv_1', role: 'driver', tenant_id: 'default_tenant' }, process.env.JWT_SECRET);
