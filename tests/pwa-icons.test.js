@@ -32,9 +32,19 @@ describe('Preserve original GastroFlow brand assets for installed apps', () => {
       expect(manifest.start_url).toBe(app.start);
       expect(manifest.scope).toBe(app.scope);
       expect(manifest.icons.map(i=>i.sizes)).toEqual(['192x192','512x512']);
-      expect(manifest.icons.every(i=>i.type==='image/png'&&i.purpose==='any'&&i.src.includes('?v=6'))).toBe(true);
+      expect(manifest.icons.every(i=>i.type==='image/png'&&i.purpose==='any'&&i.src.includes(app.prefix === 'pos-logo' ? '?v=6' : '?v=7'))).toBe(true);
     });
   }
+  it('renders phone-size icons from original GastroFood and GastroDriver SVG art', () => {
+    for (const dir of ['apps/customer-web/public','apps/driver-web/public']) {
+      const prefix = dir.includes('driver-web') ? 'driver-logo' : 'food-logo';
+      const file = dir + '/' + prefix + '-180.png';
+      const bytes = readFileSync(file);
+      expect(bytes.readUInt32BE(16)).toBe(180);
+      expect(bytes.readUInt32BE(20)).toBe(180);
+      expect(bytes.length).toBeGreaterThan(5000);
+    }
+  });
   it('keeps food, driver and POS icon designs distinct', () => {
     const files=['apps/customer-web/public/food-logo.svg','apps/driver-web/public/driver-logo.svg','public/pos-logo.svg'];
     const content=files.map(file=>readFileSync(file,'utf8'));
@@ -46,8 +56,8 @@ describe('Preserve original GastroFlow brand assets for installed apps', () => {
   it('uses original SVG favicons and PNG iPhone home screen artwork, not new generated designs', () => {
     const checks=[
       ['index.html','/pos-logo.svg?v=6','/pos-logo.png?v=6'],
-      ['apps/customer-web/index.html','food-logo.svg?v=6','food-logo.png?v=6'],
-      ['apps/driver-web/index.html','driver-logo.svg?v=6','driver-logo.png?v=6']
+      ['apps/customer-web/index.html','food-logo.svg?v=7','food-logo-180.png?v=7'],
+      ['apps/driver-web/index.html','driver-logo.svg?v=7','driver-logo-180.png?v=7']
     ];
     for(const [file,svg,png] of checks){
       const html=readFileSync(file,'utf8');
