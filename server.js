@@ -1,6 +1,6 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
-import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal } from './lib/gastromate-ai.js';
+import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
@@ -3849,9 +3849,16 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
     const storeMeta = await getTenantMeta(tenantId);
     if (storeMeta.status !== 'active') return res.status(404).json({ error: 'Restaurant unavailable.' });
     const storeOpen = (await getSetting(tenantId, 'storeOpen')) === 'true';
-    const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock, isAvailable FROM menu_items WHERE tenant_id = ? AND (isAvailable = 1 OR isAvailable IS NULL) AND (stock IS NULL OR stock > 0)', [tenantId]);
+    const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'This restaurant');
+    const publicFacts = await getSettingsMap(tenantId, ['address', 'phone', 'defaultPrepTime']);
+    const storeAnswer = gastroStoreAnswer(message, {
+      name: storeName, storeOpen,
+      address: publicFacts.address, phone: publicFacts.phone,
+      prepMinutes: publicFacts.defaultPrepTime
+    });
+    if (storeAnswer) return res.json(storeAnswer);
     if (!storeOpen) return res.json({ reply: 'This restaurant is currently closed for online orders. You can browse its menu, but ordering is unavailable until it opens.', recommendedItems: [], suggestions: ['Browse Menu', 'Contact Human Support'], action: null });
-    const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'GastroFlow Bistro');
+    const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock, isAvailable FROM menu_items WHERE tenant_id = ? AND (isAvailable = 1 OR isAvailable IS NULL) AND (stock IS NULL OR stock > 0)', [tenantId]);
     const baseFee = (await getSetting(tenantId, 'deliveryBaseFee')) || '99';
     const freeThreshold = (await getSetting(tenantId, 'deliveryFreeThreshold')) || '3000';
     const recentHistory = normalizeGastroHistory(history);
