@@ -46,3 +46,15 @@ node scripts/verify-restore.js /private/verification/recovered.json
 ```
 
 The last verification command is appropriate for **Turso logical JSON** backups; an SQLite `.db` backup requires separate SQLite integrity/recovery testing. Both encryption commands reject symlink inputs and existing output paths. This procedure **does not upload files** and the original unencrypted source remains present, so operators must secure or dispose of plaintext copies according to an approved retention procedure. No cloud storage provider, recurring schedule, automated retention, or encrypted off-host upload is configured by this implementation. Never connect these scripts directly to live production credentials without a separately approved backup/recovery runbook.
+
+
+## Operator-controlled off-host encrypted upload (opt-in)
+
+The optional `npm run backup:upload -- /private/export/backup.enc.json` sends **only an encrypted archive** to a short-lived, pre-signed HTTPS **PUT** URL. The runner must privately configure both:
+
+- `BACKUP_UPLOAD_PRESIGNED_URL` — a provider-issued, short-lived object-upload URL with PUT permission only
+- `BACKUP_UPLOAD_HOST` — the exact expected public storage hostname (no scheme, path, or port)
+
+The command refuses plaintext files, symlinks, unexpected destination hosts, non-HTTPS schemes, credentialed URLs, redirects, and failed PUT responses. It reports only the encrypted archive's byte count and SHA-256 digest, never the pre-signed URL. Use a unique, non-overwriting object key and short-lived permissions. Configure destination-side encryption, versioning, private access, retention and object-lock as appropriate.
+
+This is **not connected to any provider or scheduled on staging**. A successful PUT alone does not establish durable remote retention or restoration correctness. Have an authorized operator download a test archive into a separate environment, compare SHA-256, decrypt it into a new file, and verify restoration into a new empty local database. Never apply restores to the existing production Turso database. Keep plaintext temporary backup files private and manage their disposal separately. Provider credentials and signed URLs must never enter GitHub or application logs.
