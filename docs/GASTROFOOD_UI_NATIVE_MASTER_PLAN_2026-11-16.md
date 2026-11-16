@@ -104,6 +104,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Map-first tracking first iteration | DONE (code), NOT YET VISUALLY VERIFIED | `977b20e`, `c713d9a` | Build/CI, screen captures, semantic accessibility and device audit; full image parity still pending |
 | Expandable status timeline / bottom disclosure | DONE (code), verification pending | `3779df8`, `47dcb63` | Build, real order stages, screen reader and 320px phone checks |
 | Assigned-rider and restaurant contact panel | DONE (code), verification pending | `28a8f66`, `9419996`, `6949b83`, `5e0ed0a`, `3cddc63` | CI safety tests, authorized chat, phone and messaging on devices |
+| Marketplace search and filter accessibility | DONE (code), verification pending | `58891b6`, `85db423`, `cb50126`, `34c8389` | Run customer CI, browser interaction and multi-language real-device testing |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -130,3 +131,10 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (code)** Removed duplicated rider actions from receipt; shared order-reference text no longer automatically includes private tracking URL or customer details.
 - **DONE (code)** Added contact-action regression tests and registered them in the customer CI job.
 - **PENDING** GitHub CI outcome, browser/mobile visuals, deep-link behavior, and end-to-end chat/phone testing. This is not a claim of deployment or commercial-ready communication.
+
+### Progress checkpoint — 2026-11-16: discovery search and filter accessibility
+- **DONE (code)** `58891b6`: accent-tolerant Unicode search over actual restaurant name, cuisine, location and cuisine tag, matching every query word. No synthetic names or translated aliases.
+- **DONE (code)** `85db423`: search integration; accessible pressed-state and group labels for restaurant sort, cuisine and availability filters; location coordinates checked with finite-number validation. Estimated proximity now explicitly labelled an estimate; merchant open state remains separate.
+- **DONE (code)** `cb50126`: multilingual and punctuation-aware search unit tests, including Sinhala/Tamil; `34c8389`: included in customer CI.
+- **PENDING:** CI build and test run, browser focus/keyboard and mobile visual checks; server-authoritative delivery-zone and fee checks remain separate P0 acceptance requirements.
+- **NO DEPLOYMENT:** branch code only; no schema, Turso or POS changes.
