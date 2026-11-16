@@ -3,7 +3,7 @@ import {orderPushMessage,pushReceiptKey} from '../lib/order-push-policy.js';
 
 const sent=vi.hoisted(()=>vi.fn(async()=>({statusCode:201})));
 vi.mock('web-push',()=>({default:{setVapidDetails:vi.fn(),sendNotification:sent}}));
-import {sendOrderPush,initCustomerPush} from '../lib/customer-push.js';
+import {sendOrderPush,initCustomerPush,recoverPendingOrderPush} from '../lib/customer-push.js';
 
 describe('GastroFood delivery push notifications',()=>{
   const tenant='restaurant-A',order='order-123',endpoint='hash-of-browser-subscription';
@@ -81,6 +81,47 @@ describe('GastroFood delivery push notifications',()=>{
     expect([...receipts.values()][0].deliveredAt).toEqual(expect.any(Number));
     await sendOrderPush(dbAll,dbRun,order,tenant,'delivered');
     expect(sent).toHaveBeenCalledTimes(2);
+  });
+  it('recovers missed committed delivery status without reopening settlement or duplicating a delivered push',async()=>{
+    const subscribed=dbAll;
+    dbAll=vi.fn(async(sql,params)=>{
+      if(sql.includes('WITH events AS (')){
+        expect(sql).toContain('customer_order_push_receipts');
+        expect(sql).toContain('r.deliveredAt IS NOT NULL');
+        expect(sql).toContain('o.tenant_id');
+        expect(params).toHaveLength(3);
+        expect(params[0]).toBeLessThanOrEqual(Date.now()-23*60*60*1000);
+        return [{orderId:order,tenantId:tenant,eventCode:'delivered',timestamp:Date.now()}];
+      }
+      return subscribed(sql,params);
+    });
+    sent.mockRejectedValueOnce(new Error('push provider unavailable')).mockResolvedValue({statusCode:201});
+    expect((await recoverPendingOrderPush(dbAll,dbRun)).checked).toBe(1);
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(receipts.size).toBe(0);
+    // Automatic recovery may retry after a process restart or on the next sweep.
+    expect((await recoverPendingOrderPush(dbAll,dbRun)).checked).toBe(1);
+    expect(sent).toHaveBeenCalledTimes(2);
+    expect([...receipts.values()][0].deliveredAt).toEqual(expect.any(Number));
+    await recoverPendingOrderPush(dbAll,dbRun);
+    expect(sent).toHaveBeenCalledTimes(2);
+    expect(dbRun.mock.calls.some(([sql])=>/UPDATE orders|INSERT INTO orders|delivery_proofs|invoice_counter/.test(sql))).toBe(false);
+  });
+  it('recovers assigned-rider milestone using the same scoped push receipt',async()=>{
+    const subscriptions=dbAll;
+    dbAll=vi.fn(async(sql,params)=>sql.includes('WITH events AS (')
+      ? [{orderId:order,tenantId:tenant,eventCode:'driver_assigned',timestamp:Date.now()}]
+      : subscriptions(sql,params));
+    await recoverPendingOrderPush(dbAll,dbRun);
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(sent.mock.calls[0][1]).status).toBe('driver_assigned');
+    await recoverPendingOrderPush(dbAll,dbRun);
+    expect(sent).toHaveBeenCalledTimes(1);
+  });
+  it('skips the recovery database scan when push is not configured',async()=>{
+    vi.stubEnv('VAPID_PRIVATE_KEY','');
+    expect(await recoverPendingOrderPush(dbAll,dbRun)).toEqual({checked:0});
+    expect(dbAll).not.toHaveBeenCalled();
   });
   it('does not send unknown statuses or when push is not configured',async()=>{
     await sendOrderPush(dbAll,dbRun,order,tenant,'mystery');
