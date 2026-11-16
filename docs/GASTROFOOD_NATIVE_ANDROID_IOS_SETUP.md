@@ -22,7 +22,7 @@ npm ci --include=dev
 
 **Known blocker:** A customer-specific `package-lock.json` already exists, but it predates the native package additions and is missing the four Capacitor packages. Do not run `npm ci` against that stale lockfile or declare native readiness.
 
-**GitHub-runner option:** Open **Actions → GastroFlow Food native dependency lock bootstrap → Run workflow** on `codex/production-readiness`. This also runs on relevant branch changes. The workflow resolves dependencies **only inside `apps/customer-web`**, verifies the pinned packages, ensures the root POS `package-lock.json` checksum is unchanged, and uploads `gastrofood-customer-package-lock-candidate` as an artifact. It neither commits nor deploys. Download the generated `package-lock.json`, review it, replace **only** `apps/customer-web/package-lock.json`, and commit it to the same branch.
+**GitHub-runner option:** Open **Actions → GastroFlow Food native dependency lock bootstrap → Run workflow** on `codex/production-readiness`. This also runs on relevant branch changes. The workflow resolves dependencies **only inside `apps/customer-web`**, verifies the pinned packages, ensures the root POS `package-lock.json` checksum is unchanged, and uploads `gastrofood-customer-package-lock-candidate` as an artifact. A dependent job then attempts a customer-only Android source project with foreground location permissions and uploads `gastrofood-android-source-candidate` for review. It does **not** sign an APK, publish an app, commit files, change Turso, or deploy. Download the generated `package-lock.json`, review it, replace **only** `apps/customer-web/package-lock.json`, and commit it to the same branch.
 
 To validate after obtaining the lock:
 
@@ -94,3 +94,6 @@ Native order tracking currently uses authorized snapshot polling; hosted SSE and
 5. Only after explicit approval: stage non-customer test orders; validate no POS/sales changes; prepare release signing and store distribution.
 
 **No APK/IPA, native project folders, installed packages or lockfile are claimed as produced by this guide.**
+
+## CI-generated native source artifacts (review before use)
+The workflow `.github/workflows/food-native-lock-bootstrap.yml` creates two candidates if jobs succeed: the customer-only `package-lock.json` and a generated `apps/customer-web/android/` source project. Their presence must be confirmed in GitHub Actions; writing the workflow does **not** prove they exist. Download the artifacts, verify Gradle settings, application ID, icon/splash placeholders and AndroidManifest permissions, then introduce reviewed source files on the existing branch. No signing, publishing, staging deployment or device installation is performed by this workflow. iOS still requires a macOS/Xcode project-generation and build gate.
