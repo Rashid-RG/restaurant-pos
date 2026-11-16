@@ -229,6 +229,22 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
     if (orderId) {
       setTrackId(orderId);
       fetchOrder(orderId);
+    } else {
+      // Moving from an order-specific AI deep link to the generic tracking
+      // page must clear the previous customer's status and rider position.
+      activeTrackedIdRef.current = null;
+      trackingFetchRef.current = null;
+      orderRef.current = null;
+      driverFixRef.current = null;
+      lastSnapshotRef.current = null;
+      setTrackId('');
+      setOrder(null);
+      setDriverLoc(null);
+      setDriverLastSeen(null);
+      setDispatchStatus(null);
+      setDynamicETA(null);
+      setRoadRoute(null);
+      setError('');
     }
   }, [orderId]);
 
