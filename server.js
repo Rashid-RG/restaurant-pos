@@ -2,6 +2,7 @@ import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOr
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
+import { gastroContextualSuggestions } from './lib/gastromate-conversation.js';
 import { gastroLanguage, gastroMessage, gastroPlanIntro } from './lib/gastromate-i18n.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
@@ -3877,6 +3878,28 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
         suggestions: ['Browse Menu', 'View Cart'],
         action: null,
         plan: {...multiPlan, tenantId}
+      });
+    }
+    // Resolve recommendation follow-ups against server-verified tenant items.
+    // Only menu facts are returned: no hallucinated nutrition or allergy claims.
+    const contextual = gastroContextualSuggestions(menuItems, message, recentHistory);
+    if (contextual) {
+      const safeIntro = responseLanguage === 'si'
+        ? 'මෙම අවන්හලේ දැනට ලබාගත හැකි ආහාර තේරීම්'
+        : responseLanguage === 'ta' ? 'இந்த உணவகத்தில் தற்போது கிடைக்கும் உணவுத் தேர்வுகள்'
+        : 'Available options from this restaurant';
+      const reply = contextual.items.length
+        ? gastroVerifiedReply(contextual.items, safeIntro)
+        : responseLanguage === 'si'
+          ? 'ඔබේ ඉල්ලීමට ගැළපෙන, දැනට ලබාගත හැකි ආහාර හමු නොවීය. අයවැය හෝ තේරීම වෙනස් කර බලන්න.'
+          : responseLanguage === 'ta'
+            ? 'உங்கள் கோரிக்கைக்குப் பொருத்தமான உணவு தற்போது இல்லை. பட்ஜெட் அல்லது விருப்பத்தை மாற்றிப் பார்க்கவும்.'
+            : 'I could not find an available menu item matching those preferences. Try changing the budget or category.';
+      return res.json({
+        reply,
+        recommendedItems: contextual.items,
+        suggestions: ['Browse Menu','Show Cheaper Options','View Cart'],
+        action: null
       });
     }
     // Budget and dietary requests must use verified, currently orderable menu records.
