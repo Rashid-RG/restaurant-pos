@@ -1,6 +1,6 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
-import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse } from './lib/gastromate-ai.js';
+import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply } from './lib/gastromate-ai.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
 import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
@@ -3857,6 +3857,17 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
     const recentHistory = normalizeGastroHistory(history);
     const contextMenu = selectGastroMenu(menuItems, message, recentHistory);
     const trustedCart = gastroCartContext(cartItems, menuItems);
+    // Budget and dietary requests must use verified, currently orderable menu records.
+    // This deterministic route also works when the external AI provider is unavailable.
+    const grounded = groundedGastroRecommendations(menuItems, message, recentHistory);
+    if (grounded.restricted && !/^(?:add|order)\b/i.test(msg)) {
+      return res.json({
+        reply: gastroVerifiedReply(grounded.recommendedItems, `Here are ${grounded.label} items from ${storeName}`),
+        recommendedItems: grounded.recommendedItems,
+        suggestions: ['Browse Menu', 'Show Drinks', 'Contact Human Support'],
+        action: null
+      });
+    }
 
     // ── Configurable Gemini API, bounded tenant-scoped chat context ──
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -3901,7 +3912,10 @@ Return valid JSON:
           const rawText = gData.candidates?.[0]?.content?.parts?.[0]?.text;
           if (rawText) {
             const parsed = JSON.parse(rawText);
-            return res.json(validateGastroResponse(parsed, menuItems));
+            const safe = validateGastroResponse(parsed, menuItems);
+            // Model-selected recommendations are displayed with server prices, not invented text.
+            if (safe.recommendedItems.length && !safe.action) safe.reply = gastroVerifiedReply(safe.recommendedItems);
+            return res.json(safe);
           }
         }
       } catch (gErr) {
