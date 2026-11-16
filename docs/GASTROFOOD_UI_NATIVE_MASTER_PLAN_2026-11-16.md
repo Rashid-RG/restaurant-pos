@@ -106,6 +106,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Assigned-rider and restaurant contact panel | DONE (code), verification pending | `28a8f66`, `9419996`, `6949b83`, `5e0ed0a`, `3cddc63` | CI safety tests, authorized chat, phone and messaging on devices |
 | Marketplace search and filter accessibility | DONE (code), verification pending | `58891b6`, `85db423`, `cb50126`, `34c8389` | Run customer CI, browser interaction and multi-language real-device testing |
 | Menu modifier, stock and customizer guardrails | DONE (code), verification pending | `519318e`, `c8e9ee5`, `358b4bc`, `7fbd830`, `b52a309` | Run menu tests, full build and real checkout validation |
+| Delivery quote freshness and checkout eligibility | DONE (code), verification pending | `c6d4483`, `600d88a`, `da7829e`, `50ed5fa`, `0aec591`, `8506434` | Customer CI, API quote and cross-store / fast-address-switch E2E tests |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -147,3 +148,11 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (code)** `7fbd830`: remaining-stock explanation in customizer. `b52a309`: include menu regression tests in customer quality workflow.
 - **NOT YET VERIFIED:** full GitHub CI, mobile customizer accessibility, group-cart acceptance, price reconciliation and server-side option validation. The backend remains authoritative; frontend checks are not an authorization/security boundary.
 - **NOT DEPLOYED:** no database migrations, live sales or POS changes.
+
+### Progress checkpoint — 2026-11-16: checkout delivery quote and recovery UX
+- **DONE (code)** `c6d4483`: utility to bind delivery quotes to tenant, coordinates and cart subtotal, reject invalid or out-of-range fee results.
+- **DONE (code)** `600d88a`: customer checkout ignores late quote responses after switching address or subtotal, clears stale estimates, requires valid current quote for delivery submission, and clears old pins when saved addresses lack coordinates.
+- **DONE (code)** `50ed5fa`: bill marks unquoted totals provisional, hides fee breakdown from different quote, and blocks button with an actionable label.
+- **DONE (code)** `0aec591`: mobile quote verification status styling; `da7829e`: quote freshness and out-of-zone regression cases; `8506434`: registered tests in CI.
+- **PENDING verification:** GitHub CI execution, API contract for numeric totalFee, real checkout and payment acceptance with two tenants, slow network and fast address switches. Server-side reprice and zone enforcement must be verified separately; browser quote is not authoritative.
+- **NOT DEPLOYED:** no live database or POS modifications.
