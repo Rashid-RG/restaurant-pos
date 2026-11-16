@@ -430,6 +430,25 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
             {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
           </div>
+          {/* Delivery map leads the screen; display only authenticated, recent GPS fixes. */}
+          {!isCancelled && !isDone && isDelivery && validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng}) && (
+            <section className="gf-track-map-first" aria-label="Your delivery journey">
+              <div className="gf-track-map-first-heading">
+                <div><span className="gf-track-map-eyebrow">YOUR DELIVERY JOURNEY</span><h2>Follow your order</h2></div>
+                <span className="gf-track-map-eta">{etaDisplay !== null ? `About ${etaDisplay} min · estimate` : 'ETA pending'}</span>
+              </div>
+              <div className="gf-track-map-surface">
+                <TrackingMap
+                  store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
+                  dest={{ lat: order.deliveryLat, lng: order.deliveryLng }}
+                  driver={gpsState.visible ? driverLoc : null}
+                  route={roadRoute}
+                />
+                <div className="gf-track-gps-status" role="status">{gpsState.label}</div>
+              </div>
+              {roadRoute?.available ? <div className="gf-route-summary" role="status"><strong>{roadRoute.distanceKm.toFixed(1)} km by road</strong><span>About {roadRoute.travelMinutes} min estimated driving · {roadRoute.startingPoint==='rider'?'from latest rider fix':'from restaurant'} · excludes traffic and preparation time</span></div> : <p className="gf-track-road-unavailable">Road routing unavailable; the map may show straight-line proximity only.</p>}
+            </section>
+          )}
           {/* Server-backed order status hero. */}
           <div className="uber-hero-card">
             <div className="uber-hero-header">
@@ -466,21 +485,6 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               </div>
             )}
 
-            {/* Real live map — only for delivery orders with a pinned destination. */}
-            {!isCancelled && !isDone && isDelivery && validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng}) && (
-              <div style={{ position: 'relative', margin: '16px 0' }}>
-                <TrackingMap
-                  store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
-                  dest={{ lat: order.deliveryLat, lng: order.deliveryLng }}
-                  driver={gpsState.visible ? driverLoc : null}
-                  route={roadRoute}
-                />
-                {roadRoute?.available && <div className="gf-route-summary" role="status"><strong>{roadRoute.distanceKm.toFixed(1)} km by road</strong><span>About {roadRoute.travelMinutes} min estimated driving · {roadRoute.startingPoint==='rider'?'from latest rider fix':'from restaurant'} · excludes traffic and preparation time</span></div>}
-                <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 500, background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                  {gpsState.label}
-                </div>
-              </div>
-            )}
             {/* ── Real-time Driver Dispatch Panel — Delivery ONLY ── */}
             {!isCancelled && !isDone && isDelivery && dispatchStatus && (
               <div style={{
