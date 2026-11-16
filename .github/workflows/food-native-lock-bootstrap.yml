@@ -12,6 +12,9 @@ on:
       - 'apps/customer-web/package.json'
       - 'apps/customer-web/package-lock.json'
       - 'scripts/verify-food-native-lock.mjs'
+      - 'scripts/harden-food-android.mjs'
+      - 'scripts/generate-food-android-branding.py'
+      - 'apps/customer-web/public/food-logo.png'
       - '.github/workflows/food-native-lock-bootstrap.yml'
 
 permissions:
@@ -47,7 +50,7 @@ jobs:
   android-source-candidate:
     needs: lockfile-candidate
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -101,6 +104,41 @@ jobs:
               with Image.open(p) as im: im.verify()
           print('Verified customer Android brand icon and splash resource files')
           PY
+      - name: Disable Android backups of customer app private data
+        working-directory: apps/customer-web
+        run: npm run native:harden:android
+      - name: Confirm Android backup disabled and customer app identity
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          p=Path('apps/customer-web/android/app/src/main/AndroidManifest.xml')
+          app=ET.parse(p).getroot().find('application')
+          assert app is not None
+          assert app.attrib.get('{http://schemas.android.com/apk/res/android}allowBackup')=='false'
+          gradle=Path('apps/customer-web/android/app/build.gradle').read_text()
+          assert 'applicationId "com.rstechnologies.gastrofood"' in gradle
+          print('Customer Android app identity and backup policy verified')
+          PY
+      - name: Prepare Java 21 for Android Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Prepare Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Compile test-only GastroFlow Food Android debug APK
+        working-directory: apps/customer-web/android
+        run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Verify debug APK has been generated
+        run: test -s apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload test-only Android debug APK (not release signed)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-android-debug-apk
+          path: apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload Android source candidate for review (no signing or deployment)
         uses: actions/upload-artifact@v4
         with:
