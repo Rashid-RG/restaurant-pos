@@ -268,12 +268,17 @@ function InnerApp({ switchRestaurant }) {
       const p = new URLSearchParams(window.location.search);
       const v = p.get('view') || p.get('page') || 'menu';
       setView(v === 'menu' && p.get('tenant') ? 'store-menu' : v);
+      setTrackingOrderId(v === 'track' ? p.get('track') : null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const navigate = (v, extraParams = {}) => {
+    // Keep the selected tracking order in sync with SPA navigation.
+    // Clearing a tracking selection should display the manual/private-link form
+    // rather than leaking the previous customer's order.
+    if (v === 'track') setTrackingOrderId(extraParams.track ? String(extraParams.track) : null);
     if (v === 'store-menu' && extraParams.customize) {
       setAiCustomize({ itemId: String(extraParams.customize), quantity: Number(extraParams.qty) || 1, tenantId: String(extraParams.tenant || ''), requestId: Date.now() });
     }
