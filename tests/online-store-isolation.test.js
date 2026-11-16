@@ -114,6 +114,51 @@ describe('Online storefront SaaS tenant isolation', () => {
     expect(delivery.status).toBe(422);
   });
 
+  it('keeps simultaneous customer checkout, stock and private receipt access isolated across two open stores', async () => {
+    const opened=await request(app).post('/api/settings')
+      .set(auth('qa_store_owner_B',tenantB))
+      .send({key:'storeOpen',value:'true',expectedTenantId:tenantB});
+    expect(opened.status,opened.text).toBe(200);
+    try {
+      const before=await Promise.all([tenantA,tenantB].map(async tid=>({
+        tenant:tid,
+        orders:(await dbGet('SELECT COUNT(*) AS n FROM orders WHERE tenant_id=?',[tid])).n,
+        stock:(await dbGet('SELECT stock FROM menu_items WHERE id=? AND tenant_id=?',[tid===tenantA?'qa_store_item_A':'qa_store_item_B',tid])).stock
+      })));
+      const attempts=[
+        ...Array.from({length:3},()=>checkout(tenantA,'qa_store_item_A')),
+        ...Array.from({length:3},()=>checkout(tenantB,'qa_store_item_B'))
+      ];
+      const responses=await Promise.all(attempts);
+      for(const response of responses)expect(response.status,response.text).toBe(201);
+      const ids=responses.map(x=>x.body.orderId);
+      expect(new Set(ids).size).toBe(6);
+      for(let i=0;i<responses.length;i++){
+        const tid=i<3?tenantA:tenantB;
+        const other=i<3?tenantB:tenantA;
+        const {orderId,trackingToken}=responses[i].body;
+        expect((await dbGet('SELECT tenant_id FROM orders WHERE id=?',[orderId])).tenant_id).toBe(tid);
+        const own=await request(app).get('/api/public/orders/'+encodeURIComponent(orderId))
+          .query({tenantId:tid}).set('X-Order-Tracking',trackingToken);
+        expect(own.status,own.text).toBe(200);
+        expect(own.body.tenantId).toBe(tid);
+        const foreign=await request(app).get('/api/public/orders/'+encodeURIComponent(orderId))
+          .query({tenantId:other}).set('X-Order-Tracking',trackingToken);
+        expect(foreign.status).toBe(404);
+      }
+      for(const b of before){
+        expect((await dbGet('SELECT COUNT(*) AS n FROM orders WHERE tenant_id=?',[b.tenant])).n).toBe(b.orders+3);
+        expect((await dbGet('SELECT stock FROM menu_items WHERE id=? AND tenant_id=?',
+          [b.tenant===tenantA?'qa_store_item_A':'qa_store_item_B',b.tenant])).stock).toBe(b.stock-3);
+      }
+    }finally{
+      const closed=await request(app).post('/api/settings')
+        .set(auth('qa_store_owner_B',tenantB))
+        .send({key:'storeOpen',value:'false',expectedTenantId:tenantB});
+      expect(closed.status,closed.text).toBe(200);
+    }
+  });
+
   it('closing A again is immediately consistent across the directory and menu', async () => {
     const response = await request(app).post('/api/settings')
       .set(auth('qa_store_owner_A', tenantA))
