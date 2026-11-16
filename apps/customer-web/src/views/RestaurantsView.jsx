@@ -198,7 +198,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     const coords = CITY_COORDS[cityStr] || resolveCoordsForAddress(cityStr);
     if (coords) {
       setUserCoords(coords);
-      localStorage.setItem('gastroflow_user_coords', JSON.stringify(coords));
+      localStorage.setItem('gastroflow_user_coords', JSON.stringify({...coords,source:'city-approximation'}));
       processStoreProximity(coords.lat, coords.lng);
     }
   };
@@ -243,7 +243,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     setUserCoords({ lat, lng });
     setDeliveryLocation(shortAddr);
     localStorage.setItem('gastroflow_delivery_address', shortAddr);
-    localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng }));
+    localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng,source:'geocoded-address' }));
 
     processStoreProximity(lat, lng);
     setShowLocationModal(false);
@@ -279,8 +279,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     const matchedCoords = resolveCoordsForAddress(manualAddr);
     if (matchedCoords) {
       setUserCoords(matchedCoords);
-      localStorage.setItem('gastroflow_user_coords', JSON.stringify(matchedCoords));
+      localStorage.setItem('gastroflow_user_coords', JSON.stringify({...matchedCoords,source:'city-approximation'}));
       processStoreProximity(matchedCoords.lat, matchedCoords.lng);
+    } else {
+      // A textual address cannot inherit GPS coordinates from an earlier address.
+      setUserCoords(null);
+      setNearestStore(null);
+      setIsOutOfCoverage(false);
+      localStorage.removeItem('gastroflow_user_coords');
     }
 
     setDeliveryLocation(manualAddr);
@@ -466,7 +472,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const openCount = restaurants.filter(acceptsOnlineOrders).length;
   const deliverableCount = restaurants.filter(r => acceptsOnlineOrders(r) && r.isDeliverable === true).length;
-  const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng));
+  const savedLocationSource=(()=>{try{return JSON.parse(localStorage.getItem('gastroflow_user_coords')||'null')?.source}catch{return null}})();
+  const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng) && savedLocationSource!=='city-approximation');
 
   return (
     <div className="restaurants-view gastrofood-discovery" style={{ padding: '16px', maxWidth: 1120, margin: '0 auto', paddingBottom: 96, fontFamily: 'inherit' }}>
