@@ -134,6 +134,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const speakText = (text) => {
     if (!('speechSynthesis' in window)) return;
     try {
+      setSpeaking(false);
       window.speechSynthesis.cancel();
       const clean = gastroSpeechText(text);
       if (!clean) return;
@@ -229,6 +230,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: JSON.stringify({
           message: queryText,
+          language: lang,
           cartItems,
           history: messages.filter(m => m.id !== 'welcome' && (m.sender === 'user' || m.sender === 'ai'))
             .slice(-8).map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: String(m.text || '').slice(0, 600) }))
@@ -786,6 +788,11 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                     </button>
                   </div>
                 )}
+                <button type="button" disabled={otpBusy}
+                  onClick={() => {setVerifyingGuest(false);setPendingTicketText('');setGuestOtpCode('');setOtpSent(false);}}
+                  style={{marginTop:8,padding:'5px 10px',borderRadius:8,border:'1px solid #aaa',background:'transparent',color:'inherit'}}>
+                  Cancel support request
+                </button>
               </div>
             )}
 
