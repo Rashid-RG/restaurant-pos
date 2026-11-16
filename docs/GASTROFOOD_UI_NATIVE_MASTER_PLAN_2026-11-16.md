@@ -110,8 +110,9 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Order acknowledgement and interrupted payment cart retention | DONE (code), verification pending | `3f5f176`, `a27a1c8`, `96797b8`, `2e2aa46` | Run CI and real server idempotent recovery with injected timeouts and PayHere sandbox settlement |
 | Isolated end-to-end customer → kitchen → driver → tracking CI gate | DONE (CI code), run pending | `5c8152d` | Confirm workflow green, inspect test logs; no live system contact |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
-| Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
-| Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
+| Dedicated GastroFood customer native configuration | DONE (config code), RELEASE BLOCKED | `12fe9b6`, `668a7dc`, `b05a34c`, `87c3617` | Lock Capacitor deps, native web build, authenticated remote API base and platform projects |
+| Dedicated GastroFood Android build | NOT BUILT | Separate identity configured, Android project not generated | Build, signed debug test, verify native permissions/icons |
+| Dedicated GastroFood iOS build | NOT BUILT | Separate identity configured, iOS project not generated | Native iOS project, Xcode simulator and TestFlight |
 | Background GPS driver app acceptance | NOT TESTED | Existing driver/web foundation | Real-device battery/background tests |
 | Render staging deployment of this phase | NOT DEPLOYED | Auto-deploy disabled for staging | Explicit approval and verified build |
 
@@ -170,3 +171,10 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (CI configuration)** `5c8152d`: dedicated order lifecycle GitHub Actions workflow runs existing isolated `tests/online-store-isolation.test.js`, `tests/order-safety.test.js` and `tests/customer-commerce-safety.test.js` under Node 24 with single-worker execution. No Turso, payment or production secrets are supplied.
 - **EXISTING INTEGRATION COVERAGE, NOT NEWLY IMPLEMENTED:** customer order placement → kitchen tickets → preparation/ready transitions → rider assignment/pickup/out-for-delivery → customer tracking; second-tenant privacy; idempotency replay; customer receipt and inventory ownership; manual bank payment reconciliation.
 - **PENDING:** first full CI run, check failed test logs, physical device acceptance and real staging end-to-end verification using non-customer test data. The CI job intentionally does not perform staging deployment.
+
+### Progress checkpoint — 2026-11-16: isolated GastroFood native preparation
+- **DONE (configuration code)** `12fe9b6`: customer-only `apps/customer-web/capacitor.config.json`, appId `com.rstechnologies.gastrofood` (provisional; confirm ownership before public distribution), appName **GastroFlow Food**, independent of existing POS suite appId. No cleartext or remotely hosted WebView entry configured.
+- **DONE (read-only tooling)** `668a7dc`: `scripts/audit-gastrofood-native-readiness.mjs` validates distinct identity and HTTPS-only settings and prints **release blockers without suppressing them**. `b05a34c` exposes `npm run food:native:preflight`; `87c3617` wires the audit into the customer quality workflow.
+- **NOT DONE (native release)** The monorepo does not currently lock Capacitor core/CLI/platform dependencies; customer Vite paths target `/customer/`; customer API `location.origin` behavior will not connect to Render from a `capacitor://` or native localhost origin; no generated Android/iOS customer projects, native splash/icon resources, push credentials, deep links, or real-device testing. Do not call the configuration an APK/IPA or publish it.
+- **NEXT** Verify an explicit HTTPS staging API origin and CORS + tenant-auth behavior in native context, design native-only relative-asset build and browser-vs-native routing contract, lock and install tested Capacitor versions, then generate Android/iOS projects with independent icon/splash assets. Obtain final app bundle ID approval before any store submission.
+- **GUARDRAILS** Existing POS Capacitor config untouched; no deployment; no Turso changes.
