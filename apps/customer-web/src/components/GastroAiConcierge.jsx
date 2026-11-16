@@ -247,7 +247,8 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
         suggestions: res.suggestions || [],
         action: res.action || null,
         tenantId: tenantAtRequest,
-        plan: res.plan?.type === 'multi_item_preview' ? res.plan : null
+        plan: res.plan?.type === 'multi_item_preview' ? res.plan : null,
+        clarification: res.clarification?.kind === 'choose_menu_item' ? res.clarification : null
       }]);
 
       if (res.action?.type === 'add_to_cart') setPendingAdd({...res.action, tenantId: tenantAtRequest});
@@ -626,14 +627,14 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                         <button
                           onClick={() => {
                             setIsOpen(false);
-                            onNavigate?.('store-menu', {tenant: getActiveTenant(), customize: String(item.id), qty: 1});
+                            onNavigate?.('store-menu', {tenant: getActiveTenant(), customize: String(item.id), qty: msg.clarification?.quantity || 1});
                           }}
                           style={{ background: '#176e4d', color: '#fff', border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}
                         >
                           View
                         </button>
                         <button type="button"
-                          onClick={() => {setPendingBatch(null);setPendingAdd({type:'add_to_cart',itemId:String(item.id),quantity:1,tenantId:msg.tenantId});}}
+                          onClick={() => {setPendingBatch(null);setPendingAdd({type:'add_to_cart',itemId:String(item.id),quantity:msg.clarification?.quantity || 1,tenantId:msg.tenantId});}}
                           disabled={typing || addingItem}
                           aria-label={`Select ${item.name} for cart confirmation`}
                           style={{background:'#fff',color:'#176e4d',border:'1px solid #176e4d',borderRadius:6,padding:'3px 8px',fontSize:'0.7rem',fontWeight:700,cursor:'pointer'}}
