@@ -1,0 +1,35 @@
+name: GastroMate AI checks
+
+on:
+  push:
+    branches: [codex/production-readiness]
+    paths:
+      - 'lib/gastromate-ai.js'
+      - 'tests/gastromate-ai.test.js'
+      - 'server.js'
+      - 'apps/customer-web/src/components/GastroAiConcierge.jsx'
+      - 'apps/customer-web/src/components/gastromate-mascot.css'
+      - '.github/workflows/gastromate-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gastromate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci --include=dev
+      - name: Syntax validation
+        run: npm run check
+      - name: GastroMate unit and tenant-boundary tests
+        run: npx vitest run tests/gastromate-ai.test.js
+      - name: Customer app production build
+        run: npm run customer:build
