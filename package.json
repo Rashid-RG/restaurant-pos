@@ -29,7 +29,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "mobile:audit": "node scripts/audit-customer-mobile-assets.mjs",
-    "food:native:preflight": "node scripts/audit-gastrofood-native-readiness.mjs"
+    "food:native:preflight": "node scripts/audit-gastrofood-native-readiness.mjs",
+    "customer:native:build": "vite build apps/customer-web --mode native"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
