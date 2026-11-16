@@ -343,3 +343,37 @@ it('autodispatch GPS candidates use canonical assigned driver IDs, not display n
   await dbRun("DELETE FROM drivers WHERE id='same_name_driver' AND tenant_id='safe_A'");
  }
 });
+
+it('never replays another rider GPS when names collide across tenants or after reassignment',async()=>{
+ const {loadAssignedDriverLocation}=await import('../lib/order-tracking.js');
+ const firstId='gps_owner_'+crypto.randomUUID(),secondId='gps_other_'+crypto.randomUUID();
+ const orderId='gps_order_'+crypto.randomUUID(),foreignOrderId='gps_foreign_'+crypto.randomUUID();
+ const now=Date.now();
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[firstId,'Same Rider Name',firstId,'active','safe_A']);
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[secondId,'Same Rider Name',secondId,'active','safe_B']);
+ await dbRun("INSERT INTO orders(id,status,tenant_id,driverId,diningType,orderType) VALUES (?,?,?,?,?,?)",[orderId,'out_for_delivery','safe_A',firstId,'delivery','delivery']);
+ await dbRun("INSERT INTO orders(id,status,tenant_id,driverId,diningType,orderType) VALUES (?,?,?,?,?,?)",[foreignOrderId,'out_for_delivery','safe_B',secondId,'delivery','delivery']);
+ try {
+  // Legacy name-only coordinates must never be attributed to an assigned ID.
+  await dbRun('INSERT INTO driver_locations(orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',[orderId,'Same Rider Name',6.90,79.80,now,12]);
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',firstId)).toBeFalsy();
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_B',secondId)).toBeFalsy();
+  // A verified fresh ping for the assigned ID restores the rider marker.
+  await dbRun('UPDATE driver_locations SET driverName=?,lat=? WHERE orderId=?',[firstId,6.91,orderId]);
+  const own=await loadAssignedDriverLocation(dbGet,orderId,'safe_A',firstId);
+  expect(own).toMatchObject({driverName:'Same Rider Name',lat:6.91});
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',secondId)).toBeFalsy();
+  // Reassignment must hide the prior rider's last location immediately.
+  await dbRun('UPDATE orders SET driverId=? WHERE id=?',[secondId,orderId]);
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',firstId)).toBeFalsy();
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',secondId)).toBeFalsy();
+  // The foreign tenant's valid GPS must never appear in restaurant A.
+  await dbRun('INSERT INTO driver_locations(orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',[foreignOrderId,secondId,7.22,80.21,now,14]);
+  expect(await loadAssignedDriverLocation(dbGet,foreignOrderId,'safe_A',secondId)).toBeFalsy();
+  expect(await loadAssignedDriverLocation(dbGet,foreignOrderId,'safe_B',secondId)).toMatchObject({lat:7.22});
+ }finally{
+  await dbRun('DELETE FROM driver_locations WHERE orderId IN (?,?)',[orderId,foreignOrderId]);
+  await dbRun('DELETE FROM orders WHERE id IN (?,?)',[orderId,foreignOrderId]);
+  await dbRun('DELETE FROM drivers WHERE id IN (?,?)',[firstId,secondId]);
+ }
+});
