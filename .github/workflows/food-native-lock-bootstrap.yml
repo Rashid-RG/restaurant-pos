@@ -82,9 +82,16 @@ jobs:
         env:
           VITE_NATIVE_API_ORIGIN: https://gastroflow-staging.onrender.com
         run: npm run customer:native:build
-      - name: Generate isolated Android source project
+      - name: Create or reuse only the isolated customer Android project
         working-directory: apps/customer-web
-        run: npm run native:add:android
+        run: |
+          set -euo pipefail
+          if test -f android/app/build.gradle; then
+            echo "Using committed GastroFlow Food Android source; never overwrite it with cap add"
+            grep -F 'applicationId "com.rstechnologies.gastrofood"' android/app/build.gradle
+          else
+            npm run native:add:android
+          fi
       - name: Apply foreground GPS permission requirements
         working-directory: apps/customer-web
         run: npm run native:permissions:android
