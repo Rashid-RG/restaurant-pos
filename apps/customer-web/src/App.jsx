@@ -23,9 +23,13 @@ import SystemUpdatePrompt from './components/SystemUpdatePrompt.jsx';
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    // Error details are console-only: never display private state or credentials.
+    console.error('[GastroFlow Food startup render error]', error?.name, error?.message, info?.componentStack);
+  }
   render() {
     if (this.state.error) return (
-      <main className="customer-error-screen" role="alert">
+      <main className="customer-error-screen" role="alert" aria-label="GastroFlow Food startup error">
         <div className="customer-error-panel">
           <div className="customer-error-symbol" aria-hidden="true">!</div>
           <p className="customer-eyebrow">WE COULDN'T LOAD THIS SCREEN</p>
