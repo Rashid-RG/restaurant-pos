@@ -218,3 +218,11 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (setup guide)** `0b8a705`: `docs/GASTROFOOD_NATIVE_ANDROID_IOS_SETUP.md` documents safe customer-only installation and generation, Windows/macOS commands, explicit staging-origin expectations, and release acceptance gates.
 - **NOT DONE** Native dependency install and customer `package-lock.json` generation (npm registry access was unavailable in the development environment), actual Android/iOS native platform generation, Android APK/iOS IPA signing, installable icon/splash resources, device test. Do not claim these are complete or commercially ready.
 - **SAFETY** Existing staging Render autoDeploy remains disabled. No deployment, customer data operation, Turso migration, POS config update, or root package-lock alteration.
+
+### Progress checkpoint — 2026-11-17: isolated Android/iOS foreground location permissions
+- **DONE (code)** `e7d7c7e`: customer-only, idempotent Android/iOS native permission preparation in `scripts/setup-food-native-location-permissions.mjs`. Explicitly opts into foreground coarse/fine Android location and iOS `NSLocationWhenInUseUsageDescription`; GPS is optional and background tracking permissions are not added.
+- **DONE (source configuration)** `30cbedf`: `apps/customer-web/package.json` provides `native:permissions:android` and `native:permissions:ios` commands to apply these settings only to generated native projects.
+- **DONE (test/CI config)** `51ed99b`, `cb0a79b`: unit tests cover first application, idempotency, malformed XML rejection, wrong working directory and missing native platform folders; included in customer CI.
+- **DONE (documentation)** `2d1690e`: setup guide documents permission commands and customer-consent/accuracy acceptance gates.
+- **NOT YET DONE** Actual Android/iOS native folders, customer dependency lockfile, installable builds, screenshots, Apple/Google account setup, device permissions, native geolocation plugin and OS runtime acceptance. Attempting an npm registry lookup in the available execution environment failed with DNS `EAI_AGAIN`; no dependency installation has been claimed.
+- **SAFETY** No deployment, root POS modifications, Turso reads/writes or live customer data operations.
