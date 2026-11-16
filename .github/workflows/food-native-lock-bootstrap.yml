@@ -22,6 +22,10 @@ on:
       - 'apps/customer-web/public/food-logo.png'
       - '.github/workflows/food-native-lock-bootstrap.yml'
 
+concurrency:
+  group: gastrofood-native-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
