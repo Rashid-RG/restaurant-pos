@@ -331,8 +331,13 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     // Never trigger a surprise browser location prompt merely by browsing.
     let cancelled=false;
     permissionAllowsAutomaticLocation().then(granted=>{
-      if(!cancelled && granted && !localStorage.getItem('gastroflow_user_coords'))
-        detectRealGpsLocation({silent:true});
+      if(cancelled||!granted)return;
+      let saved=null;
+      try{saved=JSON.parse(localStorage.getItem('gastroflow_user_coords')||'null')}catch{}
+      // Refresh old GPS fixes automatically when permission has already been granted.
+      // Never silently replace a customer-selected city, search result or manual pin.
+      const expiredGps=saved?.source==='gps' && Date.now()-Number(saved.recordedAt||0)>10*60*1000;
+      if(!saved || saved.source===undefined || expiredGps)detectRealGpsLocation({silent:true});
     });
     return ()=>{cancelled=true;locationRequestRef.current++;};
   }, []);
@@ -426,18 +431,16 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       } else {
         const savedAddr = localStorage.getItem('gastroflow_delivery_address');
         let resolved = resolveCoordsForAddress(savedAddr);
-        if (!resolved && savedAddr && savedAddr !== 'Detecting Location...') {
+        if (!resolved && savedAddr && savedAddr !== 'Choose delivery location' && savedAddr !== 'Detecting Location...') {
           try {
-            const query = encodeURIComponent(savedAddr);
-            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&countrycodes=lk&limit=1`);
-            if (res.ok) {
-              const geoData = await res.json();
-              if (geoData && geoData[0]) {
-                resolved = { lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon) };
-              }
+            const result=await apiFetch(`/public/geocode?q=${encodeURIComponent(savedAddr)}`);
+            if(Array.isArray(result)&&result[0]){
+              const lat=Number(result[0].lat),lng=Number(result[0].lng);
+              if(Number.isFinite(lat)&&Number.isFinite(lng))resolved={lat,lng};
             }
           } catch (_) {}
         }
+        if(requestId!==restaurantsFetchRef.current)return;
         if (resolved) {
           setUserCoords(resolved);
           processStoreProximity(resolved.lat, resolved.lng, storeList);
