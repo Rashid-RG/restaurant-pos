@@ -5422,6 +5422,10 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
       // provider outage. The persisted push receipt suppresses successful
       // sends; failed sends may be retried without touching proof or settlement.
       void sendOrderPush(dbAll,dbRun,orderId,t,'delivered').catch(()=>{});
+      void sendOrderStatusEmail({
+        dbGet, dbRun, orderId, tenantId:t,
+        status:'delivered', customerAppUrl:customerAppUrl()
+      }).catch(error=>console.error('[Order stage email]',error.message));
       return res.json({ success: true, status, proof: existingProof, alreadySaved: true });
     }
     const transitions = {
