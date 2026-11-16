@@ -447,3 +447,56 @@
 @media(prefers-reduced-motion:reduce){
   .customer-premium .gf-tracking-journey-expand{transition:none}
 }
+
+
+/* One contact surface for the actual restaurant and confirmed assigned rider. */
+.customer-premium .gf-tracking-contact-card{
+  margin:14px 0;background:#fff;border:1px solid #dce9df;
+  border-radius:22px;padding:17px;box-shadow:0 9px 26px rgba(20,64,42,.065);
+}
+.customer-premium .gf-tracking-contact-heading{
+  display:flex;justify-content:space-between;align-items:center;
+  gap:12px;margin-bottom:14px;color:#194934;
+}
+.customer-premium .gf-tracking-contact-heading h2{
+  margin:3px 0 0;font-size:1.06rem;line-height:1.35;color:#193d2b;
+}
+.customer-premium .gf-tracking-contact-overline{
+  font-size:.63rem;font-weight:850;letter-spacing:.1em;color:#667d70;
+}
+.customer-premium .gf-tracking-rider-contact,
+.customer-premium .gf-tracking-store-contact{
+  display:flex;align-items:center;flex-wrap:wrap;gap:12px;
+  padding:14px 0;border-top:1px solid #e9efea;
+}
+.customer-premium .gf-tracking-contact-avatar{
+  width:44px;height:44px;flex:0 0 44px;display:grid;place-items:center;
+  font-size:1.4rem;border-radius:14px;background:#e6f5ee;
+}
+.customer-premium .gf-tracking-contact-identity{flex:1;min-width:140px;display:grid;gap:4px}
+.customer-premium .gf-tracking-contact-identity strong{font-size:.89rem;color:#1f4330;overflow-wrap:anywhere}
+.customer-premium .gf-tracking-contact-identity small{font-size:.74rem;line-height:1.5;color:#667a6c;overflow-wrap:anywhere}
+.customer-premium .gf-tracking-contact-buttons{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.customer-premium .gf-tracking-contact-buttons a,
+.customer-premium .gf-tracking-contact-buttons button{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:44px;padding:10px 13px;border-radius:13px;
+  font:inherit;font-size:.76rem;font-weight:800;text-decoration:none;
+  cursor:pointer;color:#126b49;background:#ecf8f0;border:1px solid #c9e9d4;
+}
+.customer-premium .gf-tracking-contact-buttons button{background:#16764d;color:#fff}
+.customer-premium .gf-tracking-contact-buttons small{color:#647469;font-size:.75rem}
+.customer-premium .gf-tracking-contact-note{font-size:.75rem;color:#6c796e;line-height:1.5;margin:2px 0 12px}
+.customer-premium .gf-tracking-share-button{
+  background:transparent;border:1px solid #d3e1d5;color:#33684d;
+  font:inherit;font-size:.78rem;font-weight:800;padding:10px 13px;
+  border-radius:12px;min-height:44px;cursor:pointer;
+}
+.customer-premium .gf-tracking-contact-card :is(a,button):focus-visible{
+  outline:3px solid #e77932;outline-offset:2px;
+}
+@media(max-width:420px){
+  .customer-premium .gf-tracking-contact-card{padding:13px;border-radius:19px}
+  .customer-premium .gf-tracking-contact-buttons{width:100%}
+  .customer-premium .gf-tracking-contact-buttons :is(a,button){flex:1;min-width:0}
+}
