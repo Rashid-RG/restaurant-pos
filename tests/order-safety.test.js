@@ -185,6 +185,21 @@ it('rolls back the recovery record with failed inventory and allows a corrected 
  const key=crypto.randomUUID(),before=await stock();await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(500);expect(await stock()).toEqual(before);
  await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(201);expect((await stock()).stock).toBe(before.stock-2);
 });
+it('does not advertise scheduled slots while the restaurant is closed',async()=>{
+ const endpoint='/api/public/schedule/slots?tenant=safe_A&type=takeaway';
+ const open=await request(app).get(endpoint);
+ expect(open.status,open.text).toBe(200);
+ expect(open.body.slots.length).toBeGreaterThan(0);
+ await dbRun("UPDATE settings SET value='false' WHERE key='storeOpen' AND tenant_id='safe_A'");
+ try{
+  const closed=await request(app).get(endpoint);
+  expect(closed.status).toBe(409);
+  expect(closed.body.slots).toBeUndefined();
+  expect(closed.body.error).toMatch(/not accepting scheduled orders/i);
+ }finally{
+  await dbRun("UPDATE settings SET value='true' WHERE key='storeOpen' AND tenant_id='safe_A'");
+ }
+});
 it('blocks new orders while closed but still recovers an already saved checkout',async()=>{
  const key=crypto.randomUUID(),created=await retryCheckout(key);expect(created.status).toBe(201);
  await dbRun("UPDATE settings SET value='false' WHERE key='storeOpen' AND tenant_id='safe_A'");expect((await retryCheckout(crypto.randomUUID())).status).toBe(409);
