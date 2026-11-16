@@ -169,11 +169,33 @@ export function createKitchenRouter({
         )
           throw fail("Ticket is closed. Refresh the board.", 409);
         if (current.orderStatus==='refunded') throw fail('Fully refunded ticket needs manager cancellation or review.',409);
-        if (current.revision !== revision)
+        if (current.revision !== revision) {
+          // A lost HTTP response may make the same authenticated operator
+          // retry an already committed kitchen transition. Accept only the
+          // immediately previous revision and exactly matching last action;
+          // never replay an older or competing update.
+          if (current.revision === revision + 1) {
+            const last = await dbGet(
+              "SELECT actorId,action,details FROM kitchen_events WHERE tenant_id=? AND orderId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1",
+              [req.tenantId,current.orderId],
+            );
+            const requestedLine=lineId || "whole_ticket";
+            const sameAction=last?.actorId===req.user.id &&
+              last.action===state && last.details===requestedLine &&
+              (lineId
+                ? current.lines.some(line=>line.id===lineId && line.state===state)
+                : current.state===state) &&
+              (etaMinutes===undefined || current.etaMinutes===etaMinutes);
+            if (sameAction) {
+              await dbRun("ROLLBACK");
+              return res.set("Cache-Control","no-store").json(current);
+            }
+          }
           throw fail(
             "Ticket changed on another device. Refresh before acting.",
             409,
           );
+        }
         const lines = lineId
           ? current.lines.filter((x) => x.id === lineId)
           : current.lines;
