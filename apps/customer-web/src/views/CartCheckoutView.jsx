@@ -206,6 +206,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     return () => {disposed=true;};
   }, [orderType,activeQuoteKey]);
 
+  const visibleDeliveryBreakdown = deliveryQuote.key===activeQuoteKey ? deliveryFeeBreakdown : null;
+
   // Totals calculations
   const loyaltyAvailable = customer?.loyaltyPoints || 0;
   const loyaltyPointsToRedeem = redeemPoints ? Math.min(loyaltyAvailable, Math.floor(subtotal * 100)) : 0;
@@ -228,7 +230,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const tax = money((subtotal - discountTotal + serviceCharge) * taxRate);
   
   // Dynamic delivery fee addition
-  const activeDeliveryFee = orderType === 'delivery' ? deliveryFee : 0;
+  const activeDeliveryFee = orderType === 'delivery' && deliveryQuoteConfirmed ? deliveryFee : 0;
   // Tip: preset percentage of subtotal, or a custom amount. The server re-prices authoritatively.
   const tipAmount = tipPercent === 'custom'
     ? Math.max(0, Number(customTip) || 0)
@@ -1144,46 +1146,46 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             </div>
             {orderType === 'delivery' && (
               <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, background: 'rgba(0,0,0,0.02)' }}>
-                {deliveryFeeBreakdown?.isOutOfRange ? (
+                {visibleDeliveryBreakdown?.isOutOfRange ? (
                   <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.82rem', textAlign: 'center', padding: '8px 0' }}>
-                    ❌ Sorry, your location is {deliveryFeeBreakdown.distanceKm} km away — outside our {deliveryFeeBreakdown.maxRadiusKm} km delivery zone.
+                    ❌ Sorry, your location is {visibleDeliveryBreakdown.distanceKm} km away — outside our {visibleDeliveryBreakdown.maxRadiusKm} km delivery zone.
                   </div>
-                ) : deliveryFeeBreakdown?.isFreeDelivery ? (
+                ) : visibleDeliveryBreakdown?.isFreeDelivery ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--success)', alignItems: 'center' }}>
                     <span>🎉 FREE Delivery!</span>
-                    <span style={{ fontSize: '0.78rem', opacity: 0.8 }}>Order above Rs. {deliveryFeeBreakdown.freeThreshold}</span>
+                    <span style={{ fontSize: '0.78rem', opacity: 0.8 }}>Order above Rs. {visibleDeliveryBreakdown.freeThreshold}</span>
                   </div>
-                ) : deliveryFeeBreakdown ? (
+                ) : visibleDeliveryBreakdown ? (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 4 }}>
-                      <span>📍 Distance: {deliveryFeeBreakdown.distanceKm} km</span>
-                      <span>⏱️ ETA: ~{deliveryFeeBreakdown.etaMinutes} min</span>
+                      <span>📍 Distance: {visibleDeliveryBreakdown.distanceKm} km</span>
+                      <span>⏱️ ETA: ~{visibleDeliveryBreakdown.etaMinutes} min</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                      <span>🛵 Base Fee</span><span>Rs. {deliveryFeeBreakdown.baseFee}</span>
+                      <span>🛵 Base Fee</span><span>Rs. {visibleDeliveryBreakdown.baseFee}</span>
                     </div>
-                    {deliveryFeeBreakdown.distanceCharge > 0 && (
+                    {visibleDeliveryBreakdown.distanceCharge > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                        <span>📏 Distance Charge ({(deliveryFeeBreakdown.distanceKm - (deliveryFeeBreakdown.freeRadius || 2)).toFixed(1)} km × Rs. {Math.round(deliveryFeeBreakdown.distanceCharge / Math.max(0.1, deliveryFeeBreakdown.distanceKm - (deliveryFeeBreakdown.freeRadius || 2)))})</span>
-                        <span>Rs. {deliveryFeeBreakdown.distanceCharge}</span>
+                        <span>📏 Distance Charge ({(visibleDeliveryBreakdown.distanceKm - (visibleDeliveryBreakdown.freeRadius || 2)).toFixed(1)} km × Rs. {Math.round(visibleDeliveryBreakdown.distanceCharge / Math.max(0.1, visibleDeliveryBreakdown.distanceKm - (visibleDeliveryBreakdown.freeRadius || 2)))})</span>
+                        <span>Rs. {visibleDeliveryBreakdown.distanceCharge}</span>
                       </div>
                     )}
-                    {deliveryFeeBreakdown.peakSurcharge > 0 && (
+                    {visibleDeliveryBreakdown.peakSurcharge > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#f59e0b' }}>
-                        <span>🔥 Peak Hour Surcharge</span><span>Rs. {deliveryFeeBreakdown.peakSurcharge}</span>
+                        <span>🔥 Peak Hour Surcharge</span><span>Rs. {visibleDeliveryBreakdown.peakSurcharge}</span>
                       </div>
                     )}
-                    {deliveryFeeBreakdown.rainSurcharge > 0 && (
+                    {visibleDeliveryBreakdown.rainSurcharge > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#3b82f6' }}>
-                        <span>🌧️ Rain Surcharge</span><span>Rs. {deliveryFeeBreakdown.rainSurcharge}</span>
+                        <span>🌧️ Rain Surcharge</span><span>Rs. {visibleDeliveryBreakdown.rainSurcharge}</span>
                       </div>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, borderTop: '1px solid var(--border-color)', paddingTop: 6, marginTop: 4 }}>
-                      <span>🚚 {t.deliveryFee}</span><span>Rs. {deliveryFeeBreakdown.totalFee}</span>
+                      <span>🚚 {t.deliveryFee}</span><span>Rs. {visibleDeliveryBreakdown.totalFee}</span>
                     </div>
-                    {deliveryFeeBreakdown.freeThreshold && subtotal < deliveryFeeBreakdown.freeThreshold && (
+                    {visibleDeliveryBreakdown.freeThreshold && subtotal < visibleDeliveryBreakdown.freeThreshold && (
                       <div style={{ fontSize: '0.72rem', color: 'var(--success)', marginTop: 4, textAlign: 'center', fontWeight: 600 }}>
-                        💡 Add Rs. {Math.ceil(deliveryFeeBreakdown.freeThreshold - subtotal)} more for FREE delivery!
+                        💡 Add Rs. {Math.ceil(visibleDeliveryBreakdown.freeThreshold - subtotal)} more for FREE delivery!
                       </div>
                     )}
                   </>
@@ -1206,7 +1208,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.05rem', borderTop: '1px solid var(--border-color)', paddingTop: 8, marginTop: 4 }}>
-              <span>{t.totalPayable}</span><span style={{ color: 'var(--brand)' }}>Rs. {total.toFixed(2)}</span>
+              <span>{orderType === 'delivery' && !deliveryQuoteConfirmed ? 'Subtotal estimate · delivery pending' : t.totalPayable}</span><span style={{ color: 'var(--brand)' }}>Rs. {total.toFixed(2)}</span>
             </div>
             <div className="customer-bill-brand">Powered by <strong>GastroFlow</strong> · Developed by <strong>RS Technologies</strong></div>
           </div>
@@ -1222,7 +1224,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             disabled={loading || !canOrder || !deliveryQuoteConfirmed || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
-            {loading ? `⏳ ${t.processing}` : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}
+            {loading ? `⏳ ${t.processing}` : orderType==='delivery' && !deliveryQuoteConfirmed ? 'Confirm delivery location and fee' : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}
           </button>
         </div>
       </form>
