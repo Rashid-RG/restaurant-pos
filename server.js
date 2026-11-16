@@ -1,4 +1,5 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
+import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
@@ -1013,6 +1014,7 @@ async function initTables() {
     `);
 
     await initCustomerPush(dbRun);
+    await initOrderStatusEmail(dbRun);
 
     // 23. Timeclock Entries Table (Staff shift tracking)
     await dbRun(`
@@ -4849,7 +4851,15 @@ function notifyPublicStore(eventData, tenantId) {
 }
 
 function notifyOrderUpdate(orderId, orderData) {
-  if (orderData?.tenant_id) void sendOrderPush(dbAll,dbRun,orderId,orderData.tenant_id,orderData.status).catch(()=>{});
+  if (orderData?.tenant_id) {
+    void sendOrderPush(dbAll,dbRun,orderId,orderData.tenant_id,orderData.status).catch(()=>{});
+    // Read the saved tenant-bound order again after its committed transition.
+    // Stage emails are idempotent and must never block kitchen or driver actions.
+    void sendOrderStatusEmail({
+      dbGet, dbRun, orderId, tenantId:orderData.tenant_id,
+      status:orderData.status, customerAppUrl:customerAppUrl()
+    }).catch(error=>console.error('[Order stage email]',error.message));
+  }
   notifyOrderStream(orderId, orderData);
   notifyPOS({ type: 'order_updated', orderId, order: orderData }, orderData?.tenant_id);
 }
