@@ -30,6 +30,11 @@ describe('GastroFlow Food native staging CORS diagnostic',()=>{
       expect(opts.headers).not.toHaveProperty('Authorization');
     }
   });
+  it('identifies ambiguous 401 preflight versus upstream authentication without pretending login failed',()=>{
+    expect(evaluatePreflight({status:401,headers:new Headers()},'https://localhost')).toEqual({allowed:false,reason:'preflight-rejected-or-auth-gate'});
+    const gateway=new Headers({'www-authenticate':'Basic realm="staging"'});
+    expect(evaluatePreflight({status:401,headers:gateway},'https://localhost')).toEqual({allowed:false,reason:'upstream-auth-challenge'});
+  });
   it('reports timeout or blocked CORS without treating it as a success',async()=>{
     const reports=await probeNativeCors({fetcher:async()=>{throw {name:'TimeoutError'}}});
     expect(reports).toHaveLength(2);
