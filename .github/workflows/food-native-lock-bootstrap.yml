@@ -11,6 +11,7 @@ on:
     paths:
       - 'apps/customer-web/package.json'
       - 'apps/customer-web/vite.config.js'
+      - 'scripts/probe-food-native-cors.mjs'
       - 'apps/customer-web/src/**'
       - 'shared/ui/**'
       - 'apps/customer-web/package-lock.json'
@@ -356,3 +357,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "feat(food-native): check in verified isolated Android source and GastroFood branding [skip ci]"
           git push origin HEAD:codex/production-readiness
+
+  native-staging-cors-diagnostic:
+    # Read-only OPTIONS requests, no credentials, no database changes.
+    # Diagnostic is deliberately non-gating until staging native CORS is approved.
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Report Android/iOS native CORS readiness (no configuration changes)
+        run: node scripts/probe-food-native-cors.mjs
