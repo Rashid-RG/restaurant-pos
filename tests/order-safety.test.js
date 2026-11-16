@@ -87,6 +87,19 @@ it('propagates kitchen preparation to the original customer tracking order',asyn
  expect(customer.body.status).toBe('preparing');
  expect((await request(app).get('/api/kitchen/tickets').set(staff('safe_B'))).body.some(x=>x.orderId===created.body.orderId)).toBe(false);
 });
+it('rejects non-delivery driver claims and assignments',async()=>{
+ const id=await ticket();
+ const manual=await request(app).post('/api/delivery/assign').set(staff()).send({orderId:id,driverId:'safe_driver'});
+ expect(manual.status,manual.text).toBe(409);
+ const claim=await request(app).post('/api/public/driver/assign').set(driver()).send({orderId:id});
+ expect(claim.status,claim.text).toBe(409);
+ expect((await dbGet('SELECT driverId FROM orders WHERE id=?',[id])).driverId).toBeNull();
+ const deliveryOrder=await ticket();
+ await dbRun("UPDATE orders SET diningType='delivery',orderType='delivery' WHERE id=?",[deliveryOrder]);
+ const accepted=await request(app).post('/api/public/driver/assign').set(driver()).send({orderId:deliveryOrder});
+ expect(accepted.status,accepted.text).toBe(200);
+ expect((await dbGet('SELECT driverId FROM orders WHERE id=?',[deliveryOrder])).driverId).toBe('safe_driver');
+});
 it('binds dispatch to the restaurant and preserves kitchen state',async()=>{
  const id=await ticket();
  await dbRun("UPDATE orders SET diningType='delivery',orderType='delivery' WHERE id=?",[id]);
