@@ -108,6 +108,7 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 | Menu modifier, stock and customizer guardrails | DONE (code), verification pending | `519318e`, `c8e9ee5`, `358b4bc`, `7fbd830`, `b52a309` | Run menu tests, full build and real checkout validation |
 | Delivery quote freshness and checkout eligibility | DONE (code), verification pending | `c6d4483`, `600d88a`, `da7829e`, `50ed5fa`, `0aec591`, `8506434` | Customer CI, API quote and cross-store / fast-address-switch E2E tests |
 | Order acknowledgement and interrupted payment cart retention | DONE (code), verification pending | `3f5f176`, `a27a1c8`, `96797b8`, `2e2aa46` | Run CI and real server idempotent recovery with injected timeouts and PayHere sandbox settlement |
+| Isolated end-to-end customer → kitchen → driver → tracking CI gate | DONE (CI code), run pending | `5c8152d` | Confirm workflow green, inspect test logs; no live system contact |
 | Unified design tokens and all-screen redesign | NOT STARTED | Existing layered CSS | Screen-by-screen implementation and visual snapshots |
 | Dedicated GastroFood Android build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated appId/config/assets |
 | Dedicated GastroFood iOS build | NOT STARTED | Shared root Capacitor config is not release-ready | Isolated bundle ID, native build/TestFlight |
@@ -164,3 +165,8 @@ Android small-screen budget device, current midrange Android, Samsung battery-op
 - **DONE (code)** `96797b8`: regression coverage for malformed responses, closed orders and pending online payments; `2e2aa46`: included acknowledgement, interrupted recovery and duplicate-submit guard suites in the customer workflow.
 - **PENDING verification:** automated customer build/test result, real API and PayHere sandbox acceptance, two-tenant isolation and network timeout/reconnect simulation. No claim of production settlement or app-store readiness.
 - **NOT DEPLOYED:** no Render deployment or Turso migration authorized.
+
+### Progress checkpoint — 2026-11-16: lifecycle integration gate
+- **DONE (CI configuration)** `5c8152d`: dedicated order lifecycle GitHub Actions workflow runs existing isolated `tests/online-store-isolation.test.js`, `tests/order-safety.test.js` and `tests/customer-commerce-safety.test.js` under Node 24 with single-worker execution. No Turso, payment or production secrets are supplied.
+- **EXISTING INTEGRATION COVERAGE, NOT NEWLY IMPLEMENTED:** customer order placement → kitchen tickets → preparation/ready transitions → rider assignment/pickup/out-for-delivery → customer tracking; second-tenant privacy; idempotency replay; customer receipt and inventory ownership; manual bank payment reconciliation.
+- **PENDING:** first full CI run, check failed test logs, physical device acceptance and real staging end-to-end verification using non-customer test data. The CI job intentionally does not perform staging deployment.
