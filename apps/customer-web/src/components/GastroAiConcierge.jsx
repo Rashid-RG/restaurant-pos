@@ -6,6 +6,7 @@ import { apiFetch } from '../utils/api.js';
 import { useCart } from '../context/CartContext.jsx';
 import { isMenuItemAvailable, maxMenuItemQuantity } from '../utils/menu-selection.js';
 import { getActiveTenant } from '../utils/tenant.js';
+import { prepareGastroBatch } from '../utils/gastromate-batch.js';
 import './gastromate-mascot.css';
 import { isTrackingIntent, selectTrackableOrders, safeOrderChoice } from '../utils/gastromate-tracking.js';
 
@@ -23,7 +24,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const { customer, getToken } = useCustomerAuth();
   const token = getToken?.();
   const { t } = useLang();
-  const { addItem, setCartOpen, items: liveCartItems } = useCart();
+  const { addItem, addVerifiedBatch, setCartOpen, items: liveCartItems } = useCart();
   
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([
@@ -38,6 +39,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
   const [typing, setTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [pendingAdd, setPendingAdd] = useState(null);
+  const [pendingBatch, setPendingBatch] = useState(null);
   const [addingItem, setAddingItem] = useState(false);
   const [trackingChoices, setTrackingChoices] = useState([]);
   const [trackingBusy, setTrackingBusy] = useState(false);
@@ -127,6 +129,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     if (trackBusyRef.current) return;
     const request = ++trackRequestRef.current;
     setPendingAdd(null);
+    setPendingBatch(null);
     setTrackingChoices([]);
     if (!customer || !getToken?.()) {
       setMessages(prev => [...prev, { id: `track_signin_${Date.now()}`, sender: 'ai', text: 'Please sign in to securely see your orders. If you have a private order confirmation link, open its Track Order page instead.', suggestions: ['Sign In', 'Track Order Page'] }]);
@@ -183,6 +186,7 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       return;
     }
     setTrackingChoices([]);
+    setPendingBatch(null);
 
     const userMsgId = `msg_${Date.now()}`;
     setMessages(prev => [...prev, { id: userMsgId, sender: 'user', text: queryText }]);
@@ -236,6 +240,34 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
       }]);
     } finally {
       setTyping(false);
+    }
+  };
+
+  const confirmBatchToCart = async (plan) => {
+    if (addingItem || !plan) return;
+    setAddingItem(true);
+    try {
+      // Never trust old AI prices or client-constructed product ids.
+      const tenantAtStart = getActiveTenant();
+      const menu = await apiFetch('/public/menu', {cache:'no-store'});
+      if (getActiveTenant() !== tenantAtStart) throw new Error('The restaurant changed. Please review your order again.');
+      const prepared = prepareGastroBatch(plan, menu, liveCartItems, tenantAtStart);
+      if (!prepared.ok) throw new Error(prepared.reason);
+      addVerifiedBatch(prepared.items);
+      setPendingBatch(null);
+      setMessages(prev => [...prev, {
+        id: `multi_added_${Date.now()}`,sender:'ai',
+        text: `Your ${prepared.items.length} menu selections have been submitted to the cart (base subtotal Rs. ${prepared.subtotal.toFixed(2)}). Review the cart and checkout total before placing an order.`
+      }]);
+      setCartOpen(true);
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        id:`multi_error_${Date.now()}`,sender:'ai',
+        text:error.message || 'Unable to add these items. Please review them from the restaurant menu.'
+      }]);
+      setPendingBatch(null);
+    } finally {
+      setAddingItem(false);
     }
   };
 
@@ -455,6 +487,13 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
             <button type="button" onClick={() => setPendingAdd(null)}>Cancel</button>
           </div>}
 
+          {pendingBatch && <div className="gastromate-confirm" role="group" aria-label="Confirm complete food selection">
+            <span>Confirm these items at their current menu prices? Stock and restaurant will be checked before any cart change. Customizable items must be selected from the menu.</span>
+            <button type="button" disabled={addingItem} onClick={() => confirmBatchToCart(pendingBatch)}>
+              {addingItem ? 'Checking menu…' : 'Confirm complete selection'}
+            </button>
+            <button type="button" disabled={addingItem} onClick={() => setPendingBatch(null)}>Cancel</button>
+          </div>}
           {/* Only account-owned, tenant-scoped orders can appear here. No private
                tracking data is sent to the AI provider or persisted in chat history. */}
           {trackingBusy && <div role="status" style={{padding:'8px 14px',fontSize:'.8rem'}}>Looking up your orders securely…</div>}
@@ -567,6 +606,12 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
                     </div>
                     {msg.plan.withinBudget === false && <div role="status" style={{color:'#a23b23',fontSize:'.78rem'}}>Base subtotal exceeds the stated budget. Nothing has been added.</div>}
                     <small style={{lineHeight:1.4,color:'#52685c'}}>{msg.plan.note}</small>
+                    {msg.plan.totalKnown && msg.plan.withinBudget !== false &&
+                      <button type="button" disabled={typing || addingItem}
+                        style={{border:0,borderRadius:9,padding:'9px 12px',fontWeight:700,background:'#176e4d',color:'#fff',cursor:'pointer'}}
+                        onClick={() => {setPendingAdd(null);setPendingBatch(msg.plan);}}>
+                        Review complete selection
+                      </button>}
                   </div>
                 )}
 
