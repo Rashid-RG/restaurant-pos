@@ -9,6 +9,11 @@ export function evaluatePreflight(response,origin){
   const allowOrigin=get('access-control-allow-origin');
   const allowHeaders=String(get('access-control-allow-headers')||'').toLowerCase().split(',').map(s=>s.trim());
   const allowMethods=String(get('access-control-allow-methods')||'').toUpperCase().split(',').map(s=>s.trim());
+  if(response.status===401 || response.status===403){
+    // Rejected preflights may fall through to the server auth handler. A
+    // gateway-level challenge can look identical; do not misdiagnose login.
+    return {allowed:false,reason:get('www-authenticate')?'upstream-auth-challenge':'preflight-rejected-or-auth-gate'};
+  }
   if(response.status<200||response.status>=300)return {allowed:false,reason:'http-'+response.status};
   if(allowOrigin!==origin)return {allowed:false,reason:'origin-not-authorized'};
   if(get('access-control-allow-credentials')!=='true')return {allowed:false,reason:'credentials-not-enabled'};
