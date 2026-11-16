@@ -268,9 +268,10 @@ jobs:
             adb pull /sdcard/gastrofood-startup.png gastrofood-startup.png
             test -s gastrofood-startup.png
             adb logcat -d -v brief -s chromium:* cr_Console:* AndroidRuntime:* > gastrofood-emulator-console.txt || true
-            PID="$(adb shell pidof com.rstechnologies.gastrofood | tr -d '\\r')"
-            test -n "$PID"
-            adb forward tcp:9222 "localabstract:webview_devtools_remote_$PID"
+            # android-emulator-runner starts each script line in a new shell.
+            # Do not split a shell variable assignment and its use across lines.
+            adb shell pidof com.rstechnologies.gastrofood
+            adb forward tcp:9222 "localabstract:webview_devtools_remote_$(adb shell pidof com.rstechnologies.gastrofood | tr -cd '[:digit:]')"
             node scripts/check-food-android-webview.mjs
             echo "GastroFlow Food Android startup UI accepted"
       - name: Upload Android emulator screenshot and browser console for visual review
