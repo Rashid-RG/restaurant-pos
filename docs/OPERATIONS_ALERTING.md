@@ -22,4 +22,10 @@ HTTP delivery has a bounded timeout, does not follow redirects, and never blocks
 
 Before calling backups reliable, configure private off-host storage, automatic schedules, failure/missed-run monitoring, retention and encryption, and a documented restore drill into a separate target database. Never restore over live restaurant data.
 
+## Missed/stale backup detection
+
+Run `npm run backup:check` **from an operator-controlled external scheduler** after a scheduled `npm run backup`. The check reads only `BACKUP_DIRECTORY` and exits nonzero when no recognized backup exists, the latest eligible backup is stale, or the backup files are invalid. `BACKUP_MAX_AGE_HOURS` defaults to 26 hours (configure it to exceed your intended schedule plus permitted delay). The check can emit `backup_missing` through the same optional webhook.
+
+This is **not a scheduler**: no automatic backup jobs are enabled on Render. The checker confirms a recent locally stored SQLite-format file or a matching Turso logical snapshot checksum; it does not prove that a SQLite snapshot can be restored, that any copy is stored off host, or that the latest backup includes every expected record. Preserve sensitive backups off-host with access controls and independently test a restore to a new database.
+
 The webhook is best suited to an HTTPS automation or incident receiver that can route these minimal event codes to the authorized operator. Avoid logging incoming webhook URLs or forwarding them to unrelated services. Test on staging before enabling in production.
