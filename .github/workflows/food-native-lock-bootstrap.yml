@@ -1,0 +1,45 @@
+name: GastroFlow Food native dependency lock bootstrap
+
+# This workflow resolves customer-only native dependencies on a GitHub runner
+# and uploads a reviewed lockfile candidate. It never commits, deploys, signs,
+# runs against Turso or edits the root POS package-lock.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/production-readiness
+    paths:
+      - 'apps/customer-web/package.json'
+      - 'apps/customer-web/package-lock.json'
+      - 'scripts/verify-food-native-lock.mjs'
+      - '.github/workflows/food-native-lock-bootstrap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Preserve POS lockfile checksum
+        run: sha256sum package-lock.json > "$RUNNER_TEMP/pos-lock.sha256"
+      - name: Resolve customer-only lockfile without installing or executing dependency scripts
+        working-directory: apps/customer-web
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Verify exact customer Capacitor dependencies and lockfile
+        run: node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+      - name: Ensure POS lockfile has not changed
+        run: sha256sum -c "$RUNNER_TEMP/pos-lock.sha256"
+      - name: Upload customer-only lockfile candidate for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-customer-package-lock-candidate
+          path: apps/customer-web/package-lock.json
+          if-no-files-found: error
+          retention-days: 14
