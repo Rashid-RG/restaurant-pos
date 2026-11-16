@@ -8,6 +8,7 @@ import { calculateHaversineDistanceKm, resolveAddressToCoords, evaluateStoreProx
 import { acceptsOnlineOrders, recommendationScore, recommendedOpenStores } from '../utils/marketplace-availability.js';
 import { restaurantRatingText, restaurantDeliveryText, restaurantEmptyState, sortRestaurants } from '../utils/discovery-display.js';
 import {matchesRestaurantQuery} from '../utils/discovery-search.js';
+import {acquireBestLocation,permissionAllowsAutomaticLocation} from '../utils/location-acquisition.js';
 
 
 const CUISINE_CATEGORIES = [
@@ -43,6 +44,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [loadError, setLoadError] = useState('');
   const [dismissedCoverage, setDismissedCoverage] = useState(false);
   const [userAccuracy, setUserAccuracy] = useState(null);
+  const locationRequestRef = useRef(0);
 
   // Render location dialogs outside scrolling app ancestors and freeze the
   // underlying page while either dialog is visible (especially important on iOS).
@@ -153,63 +155,42 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   // Browsing should never require sharing GPS on initial page load.
   // Customers can explicitly select a city, precise pin, or GPS location.
 
-  const detectRealGpsLocation = () => {
-    if (!('geolocation' in navigator)) {
-      toast('Geolocation not supported. Select a city or address.', 'warning');
-      return;
-    }
+  const detectRealGpsLocation = async ({silent=false}={}) => {
+    const requestId=++locationRequestRef.current;
     setIsDetectingGps(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          const accuracy = Math.round(pos.coords.accuracy || 0);
-
-          // Country & Distance Sanity Check: Sri Lanka bounds (Lat 5.0 - 10.0 N, Lng 79.0 - 82.0 E)
-          const isInsideSriLanka = lat >= 5.0 && lat <= 10.0 && lng >= 79.0 && lng <= 82.0;
-
-          if (!isInsideSriLanka) {
-            toast('Location is outside Sri Lanka. Please select a Sri Lankan address.', 'warning');
-            return;
-          }
-
-          setUserCoords({ lat, lng });
-          setUserAccuracy(accuracy);
-
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&countrycodes=lk`);
-          if (res.ok) {
-            const data = await res.json();
-            const addr = data.address || {};
-            const city = addr.suburb || addr.city || addr.town || addr.village || addr.county || 'Detected Pin';
-            const country = addr.country || 'Sri Lanka';
-            const state = addr.state || country || 'GPS Location';
-            const resolvedStr = `${city}, ${state}`;
-            setDeliveryLocation(resolvedStr);
-            localStorage.setItem('gastroflow_delivery_address', resolvedStr);
-          } else {
-            const coordsStr = `GPS Pin (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
-            setDeliveryLocation(coordsStr);
-            localStorage.setItem('gastroflow_delivery_address', coordsStr);
-          }
-
-          processStoreProximity(lat, lng);
-        } catch (e) {
-          toast('Could not determine the address. Choose your location manually.', 'warning');
-        } finally {
-          setIsDetectingGps(false);
+    try {
+      const fix=await acquireBestLocation();
+      if(requestId!==locationRequestRef.current)return;
+      const {lat,lng,accuracy}=fix;
+      // Keep the confirmed GPS pin even when the address provider is unavailable.
+      setUserCoords({lat,lng});
+      setUserAccuracy(accuracy);
+      localStorage.setItem('gastroflow_user_coords',JSON.stringify({lat,lng,accuracy,source:'gps',recordedAt:Date.now()}));
+      const fallback=`GPS pin (${lat.toFixed(5)}, ${lng.toFixed(5)}) · accuracy ~${accuracy}m`;
+      setDeliveryLocation(fallback);
+      localStorage.setItem('gastroflow_delivery_address',fallback);
+      processStoreProximity(lat,lng);
+      try {
+        // Reuse the server's geocoder instead of directly querying the public Nominatim API.
+        const result=await apiFetch(`/public/reverse-geocode?lat=${lat}&lng=${lng}`);
+        if(requestId!==locationRequestRef.current)return;
+        if(typeof result?.label==='string'&&result.label.trim()){
+          setDeliveryLocation(result.label.trim());
+          localStorage.setItem('gastroflow_delivery_address',result.label.trim());
         }
-      },
-      (err) => {
-        console.warn('Geolocation error:', err);
-        setIsDetectingGps(false);
-        toast('Location unavailable. Select a city or enter an address.', 'warning');
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+      } catch {
+        // A reverse-geocode outage cannot discard a valid device GPS location.
+      }
+      if(!silent)toast(`Location found (accuracy approximately ${accuracy} metres). Check the map pin before ordering.`,'success');
+    }catch(err){
+      if(requestId===locationRequestRef.current && !silent)toast(err.message||'Location unavailable. Choose a map pin.','warning');
+    }finally{
+      if(requestId===locationRequestRef.current)setIsDetectingGps(false);
+    }
   };
 
   const handleSelectPredefinedCity = (cityStr) => {
+    locationRequestRef.current++;
     setDeliveryLocation(cityStr);
     localStorage.setItem('gastroflow_delivery_address', cityStr);
     setShowLocationModal(false);
@@ -253,6 +234,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   }, [customAddressInput]);
 
   const handleSelectAddressSuggestion = (item) => {
+    locationRequestRef.current++;
     const lat = parseFloat(item.lat);
     const lng = parseFloat(item.lon);
     const displayParts = (item.display_name || '').split(',');
@@ -271,6 +253,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   };
 
   const handleSaveCustomAddress = async (e) => {
+    locationRequestRef.current++;
     e.preventDefault();
     if (!customAddressInput.trim()) return;
 
@@ -308,6 +291,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   };
 
   const handlePinLocationChange = async (lat, lng) => {
+    const requestId=++locationRequestRef.current;
     setUserCoords({ lat, lng });
     localStorage.setItem('gastroflow_user_coords', JSON.stringify({ lat, lng }));
     processStoreProximity(lat, lng);
@@ -318,6 +302,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         const data = await res.json();
         const addr = data.address || {};
         const shortStr = `${addr.suburb || addr.road || addr.village || 'Custom Pin'}, ${addr.city || addr.town || addr.county || 'Sri Lanka'}`;
+        if(requestId!==locationRequestRef.current)return;
         setDeliveryLocation(shortStr);
         localStorage.setItem('gastroflow_delivery_address', shortStr);
       }
@@ -340,6 +325,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     }
 
     fetchRestaurants(activeCoords);
+    // Reacquire only when the customer previously granted location permission.
+    // Never trigger a surprise browser location prompt merely by browsing.
+    let cancelled=false;
+    permissionAllowsAutomaticLocation().then(granted=>{
+      if(!cancelled && granted && !localStorage.getItem('gastroflow_user_coords'))
+        detectRealGpsLocation({silent:true});
+    });
+    return ()=>{cancelled=true;locationRequestRef.current++;};
   }, []);
 
   // Keep public store-open statuses current when another tab or owner POS
