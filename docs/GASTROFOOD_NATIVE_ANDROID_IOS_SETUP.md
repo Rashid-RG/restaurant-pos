@@ -55,6 +55,22 @@ npm run native:sync:ios
 
 The guard checks current directory, exact Capacitor dependency versions, customer lockfile, app identity and `dist/index.html`. It aborts if any are missing. Generated Android and iOS folders must be reviewed carefully for package ID, release permissions, Google/Firebase setup, splash/icon assets, App Transport Security and signing before any release. Do not commit signing keys, provisioning profiles, tokens or `.env` files.
 
+## 3a. Apply foreground GPS permissions to the generated customer projects
+
+**Only after** the corresponding customer-only `native:add` command has generated its native folder, run from `apps/customer-web`:
+
+```sh
+npm run native:permissions:android
+# On the macOS/iOS machine after generating ios/
+npm run native:permissions:ios
+```
+
+The idempotent script modifies only `apps/customer-web/android/app/src/main/AndroidManifest.xml` and `apps/customer-web/ios/App/App/Info.plist`; it refuses to run from the repository root and fails if the selected native project does not yet exist.
+
+Android requests `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION` and declares GPS **optional** to support manual pins/approximate locations. iOS receives `NSLocationWhenInUseUsageDescription` explaining the permission in plain language. No background location permission or tracking service is added. Customer geolocation requires foreground consent, and a customer must be able to search or select a map pin instead.
+
+**Device acceptance remains essential:** Check that the OS permission prompts appear when requested, accuracy is shown rather than guaranteed, permission-denied/revoked users can still select a map pin, and a delayed geocoder does not overwrite the selected coordinates. This setup is not equivalent to installing or testing `@capacitor/geolocation`, which would require a separately pinned dependency, lockfile refresh, runtime integration and native-sync acceptance.
+
 ## 4. Staging API and native security gate
 Production-mode CORS currently does **not** grant native origins automatically. When real devices are ready for testing, set the staging service's `CUSTOMER_NATIVE_ORIGINS` explicitly to the origins actually used (`https://localhost` for Android, `capacitor://localhost` for iOS), after authorization. The backend's allowed native origins are exact matches and do not replace tenant authentication. **Do not change Render environment or deploy without explicit approval.**
 
