@@ -79,6 +79,28 @@ jobs:
       - name: Sync packaged assets into customer Android project
         working-directory: apps/customer-web
         run: npm run native:sync:android
+      - name: Install isolated Android branding image tooling
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Generate GastroFlow Food adaptive icons, launcher assets and splash screen
+        run: python3 scripts/generate-food-android-branding.py
+      - name: Verify all launcher and splash resources were generated
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          base=Path('apps/customer-web/android/app/src/main/res')
+          for density in ['mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi']:
+              for name in ['ic_launcher.png','ic_launcher_round.png','ic_launcher_foreground.png']:
+                  target=base/f'mipmap-{density}'/name
+                  assert target.is_file(),f'Missing GastroFood {target}'
+                  with Image.open(target) as im:
+                      im.verify()
+          splashes=list(base.glob('drawable*/splash.png'))
+          assert splashes,'No customer splash resources generated'
+          for p in splashes:
+              with Image.open(p) as im: im.verify()
+          print('Verified customer Android brand icon and splash resource files')
+          PY
       - name: Upload Android source candidate for review (no signing or deployment)
         uses: actions/upload-artifact@v4
         with:
