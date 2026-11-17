@@ -37,6 +37,14 @@ The real HTTP test suite `tests/pos-tenant-url-auth.test.js` includes synthetic 
 
 **Risk note:** This checks specific reports and checkout gates. Commercial financial certification still requires complete ledger, reconciliation, cash-drawer, refund and tenant-audit coverage, including backup-based restoration and independent acceptance tests. The branch is not deployed to staging without user approval.
 
+## 2026-11-18: Cashier shift tenant isolation
+
+Cashier shift endpoints now include `req.tenantId` when retrieving active shifts, checking whether a shift is already open, fetching a newly created shift, closing a shift and assigning cash movements to the active drawer. The close-shift SQL update now requires both shift ID and tenant ID. This prevents a malformed or migrated foreign-tenant shift referencing the same staff ID from being used by another restaurant.
+
+The real HTTP two-restaurant test in `tests/pos-tenant-url-auth.test.js` exercises a deliberately conflicting foreign shift, verifies active-shift selection and duplicate-open rejection, cash movement allocation, closing and post-close state, and ensures the foreign shift remains unchanged. All fixtures use a disposable local database. No deployment, database migration or actual restaurant transaction was performed.
+
+**Still required:** full cashier ledger and refund isolation review, settlement idempotency, controlled non-customer staging trial, and a comprehensive cross-tenant financial route audit.
+
 ## What IS done in Phase 6
 
 - **Zod validation** extended from 4 → 9 write routes, matching real bodies with
