@@ -25,3 +25,7 @@
 This initial organization step does not change the active Vite entrypoint or any database schema.
 
 The offline sales queue uses the original tenant-specific localStorage keys and unchanged server acknowledgement behavior. The original import path remains a re-export of the single canonical module so no duplicate in-memory queue or extra connectivity listener is created.
+
+## Component boundary (incremental)
+
+`apps/pos-web/src/components/SupportTicketsView.jsx` now owns the POS support-ticket view. The previous `src/components/SupportTicketsView.jsx` is a compatibility re-export. Its existing `/api/tickets` data access, staff token, POS context and view selection are unchanged; root `src/App.jsx` and Vite still provide the active application entrypoint. The POS print path and sales routes were not moved.
