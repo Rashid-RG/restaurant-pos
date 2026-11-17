@@ -7,7 +7,7 @@ const required = [
   'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
-  'routes/platform.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
+  'routes/platform.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/communications/index.js','lib/communications/app-links.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
 ];
 const findings = [];
 for (const entry of required) {
@@ -37,6 +37,15 @@ for (const [legacy, destination] of [
   ['lib/peak-hours.js', './delivery/peak-hours.js'],
 ]) {
   if (!readFileSync(legacy, 'utf8').includes(destination)) findings.push('Delivery legacy entrypoint must be preserved: ' + legacy);
+}
+if (!backendEntrypoint.includes("from './lib/identity/index.js'")) findings.push('Backend must import identity domain through stable entrypoint');
+if (!backendEntrypoint.includes("from './lib/communications/index.js'")) findings.push('Backend must import communications domain through stable entrypoint');
+for (const [legacy, destination] of [
+  ['lib/customer-contact-validation.js', './identity/contact-validation.js'],
+  ['lib/credential-generation.js', './identity/credential-generation.js'],
+  ['lib/app-links.js', './communications/app-links.js'],
+]) {
+  if (!readFileSync(legacy, 'utf8').includes(destination)) findings.push('Legacy domain compatibility export missing: ' + legacy);
 }
 const workspaceSource = readFileSync('src/components/WorkspaceTools.jsx', 'utf8');
 if (!workspaceSource.includes("from '../platform/workspace-policy.js'")) findings.push('POS workspace must consume isolated platform navigation policy');
