@@ -126,3 +126,23 @@ Capacitor 8 requires Xcode 26 or newer. Its recommended iOS package manager is S
 ### iOS branding generator verification
 
 A separate inexpensive Ubuntu GitHub workflow, `GastroFlow Food iOS branding generator quality`, tests the asset conversion with disposable fixture catalogs; it does not require macOS, generate an IPA, publish an app, or change customer/production data. The first verified run [44054527118](https://github.com/Rashid-RG/restaurant-pos/actions/runs/44054527118) passed, including opaque 1024×1024 output, splash dimensions, original Xcode catalog preservation, and refusal of unsafe paths. **The actual iOS simulator Xcode workflow remains unexecuted** and its generated icon must be visually reviewed before release.
+
+## Native staging CORS — investigated and release-gated (2026-11-17)
+
+**What is confirmed:** The live Render staging deploy is `4e2393d61a0099093e0d4920d6cef714e2c797ab` (from November 16), not the newer `codex/production-readiness` commits. A non-authenticated request with either mobile WebView `Origin` returns HTTP 200 for `GET /api/public/restaurants` but **does not include** a matching `Access-Control-Allow-Origin`. A native-style OPTIONS preflight returns HTTP 401. This means the browser/WebView rejects the request even though the API would serve a simple GET; it does **not** demonstrate a broken restaurant route, bad GPS, or incorrect OTP credentials.
+
+**Backend source of the failure:** `server.js` uses explicit production CORS allowlisting. `CUSTOMER_NATIVE_ORIGINS` is opt-in; adding the origin to a mobile build or removing unnecessary discovery headers does not grant server access. Only exact `https://localhost` (Android) and `capacitor://localhost` (iOS) are supported by `lib/customer-native-origins.js`. Do not use `*`, `null`, `http://localhost`, arbitrary hostnames or any wildcard suffix.
+
+**Prepared and verified code:** `lib/customer-cors-policy.js` makes the current strict middleware selection independently testable, while `tests/customer-native-cors-express.test.js` sends real Express GET and OPTIONS requests under both approved origins. The test checks credentialed preflight, exact origin reflection, rejection of origin lookalikes, preservation of the existing hosted origin, and that permitted CORS does **not** make a private API response authenticated. The server's policy is intentionally unchanged until explicit staging approval.
+
+### Staging-only rollout procedure — do not execute without explicit approval
+
+1. Confirm the target is Render **`gastroflow-staging`**, service `srv-dblpvdt9el5s73eebt0g`, branch **`codex/production-readiness`**, and automatic deployment remains disabled. Record the current live deployment ID `dep-dbtmaohsrm7s73eti4h0` and commit `4e2393d` for rollback. Confirm the target deployment commit has passed the customer and order-lifecycle CI gates.
+2. Obtain explicit permission for **both** the staging config change **and** staging deployment/restart. Safely *merge* (do not replace) the existing Render environment variable `CUSTOMER_NATIVE_ORIGINS=https://localhost,capacitor://localhost`; preserve `CORS_ORIGIN`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, secrets, other env variables, existing customers and sales. Do not set it on production.
+3. Deploy the reviewed branch **only to staging**. This operation may briefly restart the web service; schedule outside merchant checkout/printing if live merchants use staging. Never run a destructive migration or reset the database.
+4. After the service is healthy, use `node scripts/probe-food-native-cors.mjs --require-allowed` to verify **both** native origins and **both** anonymous GET and private-style OPTIONS preflight. Demand an exact matching `Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials: true`, allowed headers and methods. Test existing browser POS and shop login/receipt paths separately.
+5. Test with isolated accounts only: restaurant discovery (with and without GPS params), selected-tenant menu, OTP login and session restore, private order tracking, checkout idempotency and tenant-isolation denial. Do not send live customer emails, create orders for actual merchants or enable PayHere.
+6. If the smoke gate fails, restore the previous staging deployment and native origin configuration **without resetting Turso**. Record the original settings before any edit; do not replace the whole environment variable set.
+7. iPhone Xcode simulator compilation and real-device end-to-end testing remain separate acceptance gates.
+
+**Current status:** Code/tests prepared; **live native-origin CORS not yet enabled**. Browser/POS safety is higher priority than bypassing CORS with a wildcard or weakening any authorization checks.
