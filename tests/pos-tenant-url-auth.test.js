@@ -248,6 +248,31 @@ describe('POS URL restaurant identity isolation', () => {
     expect(cross.status).toBe(404);
   });
 
+  it('never creates a table linked to another restaurant order and safely updates its own',async()=>{
+    const headers={Authorization:`Bearer ${loginA.body.token}`};
+    const foreign=await request(app).post('/api/tables').set(headers).send({
+      id:'qa_table_bad_reference',number:'Incorrect',capacity:2,status:'occupied',
+      currentOrderId:'qa_financial_order_b'
+    });
+    expect(foreign.status).toBe(404);
+    expect(await dbGet('SELECT id FROM tables WHERE id=?',['qa_table_bad_reference'])).toBeUndefined();
+
+    const own=await request(app).post('/api/tables').set(headers).send({
+      id:'qa_table_new',number:'Local',capacity:4,status:'free'
+    });
+    expect(own.status,own.text).toBe(200);
+    const updated=await request(app).post('/api/tables').set(headers).send({
+      id:'qa_table_new',number:'Local Updated',capacity:6,status:'occupied',
+      currentOrderId:'qa_financial_order_a'
+    });
+    expect(updated.status,updated.text).toBe(200);
+    const row=await dbGet('SELECT number,capacity,currentOrderId,tenant_id FROM tables WHERE id=?',['qa_table_new']);
+    expect(row).toEqual({
+      number:'Local Updated',capacity:6,currentOrderId:'qa_financial_order_a',tenant_id:tenantA
+    });
+    expect((await dbGet('SELECT tenant_id FROM tables WHERE id=?',['qa_table_b'])).tenant_id).toBe(tenantB);
+  });
+
   it('rejects Shop B credentials on Shop A POS URL', async () => {
     const response = await login(usernameB,passwordB,tenantA);
     expect(response.status).toBe(403);
