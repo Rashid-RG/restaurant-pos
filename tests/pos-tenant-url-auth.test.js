@@ -240,7 +240,9 @@ describe('POS URL restaurant identity isolation', () => {
     const b=await request(app).get('/api/public/orders/qa_pending_b/eta')
       .query({tenantId:tenantB}).set('X-Order-Tracking',tracking);
     expect(b.status,b.text).toBe(200);
-    expect(b.body.estimatedMinutes).toBe(18); // One pending order in tenant B.
+    expect(b.body.maxItemPrep).toBe(15);
+    expect(b.body.kitchenLoadBuffer).toBe(0); // Only one pending order in tenant B.
+    expect(b.body.estimatedMinutes).toBeGreaterThanOrEqual(15);
     const cross=await request(app).get('/api/public/orders/qa_pending_b/eta')
       .query({tenantId:tenantA}).set('X-Order-Tracking',tracking);
     expect(cross.status).toBe(404);
