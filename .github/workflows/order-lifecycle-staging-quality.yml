@@ -48,4 +48,4 @@ jobs:
       - name: Install pinned application dependencies
         run: npm ci --include=dev
       - name: Verify online-store isolation and full order lifecycle
-        run: npx vitest run --maxWorkers=1 --minWorkers=1 tests/online-store-isolation.test.js tests/order-safety.test.js tests/customer-commerce-safety.test.js
+        run: npx vitest run --maxWorkers=1 tests/online-store-isolation.test.js tests/order-safety.test.js tests/customer-commerce-safety.test.js
