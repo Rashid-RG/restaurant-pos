@@ -55,6 +55,34 @@ describe('customer token and public tracking isolation',()=>{
     expect(values.has('gastroflow_customer_token:tenant-a')).toBe(false);
     expect(storage.removeItem).toHaveBeenCalledWith('gastroflow_customer_token:tenant-a');
   });
+  it('does not erase a refreshed same-restaurant login after a late old-token 401',async()=>{
+    const {storage,values}=testEnvironment();
+    let respond;
+    vi.stubGlobal('fetch',vi.fn(()=>new Promise(resolve=>{respond=resolve})));
+    const oldRequest=apiFetch('/customer/auth/me',{
+      headers:{Authorization:'Bearer customer-secret-a'}
+    }).catch(e=>e);
+    // A new successful login replaces the token while the previous request is pending.
+    values.set('gastroflow_customer_token:tenant-a','customer-new-secret');
+    respond(failedResponse('Authentication token expired'));
+    const error=await oldRequest;
+    expect(error.status).toBe(401);
+    expect(values.get('gastroflow_customer_token:tenant-a')).toBe('customer-new-secret');
+    expect(storage.removeItem).not.toHaveBeenCalledWith('gastroflow_customer_token:tenant-a');
+  });
+  it('does not erase a later same-tenant session when an old request returns 403',async()=>{
+    const {storage,values}=testEnvironment();
+    let respond;
+    vi.stubGlobal('fetch',vi.fn(()=>new Promise(resolve=>{respond=resolve})));
+    const oldRequest=apiFetch('/customer/profile',{
+      headers:{Authorization:'Bearer customer-secret-a'}
+    }).catch(e=>e);
+    values.set('gastroflow_customer_token:tenant-a','new-login-after-refresh');
+    respond(failedResponse('Session revoked',403));
+    await oldRequest;
+    expect(values.get('gastroflow_customer_token:tenant-a')).toBe('new-login-after-refresh');
+    expect(storage.removeItem).not.toHaveBeenCalledWith('gastroflow_customer_token:tenant-a');
+  });
   it('does not clear a new tenant login when a stale prior-tenant error arrives',async()=>{
     const {storage,values}=testEnvironment();
     let respond;
