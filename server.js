@@ -19,6 +19,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm } from './lib/geo-distance.js';
+import { isValidSriLankanPhone, isValidAddress } from './lib/customer-contact-validation.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
@@ -2690,18 +2691,6 @@ app.post(['/api/categories/clear-all'], authenticateToken, requireRole(['owner',
 // ======================================================
 // CUSTOMER AUTH ENDPOINTS (no staff token required)
 // ======================================================
-
-function isValidSriLankanPhone(phone) {
-  if (!phone) return false;
-  const cleanPhone = phone.replace(/[\s-]/g, '');
-  return /^(?:\+94|0)7\d{8}$/.test(cleanPhone);
-}
-
-function isValidAddress(address) {
-  if (!address || typeof address !== 'string') return false;
-  const trimmed = address.trim();
-  return trimmed.length >= 3;
-}
 
 // SMS OTP Cache Store and Sender Helpers
 const otpStore = new Map(); // phone -> { code, expiresAt }
