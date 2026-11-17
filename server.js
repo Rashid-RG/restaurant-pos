@@ -19,7 +19,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
-import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier } from './lib/identity/index.js';
+import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier, createCustomerRegistrationDuplicates, isCustomerRegistrationUniqueConflict } from './lib/identity/index.js';
 import { customerAppUrl, posAppUrl, createOrderConfirmationSender } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 
@@ -2969,6 +2969,7 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
 });
 
 const verifyRegistrationOtp = createRegistrationOtpVerifier({ verifyOTPAsync });
+const findCustomerRegistrationDuplicate = createCustomerRegistrationDuplicates({ dbGet });
 // POST /api/customer/auth/register
 app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   const { name, email, phone, password, otpCode } = req.body;
@@ -2999,24 +3000,15 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   try {
     const normPhone = normalizeLkPhone(cleanPhone);
 
-    // 1. Check duplicate phone
-    const existingPhone = await dbGet(
-      'SELECT id FROM customer_accounts WHERE phone = ? OR phone = ? OR phone = ?',
-      [cleanPhone, normPhone, phone]
-    );
-    if (existingPhone) {
+    const duplicate = await findCustomerRegistrationDuplicate({
+      tenantId: tenantIdForOtp, phone: cleanPhone, normalizedPhone: normPhone,
+      originalPhone: phone, email: cleanEmail
+    });
+    if (duplicate === 'phone') {
       return res.status(400).json({ error: 'An account with this phone number already exists. Please log in.' });
     }
-
-    // 2. Check duplicate email (if provided)
-    if (cleanEmail) {
-      const existingEmail = await dbGet(
-        'SELECT id FROM customer_accounts WHERE LOWER(email) = LOWER(?)',
-        [cleanEmail]
-      );
-      if (existingEmail) {
-        return res.status(400).json({ error: 'An account with this email address already exists. Please log in.' });
-      }
+    if (duplicate === 'email') {
+      return res.status(400).json({ error: 'An account with this email address already exists. Please log in.' });
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const id = `ca_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -3060,6 +3052,9 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
       }).catch(e => console.error('[EMAIL] Welcome email failed:', e.message));
     }
   } catch (err) {
+    if (isCustomerRegistrationUniqueConflict(err)) {
+      return res.status(409).json({ error: 'This account cannot be registered with the current account storage constraints. Please contact restaurant support.', code: 'CUSTOMER_REGISTRATION_CONFLICT' });
+    }
     res.status(500).json({ error: errMsg(err) });
   }
 });
