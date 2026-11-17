@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 const required = [
-  'server.js','src/App.jsx','apps/customer-web/src/App.jsx',
+  'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
   'routes/platform.js','shared/ui','tests','infra','docs'
@@ -20,6 +20,15 @@ const generated = tracked.filter(f =>
   /(?:^|\/)(?:\.env|.*\.jks|.*\.keystore)$/.test(f)
 );
 if (generated.length) findings.push('Generated/sensitive tracked paths: ' + generated.join(', '));
+const posEntrypoint = readFileSync('src/App.jsx', 'utf8');
+if (!posEntrypoint.includes("from './platform/PlatformAdmin'")) findings.push('POS entrypoint must reference dedicated platform domain');
+if (!posEntrypoint.includes("currentUser.isPlatformAdmin === true ? <PlatformAdmin /> : <Dashboard />")) findings.push('Platform workspace must remain gated for non-platform users');
+for (const [legacy, destination] of [
+  ['src/components/PlatformAdmin.jsx', '../platform/PlatformAdmin.jsx'],
+  ['src/components/PlatformOperations.jsx', '../platform/PlatformOperations.jsx'],
+]) {
+  if (!readFileSync(legacy,'utf8').includes(destination)) findings.push('Missing backwards-compatible platform import: ' + legacy);
+}
 const customerConfig = JSON.parse(readFileSync('apps/customer-web/capacitor.config.json', 'utf8'));
 if (customerConfig.appId !== 'com.rstechnologies.gastrofood') findings.push('Unexpected production customer package ID');
 if (customerConfig.server?.url) findings.push('Customer native app must package assets, not point at a remotely hosted WebView');
