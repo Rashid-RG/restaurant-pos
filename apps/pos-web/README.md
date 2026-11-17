@@ -11,7 +11,7 @@
 
 ## Proposed new application root
 
-`apps/pos-web/src/App.jsx` currently re-exports the existing app, **not** a separate independently deployable POS. The first genuinely moved utilities are `staff-session.js`, `kitchen-recovery.js`, and `sold-items.js` under `apps/pos-web/src/utils/`. Each corresponding `src/utils/` path remains a compatibility re-export, so existing callers require no changes. The moved sold-items utility still imports the original restaurant-time helper without changing its timezone calculations.
+`apps/pos-web/src/App.jsx` currently re-exports the existing app, **not** a separate independently deployable POS. The first genuinely moved utilities are `staff-session.js`, `kitchen-recovery.js`, `sold-items.js`, and `offlineSync.js` under `apps/pos-web/src/utils/`. Each corresponding `src/utils/` path remains a compatibility re-export, so existing callers require no changes. The moved sold-items utility still imports the original restaurant-time helper without changing its timezone calculations.
 
 ## Safe incremental move checklist
 
@@ -23,3 +23,5 @@
 6. Switch the build entrypoint only after owner approval and an identified rollback method. **Never silently deploy.**
 
 This initial organization step does not change the active Vite entrypoint or any database schema.
+
+The offline sales queue uses the original tenant-specific localStorage keys and unchanged server acknowledgement behavior. The original import path remains a re-export of the single canonical module so no duplicate in-memory queue or extra connectivity listener is created.
