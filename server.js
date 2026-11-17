@@ -43,6 +43,7 @@ import { restaurantTimeZone, dateAtRestaurant, restaurantDayBounds } from './src
 import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.js';
 import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
+import { createTenantSettingsStore } from './lib/tenancy/settings-store.js';
 import { createDatabaseReadiness } from './lib/database-readiness.js';
 import { createOperationalMonitor } from './lib/operational-monitor.js';
 import { sendOperationalAlert } from './lib/ops-alerts.js';
@@ -1951,39 +1952,21 @@ async function resolvePublicTenant(req) {
   return 'default_tenant';
 }
 
-// ── Per-tenant settings helpers ──────────────────────────────────────────────
-// All settings are scoped by tenant (composite PK tenant_id + key). These helpers
-// centralize access so every read/write is tenant-correct. Pass the tenant from
-// req.tenantId (authenticated) or resolvePublicTenant(req) (public).
-async function getSetting(tenantId, key, fallback = undefined) {
-  const row = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [tenantId || 'default_tenant', key]);
-  return row ? row.value : fallback;
+// ── Per-tenant settings repository ──────────────────────────────────────────
+// Preserve the four public helper names and their request-time behavior while
+// moving SQL ownership to a tenant-scoped dependency-injected module.
+const tenantSettingsStore=createTenantSettingsStore({dbGet,dbAll,dbRun});
+async function getSetting(tenantId,key,fallback=undefined) {
+  return tenantSettingsStore.getSetting(tenantId,key,fallback);
 }
-// Return the first present value among several candidate keys (e.g. restaurantName|businessName).
-async function getSettingAny(tenantId, keys, fallback = undefined) {
-  for (const k of keys) {
-    const v = await getSetting(tenantId, k);
-    if (v !== undefined && v !== null) return v;
-  }
-  return fallback;
+async function getSettingAny(tenantId,keys,fallback=undefined) {
+  return tenantSettingsStore.getSettingAny(tenantId,keys,fallback);
 }
-// Fetch several keys at once → { key: value }.
-async function getSettingsMap(tenantId, keys) {
-  if (!keys.length) return {};
-  const rows = await dbAll(
-    `SELECT key, value FROM settings WHERE tenant_id = ? AND key IN (${keys.map(() => '?').join(',')})`,
-    [tenantId || 'default_tenant', ...keys]
-  );
-  return Object.fromEntries(rows.map(r => [r.key, r.value]));
+async function getSettingsMap(tenantId,keys) {
+  return tenantSettingsStore.getSettingsMap(tenantId,keys);
 }
-async function setSetting(tenantId, key, value) {
-  const tid = tenantId || 'default_tenant';
-  const existing = await dbGet('SELECT key FROM settings WHERE tenant_id = ? AND key = ?', [tid, key]);
-  if (existing) {
-    await dbRun('UPDATE settings SET value = ? WHERE tenant_id = ? AND key = ?', [String(value ?? ''), tid, key]);
-  } else {
-    await dbRun('INSERT INTO settings (tenant_id, key, value) VALUES (?, ?, ?)', [tid, key, String(value ?? '')]);
-  }
+async function setSetting(tenantId,key,value) {
+  return tenantSettingsStore.setSetting(tenantId,key,value);
 }
 
 // ── SaaS plan metering (Phase 5) ─────────────────────────────────────────────
