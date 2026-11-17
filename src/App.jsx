@@ -3,7 +3,7 @@ import WorkspaceTools from './components/WorkspaceTools';
 import { ConnectionStatus } from '../shared/ui/Resilience.jsx';
 import { POSProvider, usePOS } from './context/POSContext';
 import Sidebar from './components/Sidebar';
-import PlatformAdmin from './components/PlatformAdmin';
+import PlatformAdmin from './platform/PlatformAdmin';
 import Dashboard from './components/Dashboard';
 import POSView from './components/POSView';
 import FloorPlan from './components/FloorPlan';
