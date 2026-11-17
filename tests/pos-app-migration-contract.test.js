@@ -9,10 +9,47 @@ import {
   restoreStaffSession as posRestore
 } from '../apps/pos-web/src/utils/staff-session.js';
 
+import { createKitchenAction as oldKitchenAction, isTransientKitchenFailure as oldKitchenFailure } from '../src/utils/kitchen-recovery.js';
+import { createKitchenAction as posKitchenAction, isTransientKitchenFailure as posKitchenFailure } from '../apps/pos-web/src/utils/kitchen-recovery.js';
+import { summarizeSoldItems as oldSoldSummary, soldItemsPeriod as oldSoldPeriod } from '../src/utils/sold-items.js';
+import { summarizeSoldItems as posSoldSummary, soldItemsPeriod as posSoldPeriod } from '../apps/pos-web/src/utils/sold-items.js';
+
 describe('POS gradual application migration compatibility', () => {
   it('preserves identical staff authentication helpers through the old import path', () => {
     expect(legacyExpired).toBe(posExpired);
     expect(legacyRestore).toBe(posRestore);
+  });
+
+  it('preserves identical kitchen retry and sold-items functions via legacy POS imports', () => {
+    expect(oldKitchenAction).toBe(posKitchenAction);
+    expect(oldKitchenFailure).toBe(posKitchenFailure);
+    expect(oldSoldSummary).toBe(posSoldSummary);
+    expect(oldSoldPeriod).toBe(posSoldPeriod);
+  });
+
+  it('preserves kitchen retry key, ETA and transient failure semantics', () => {
+    expect(posKitchenAction({revision:4,state:'pending'},'preparing',undefined,()=> 'retry-001')).toEqual({
+      revision:4,state:'preparing',etaMinutes:25,retryKey:'retry-001'
+    });
+    expect(posKitchenAction({revision:5,state:'preparing'},'ready','line-A',()=> 'retry-002')).toEqual({
+      revision:5,state:'ready',lineId:'line-A',retryKey:'retry-002'
+    });
+    expect(posKitchenFailure({status:503})).toBe(true);
+    expect(posKitchenFailure({status:429})).toBe(true);
+    expect(posKitchenFailure({status:409})).toBe(false);
+  });
+
+  it('preserves store-timezone-aware sold-item totals and periods', () => {
+    const orders=[
+      {id:'paid-1',status:'paid',timestamp:Date.UTC(2026,10,17,12),items:[{id:'rice',quantity:2,price:150}]},
+      {id:'unpaid-2',status:'pending',timestamp:Date.UTC(2026,10,17,12),items:[{id:'rice',quantity:9,price:150}]}
+    ];
+    const summary=posSoldSummary(orders,{timeZone:'Asia/Colombo',menuItems:[{id:'rice',name:'Rice',category:'Meals'}]});
+    expect(summary.paidOrderCount).toBe(1);
+    expect(summary.unitsSold).toBe(2);
+    expect(summary.grossItemSales).toBe(300);
+    expect(summary.rows[0].name).toBe('Rice');
+    expect(posSoldPeriod('today','2026-11-17')).toEqual({from:'2026-11-17',to:'2026-11-17'});
   });
 
   it('does not invalidate staff sessions on billing or tenant authorization restrictions', () => {
