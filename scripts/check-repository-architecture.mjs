@@ -65,6 +65,17 @@ if(!backendEntrypoint.includes("from './lib/tenancy/resource-policy.js'")) findi
 if(/\b(?:process\.env|dbRun|dbAll|dbGet)\s*\(/.test(tenantResourcePolicy)) findings.push('Tenant resource policy must be side-effect-free');
 // Critical commercial tenant-isolation regression guard.
 // These exact patterns cover legacy paths until they move behind domain services.
+// Critical shared-database protection: never allow legacy database reset/import
+// in production, and never REPLACE a table row with a user-provided global ID.
+if(!backendEntrypoint.includes("process.env.ENABLE_LEGACY_DATABASE_MUTATIONS !== 'true'"))
+  findings.push('Legacy destructive database operations must remain disabled by default');
+if(!backendEntrypoint.includes("process.env.NODE_ENV === 'production' || process.env.ENABLE_LEGACY_DATABASE_MUTATIONS !== 'true'"))
+  findings.push('Legacy database reset/import must be blocked in production');
+if(backendEntrypoint.includes("INSERT OR REPLACE INTO tables (id, number, capacity"))
+  findings.push('Unsafe table REPLACE may overwrite another tenant');
+if(!backendEntrypoint.includes("SELECT id FROM orders WHERE id = ? AND tenant_id = ?"))
+  findings.push('Table links must verify the owning order tenant');
+
 const financialTenantGuards = [
   ["driver handover lookup", "SELECT id,total,driverId FROM orders WHERE id=? AND tenant_id=?"],
   ["driver handover update", "UPDATE orders SET cashCollected=1,cashCollectedAt=? WHERE id=? AND tenant_id=?"],
