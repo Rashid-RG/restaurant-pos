@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLibsqlStore } from '../lib/libsql-store.js';
@@ -80,6 +80,27 @@ describe('offline logical backup + encrypted recovery drill', () => {
     expect(encodeBackupValue(arrayBuffer)).toEqual(encoded);
     const padded = new Uint8Array([99, ...original, 99]);
     expect(encodeBackupValue(padded.subarray(1, 6))).toEqual(encoded);
+  });
+
+  it('rejects symlink snapshots, remote paths and existing destinations without overwriting', async () => {
+    const dir=mkdtempSync(join(tmpdir(),'gastroflow-restore-paths-'));
+    try {
+      const payload={format:'gastroflow-logical-backup',version:1,schema:[],tables:[]};
+      const source=join(dir,'snapshot.json');
+      const alias=join(dir,'snapshot-link.json');
+      const existing=join(dir,'existing.db');
+      writeFileSync(source,JSON.stringify({payload,sha256:snapshotHash(payload)}));
+      writeFileSync(existing,'DO-NOT-OVERWRITE');
+      symlinkSync(source,alias);
+      expect(runRestore(alias,join(dir,'symlink-result.db')).status).not.toBe(0);
+      expect(existsSync(join(dir,'symlink-result.db'))).toBe(false);
+      expect(runRestore(source,existing).status).not.toBe(0);
+      expect(readFileSync(existing,'utf8')).toBe('DO-NOT-OVERWRITE');
+      expect(runRestore(source,source).status).not.toBe(0);
+      expect(runRestore(source,'libsql://remote.invalid').status).not.toBe(0);
+      expect(runRestore('libsql://remote.invalid',join(dir,'remote-result.db')).status).not.toBe(0);
+      expect(existsSync(join(dir,'remote-result.db'))).toBe(false);
+    }finally{rmSync(dir,{recursive:true,force:true});}
   });
 
   it('rejects corrupt snapshot data before creating a destination', async () => {
