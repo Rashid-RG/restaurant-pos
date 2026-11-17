@@ -19,7 +19,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
-import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin } from './lib/identity/index.js';
+import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer } from './lib/identity/index.js';
 import { customerAppUrl, posAppUrl, createOrderConfirmationSender } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 
@@ -5578,17 +5578,7 @@ const MAX_OTP_ATTEMPTS = 5;
 
 // Create a hashed, expiring reset record and return the plaintext token + code.
 async function createPasswordReset(userType, userId) {
-  const token = generateToken(24);
-  const code = generateOtp(6);
-  const id = `pr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  // Invalidate any outstanding resets for this user first.
-  await dbRun('DELETE FROM password_resets WHERE userType = ? AND userId = ? AND consumedAt IS NULL', [userType, userId]);
-  await dbRun(
-    `INSERT INTO password_resets (id, userType, userId, tokenHash, codeHash, expiresAt, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, userType, userId, hashCode(token), hashCode(code), Date.now() + RESET_TTL_MS, Date.now()]
-  );
-  return { token, code };
+  return createPasswordResetIssuer({dbRun, generateToken, generateOtp, hashCode})(userType, userId);
 }
 
 // Send an order confirmation via email + SMS (best-effort; never blocks the response path).
