@@ -240,7 +240,6 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     };
   }, [customAddressInput, showLocationModal]);
 
-  useEffect(() => () => addressSearchGateRef.current.dispose(), []);
 
   const handleSelectAddressSuggestion = (item) => {
     addressSearchGateRef.current.invalidate();
