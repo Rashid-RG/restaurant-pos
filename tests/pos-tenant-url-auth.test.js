@@ -85,6 +85,42 @@ describe('POS URL restaurant identity isolation', () => {
       .toEqual(original);
   });
 
+  it('X-report selects only the requesting restaurant open shift',async()=>{
+    const now=Date.now();
+    // A deliberately conflicting userId exercises the critical tenant guard:
+    // historical/invalid foreign shift records must never become shop A reports.
+    await dbRun("INSERT INTO shifts(id,userId,username,startTime,startFloat,status,tenant_id) VALUES(?,?,?,?,?,?,?)",
+      ['qa_shift_foreign','pos_user_a','WRONG SHOP',now-20000,999,'open',tenantB]);
+    await dbRun("INSERT INTO shifts(id,userId,username,startTime,startFloat,status,tenant_id) VALUES(?,?,?,?,?,?,?)",
+      ['qa_shift_own','pos_user_a',usernameA,now-10000,50,'open',tenantA]);
+    await dbRun("INSERT INTO orders(id,total,subtotal,status,timestamp,paymentMethod,tenant_id) VALUES(?,?,?,?,?,?,?)",
+      ['qa_financial_order_a',125,125,'paid',now-8000,'cash',tenantA]);
+    await dbRun("INSERT INTO orders(id,total,subtotal,status,timestamp,paymentMethod,tenant_id) VALUES(?,?,?,?,?,?,?)",
+      ['qa_financial_order_b',9999,9999,'paid',now-8000,'cash',tenantB]);
+    const result=await request(app).get('/api/reports/x-report')
+      .set('Authorization',`Bearer ${loginA.body.token}`);
+    expect(result.status,result.text).toBe(200);
+    expect(result.body.shiftId).toBe('qa_shift_own');
+    expect(result.body.cashier).toBe(usernameA);
+    expect(result.body.startFloat).toBe(50);
+    expect(result.body.grossSales).toBe(125);
+    expect(result.body.totalOrders).toBe(1);
+  });
+
+  it('VAT and COGS reports never include another restaurants financial or menu rows',async()=>{
+    const headers={Authorization:`Bearer ${loginA.body.token}`};
+    const [vat,cogs]=await Promise.all([
+      request(app).get('/api/reports/vat').set(headers),
+      request(app).get('/api/reports/cogs').set(headers)
+    ]);
+    expect(vat.status,vat.text).toBe(200);
+    expect(vat.body.invoiceCount).toBe(1);
+    expect(vat.body.taxableSales).toBe(125);
+    expect(cogs.status,cogs.text).toBe(200);
+    expect(cogs.body.some(item=>item.id==='pos_resource_a')).toBe(true);
+    expect(cogs.body.some(item=>item.id==='pos_resource_b')).toBe(false);
+  });
+
   it('rejects Shop B credentials on Shop A POS URL', async () => {
     const response = await login(usernameB,passwordB,tenantA);
     expect(response.status).toBe(403);
