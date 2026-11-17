@@ -18,9 +18,7 @@ import {initInventoryOperations,createInventoryOperations} from './routes/invent
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation} from './lib/checkout-recovery.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
-import { haversineDistanceKm } from './lib/geo-distance.js';
-import { createDeliveryFeeCalculator } from './lib/delivery-fee.js';
-import { createPeakHourService } from './lib/peak-hours.js';
+import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
 import { isValidSriLankanPhone, isValidAddress } from './lib/customer-contact-validation.js';
 import { customerAppUrl, posAppUrl } from './lib/app-links.js';
 import { generateStrongPassword, generateSecurePin } from './lib/credential-generation.js';
