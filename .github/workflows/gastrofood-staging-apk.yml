@@ -1,12 +1,8 @@
-name: GastroFlow Food Android staging APK
+name: GastroFlow Food Android signed staging APK
 
+# Explicit release approval. Do not publish on every code push.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/production-readiness
-    paths:
-      - .github/workflows/gastrofood-staging-apk.yml
 
 permissions:
   contents: read
@@ -17,7 +13,7 @@ concurrency:
 
 jobs:
   android-debug-apk:
-    name: Build GastroFlow Food staging APK
+    name: Build permanently signed GastroFlow Food Staging APK
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -81,29 +77,69 @@ jobs:
           npm run native:sync:android
           npm run native:harden:android
 
-      - name: Build test-only debug APK
-        working-directory: apps/customer-web/android
-        run: bash ./gradlew --no-daemon --stacktrace --console=plain assembleDebug
+      - name: Check permanent staging signing credentials
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.FOOD_STAGING_KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.FOOD_STAGING_STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.FOOD_STAGING_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FOOD_STAGING_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          for variable in KEYSTORE_B64 STORE_PASS KEY_PASS KEY_ALIAS; do
+            if [ -z "${!variable}" ]; then
+              echo "::error::Missing $variable staging signing secret. See docs/GASTROFOOD_ANDROID_STAGING_RELEASE.md"
+              exit 1
+            fi
+          done
+          mkdir -p "$RUNNER_TEMP/gastrofood-signing"
+          chmod 700 "$RUNNER_TEMP/gastrofood-signing"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/gastrofood-signing/staging.jks"
+          chmod 600 "$RUNNER_TEMP/gastrofood-signing/staging.jks"
+          test -s "$RUNNER_TEMP/gastrofood-signing/staging.jks"
 
-      - name: Verify APK exists
-        run: test -s apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Build separately installable signed staging APK
+        working-directory: apps/customer-web/android
+        env:
+          FOOD_STAGING_KEYSTORE_PATH: ${{ runner.temp }}/gastrofood-signing/staging.jks
+          FOOD_STAGING_STORE_PASSWORD: ${{ secrets.FOOD_STAGING_STORE_PASSWORD }}
+          FOOD_STAGING_KEY_ALIAS: ${{ secrets.FOOD_STAGING_KEY_ALIAS }}
+          FOOD_STAGING_KEY_PASSWORD: ${{ secrets.FOOD_STAGING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bash ./gradlew --no-daemon --stacktrace --console=plain \
+            -PfoodStagingVersionCode=$((10000 + GITHUB_RUN_NUMBER)) assembleStaging
+
+      - name: Verify staging package, version and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=apps/customer-web/android/app/build/outputs/apk/staging/app-staging.apk
+          test -s "$APK"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/build-tools/36.0.0/apksigner" verify --print-certs "$APK" > "$RUNNER_TEMP/staging-apk-signing.txt"
+          "$SDK_ROOT/build-tools/36.0.0/aapt" dump badging "$APK" | grep -q "package: name='com.rstechnologies.gastrofood.staging'"
+          echo "Verified staging APK package identity, signature presence and artifact existence."
+          sha256sum "$APK" | tee "$RUNNER_TEMP/staging-apk-sha256.txt"
 
       - name: Build summary
         if: always()
+        shell: bash
         run: |
-          echo '## GastroFlow Food Android staging build' >> "$GITHUB_STEP_SUMMARY"
+          echo '## GastroFlow Food signed staging build' >> "$GITHUB_STEP_SUMMARY"
           echo "Branch: $GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
           echo "Commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
-          if test -s apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk; then
-            echo 'APK: generated successfully (debug signed)' >> "$GITHUB_STEP_SUMMARY"
+          echo "Android version code: $((10000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_STEP_SUMMARY"
+          if test -s apps/customer-web/android/app/build/outputs/apk/staging/app-staging.apk; then
+            echo 'Signed staging APK: generated and ready for approved device testing' >> "$GITHUB_STEP_SUMMARY"
           else
-            echo 'APK: NOT generated; inspect the first red failure step and stacktrace above' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Signed staging APK: NOT generated' >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload GastroFlow Food APK (test signing only)
+      - name: Upload signed staging APK
         uses: actions/upload-artifact@v4
         with:
-          name: GastroFlow-Food-Android-Staging-Debug
-          path: apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+          name: GastroFlow-Food-Staging-Signed-${{ github.run_number }}
+          path: apps/customer-web/android/app/build/outputs/apk/staging/app-staging.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
