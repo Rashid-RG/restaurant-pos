@@ -6834,9 +6834,9 @@ app.get('/api/driver/cash-reconciliation', requireRole(['owner', 'manager', 'cas
     const uncollected = await dbAll(
       `SELECT id, customerName, total, deliveryFee, paymentMethod, status, timestamp
        FROM orders
-       WHERE (driverId = ? OR ? = '') AND paymentMethod IN ('cod', 'cash') AND status = 'delivered' AND (cashCollected IS NULL OR cashCollected = 0)
+       WHERE tenant_id = ? AND (driverId = ? OR ? = '') AND paymentMethod IN ('cod', 'cash') AND status = 'delivered' AND (cashCollected IS NULL OR cashCollected = 0)
        ORDER BY timestamp DESC`,
-      [driverId || '', driverId ? driverId : '']
+      [req.tenantId, driverId || '', driverId ? driverId : '']
     );
     const totalCashToHandover = uncollected.reduce((acc, o) => acc + (o.total || 0), 0);
     res.json({ uncollectedOrders: uncollected, totalCashToHandover });
@@ -6846,21 +6846,51 @@ app.get('/api/driver/cash-reconciliation', requireRole(['owner', 'manager', 'cas
 });
 
 app.post('/api/driver/cash-reconciliation/handover', requireRole(['owner', 'manager']), async (req, res) => {
-  const { driverId, orderIds, amountHandedOver, managerPin } = req.body;
-  if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
-    return res.status(400).json({ error: 'orderIds array is required.' });
+  const { driverId, orderIds, amountHandedOver } = req.body || {};
+  // Confirm unique delivered COD receipts belonging to this restaurant.
+  if (!Array.isArray(orderIds) || orderIds.length < 1 || orderIds.length > 100 ||
+      !orderIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= 200) ||
+      new Set(orderIds).size !== orderIds.length) {
+    return res.status(400).json({ error: 'Provide 1 to 100 unique order IDs for reconciliation.' });
   }
+  if (driverId != null && typeof driverId !== 'string') {
+    return res.status(400).json({ error: 'Invalid driver selector.' });
+  }
+  let declaredCents;
+  try { declaredCents = amountInCents(amountHandedOver, 'Cash handed over'); }
+  catch { return res.status(400).json({ error: 'Enter a valid handover amount.' }); }
+  if (declaredCents < 0) return res.status(400).json({ error: 'Invalid handover amount.' });
+  let transaction = false;
   try {
-    await dbRun('BEGIN TRANSACTION');
+    await dbRun('BEGIN TRANSACTION'); transaction = true;
+    let expectedCents = 0;
     for (const id of orderIds) {
-      await dbRun('UPDATE orders SET cashCollected = 1, cashCollectedAt = ? WHERE id = ? AND tenant_id = ?', [Date.now(), id,req.tenantId]);
+      const row = await dbGet(
+        "SELECT id,total,driverId FROM orders WHERE id=? AND tenant_id=? AND status='delivered' AND paymentMethod IN ('cod','cash') AND (cashCollected IS NULL OR cashCollected=0)",
+        [id,req.tenantId]
+      );
+      if (!row || (driverId && row.driverId !== driverId)) {
+        await dbRun('ROLLBACK'); transaction = false;
+        return res.status(409).json({ error: 'A selected receipt is unavailable or belongs to another restaurant or driver.' });
+      }
+      expectedCents += amountInCents(row.total, 'Order total');
     }
-    await writeAuditLog(req.user?.id || 'manager', req.user?.username || 'Manager', 'driver_cash_handover',
-      `Driver ${driverId} handed over LKR ${amountHandedOver} cash for ${orderIds.length} orders.`);
-    await dbRun('COMMIT');
-    res.json({ success: true, orderCount: orderIds.length, amountHandedOver });
+    if (expectedCents !== declaredCents) {
+      await dbRun('ROLLBACK'); transaction = false;
+      return res.status(409).json({ error: 'Cash handover amount does not match the outstanding receipts.' });
+    }
+    for (const id of orderIds) {
+      await dbRun(
+        "UPDATE orders SET cashCollected=1,cashCollectedAt=? WHERE id=? AND tenant_id=? AND status='delivered' AND paymentMethod IN ('cod','cash') AND (cashCollected IS NULL OR cashCollected=0)",
+        [Date.now(),id,req.tenantId]
+      );
+    }
+    await writeAuditLog(req.user?.id || 'manager', req.user?.username || 'Manager',
+      'driver_cash_handover', `Driver ${driverId || 'all'} handed over LKR ${declaredCents / 100} cash for ${orderIds.length} orders.`);
+    await dbRun('COMMIT'); transaction = false;
+    res.json({ success: true, orderCount: orderIds.length, amountHandedOver: declaredCents / 100 });
   } catch (err) {
-    await dbRun('ROLLBACK');
+    if (transaction) await dbRun('ROLLBACK');
     res.status(500).json({ error: errMsg(err) });
   }
 });
