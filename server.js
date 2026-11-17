@@ -19,9 +19,8 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
-import { isValidSriLankanPhone, isValidAddress } from './lib/customer-contact-validation.js';
-import { customerAppUrl, posAppUrl } from './lib/app-links.js';
-import { generateStrongPassword, generateSecurePin } from './lib/credential-generation.js';
+import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin } from './lib/identity/index.js';
+import { customerAppUrl, posAppUrl } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
