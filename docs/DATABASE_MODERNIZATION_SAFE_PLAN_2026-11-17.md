@@ -50,6 +50,12 @@ For relationships where both tables have `tenant_id`, it differentiates a compos
 
 The rehearsal intentionally permits only *single-statement additive* `ALTER TABLE ... ADD COLUMN` or `CREATE INDEX IF NOT EXISTS` operations. It rejects deletes, drops, updates, and other destructive SQL. This is a testing foundation, **not** a licensed production migration engine; it does not establish that a real-data table rebuild would be safe. Never import it into the runtime database boot path or point migration code at the live Turso URL. Any future production migration runner needs independent approval, backup and restore drills, tenant reconciliation, and release controls.
 
+## Offline before/after schema comparison
+
+`compareDatabaseSchemas(before, after)` in `lib/schema-diff.js` accepts two `inspectDatabaseSchema` inventories captured from **isolated local database copies**. It is a pure function: no database connection, records, SQL execution, credentials, DDL generation, or live Turso access. Differences are classified for review: added/removed tables and columns, column type/nullable/primary-key changes, indexes and uniqueness, foreign-key relationships, and changes to tenant scope or global unique-index candidates.
+
+High-risk flags do not automatically mean a migration is unsafe; equally, an additive-only diff is not proof of safety. Validate the source/target schema against actual restored data, billing/invoice identity continuity, per-tenant balances and record counts, query benchmarks, and restore/rollback rehearsal before requesting staging approval. This comparator is **not** a deployment migration runner. It cannot prove that an existing table rebuild will preserve data.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
@@ -58,6 +64,7 @@ The rehearsal intentionally permits only *single-statement additive* `ALTER TABL
 - [x] Pure index-coverage review and disposable-database tests committed
 - [x] Offline tenant foreign-key relationship review and composite-key tests committed
 - [x] Versioned in-memory additive migration rehearsal and rollback regression tests committed
+- [x] Pure offline before/after schema diff with tenant-risk and index regression tests committed
 - [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
