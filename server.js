@@ -21,6 +21,7 @@ import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js
 import { haversineDistanceKm } from './lib/geo-distance.js';
 import { isValidSriLankanPhone, isValidAddress } from './lib/customer-contact-validation.js';
 import { customerAppUrl, posAppUrl } from './lib/app-links.js';
+import { generateStrongPassword, generateSecurePin } from './lib/credential-generation.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
@@ -234,38 +235,6 @@ if (invalidNativeOriginEntries(process.env.CUSTOMER_NATIVE_ORIGINS).length)
 // Match any private-LAN origin (phones/tablets on the same Wi-Fi) during development.
 const isLanOrigin = (origin) =>
   /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin);
-
-// Strong Password Generator Helper for SaaS Tenant Provisioning & Staff Accounts
-function generateStrongPassword(length = 10) {
-  const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const lowers = 'abcdefghijkmnpqrstuvwxyz';
-  const nums = '23456789';
-  const syms = '!@#$%&*';
-
-  let pwd = [
-    uppers[crypto.randomInt(uppers.length)],
-    lowers[crypto.randomInt(lowers.length)],
-    nums[crypto.randomInt(nums.length)],
-    syms[crypto.randomInt(syms.length)]
-  ];
-
-  const allChars = uppers + lowers + nums + syms;
-  for (let i = 4; i < length; i++) {
-    pwd.push(allChars[crypto.randomInt(allChars.length)]);
-  }
-
-  for (let i = pwd.length - 1; i > 0; i--) {
-    const j = crypto.randomInt(i + 1);
-    [pwd[i], pwd[j]] = [pwd[j], pwd[i]];
-  }
-  return pwd.join('');
-}
-
-function generateSecurePin(length = 6) {
-  let pin = '';
-  for (let i = 0; i < length; i++) pin += crypto.randomInt(10).toString();
-  return pin;
-}
 
 app.use(cors({
   // Exact same production allowlist behavior as before, now regression-tested
