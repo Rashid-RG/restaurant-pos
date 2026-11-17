@@ -15,7 +15,7 @@ import {initManualPayments,createManualPayments} from './routes/manual-payments.
 import {syncKitchen} from './lib/kitchen.js';
 import {createKitchenRouter} from './routes/kitchen.js';
 import {initInventoryOperations,createInventoryOperations} from './routes/inventory-operations.js';
-import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact} from './lib/orders/index.js';
+import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact ,createTrackingGuard,makeTrackingAccess,publicTrackingEvent,loadAssignedDriverLocation} from './lib/orders/index.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
@@ -24,7 +24,7 @@ import { customerAppUrl, posAppUrl } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
-import { createTrackingGuard, makeTrackingAccess, publicTrackingEvent, loadAssignedDriverLocation } from './lib/order-tracking.js';
+
 import { initSaasBilling, createSaasBillingRouter } from './routes/saas-billing.js';
 import { initPlatformOperations, createPlatformOperations } from './routes/platform-operations.js';
 import { initExpensesTable, createExpensesRouter } from './routes/expenses.js';
