@@ -57,6 +57,34 @@ jobs:
         run: |
           npm run native:sync:ios
           npm run native:permissions:ios
+      - name: Install iPhone branding image processor
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Apply approved GastroFlow Food iPhone launcher and splash assets
+        run: python3 scripts/generate-food-ios-branding.py
+      - name: Verify opaque 1024px app icon and branded splash images
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from PIL import Image
+          assets=Path('apps/customer-web/ios/App/App/Assets.xcassets')
+          icon=assets/'AppIcon.appiconset'/'AppIcon-512@2x.png'
+          assert icon.is_file(), 'Customer app icon missing'
+          with Image.open(icon) as im:
+              assert im.size==(1024,1024), 'iOS icon must be 1024x1024'
+              assert im.mode=='RGB', 'iOS app icon must be opaque'
+              im.verify()
+          splash=assets/'Splash.imageset'
+          images=json.loads((splash/'Contents.json').read_text())['images']
+          assert images, 'No splash images referenced'
+          for entry in images:
+              filename=entry.get('filename')
+              if filename:
+                  with Image.open(splash/filename) as im:
+                      assert im.mode=='RGB', 'iOS splash must be opaque'
+                      im.verify()
+          print('Approved customer iOS app icon and splash assets verified')
+          PY
       - name: Confirm source identity, permissions, and no private signing files
         run: |
           set -euo pipefail
