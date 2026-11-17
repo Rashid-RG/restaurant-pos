@@ -8,14 +8,14 @@ import { gastroClarifyOrder, gastroVerifiedPriceQuestion } from './lib/gastromat
 import { gastroFoodSafetyAnswer } from './lib/gastromate-food-safety.js';
 import { gastroLanguage, gastroMessage, gastroPlanIntro } from './lib/gastromate-i18n.js';
 import { isOtpPurpose, canCreateCustomerSession } from './lib/otp-purposes.js';
-import { issueOrderProof, consumeOrderProof, normalizeCheckoutContact } from './lib/order-verification.js';
+
 import {validateSchedule,scheduleCapacity,slotsFrom,SLOT_MS} from './lib/scheduling-capacity.js';
 import {initServiceExceptions,createServiceExceptions} from './routes/service-exceptions.js';
 import {initManualPayments,createManualPayments} from './routes/manual-payments.js';
 import {syncKitchen} from './lib/kitchen.js';
 import {createKitchenRouter} from './routes/kitchen.js';
 import {initInventoryOperations,createInventoryOperations} from './routes/inventory-operations.js';
-import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation} from './lib/orders/index.js';
+import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact} from './lib/orders/index.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
