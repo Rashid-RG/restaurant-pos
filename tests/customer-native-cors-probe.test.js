@@ -1,5 +1,5 @@
 import {describe,it,expect,vi} from 'vitest';
-import {evaluatePreflight,probeNativeCors,WEBVIEW_ORIGINS} from '../scripts/probe-food-native-cors.mjs';
+import {evaluatePreflight,probeNativeCors,evaluateNativeDiscoveryGet,probeNativeDiscoveryGet,WEBVIEW_ORIGINS} from '../scripts/probe-food-native-cors.mjs';
 
 const headers=origin=>new Headers({
   'access-control-allow-origin':origin,
@@ -39,6 +39,31 @@ describe('GastroFlow Food native staging CORS diagnostic',()=>{
     const reports=await probeNativeCors({fetcher:async()=>{throw {name:'TimeoutError'}}});
     expect(reports).toHaveLength(2);
     expect(reports.every(r=>!r.allowed&&r.reason==='timeout')).toBe(true);
+  });
+  it('separates read-only anonymous discovery from private preflight acceptance',async()=>{
+    const cancel=vi.fn(async()=>{});
+    const fetcher=vi.fn(async(_url,opts)=>({
+      status:200,headers:new Headers({'access-control-allow-origin':opts.headers.Origin}),
+      body:{cancel}
+    }));
+    const reports=await probeNativeDiscoveryGet({fetcher});
+    expect(reports).toHaveLength(2);
+    expect(reports.every(r=>r.allowed&&r.request==='anonymous-GET')).toBe(true);
+    expect(cancel).toHaveBeenCalledTimes(2);
+    for(const [url,opts] of fetcher.mock.calls){
+      expect(url).toBe('https://gastroflow-staging.onrender.com/api/public/restaurants');
+      expect(opts.method).toBe('GET');
+      expect(opts.headers).toEqual({Origin:opts.headers.Origin});
+      expect(opts.credentials).toBe('omit');
+    }
+  });
+  it('fails closed for missing or wildcard discovery CORS headers',()=>{
+    expect(evaluateNativeDiscoveryGet({status:200,headers:new Headers()},'https://localhost').allowed).toBe(false);
+    expect(evaluateNativeDiscoveryGet({status:200,headers:new Headers({'access-control-allow-origin':'*'})},'https://localhost').allowed).toBe(false);
+    expect(evaluateNativeDiscoveryGet({status:401,headers:new Headers()},'https://localhost').reason).toBe('discovery-auth-or-upstream-gate');
+  });
+  it('does not issue discovery GET to an arbitrary or production host',async()=>{
+    await expect(probeNativeDiscoveryGet({host:'https://gastroflow.onrender.com',fetcher:vi.fn()})).rejects.toThrow(/staging/);
   });
   it('refuses a production host',async()=>{
     await expect(probeNativeCors({host:'https://gastroflow.onrender.com',fetcher:vi.fn()})).rejects.toThrow(/staging/);
