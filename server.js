@@ -1883,7 +1883,7 @@ app.all(['/api/public/orders/:id','/api/public/orders/:id/cancel','/api/public/o
 app.post('/api/public/orders/:id/push-subscription',publicApiLimiter,createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}),
   createCustomerPushRoutes({dbRun,dbGet,resolvePublicTenant}));
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],(req,res,next)=>{req.params.id=req.body?.orderId;return createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver})(req,res,next);});
-app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],async(req,res,next)=>{try{if(await dbGet('SELECT id FROM manual_payments WHERE orderId=?',[req.body?.orderId]))return res.status(409).json({error:'This order has recorded manual payments. Contact the restaurant to settle its remaining balance.'});next();}catch(e){next(e);}});
+app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],async(req,res,next)=>{try{if(await dbGet('SELECT id FROM manual_payments WHERE orderId=? AND tenant_id=?',[req.body?.orderId,req.trackingTenant]))return res.status(409).json({error:'This order has recorded manual payments. Contact the restaurant to settle its remaining balance.'});next();}catch(e){next(e);}});
 app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
 app.use('/api', createPlatformOperations({dbGet,dbAll,dbRun,authenticateToken,requirePlatformAdmin}));
 app.use('/api', createSupportRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolvePublicTenant,notifyPOS,rateLimiter:publicApiLimiter}));
@@ -6940,7 +6940,7 @@ app.get('/api/marketplace/partner-earnings', requireRole(['owner']), requirePlat
 // ── 3.1 Reporting & Compliance API (X-Report, Tax/VAT Report, Item Profitability COGS) ──
 app.get('/api/reports/x-report', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    const activeShift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND status = 'open'", [req.user.id]);
+    const activeShift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND tenant_id = ? AND status = 'open'", [req.user.id, req.tenantId]);
     if (!activeShift) {
       return res.status(400).json({ error: 'No active open shift found for X-report generation.' });
     }
