@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Store, ArrowUpRight, UtensilsCrossed, RefreshCw, MapPin, ShoppingBag } from 'lucide-react';
 import { apiFetch, apiUrl } from '../utils/api.js';
+import { marketplaceReadSignal } from '../utils/native-marketplace-timeout.js';
 import './MarketplaceMenu.css';
 
 const asItems = (menu) => Array.isArray(menu?.items) ? menu.items : [];
@@ -35,7 +36,10 @@ export default function MarketplaceMenu({ onChooseStore }) {
       setMenus({});
       setMenusLoaded(0);
       try {
-        const discovered = await apiFetch('/public/restaurants', { cache: 'no-store' });
+        const discovered = await apiFetch('/public/restaurants', {
+          cache: 'no-store',
+          signal: marketplaceReadSignal({nativeBuild:import.meta.env.MODE==='native',parentSignal:controller.signal})
+        });
         if (cancelled) return;
         const openStores = Array.isArray(discovered) ? discovered.filter(store => store && store.id && store.isOpen === true) : [];
         setStores(openStores);
@@ -46,7 +50,10 @@ export default function MarketplaceMenu({ onChooseStore }) {
           const results = await Promise.allSettled(batch.map(async store => {
             const url = new URL(apiUrl('/api/public/menu'));
             url.searchParams.set('tenantId', store.id);
-            const response = await fetch(url.toString(), { signal: controller.signal, cache: 'no-store' });
+            const response = await fetch(url.toString(), {
+              signal: marketplaceReadSignal({nativeBuild:import.meta.env.MODE==='native',parentSignal:controller.signal}),
+              cache: 'no-store'
+            });
             if (!response.ok) throw new Error('Unable to load store menu');
             const data = await response.json();
             if (data.tenantId !== store.id) throw new Error('Mismatched restaurant menu');
