@@ -1,0 +1,71 @@
+name: Verify GastroFlow Food Android staging variant
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/production-readiness]
+    paths:
+      - apps/customer-web/android/app/build.gradle
+      - apps/customer-web/android/app/src/main/AndroidManifest.xml
+      - apps/customer-web/android/app/src/main/res/values/strings.xml
+      - .github/workflows/verify-food-android-variant.yml
+      - .github/workflows/gastrofood-staging-apk.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify-staging-variant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      VITE_NATIVE_API_ORIGIN: https://gastroflow-staging.onrender.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+      - name: Install dependencies and build native assets
+        run: |
+          npm ci --include=dev --no-audit --no-fund
+          npm ci --include=dev --no-audit --no-fund --prefix apps/customer-web
+          npm run customer:native:build
+      - name: Synchronize isolated Android project
+        working-directory: apps/customer-web
+        run: |
+          npm run native:sync:android
+          npm run native:harden:android
+      - name: Generate disposable validation signing key (NEVER distributed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/validation-only.jks" -storetype PKCS12 -storepass validation-only-pass -keypass validation-only-pass -alias validation-only -keyalg RSA -keysize 2048 -validity 1 -dname "CN=CI Validation Only"
+      - name: Compile staging variant, verify package and signature
+        working-directory: apps/customer-web/android
+        env:
+          FOOD_STAGING_KEYSTORE_PATH: ${{ runner.temp }}/validation-only.jks
+          FOOD_STAGING_STORE_PASSWORD: validation-only-pass
+          FOOD_STAGING_KEY_ALIAS: validation-only
+          FOOD_STAGING_KEY_PASSWORD: validation-only-pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./gradlew --no-daemon --console=plain -PfoodStagingVersionCode=10001 assembleStaging
+          APK="app/build/outputs/apk/staging/app-staging.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -q "package: name='com.rstechnologies.gastrofood.staging'"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
+          echo "Staging variant builds and validates. Disposable verification APK is NOT published."
