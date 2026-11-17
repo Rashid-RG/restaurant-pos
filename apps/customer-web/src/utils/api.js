@@ -73,7 +73,7 @@ export async function apiFetch(endpoint, options = {}) {
       const authorizationHeader = new Headers(requestHeaders).get('authorization');
       if (shouldClearCustomerTokenForResponse({
         status:res.status, message:data?.error || data?.message,
-        customerToken, authorizationHeader
+        customerToken, authorizationHeader, endpoint:cleanPath
       })) {
         localStorage.removeItem(customerTokenKey);
       }
