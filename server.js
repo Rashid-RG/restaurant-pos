@@ -19,6 +19,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm } from './lib/geo-distance.js';
+import { createDeliveryFeeCalculator } from './lib/delivery-fee.js';
 import { isValidSriLankanPhone, isValidAddress } from './lib/customer-contact-validation.js';
 import { customerAppUrl, posAppUrl } from './lib/app-links.js';
 import { generateStrongPassword, generateSecurePin } from './lib/credential-generation.js';
@@ -3284,91 +3285,7 @@ async function isPeakHour(tenantId = 'default_tenant') {
 }
 
 // ── Server-authoritative delivery fee calculator ──
-async function calculateDeliveryFee(customerLat, customerLng, subtotal = 0, tenantId = 'default_tenant') {
-  const s = await getSettingsMap(tenantId, [
-    'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryBaseFee', 'deliveryFreeRadiusKm', 'deliveryPerKmRate',
-    'deliveryMaxRadiusKm', 'deliveryPeakSurcharge', 'deliveryRainSurcharge', 'deliveryFreeThreshold', 'isRainyWeather'
-  ]);
-  // Never use another restaurant's coordinates as a fallback. Older tenant
-  // profiles may have their own restaurantLat/restaurantLng settings.
-  const rawStoreLat = s.storeLat || s.restaurantLat;
-  const rawStoreLng = s.storeLng || s.restaurantLng;
-  const storeLat = rawStoreLat ? Number(rawStoreLat) : NaN;
-  const storeLng = rawStoreLng ? Number(rawStoreLng) : NaN;
-  if (!Number.isFinite(storeLat) || !Number.isFinite(storeLng) || Math.abs(storeLat) > 90 || Math.abs(storeLng) > 180) {
-    const error = new Error('Delivery location is not configured for this restaurant. Ask the owner to set the store map pin in Online Store settings, or choose pickup.');
-    error.status = 422;
-    error.code = 'STORE_DELIVERY_LOCATION_MISSING';
-    throw error;
-  }
-  const baseFee = parseFloat(s.deliveryBaseFee || 99);
-  const freeRadius = parseFloat(s.deliveryFreeRadiusKm || 2);
-  const perKmRate = parseFloat(s.deliveryPerKmRate || 50);
-  const maxRadius = parseFloat(s.deliveryMaxRadiusKm || 15);
-  const peakSurchargeAmt = parseFloat(s.deliveryPeakSurcharge || 50);
-  const rainSurchargeAmt = parseFloat(s.deliveryRainSurcharge || 75);
-  const freeThreshold = parseFloat(s.deliveryFreeThreshold || 3000);
-  const isRainy = s.isRainyWeather === 'true';
-
-  const distanceKm = haversineDistanceKm(storeLat, storeLng, customerLat, customerLng);
-  const roundedDistance = Math.round(distanceKm * 10) / 10; // 1 decimal
-
-  // Out of range
-  if (distanceKm > maxRadius) {
-    return {
-      distanceKm: roundedDistance,
-      baseFee: 0, distanceCharge: 0, peakSurcharge: 0, rainSurcharge: 0,
-      totalFee: 0, isFreeDelivery: false, isOutOfRange: true,
-      maxRadiusKm: maxRadius,
-      storeLat, storeLng,
-      etaMinutes: 0
-    };
-  }
-
-  // Free delivery for high-value orders
-  if (subtotal >= freeThreshold) {
-    const etaMinutes = Math.round(10 + distanceKm * 3.5); // ~17 km/h avg Sri Lankan traffic
-    return {
-      distanceKm: roundedDistance,
-      baseFee: 0, distanceCharge: 0, peakSurcharge: 0, rainSurcharge: 0,
-      totalFee: 0, isFreeDelivery: true, isOutOfRange: false,
-      freeThreshold, storeLat, storeLng,
-      etaMinutes
-    };
-  }
-
-  // Distance-based pricing
-  const chargeableKm = Math.max(0, distanceKm - freeRadius);
-  const distanceCharge = Math.round(chargeableKm * perKmRate);
-  const peak = await isPeakHour(tenantId);
-  const peakSurcharge = peak ? peakSurchargeAmt : 0;
-  const rainSurcharge = isRainy ? rainSurchargeAmt : 0;
-  const totalFee = Math.round(baseFee + distanceCharge + peakSurcharge + rainSurcharge);
-
-  // ETA: Sri Lankan urban traffic averages ~15-20 km/h for scooters
-  // Add 5 min per peak hour, 3 min for rain
-  let etaMinutes = Math.round(10 + distanceKm * 3.5);
-  if (peak) etaMinutes += 5;
-  if (isRainy) etaMinutes += 3;
-
-  return {
-    distanceKm: roundedDistance,
-    baseFee,
-    distanceCharge,
-    peakSurcharge,
-    rainSurcharge,
-    totalFee,
-    isFreeDelivery: false,
-    isOutOfRange: false,
-    isPeakHour: peak,
-    isRainy,
-    freeRadius,
-    freeThreshold,
-    maxRadiusKm: maxRadius,
-    storeLat, storeLng,
-    etaMinutes
-  };
-}
+const calculateDeliveryFee = createDeliveryFeeCalculator({ getSettingsMap, isPeakHour });
 
 // ── Hybrid Auto-Dispatch Engine ──
 // Finds nearest available driver using Haversine from their last GPS ping.
