@@ -1,3 +1,4 @@
+import { showHostedDriverShortcut } from './utils/native-driver-link-policy.js';
 import { ShoppingBag, Store, Utensils, Package, UserRound, Headphones, Bike, LogIn } from 'lucide-react';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, Component } from 'react';
@@ -376,9 +377,9 @@ function InnerApp({ switchRestaurant }) {
           <button className="icon-btn" onClick={() => navigate('support')} title="Customer Support Desk" style={{ fontSize: '1.1rem', background: '#3b82f620', border: '1px solid #3b82f650' }}>
             <Headphones size={18}/>
           </button>
-          <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
+          {showHostedDriverShortcut(import.meta.env.MODE) && <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
             <Bike size={18}/>
-          </button>
+          </button>}
           <select
             className="lang-select"
             value={lang}
