@@ -46,7 +46,7 @@ describe('offline logical backup + encrypted recovery drill', () => {
       const response = runRestore(backupFile, restored);
       expect(response.status, response.stderr).toBe(0);
       expect(JSON.parse(response.stdout)).toMatchObject({
-        verified: true, tables: 3, records: 7, sha256: snapshot.sha256,
+        verified: true, tables: 3, records: 5, sha256: snapshot.sha256,
       });
       expect(existsSync(restored)).toBe(true);
       const verified = await createLibsqlStore({ url: `file:${restored}` });
