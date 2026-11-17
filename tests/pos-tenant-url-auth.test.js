@@ -11,7 +11,7 @@ process.env.JWT_SECRET = 'pos-tenant-url-auth-test-secret';
 process.env.CUSTOMER_JWT_SECRET = 'pos-tenant-url-auth-customer-secret';
 process.env.PAYHERE_ENABLED = 'false';
 
-const { app, dbReady, dbRun } = await import('../server.js');
+const { app, dbReady, dbRun, dbGet } = await import('../server.js');
 const tenantA = 'tenant_pos_link_test_a';
 const tenantB = 'tenant_pos_link_test_b';
 const usernameA = 'pos_url_staff_a';
@@ -36,6 +36,10 @@ beforeAll(async () => {
     ['pos_user_a', usernameA, hashA, 'manager', tenantA]);
   await dbRun('INSERT INTO users(id,username,passwordHash,role,tenant_id) VALUES(?,?,?,?,?)',
     ['pos_user_b', usernameB, hashB, 'manager', tenantB]);
+  await dbRun('INSERT INTO menu_items(id,name,price,stock,tenant_id,isAvailable) VALUES(?,?,?,?,?,1)',
+    ['pos_resource_a','Private menu A',125,10,tenantA]);
+  await dbRun('INSERT INTO menu_items(id,name,price,stock,tenant_id,isAvailable) VALUES(?,?,?,?,?,1)',
+    ['pos_resource_b','Private menu B',250,20,tenantB]);
   // Reuse valid sign-ins; the production 5-attempt/IP rate limit is intentional.
   loginA = await login(usernameA, passwordA, 'pos-link-test-a');
   loginB = await login(usernameB, passwordB, tenantB);
@@ -52,6 +56,33 @@ describe('POS URL restaurant identity isolation', () => {
     expect(loginB.status, loginB.text).toBe(200);
     expect(loginB.body.user.tenant_id).toBe(tenantB);
     expect(loginB.body.token).toBeTruthy();
+  });
+
+  it('isolates real authenticated staff and menu API lists for each restaurant',async()=>{
+    for(const [login,own,other,ownUsername,otherUsername] of [
+      [loginA,'pos_resource_a','pos_resource_b',usernameA,usernameB],
+      [loginB,'pos_resource_b','pos_resource_a',usernameB,usernameA]
+    ]){
+      const headers={Authorization:`Bearer ${login.body.token}`};
+      const staff=await request(app).get('/api/users').set(headers);
+      expect(staff.status,staff.text).toBe(200);
+      expect(staff.body.some(user=>user.username===ownUsername)).toBe(true);
+      expect(staff.body.some(user=>user.username===otherUsername)).toBe(false);
+      const menu=await request(app).get('/api/menu_items').set(headers);
+      expect(menu.status,menu.text).toBe(200);
+      expect(menu.body.some(item=>item.id===own)).toBe(true);
+      expect(menu.body.some(item=>item.id===other)).toBe(false);
+    }
+  });
+
+  it('blocks a cross-restaurant menu overwrite before the original record changes',async()=>{
+    const original=await dbGet('SELECT name,price,tenant_id FROM menu_items WHERE id=?',['pos_resource_b']);
+    const response=await request(app).post('/api/menu_items')
+      .set('Authorization',`Bearer ${loginA.body.token}`)
+      .send({id:'pos_resource_b',name:'Injected by A',price:0,category:'test'});
+    expect(response.status).toBe(404);
+    expect(await dbGet('SELECT name,price,tenant_id FROM menu_items WHERE id=?',['pos_resource_b']))
+      .toEqual(original);
   });
 
   it('rejects Shop B credentials on Shop A POS URL', async () => {
