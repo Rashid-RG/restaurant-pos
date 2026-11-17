@@ -1,0 +1,110 @@
+name: GastroFlow Food iOS simulator candidate
+
+# Explicit only: macOS runners may consume billed GitHub Actions minutes.
+# Builds the separate customer iPhone app with no signing, deployment, or data.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gastrofood-ios-simulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-simulator-candidate:
+    if: github.ref == 'refs/heads/codex/production-readiness'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Xcode requirements
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          XCODE_MAJOR="$(xcodebuild -version | awk '/^Xcode / { split($2, v, "."); print v[1] }')"
+          test -n "$XCODE_MAJOR"
+          test "$XCODE_MAJOR" -ge 26
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Keep root POS dependency lock immutable
+        run: shasum -a 256 package-lock.json > "$RUNNER_TEMP/pos-lock.sha256"
+      - name: Install root web build tooling
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+      - name: Install locked customer-only native dependencies
+        working-directory: apps/customer-web
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Verify customer native dependency lock and identifier
+        run: node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+      - name: Build isolated customer web assets for staging
+        env:
+          VITE_NATIVE_API_ORIGIN: https://gastroflow-staging.onrender.com
+        run: npm run customer:native:build
+      - name: Generate or reuse only customer iPhone source
+        working-directory: apps/customer-web
+        run: |
+          set -euo pipefail
+          if test -f ios/App/App.xcodeproj/project.pbxproj; then
+            echo "Reusing existing customer iOS source"
+          else
+            npm run native:add:ios
+          fi
+      - name: Sync customer app assets and apply foreground location explanation
+        working-directory: apps/customer-web
+        run: |
+          npm run native:sync:ios
+          npm run native:permissions:ios
+      - name: Confirm source identity, permissions, and no private signing files
+        run: |
+          set -euo pipefail
+          test -f apps/customer-web/ios/App/App.xcodeproj/project.pbxproj
+          test -f apps/customer-web/ios/App/App/Info.plist
+          grep -F 'NSLocationWhenInUseUsageDescription' apps/customer-web/ios/App/App/Info.plist
+          test -s apps/customer-web/ios/App/App/public/index.html
+          shasum -a 256 -c "$RUNNER_TEMP/pos-lock.sha256"
+          if find apps/customer-web/ios -type f \( -iname '*.p12' -o -iname '*.mobileprovision' -o -iname '*.cer' -o -iname '*.key' -o -name 'GoogleService-Info.plist' \) | grep .; then
+            echo 'Refusing to upload iOS signing credentials or Firebase service configuration'
+            exit 1
+          fi
+      - name: Compile unsigned-for-distribution iOS simulator application
+        working-directory: apps/customer-web
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/gastrofood-ios-derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Verify compiled simulator bundle and archive it
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/gastrofood-ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP"
+          test -s "$APP/public/index.html"
+          BUNDLE_ID="$(plutil -extract CFBundleIdentifier raw -o - "$APP/Info.plist")"
+          test "$BUNDLE_ID" = 'com.rstechnologies.gastrofood'
+          PURPOSE="$(plutil -extract NSLocationWhenInUseUsageDescription raw -o - "$APP/Info.plist")"
+          test -n "$PURPOSE"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" gastrofood-ios-simulator.zip
+          test -s gastrofood-ios-simulator.zip
+          echo 'Validated GastroFlow Food unsigned iOS simulator bundle. No real-device or App Store signing.'
+      - name: Upload isolated iOS simulator build for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-ios-simulator-candidate
+          path: gastrofood-ios-simulator.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload isolated iPhone project source for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-ios-source-candidate
+          path: apps/customer-web/ios/
+          if-no-files-found: error
+          retention-days: 7
