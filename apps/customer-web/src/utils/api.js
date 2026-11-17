@@ -24,7 +24,9 @@ export async function apiFetch(endpoint, options = {}) {
   const trackingAccess = trackedOrder && localStorage.getItem(`gastroflow_order_access_${trackedOrder}`);
   const customerTokenKey = 'gastroflow_customer_token:' + encodeURIComponent(activeTenant || 'default_tenant');
   const customerToken = localStorage.getItem(customerTokenKey);
-  const isPublicDiscovery=cleanPath==='/api/public/restaurants' && (!options.method || options.method.toUpperCase()==='GET');
+  // This public listing supports location query parameters. It remains global
+  // discovery; only the path (not its query string) determines header policy.
+  const isPublicDiscovery=cleanPath.split('?')[0]==='/api/public/restaurants' && (!options.method || options.method.toUpperCase()==='GET');
   const hasRequestBody=options.body!==undefined && options.body!==null;
   const cachePublicMenu=cleanPath==='/api/public/menu' && (!options.method || options.method==='GET');
   const cacheKey='gastroflow_public_menu_snapshot:'+encodeURIComponent(activeTenant||'default_tenant');
