@@ -48,6 +48,8 @@ on:
       - 'tests/customer-native-origins.test.js'
       - 'lib/customer-cors-policy.js'
       - 'tests/customer-native-cors-express.test.js'
+      - 'scripts/check-food-native-cors-config.mjs'
+      - 'tests/customer-native-cors-release-gate.test.js'
       - 'server.js'
       - 'tests/customer-native-tracking-policy.test.js'
       - 'tests/customer-native-tracking-resume.test.js'
@@ -71,7 +73,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=dev
       - name: Customer safety regression tests
-        run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js tests/customer-token-invalidation.test.js tests/customer-auth-tenant-lifecycle.test.js tests/customer-contact-actions.test.js tests/customer-discovery-search.test.js tests/customer-menu-selection.test.js tests/customer-delivery-quote.test.js tests/customer-order-acknowledgement.test.js tests/customer-checkout-recovery-status.test.js tests/customer-checkout-submission-guard.test.js tests/customer-location-acquisition.test.js tests/customer-address-search-gate.test.js tests/customer-manual-address-save-guard.test.js tests/customer-native-api-origin.test.js tests/customer-native-react-dedupe.test.js tests/customer-native-reduced-motion-layout.test.js tests/customer-native-cors-probe.test.js tests/customer-native-discovery-headers.test.js tests/customer-native-marketplace-timeout.test.js tests/customer-native-image-url.test.js tests/customer-native-hosted-ux-isolation.test.js tests/customer-native-payment-policy.test.js tests/customer-native-origins.test.js tests/customer-native-cors-express.test.js tests/customer-native-tracking-policy.test.js tests/customer-native-tracking-resume.test.js tests/customer-native-project-guard.test.js tests/customer-native-location-permissions.test.js tests/customer-native-android-hardening.test.js tests/customer-native-lockfile.test.js
+        run: npx vitest run tests/customer-marketplace-availability.test.js tests/customer-auth-resilience.test.js tests/customer-token-invalidation.test.js tests/customer-auth-tenant-lifecycle.test.js tests/customer-contact-actions.test.js tests/customer-discovery-search.test.js tests/customer-menu-selection.test.js tests/customer-delivery-quote.test.js tests/customer-order-acknowledgement.test.js tests/customer-checkout-recovery-status.test.js tests/customer-checkout-submission-guard.test.js tests/customer-location-acquisition.test.js tests/customer-address-search-gate.test.js tests/customer-manual-address-save-guard.test.js tests/customer-native-api-origin.test.js tests/customer-native-react-dedupe.test.js tests/customer-native-reduced-motion-layout.test.js tests/customer-native-cors-probe.test.js tests/customer-native-discovery-headers.test.js tests/customer-native-marketplace-timeout.test.js tests/customer-native-image-url.test.js tests/customer-native-hosted-ux-isolation.test.js tests/customer-native-payment-policy.test.js tests/customer-native-origins.test.js tests/customer-native-cors-express.test.js tests/customer-native-cors-release-gate.test.js tests/customer-native-tracking-policy.test.js tests/customer-native-tracking-resume.test.js tests/customer-native-project-guard.test.js tests/customer-native-location-permissions.test.js tests/customer-native-android-hardening.test.js tests/customer-native-lockfile.test.js
       - name: Verify customer and driver mobile install assets
         run: npm run mobile:audit
       - name: Resolve customer-only native lock for CI verification
