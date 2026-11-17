@@ -20,6 +20,7 @@ import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm } from './lib/geo-distance.js';
 import { isValidSriLankanPhone, isValidAddress } from './lib/customer-contact-validation.js';
+import { customerAppUrl, posAppUrl } from './lib/app-links.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
@@ -5717,14 +5718,6 @@ async function createPasswordReset(userType, userId) {
     [id, userType, userId, hashCode(token), hashCode(code), Date.now() + RESET_TTL_MS, Date.now()]
   );
   return { token, code };
-}
-
-// Base URL of the customer app, used to build reset links in emails.
-function customerAppUrl() {
-  return process.env.CUSTOMER_APP_URL || process.env.CORS_ORIGIN || 'http://localhost:3001';
-}
-function posAppUrl() {
-  return process.env.POS_APP_URL || 'http://localhost:3000';
 }
 
 // Send an order confirmation via email + SMS (best-effort; never blocks the response path).
