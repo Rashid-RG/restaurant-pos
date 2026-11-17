@@ -28,17 +28,18 @@ android {
         }
     }
     buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
         staging {
+            // Define release first, before deriving this isolated testing variant.
             initWith release
             applicationIdSuffix '.staging'
             versionNameSuffix '-staging'
             signingConfig signingConfigs.foodStaging
             manifestPlaceholders = [appLabel: "@string/food_staging_app_name"]
             matchingFallbacks = ['release']
-        }
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
 }
