@@ -1,5 +1,6 @@
 import { getActiveTenant } from './tenant.js';
 import { resolveApiUrl } from './native-api-origin.js';
+import { shouldClearCustomerTokenForResponse } from './customer-token-invalidation.js';
 
 export function apiUrl(endpoint, location = window.location) {
   return resolveApiUrl(endpoint,{
@@ -36,11 +37,9 @@ export async function apiFetch(endpoint, options = {}) {
     }catch{}
     return null;
   };
-  let res;
-  try {
-    res = await fetch(absoluteUrl, {
-      ...options,
-      headers: {
+  // Snapshot the exact outbound headers: a rejected tracking link must never
+  // revoke a separate customer's login or a different restaurant's session.
+  const requestHeaders = {
         // Anonymous restaurant discovery needs no tenant or JSON request headers.
         // This avoids an unnecessary CORS preflight on cross-origin native GETs.
         ...(!isPublicDiscovery && hasRequestBody ? { 'Content-Type': 'application/json' } : {}),
@@ -49,7 +48,12 @@ export async function apiFetch(endpoint, options = {}) {
         ...(/\/(?:customer|public)\/support\//.test(cleanPath) && customerToken ? { Authorization: `Bearer ${customerToken}` } : {}),
         ...(!isPublicDiscovery && activeTenant ? { 'X-Tenant-Id': activeTenant } : {}),
         ...(options.headers || {})
-      }
+  };
+  let res;
+  try {
+    res = await fetch(absoluteUrl, {
+      ...options,
+      headers: requestHeaders
     });
   } catch (err) {
     const saved=offlineMenu();
@@ -66,7 +70,11 @@ export async function apiFetch(endpoint, options = {}) {
 
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      if (/token|expired|invalid/i.test(data?.error || data?.message || '')) {
+      const authorizationHeader = new Headers(requestHeaders).get('authorization');
+      if (shouldClearCustomerTokenForResponse({
+        status:res.status, message:data?.error || data?.message,
+        customerToken, authorizationHeader
+      })) {
         localStorage.removeItem(customerTokenKey);
       }
     }
