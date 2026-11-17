@@ -26,11 +26,24 @@ For a **restored, existing local database file only**, run `node scripts/invento
 
 Run `node scripts/check-local-database-health.js /path/to/restored-copy.db` on the same **existing offline restored copy** to test SQLite integrity and foreign key relationships. The checker refuses remote URLs, missing paths and symlinks, uses `OPEN_READONLY`, and prints only aggregate health results. It is not a replacement for the encrypted backup verification and restore rehearsal.
 
+## Offline index coverage review
+
+The current `server.js` already declares `idx_orders_tenant_timestamp`, `idx_orders_tenant_status`, and related tenant-aware order indexes. Do **not** blindly add replacement indexes or remove existing ones.
+
+`reviewIndexCoverage(inventory)` in `lib/index-coverage-review.js` is a pure advisory function. Supply the result of `inspectDatabaseSchema(dbAll)` from a **restored, isolated local database**. It identifies whether a few known order, manual-payment, and timeclock access patterns have a usable left-most column prefix, while excluding partial indexes from general coverage. It flags potentially overlapping non-unique indexes for *manual review only*. It generates and runs no SQL.
+
+An index recommendation is NOT ready for deployment until:
+1. Inspect the actual restored schema, query frequency, and indexes (including collation, DESC order, expression keys and partial predicates).
+2. Compare `EXPLAIN QUERY PLAN` and representative read/write performance on a **disposable** local copy; confirm improvement under restaurant-relevant tenant sizes.
+3. Check impact on POS order writes, stock changes, account registrations, and all tenant access paths.
+4. Rehearse backup, restore, rollback, and two-tenant tests; seek explicit approval for any staging schema update.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
 - [x] Local-only, read-only schema CLI and safety tests committed
 - [x] Offline restored-copy database health checker and isolated regression tests committed
+- [x] Pure index-coverage review and disposable-database tests committed
 - [ ] Full GitHub Actions results for this change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
