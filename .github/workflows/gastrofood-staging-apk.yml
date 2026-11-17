@@ -38,13 +38,17 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # GitHub Ubuntu runners already provide Android SDK command-line tools.
+      # Do not use android-actions/setup-android@v3 here: it invokes
+      # "sdkmanager tools", a removed package, and fails before compilation.
       - name: Install Android API 36 build dependencies
+        shell: bash
         run: |
+          set -euo pipefail
+          echo "Android SDK: ${ANDROID_HOME:-not-set}"
+          command -v sdkmanager
+          sdkmanager --version
           sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
-          yes | sdkmanager --licenses > /dev/null || true
 
       - name: Install root dependencies
         run: npm ci --include=dev --no-audit --no-fund
