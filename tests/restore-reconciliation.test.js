@@ -97,6 +97,18 @@ describe('read-only local restore reconciliation',()=>{
    expect(JSON.parse(inconsistent.stdout)).toMatchObject({ok:false,accountingVerified:false,accounting:{ledgers:{manual_refunds:{verified:false}}}});
   });
  });
+ it('strict mode refuses to certify a row-identical copy with missing accounting ledgers',async()=>{
+  await withCopy(async({backup,file,run})=>{
+   await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, total REAL)');
+   await run("INSERT INTO orders VALUES ('private-id','tenant-X',100)");
+   fs.writeFileSync(backup,JSON.stringify(snapshot([{name:'orders',rows:[{id:'private-id',tenant_id:'tenant-X',total:100}]}])));
+   const args=['scripts/reconcile-local-restore.js','--require-financial',backup,file];
+   const result=spawnSync(process.execPath,args,{encoding:'utf8',timeout:15000});
+   expect(result.status).toBe(1);
+   expect(JSON.parse(result.stdout)).toMatchObject({ok:true,recoveryReady:false,accountingVerified:false});
+   expect(result.stdout).not.toContain('private-id');
+  });
+ });
  it('fails closed on mismatched records while revealing only aggregate counts',async()=>{
   await withCopy(async({backup,file,run})=>{
    await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, amount INTEGER)');
