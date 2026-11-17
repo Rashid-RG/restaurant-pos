@@ -2257,19 +2257,20 @@ async function allocateInvoiceNumber() {
 async function settleOrderPaid(order, method = 'payhere', withinTransaction = false, actor = {}) {
   if (!withinTransaction) await dbRun('BEGIN TRANSACTION');
   try {
-    order = await dbGet('SELECT * FROM orders WHERE id = ?', [order.id]);
+    order = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [order.id,order.tenant_id]);
+    if (!order) throw new Error('Order is unavailable for this restaurant.');
     if (order.paymentStatus === 'paid' || order.invoiceNumber) { if (!withinTransaction) await dbRun('COMMIT'); return; }
     if (!actor.manualLedger && await dbGet('SELECT id FROM manual_payments WHERE orderId=? AND tenant_id=?',[order.id,order.tenant_id])) throw new Error('Use the saved payment ledger to settle the remaining balance.');
 
     if (['cancelled', 'refunded', 'partially_refunded', 'rejected'].includes(order.status)) throw new Error('Order requires payment reconciliation.');
     if (['pending','hold','preparing','ready'].includes(order.status)) await syncKitchen({dbGet,dbAll,dbRun,orderId:order.id,tenantId:order.tenant_id,items:JSON.parse(order.items||'[]'),reason:'before_payment'});
     const fulfillment = order.source === 'online' || order.diningType === 'delivery' || order.orderType === 'delivery' || order.status === 'delivered' ? order.status : 'paid';
-    await dbRun("UPDATE orders SET status = ?, paymentStatus = 'paid', paymentMethod = ?, paymentTimestamp = ? WHERE id = ?", [fulfillment, method, Date.now(), order.id]);
+    await dbRun("UPDATE orders SET status = ?, paymentStatus = 'paid', paymentMethod = ?, paymentTimestamp = ? WHERE id = ? AND tenant_id = ?", [fulfillment, method, Date.now(), order.id,order.tenant_id]);
 
     // Assign a gapless fiscal invoice number exactly once, at settlement.
     if (!order.invoiceNumber) {
       const invoiceNumber = await allocateInvoiceNumber();
-      await dbRun('UPDATE orders SET invoiceNumber = ? WHERE id = ?', [invoiceNumber, order.id]);
+      await dbRun('UPDATE orders SET invoiceNumber = ? WHERE id = ? AND tenant_id = ?', [invoiceNumber, order.id,order.tenant_id]);
     }
     if (order.tableId && (order.status==='served' || (await dbGet('SELECT state FROM kitchen_tickets WHERE orderId=? AND tenant_id=?',[order.id,order.tenant_id]))?.state==='served')) {
       await dbRun("UPDATE tables SET status='free',currentOrderId=NULL WHERE id=? AND tenant_id=? AND currentOrderId=?",[order.tableId,order.tenant_id,order.id]);
@@ -2279,23 +2280,23 @@ async function settleOrderPaid(order, method = 'payhere', withinTransaction = fa
       await dbRun(`
         UPDATE customers
         SET points = points + ?, orderCount = orderCount + 1, totalSpent = totalSpent + ?
-        WHERE id = ?
-      `, [earnedPoints, order.total, order.customerId]);
+        WHERE id = ? AND tenant_id = ?
+      `, [earnedPoints, order.total, order.customerId,order.tenant_id]);
     }
     if (order.customerAccountId) {
       await dbRun(`
         UPDATE customer_accounts
         SET loyaltyPoints = loyaltyPoints + ?, totalSpent = totalSpent + ?
-        WHERE id = ?
-      `, [earnedPoints, order.total, order.customerAccountId]);
+        WHERE id = ? AND tenant_id = ?
+      `, [earnedPoints, order.total, order.customerAccountId,order.tenant_id]);
     }
     await writeAuditLog(actor.actorId || (withinTransaction ? order.driverId : 'payment_gateway'), actor.username || (withinTransaction ? 'Assigned driver' : 'Payment Gateway'), 'pay_order', `Payment settled via ${method} for order ${order.id} (Amount: LKR ${order.total})`);
     if (withinTransaction) return;
     await dbRun('COMMIT');
 
     // Notify SSE subscribers
-    const updated = await dbGet('SELECT * FROM orders WHERE id = ?', [order.id]);
-    const itemsList = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [order.id]);
+    const updated = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [order.id,order.tenant_id]);
+    const itemsList = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ? AND tenant_id = ?', [order.id,order.tenant_id]);
     notifyOrderUpdate(order.id, { ...updated, items: itemsList });
 
     // Fire-and-forget order confirmation (email + SMS). Never blocks settlement.
@@ -6325,7 +6326,7 @@ app.post('/api/tables', requireRole(['owner', 'manager']), async (req, res) => {
 
 app.delete('/api/tables/:id', requireRole(['owner', 'manager']), async (req, res) => {
   try {
-    await dbRun('DELETE FROM tables WHERE id = ?', [req.params.id]);
+    await dbRun('DELETE FROM tables WHERE id = ? AND tenant_id = ?', [req.params.id,req.tenantId]);
     await writeAuditLog(req.user.id, req.user.username, 'delete_table', `Deleted table ${req.params.id}`);
     res.json({ success: true });
   } catch (err) {
@@ -6342,8 +6343,8 @@ app.post('/api/tables/transfer', requireRole(['owner', 'manager', 'cashier']), a
 
   await dbRun('BEGIN TRANSACTION');
   try {
-    const fromTable = await dbGet('SELECT * FROM tables WHERE id = ?', [fromTableId]);
-    const toTable = await dbGet('SELECT * FROM tables WHERE id = ?', [toTableId]);
+    const fromTable = await dbGet('SELECT * FROM tables WHERE id = ? AND tenant_id = ?', [fromTableId,req.tenantId]);
+    const toTable = await dbGet('SELECT * FROM tables WHERE id = ? AND tenant_id = ?', [toTableId,req.tenantId]);
 
     if (!fromTable || !fromTable.currentOrderId) {
       await dbRun('ROLLBACK');
@@ -6360,11 +6361,11 @@ app.post('/api/tables/transfer', requireRole(['owner', 'manager', 'cashier']), a
 
     const orderId = fromTable.currentOrderId;
     // Update order's tableId pointer
-    await dbRun('UPDATE orders SET tableId = ? WHERE id = ?', [toTableId, orderId]);
+    await dbRun('UPDATE orders SET tableId = ? WHERE id = ? AND tenant_id = ?', [toTableId, orderId,req.tenantId]);
     // Free source table
-    await dbRun("UPDATE tables SET status = 'free', currentOrderId = NULL WHERE id = ?", [fromTableId]);
+    await dbRun("UPDATE tables SET status = 'free', currentOrderId = NULL WHERE id = ? AND tenant_id = ?", [fromTableId,req.tenantId]);
     // Occupy target table
-    await dbRun("UPDATE tables SET status = 'occupied', currentOrderId = ? WHERE id = ?", [orderId, toTableId]);
+    await dbRun("UPDATE tables SET status = 'occupied', currentOrderId = ? WHERE id = ? AND tenant_id = ?", [orderId, toTableId,req.tenantId]);
 
     await writeAuditLog(req.user.id, req.user.username, 'transfer_table', `Transferred Order ${orderId} from Table ${fromTable.number} to Table ${toTable.number}`);
     await dbRun('COMMIT');
@@ -6578,7 +6579,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
         // Update table status if dine-in
         if (diningType === 'dine-in' && tableId) {
           const newTableStatus = (status === 'hold') ? 'billing' : 'occupied';
-          await dbRun('UPDATE tables SET status = ?, currentOrderId = ? WHERE id = ?', [newTableStatus, id, tableId]);
+          await dbRun('UPDATE tables SET status = ?, currentOrderId = ? WHERE id = ? AND tenant_id = ?', [newTableStatus, id, tableId,tenantId]);
         }
 
         await writeAuditLog(userId, username, 'create_order', `Created order ${id} with total ${bill.total}`);
@@ -6852,7 +6853,7 @@ app.post('/api/driver/cash-reconciliation/handover', requireRole(['owner', 'mana
   try {
     await dbRun('BEGIN TRANSACTION');
     for (const id of orderIds) {
-      await dbRun('UPDATE orders SET cashCollected = 1, cashCollectedAt = ? WHERE id = ?', [Date.now(), id]);
+      await dbRun('UPDATE orders SET cashCollected = 1, cashCollectedAt = ? WHERE id = ? AND tenant_id = ?', [Date.now(), id,req.tenantId]);
     }
     await writeAuditLog(req.user?.id || 'manager', req.user?.username || 'Manager', 'driver_cash_handover',
       `Driver ${driverId} handed over LKR ${amountHandedOver} cash for ${orderIds.length} orders.`);
