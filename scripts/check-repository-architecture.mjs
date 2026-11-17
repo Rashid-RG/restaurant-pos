@@ -7,7 +7,7 @@ const required = [
   'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
-  'routes/platform.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/communications/index.js','lib/communications/app-links.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
+  'routes/platform.js','lib/orders/index.js','lib/orders/checkout-recovery.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/communications/index.js','lib/communications/app-links.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
 ];
 const findings = [];
 for (const entry of required) {
@@ -47,6 +47,8 @@ for (const [legacy, destination] of [
 ]) {
   if (!readFileSync(legacy, 'utf8').includes(destination)) findings.push('Legacy domain compatibility export missing: ' + legacy);
 }
+if (!backendEntrypoint.includes("from './lib/orders/index.js'")) findings.push('Backend must consume the orders domain recovery entrypoint');
+if (!readFileSync('lib/checkout-recovery.js','utf8').includes("./orders/checkout-recovery.js")) findings.push('Order recovery compatibility export must remain available');
 const workspaceSource = readFileSync('src/components/WorkspaceTools.jsx', 'utf8');
 if (!workspaceSource.includes("from '../platform/workspace-policy.js'")) findings.push('POS workspace must consume isolated platform navigation policy');
 const customerConfig = JSON.parse(readFileSync('apps/customer-web/capacitor.config.json', 'utf8'));
