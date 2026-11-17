@@ -39,6 +39,8 @@ describe('offline logical backup + encrypted recovery drill', () => {
         dbRun: async sql => store.execute(sql),
       });
       expect(snapshot.sha256).toBe(snapshotHash(snapshot.payload));
+      expect(snapshot.payload.tables.find(table => table.name === 'attachments').rows[0].payload)
+        .toEqual({ $blob: Buffer.from([0, 1, 127, 255]).toString('base64') });
       const protectedArchive = encryptBackup(Buffer.from(JSON.stringify(snapshot)), secret);
       expect(JSON.stringify(protectedArchive)).not.toContain('order-A');
       const plaintext = decryptBackup(protectedArchive, secret);
