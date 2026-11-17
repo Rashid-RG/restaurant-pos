@@ -45,6 +45,7 @@ import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
 import { createTenantSettingsStore } from './lib/tenancy/settings-store.js';
 import { STAFF_ROLES, isStaffClaim, isStaffAccountAuthorized, isExpectedRestaurant, isPlatformOwner, hasStaffRole, isCustomerTenantMatch } from './lib/tenancy/access-policy.js';
+import { tenantResourceRequest, resourceIdsToAuthorize, resourceBelongsToTenant } from './lib/tenancy/resource-policy.js';
 import { createDatabaseReadiness } from './lib/database-readiness.js';
 import { createOperationalMonitor } from './lib/operational-monitor.js';
 import { sendOperationalAlert } from './lib/ops-alerts.js';
@@ -1906,19 +1907,15 @@ for (const table of ['categories', 'menu_items', 'tables', 'customers']) {
 // Protect legacy handlers that address globally unique records by ID. All
 // resource lookups are authorized before the handler can mutate related rows.
 app.use('/api', async (req, res, next) => {
-  const match = req.path.match(/^\/(orders|tables|menu_items|categories|customers|ingredients|delivery\/drivers|tickets|support\/tickets)(?:\/([^/]+))?/);
-  if (!match || req.path.includes('/driver-chat') || /^\/tables\/[^/]+\/qr$/.test(req.path)) return next();
-  const table = { orders: 'orders', tables: 'tables', menu_items: 'menu_items', categories: 'categories', customers: 'customers', ingredients: 'ingredients', 'delivery/drivers': 'drivers', tickets: 'support_tickets', 'support/tickets': 'support_tickets' }[match[1]];
+  const resource = tenantResourceRequest(req.path);
+  if (!resource) return next();
+  const table = resource.table;
   authenticateToken(req, res, async err => {
     if (err) return next(err);
     try {
-      const ids = [];
-      if (match[2] && !['offline-sync', 'transfer', 'merge', 'clear-all'].includes(match[2])) ids.push(decodeURIComponent(match[2]));
-      if (req.body?.id) ids.push(req.body.id);
-      if (table === 'tables') ids.push(...['fromTableId', 'toTableId', 'sourceTableId', 'targetTableId'].map(k => req.body?.[k]).filter(Boolean));
-      for (const id of ids) {
+      for (const id of resourceIdsToAuthorize(resource,req.body)) {
         const row = await dbGet(`SELECT tenant_id FROM ${table} WHERE id = ?`, [id]);
-        if (row && row.tenant_id !== req.tenantId) return res.status(404).json({ error: 'Record not found.' });
+        if (!resourceBelongsToTenant(row,req.tenantId)) return res.status(404).json({ error: 'Record not found.' });
       }
       next();
     } catch (error) { next(error); }
