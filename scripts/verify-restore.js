@@ -4,11 +4,25 @@ import path from 'node:path';
 import os from 'node:os';
 import {createClient} from '@libsql/client';
 import {snapshotHash,quoteIdentifier,decodeBackupValue,encodeBackupValue} from '../lib/snapshots.js';
-const input=process.argv[2];if(!input)throw new Error('Usage: node scripts/verify-restore.js BACKUP.json [NEW_LOCAL.db]');
-const backup=JSON.parse(fs.readFileSync(input,'utf8'));
+const input=process.argv[2];
+if(!input||process.argv.length>4||/^(?:file:|https?:|libsql:|wss?:)/i.test(input))
+ throw new Error('Usage: node scripts/verify-restore.js EXISTING-LOCAL-BACKUP.json [NEW_LOCAL.db]');
+const inputPath=path.resolve(input);
+const inputStat=fs.lstatSync(inputPath);
+if(!inputStat.isFile()||inputStat.isSymbolicLink())
+ throw new Error('Backup input must be an existing regular local file, not a symlink.');
+const backup=JSON.parse(fs.readFileSync(inputPath,'utf8'));
 if(backup.payload?.format!=='gastroflow-logical-backup'||backup.payload.version!==1||snapshotHash(backup.payload)!==backup.sha256)throw new Error('Unsupported or corrupt backup.');
-const destination=path.resolve(process.argv[3]||path.join(fs.mkdtempSync(path.join(os.tmpdir(),'gastroflow-restore-')),'verified.db'));
-if(fs.existsSync(destination))throw new Error('Destination exists; refusing to overwrite.');
+const requested=process.argv[3];
+if(requested&&/^(?:file:|https?:|libsql:|wss?:)/i.test(requested))
+ throw new Error('Restore destination must be a new local file path.');
+const destination=path.resolve(requested||path.join(fs.mkdtempSync(path.join(os.tmpdir(),'gastroflow-restore-')),'verified.db'));
+if(destination===inputPath)throw new Error('Restore destination must differ from input.');
+// Atomically reserve the output path: a check-then-create can overwrite a newly
+// created live file during a race. SQLite initializes the exclusively created
+// zero-length file; the archived backup and all other paths remain unchanged.
+const reserved=fs.openSync(destination,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY|(fs.constants.O_NOFOLLOW||0),0o600);
+fs.closeSync(reserved);
 const client=createClient({url:`file:${destination}`});
 try {
  await client.execute('PRAGMA foreign_keys=OFF');
