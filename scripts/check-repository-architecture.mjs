@@ -7,7 +7,7 @@ const required = [
   'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
-  'routes/platform.js','shared/ui','tests','infra','docs'
+  'routes/platform.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
 ];
 const findings = [];
 for (const entry of required) {
@@ -28,6 +28,15 @@ for (const [legacy, destination] of [
   ['src/components/PlatformOperations.jsx', '../platform/PlatformOperations.jsx'],
 ]) {
   if (!readFileSync(legacy,'utf8').includes(destination)) findings.push('Missing backwards-compatible platform import: ' + legacy);
+}
+const backendEntrypoint = readFileSync('server.js', 'utf8');
+if (!backendEntrypoint.includes("from './lib/delivery/index.js'")) findings.push('Backend must import delivery domain through its stable entrypoint');
+for (const [legacy, destination] of [
+  ['lib/geo-distance.js', './delivery/geo-distance.js'],
+  ['lib/delivery-fee.js', './delivery/fee.js'],
+  ['lib/peak-hours.js', './delivery/peak-hours.js'],
+]) {
+  if (!readFileSync(legacy, 'utf8').includes(destination)) findings.push('Delivery legacy entrypoint must be preserved: ' + legacy);
 }
 const workspaceSource = readFileSync('src/components/WorkspaceTools.jsx', 'utf8');
 if (!workspaceSource.includes("from '../platform/workspace-policy.js'")) findings.push('POS workspace must consume isolated platform navigation policy');
