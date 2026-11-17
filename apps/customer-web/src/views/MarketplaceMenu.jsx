@@ -1,3 +1,4 @@
+import { resolveCustomerImageUrl } from '../utils/native-image-url.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Store, ArrowUpRight, UtensilsCrossed, RefreshCw, MapPin, ShoppingBag } from 'lucide-react';
 import { apiFetch, apiUrl } from '../utils/api.js';
@@ -116,7 +117,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
       <div className="marketplace-item-grid">
         {visibleItems.map(({ item, store }) => <article className="marketplace-item" key={`${store.id}:${item.id}`}>
           <div className="marketplace-item-image">
-            {item.imageUrl ? <img src={item.imageUrl} loading="lazy" alt={item.name}/> : <div className="marketplace-item-fallback" aria-hidden="true">{item.emoji || '🍽️'}</div>}
+            {item.imageUrl ? <img src={resolveCustomerImageUrl(item.imageUrl,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})} loading="lazy" alt={item.name}/> : <div className="marketplace-item-fallback" aria-hidden="true">{item.emoji || '🍽️'}</div>}
             <span className="marketplace-item-store"><Store size={13}/> {store.name}</span>
           </div>
           <div className="marketplace-item-info">
