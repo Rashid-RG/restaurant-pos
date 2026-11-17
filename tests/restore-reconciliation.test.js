@@ -34,7 +34,7 @@ describe('read-only local restore reconciliation',()=>{
    ]}])));
    const result=invoke(backup,file);
    expect(result.status,result.stderr).toBe(0);
-   expect(JSON.parse(result.stdout)).toMatchObject({ok:true,tableCount:1,recordsExpected:2,recordsRestored:2});
+   expect(JSON.parse(result.stdout)).toMatchObject({ok:true,integrity:'ok',foreignKeyViolationCount:0,tableCount:1,recordsExpected:2,recordsRestored:2});
    expect(result.stdout).not.toContain('secret-order');
    expect(result.stdout).not.toContain('tenant-a');
   });
@@ -48,6 +48,26 @@ describe('read-only local restore reconciliation',()=>{
    expect(result.status).toBe(1);
    expect(JSON.parse(result.stdout)).toMatchObject({ok:false,tables:[{matches:false,expectedCount:1,restoredCount:1}]});
    expect(result.stdout).not.toContain('private-id');
+  });
+ });
+ it('rejects orphaned foreign keys even when all backup records match',async()=>{
+  await withCopy(async({backup,file,run})=>{
+   await run('PRAGMA foreign_keys=OFF');
+   await run('CREATE TABLE parents (id TEXT PRIMARY KEY)');
+   await run('CREATE TABLE children (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parents(id))');
+   await run("INSERT INTO children VALUES ('private-child','absent-parent')");
+   fs.writeFileSync(backup,JSON.stringify(snapshot([
+    {name:'parents',rows:[]},
+    {name:'children',rows:[{id:'private-child',parent_id:'absent-parent'}]},
+   ])));
+   const result=invoke(backup,file);
+   expect(result.status).toBe(1);
+   expect(JSON.parse(result.stdout)).toMatchObject({
+    ok:false,integrity:'ok',foreignKeyViolationCount:1,
+    tables:[{name:'parents',matches:true},{name:'children',matches:true}],
+   });
+   expect(result.stdout).not.toContain('private-child');
+   expect(result.stdout).not.toContain('absent-parent');
   });
  });
  it('refuses symlinks, missing files, remote URLs and corrupted hashes',async()=>{
