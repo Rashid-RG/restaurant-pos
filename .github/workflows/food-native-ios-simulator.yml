@@ -59,6 +59,8 @@ jobs:
           npm run native:permissions:ios
       - name: Install iPhone branding image processor
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Test iPhone asset generation and POS project isolation
+        run: python3 -m unittest discover -s tests -p test_food_ios_branding.py -v
       - name: Apply approved GastroFlow Food iPhone launcher and splash assets
         run: python3 scripts/generate-food-ios-branding.py
       - name: Verify opaque 1024px app icon and branded splash images
