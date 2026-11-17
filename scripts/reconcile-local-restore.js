@@ -24,8 +24,22 @@ if(args.length!==2||args.some(value=>!value||value.startsWith('-')||
     const all=sql=>new Promise((resolve,reject)=>db.all(sql,(error,rows)=>error?reject(error):resolve(rows)));
     try{
       const report=await reconcileRestoredSnapshot(snapshot,all);
-      console.log(JSON.stringify(report,null,2));
-      if(!report.ok)process.exitCode=1;
+      const [integrity,foreignKeys]=await Promise.all([
+        all('PRAGMA integrity_check'),
+        all('PRAGMA foreign_key_check'),
+      ]);
+      const integrityOk=integrity.length===1&&integrity[0].integrity_check==='ok';
+      const foreignKeyViolationCount=foreignKeys.length;
+      const result={
+        ...report,
+        integrity:integrityOk?'ok':'failed',
+        foreignKeyViolationCount,
+        ok:report.ok&&integrityOk&&foreignKeyViolationCount===0,
+      };
+      // The output intentionally contains no values returned by either PRAGMA,
+      // since foreign_key_check may contain private row IDs.
+      console.log(JSON.stringify(result,null,2));
+      if(!result.ok)process.exitCode=1;
     }finally{await new Promise(resolve=>db.close(resolve));}
   }catch(error){
     // Do not print file paths or any database row values.
