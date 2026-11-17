@@ -6,10 +6,12 @@ import path from 'node:path';
 import sqlite3 from 'sqlite3';
 import {reconcileRestoredSnapshot} from '../lib/restore-reconciliation.js';
 
-const args=process.argv.slice(2);
+const inputArgs=process.argv.slice(2);
+const requireFinancial=inputArgs[0]==='--require-financial';
+const args=requireFinancial?inputArgs.slice(1):inputArgs;
 if(args.length!==2||args.some(value=>!value||value.startsWith('-')||
   /^(?:file:|https?:|libsql:|wss?:)/i.test(value))) {
-  console.error('Usage: node scripts/reconcile-local-restore.js EXISTING-LOCAL-BACKUP.json EXISTING-RESTORED-COPY.db');
+  console.error('Usage: node scripts/reconcile-local-restore.js [--require-financial] EXISTING-LOCAL-BACKUP.json EXISTING-RESTORED-COPY.db');
   process.exitCode=2;
 }else{
   const paths=args.map(value=>path.resolve(value));
@@ -40,7 +42,7 @@ if(args.length!==2||args.some(value=>!value||value.startsWith('-')||
       // The output intentionally contains no values returned by either PRAGMA,
       // since foreign_key_check may contain private row IDs.
       console.log(JSON.stringify(result,null,2));
-      if(!result.ok)process.exitCode=1;
+      if(!result.ok || (requireFinancial && !result.recoveryReady))process.exitCode=1;
     }finally{await new Promise(resolve=>db.close(resolve));}
   }catch(error){
     // Do not print file paths or any database row values.
