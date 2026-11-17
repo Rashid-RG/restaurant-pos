@@ -4380,11 +4380,11 @@ app.post('/api/orders/:id/eta', authenticateToken, async (req, res) => {
   const { etaMinutes } = req.body || {};
   const minutes = parseInt(etaMinutes, 10) || 20;
   try {
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [id]);
+    const order = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [id,req.tenantId]);
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
-    await dbRun('UPDATE orders SET etaMinutes = ? WHERE id = ?', [minutes, id]);
+    await dbRun('UPDATE orders SET etaMinutes = ? WHERE id = ? AND tenant_id = ?', [minutes, id,req.tenantId]);
     broadcastEvent('order_updated', {orderId:id,status:order.status,etaMinutes:minutes},req.tenantId);
     await writeAuditLog(req.user.id, req.user.username, 'update_eta', `Updated ETA for order #${id} to ${minutes} mins`);
     res.json({ success: true, orderId: id, etaMinutes: minutes });
@@ -4397,7 +4397,7 @@ app.post('/api/orders/:id/eta', authenticateToken, async (req, res) => {
 app.get('/api/public/orders/:id/eta', async (req, res) => {
   const { id } = req.params;
   try {
-    const order = await dbGet('SELECT id, status, timestamp, etaMinutes, orderType, diningType FROM orders WHERE id = ?', [id]);
+    const order = await dbGet('SELECT id, status, timestamp, etaMinutes, orderType, diningType FROM orders WHERE id = ? AND tenant_id = ?', [id,req.trackingTenant]);
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
@@ -4409,7 +4409,7 @@ app.get('/api/public/orders/:id/eta', async (req, res) => {
       });
     }
     // Dynamic calculation fallback
-    const activeCount = await dbGet("SELECT COUNT(*) as count FROM orders WHERE status IN ('pending', 'preparing')");
+    const activeCount = await dbGet("SELECT COUNT(*) as count FROM orders WHERE tenant_id=? AND status IN ('pending', 'preparing')",[req.trackingTenant]);
     const count = activeCount?.count || 0;
     const basePrep = 15;
     const loadBuffer = Math.min(count * 3, 30);
@@ -5283,7 +5283,7 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
   }
   // Publish only committed state. A notification failure must not undo the save receipt.
   try {
-    const updated = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
+    const updated = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [orderId,t]);
     notifyOrderUpdate(orderId, updated);
     notifyPOS({ type: 'delivery_status', orderId, status }, t);
   } catch (error) { console.error('[Delivery notification]', error.message); }
