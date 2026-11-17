@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiFetch } from '../utils/api.js';
 import {acquireBestLocation} from '../utils/location-acquisition.js';
+import {createAddressSearchGate} from '../utils/address-search-gate.js';
 
 // Colombo city centre — sensible default before the user picks.
 const DEFAULT_CENTER = { lat: 6.9271, lng: 79.8612 };
@@ -30,6 +31,7 @@ export default function LocationPicker({ value, onChange, toast }) {
   const markerRef = useRef(null);
   const debounceRef = useRef(null);
   const commitSequenceRef = useRef(0);
+  const addressSearchGateRef = useRef(createAddressSearchGate());
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -91,26 +93,34 @@ export default function LocationPicker({ value, onChange, toast }) {
   }, [value?.lat, value?.lng]);
 
   // Clean up the debounce timer on unmount.
-  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current);commitSequenceRef.current++; }, []);
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    commitSequenceRef.current++;
+    addressSearchGateRef.current.dispose();
+  }, []);
 
   async function runSearch(text) {
     const q = (text ?? query).trim();
     if (q.length < 3) return;
+    const request=addressSearchGateRef.current.start();
     setSearching(true);
     try {
       const list = await apiFetch(`/public/geocode?q=${encodeURIComponent(q)}`);
-      setResults(list || []);
-      if ((list || []).length === 0) toast && toast('No matching places found — try a nearby town or landmark.', 'info');
+      if (!addressSearchGateRef.current.isCurrent(request)) return;
+      setResults(Array.isArray(list) ? list : []);
+      if ((!Array.isArray(list) || list.length === 0) && toast) toast('No matching places found — try a nearby town or landmark.', 'info');
     } catch (err) {
-      toast && toast(err.message || 'Search failed.', 'error');
+      if (addressSearchGateRef.current.isCurrent(request)) toast?.(err.message || 'Search failed.', 'error');
     } finally {
-      setSearching(false);
+      if (addressSearchGateRef.current.isCurrent(request)) setSearching(false);
     }
   }
 
   // Live autocomplete: search a short delay after the user stops typing (Uber/PickMe style).
   function onQueryChange(text) {
     setQuery(text);
+    addressSearchGateRef.current.invalidate();
+    setSearching(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (text.trim().length < 3) { setResults([]); return; }
     debounceRef.current = setTimeout(() => runSearch(text), 450);
@@ -125,6 +135,9 @@ export default function LocationPicker({ value, onChange, toast }) {
   }
 
   function pickResult(r) {
+    addressSearchGateRef.current.invalidate();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearching(false);
     setResults([]);
     setQuery(r.label);
     moveMarker(r.lat, r.lng, true);
