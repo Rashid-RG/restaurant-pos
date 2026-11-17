@@ -85,7 +85,7 @@ export default function Settings() {
   const [subTab, setSubTab] = useState(()=>{
     const requested=sessionStorage.getItem('gastroflow_settings_tab');
     sessionStorage.removeItem('gastroflow_settings_tab');
-    return ['online','business','menu','database','users'].includes(requested)?requested:'business';
+    return ['online','business','printer','menu','database','users'].includes(requested)?requested:'business';
   });
 
   // Business config states
@@ -684,6 +684,13 @@ export default function Settings() {
               🏢 Business Info
             </button>
             <button
+              className={`settings-nav-btn ${subTab === 'printer' ? 'active' : ''}`}
+              onClick={() => setSubTab('printer')}
+              type="button"
+            >
+              🖨️ Printer & Hardware
+            </button>
+            <button
               className={`settings-nav-btn ${subTab === 'menu' ? 'active' : ''}`}
               onClick={() => setSubTab('menu')}
             >
@@ -1159,59 +1166,16 @@ export default function Settings() {
               </div>
             )}
 
-            {/* 4. Online Store Admin Settings */}
-            {subTab === 'online' && (
+            {/* Restaurant point-of-sale workstation printer configuration.
+                Unlike storefront delivery settings, this belongs under POS Settings. */}
+            {subTab === 'printer' && (
               <div>
-                <div style={{display:'flex',gap:10,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',marginBottom:14}}>
-                  <h2 className="settings-section-title" style={{margin:0}}>Online Store Settings</h2>
-                  <button type="button" className="btn btn-outline" onClick={()=>setActiveTab('online-store')}>← Online Store dashboard</button>
-                </div>
-                <section className="online-store-launch-panel" aria-label="Customer store setup and preview" style={{background:'var(--bg-surface)',border:'1px solid var(--border-color)',borderRadius:18,padding:20,marginBottom:24}}>
-                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:14,flexWrap:'wrap'}}>
-                    <div>
-                      <p style={{fontSize:11,fontWeight:800,letterSpacing:'.1em',color:'var(--color-primary)',marginBottom:6}}>YOUR ONLINE STOREFRONT</p>
-                      <h3 style={{fontSize:19,fontWeight:800,margin:'0 0 7px'}}>Set up your customer ordering experience</h3>
-                      <p style={{color:'var(--text-muted)',fontSize:13,lineHeight:1.6,maxWidth:570}}>Configure your shop identity, items, delivery fees and opening status, then preview what customers see. Changes here apply only to your restaurant.</p>
-                    </div>
-                    <a className="btn btn-primary" target="_blank" rel="noopener noreferrer"
-                      href={`/customer/?tenant=${encodeURIComponent(currentUser?.tenant_id || currentUser?.tenantId || 'default_tenant')}&view=menu`}
-                      style={{display:'inline-flex',alignItems:'center',gap:7,textDecoration:'none'}}>↗ Preview my customer store</a>
-                  </div>
-                  <div className="online-store-checklist" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,210px),1fr))',gap:12,marginTop:18}}>
-                    {[
-                      {title:'Business profile',help:'Shop name, phone, logo and address',action:()=>setSubTab('business')},
-                      {title:'Online menu',help:'Categories, food photos, stock and prices',action:()=>setSubTab('menu')},
-                      {title:'Online availability',help:'Open or pause incoming orders',action:()=>document.getElementById('online-store-controls')?.scrollIntoView({behavior:'smooth',block:'start'})},
-                      {title:'Delivery settings',help:'Radius, charges and preparation times',action:()=>document.getElementById('online-store-delivery')?.scrollIntoView({behavior:'smooth',block:'start'})}
-                    ].map(item=><button type="button" key={item.title} onClick={item.action}
-                      style={{background:'var(--bg-card)',textAlign:'left',border:'1px solid var(--border-color)',borderRadius:12,padding:14,cursor:'pointer',display:'grid',gap:6}}>
-                      <strong style={{fontSize:13}}>{item.title} ↗</strong><small style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.4}}>{item.help}</small>
-                    </button>)}
-                  </div>
-                </section>
-                
-                <div id="online-store-controls" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                    
-                    <div style={{ flex: 1, minWidth: '200px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Store Status</h3>
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                        Toggle the online store closed instantly if the kitchen is slammed.
-                      </p>
-                      <button 
-                        className={`btn ${settings?.storeOpen === 'true' ? 'btn-danger' : 'btn-primary'}`} 
-                        onClick={async () => {
-                          const currentVal = settings?.storeOpen;
-                          const nextVal = currentVal === 'true' ? 'false' : 'true';
-                          await updateSetting('storeOpen', nextVal);
-                          showToast(nextVal === 'true' ? '🟢 Online store is now OPEN' : '🔴 Online orders paused', nextVal === 'true' ? 'success' : 'info');
-                        }}
-                      >
-                        {settings?.storeOpen === 'true' ? '🔴 Pause Online Orders' : '🟢 Open Online Store'}
-                      </button>
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: '220px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
+                <h2 className="settings-section-title">Printer & Hardware</h2>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.6 }}>
+                  Configure receipt paper, test the Windows thermal printer, and optionally enable direct ESC/POS printing on this computer.
+                  Browser printing remains the default until a local native test is completed.
+                </p>
+                    <div style={{ width: '100%', maxWidth: '850px', padding: '24px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
                       <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Smart Printer & Paper Size</h3>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <label style={{ fontSize: '12px', fontWeight: 600 }}>Printer Paper Size</label>
@@ -1283,6 +1247,62 @@ export default function Settings() {
                       </div>
                     </div>
 
+
+
+              </div>
+            )}
+
+            {/* 4. Online Store Admin Settings */}
+            {subTab === 'online' && (
+              <div>
+                <div style={{display:'flex',gap:10,alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',marginBottom:14}}>
+                  <h2 className="settings-section-title" style={{margin:0}}>Online Store Settings</h2>
+                  <button type="button" className="btn btn-outline" onClick={()=>setActiveTab('online-store')}>← Online Store dashboard</button>
+                </div>
+                <section className="online-store-launch-panel" aria-label="Customer store setup and preview" style={{background:'var(--bg-surface)',border:'1px solid var(--border-color)',borderRadius:18,padding:20,marginBottom:24}}>
+                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:14,flexWrap:'wrap'}}>
+                    <div>
+                      <p style={{fontSize:11,fontWeight:800,letterSpacing:'.1em',color:'var(--color-primary)',marginBottom:6}}>YOUR ONLINE STOREFRONT</p>
+                      <h3 style={{fontSize:19,fontWeight:800,margin:'0 0 7px'}}>Set up your customer ordering experience</h3>
+                      <p style={{color:'var(--text-muted)',fontSize:13,lineHeight:1.6,maxWidth:570}}>Configure your shop identity, items, delivery fees and opening status, then preview what customers see. Changes here apply only to your restaurant.</p>
+                    </div>
+                    <a className="btn btn-primary" target="_blank" rel="noopener noreferrer"
+                      href={`/customer/?tenant=${encodeURIComponent(currentUser?.tenant_id || currentUser?.tenantId || 'default_tenant')}&view=menu`}
+                      style={{display:'inline-flex',alignItems:'center',gap:7,textDecoration:'none'}}>↗ Preview my customer store</a>
+                  </div>
+                  <div className="online-store-checklist" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,210px),1fr))',gap:12,marginTop:18}}>
+                    {[
+                      {title:'Business profile',help:'Shop name, phone, logo and address',action:()=>setSubTab('business')},
+                      {title:'Online menu',help:'Categories, food photos, stock and prices',action:()=>setSubTab('menu')},
+                      {title:'Online availability',help:'Open or pause incoming orders',action:()=>document.getElementById('online-store-controls')?.scrollIntoView({behavior:'smooth',block:'start'})},
+                      {title:'Delivery settings',help:'Radius, charges and preparation times',action:()=>document.getElementById('online-store-delivery')?.scrollIntoView({behavior:'smooth',block:'start'})}
+                    ].map(item=><button type="button" key={item.title} onClick={item.action}
+                      style={{background:'var(--bg-card)',textAlign:'left',border:'1px solid var(--border-color)',borderRadius:12,padding:14,cursor:'pointer',display:'grid',gap:6}}>
+                      <strong style={{fontSize:13}}>{item.title} ↗</strong><small style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.4}}>{item.help}</small>
+                    </button>)}
+                  </div>
+                </section>
+                
+                <div id="online-store-controls" style={{ marginBottom: '32px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    
+                    <div style={{ flex: 1, minWidth: '200px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
+                      <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Store Status</h3>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                        Toggle the online store closed instantly if the kitchen is slammed.
+                      </p>
+                      <button 
+                        className={`btn ${settings?.storeOpen === 'true' ? 'btn-danger' : 'btn-primary'}`} 
+                        onClick={async () => {
+                          const currentVal = settings?.storeOpen;
+                          const nextVal = currentVal === 'true' ? 'false' : 'true';
+                          await updateSetting('storeOpen', nextVal);
+                          showToast(nextVal === 'true' ? '🟢 Online store is now OPEN' : '🔴 Online orders paused', nextVal === 'true' ? 'success' : 'info');
+                        }}
+                      >
+                        {settings?.storeOpen === 'true' ? '🔴 Pause Online Orders' : '🟢 Open Online Store'}
+                      </button>
+                    </div>
 
                     <div style={{ flex: 1, minWidth: '200px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
                       <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Prep Times (ETA)</h3>
