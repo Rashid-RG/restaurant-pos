@@ -9,6 +9,7 @@ import { acceptsOnlineOrders, recommendationScore, recommendedOpenStores } from 
 import { restaurantRatingText, restaurantDeliveryText, restaurantEmptyState, sortRestaurants } from '../utils/discovery-display.js';
 import {matchesRestaurantQuery} from '../utils/discovery-search.js';
 import {acquireBestLocation,permissionAllowsAutomaticLocation} from '../utils/location-acquisition.js';
+import {createAddressSearchGate} from '../utils/address-search-gate.js';
 
 
 const CUISINE_CATEGORIES = [
@@ -45,6 +46,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [dismissedCoverage, setDismissedCoverage] = useState(false);
   const [userAccuracy, setUserAccuracy] = useState(null);
   const locationRequestRef = useRef(0);
+  const addressSearchGateRef = useRef(createAddressSearchGate());
   const restaurantsFetchRef = useRef(0);
 
   // Render location dialogs outside scrolling app ancestors and freeze the
@@ -191,6 +193,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   };
 
   const handleSelectPredefinedCity = (cityStr) => {
+    addressSearchGateRef.current.invalidate();
     locationRequestRef.current++;
     setDeliveryLocation(cityStr);
     localStorage.setItem('gastroflow_delivery_address', cityStr);
@@ -208,30 +211,39 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [isSearchingAddress, setIsSearchingAddress] = useState(false);
   const mapContainerRef = useRef(null);
 
-  // Live forward geocoding address autocomplete search
+  // Autocomplete is last-query-wins. Ignore older searches after a query
+  // change, modal close, selection, or component unmount.
   useEffect(() => {
-    if (!customAddressInput || customAddressInput.trim().length < 3) {
-      setAddressSearchResults([]);
-      return;
-    }
+    addressSearchGateRef.current.invalidate();
+    setAddressSearchResults([]);
+    setIsSearchingAddress(false);
+    if (!showLocationModal || customAddressInput.trim().length < 3) return;
 
     const timer = setTimeout(async () => {
+      const request = addressSearchGateRef.current.start();
       setIsSearchingAddress(true);
       try {
         const query = encodeURIComponent(customAddressInput.trim());
         const data = await apiFetch(`/public/geocode?q=${query}`);
-        setAddressSearchResults(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn('Forward geocoding search error:', err);
+        if (addressSearchGateRef.current.isCurrent(request))
+          setAddressSearchResults(Array.isArray(data) ? data : []);
+      } catch {
+        // A stale or failed autocomplete search must not change a saved pin.
       } finally {
-        setIsSearchingAddress(false);
+        if (addressSearchGateRef.current.isCurrent(request)) setIsSearchingAddress(false);
       }
     }, 400);
 
-    return () => clearTimeout(timer);
-  }, [customAddressInput]);
+    return () => {
+      clearTimeout(timer);
+      addressSearchGateRef.current.invalidate();
+    };
+  }, [customAddressInput, showLocationModal]);
+
+  useEffect(() => () => addressSearchGateRef.current.dispose(), []);
 
   const handleSelectAddressSuggestion = (item) => {
+    addressSearchGateRef.current.invalidate();
     locationRequestRef.current++;
     const lat = parseFloat(item.lat);
     const lng = Number(item.lng ?? item.lon);
