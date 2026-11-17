@@ -15,7 +15,7 @@ import {initManualPayments,createManualPayments} from './routes/manual-payments.
 import {syncKitchen} from './lib/kitchen.js';
 import {createKitchenRouter} from './routes/kitchen.js';
 import {initInventoryOperations,createInventoryOperations} from './routes/inventory-operations.js';
-import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact ,createTrackingGuard,makeTrackingAccess,publicTrackingEvent,loadAssignedDriverLocation ,initOrderInventory,setOrderInventory} from './lib/orders/index.js';
+import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact ,createTrackingGuard,makeTrackingAccess,publicTrackingEvent,loadAssignedDriverLocation ,initOrderInventory,setOrderInventory,createReleaseOrderLoyalty} from './lib/orders/index.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
@@ -4731,13 +4731,7 @@ function notifyPOS(eventData, tenantId) {
 
 // Must run inside the cancellation transaction. Only new, recorded reservations
 // can be returned; historical loyalty balances require separate reconciliation.
-async function releaseOrderLoyalty(orderId,tenantId){
- const order=await dbGet('SELECT customerAccountId,loyaltyPointsReserved,loyaltyReversed FROM orders WHERE id=? AND tenant_id=?',[orderId,tenantId]);
- if(!order?.loyaltyPointsReserved||order.loyaltyReversed)return;
- const result=await dbRun('UPDATE customer_accounts SET loyaltyPoints=loyaltyPoints+? WHERE id=? AND tenant_id=?',[order.loyaltyPointsReserved,order.customerAccountId,tenantId]);
- if(result.changes!==1)throw Error('Loyalty account needs reconciliation before cancellation.');
- await dbRun('UPDATE orders SET loyaltyReversed=1 WHERE id=? AND tenant_id=?',[orderId,tenantId]);
-}
+const releaseOrderLoyalty = createReleaseOrderLoyalty({ dbGet, dbRun });
 
 // Unified Billing Calculation Helper
 // Thin wrapper — delegates to lib/billing.js (injecting the local DB helpers).
