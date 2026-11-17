@@ -73,6 +73,30 @@ describe('Customer authentication for SaaS storefronts',()=>{
       .send({...payload,phone:'0771234067'});
     expect(already.status).toBe(400);
   });
+  it('registers the same verified phone in a second restaurant without changing the first account',async()=>{
+    await otp(B,'secondary-restaurant@example.test','phone_verify','451209');
+    const payload={name:'Second Restaurant Customer',email:'secondary-restaurant@example.test',phone:phoneA,password:pw,otpCode:'451209'};
+    const added=await request(app).post('/api/customer/auth/register').set('X-Tenant-Id',B).send(payload);
+    expect(added.status,added.text).toBe(201);
+    const ownB=await requestLogin(B,phoneA,pw);
+    expect(ownB.status,ownB.text).toBe(200);
+    expect(ownB.body.customer.id).toBe(added.body.customer.id);
+    const ownA=await requestLogin(A,phoneA,pw);
+    expect(ownA.status,ownA.text).toBe(200);
+    expect(ownA.body.customer.id).toBe('acct-a');
+    expect(ownA.body.customer.id).not.toBe(ownB.body.customer.id);
+  });
+  it('reports a controlled conflict when a legacy global email constraint prevents cross-restaurant reuse',async()=>{
+    await otp(B,'alpha@example.test','phone_verify','316902');
+    const response=await request(app).post('/api/customer/auth/register').set('X-Tenant-Id',B).send({
+      name:'Cross Restaurant Email',email:'alpha@example.test',phone:'0771234079',password:pw,otpCode:'316902'
+    });
+    expect(response.status,response.text).toBe(409);
+    expect(response.body.code).toBe('CUSTOMER_REGISTRATION_CONFLICT');
+    expect(response.body.error).not.toContain('alpha@example.test');
+    const original=await dbGet('SELECT id,tenant_id FROM customer_accounts WHERE id=?',['acct-a']);
+    expect(original).toMatchObject({id:'acct-a',tenant_id:A});
+  });
   it('requires current password and invalidates previous session after change',async()=>{
     const rejected=await request(app).put('/api/customer/profile')
       .set('Authorization',`Bearer ${tokenA}`).set('X-Tenant-Id',A)
