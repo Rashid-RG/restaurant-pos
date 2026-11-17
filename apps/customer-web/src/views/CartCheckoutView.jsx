@@ -8,6 +8,7 @@ import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
 import { apiFetch } from '../utils/api.js';
 import { getActiveTenant } from '../utils/tenant.js';
+import { canUseHostedPayHereGateway, payHerePaymentDisabled } from '../utils/native-payment-policy.js';
 import { Store, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/LocationPicker.jsx';
 import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
@@ -350,6 +351,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       }
 
       if (paymentMethod === 'payhere') {
+        if (!canUseHostedPayHereGateway(import.meta.env.MODE)) throw new Error('Online card payments are not available in this app yet.');
         const payhereRes = await apiFetch('/public/payment/payhere/hash', {
           method: 'POST',
           body: JSON.stringify({
@@ -428,7 +430,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     if (!canOrder) { toast('Restaurant availability cannot be confirmed. Your cart is saved.', 'warning'); return; }
     if (!deliveryQuoteConfirmed) { toast('Delivery is not yet confirmed for this pinned address. Check the delivery fee before placing an order.', 'warning'); return; }
     if (appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) { toast('Your cart changed. Please apply the promotion again.', 'warning'); return; }
-    if ((paymentMethod === 'payhere' && !rates.payhereEnabled) || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
+    if ((paymentMethod === 'payhere' && payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled)) || paymentMethod === 'lankaqr') { toast('This payment option is not available at the moment. Choose cash or manual bank transfer.', 'warning'); return; }
     if (!name.trim()) { toast('Please enter your name.', 'error'); return; }
     if (!phone.trim()) { toast('Please enter your phone number.', 'error'); return; }
 
@@ -536,7 +538,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
 
   // Redirect to real PayHere Sandbox checkout page (standard form submit)
   const handleRealPayHereRedirect = () => {
-    if (!payhereRedirectData) return;
+    if (!payhereRedirectData || !canUseHostedPayHereGateway(import.meta.env.MODE)) return;
 
     const form = document.createElement('form');
     form.method = 'POST';
@@ -998,19 +1000,19 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             {LOCAL_PAYMENTS.map(p => (
               <label 
                 key={p.id}
-                aria-disabled={p.disabled || (p.id === 'payhere' && !rates.payhereEnabled)}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface-2, #f7f7f2)', borderRadius: 12, cursor: p.disabled || (p.id === 'payhere' && !rates.payhereEnabled) ? 'not-allowed' : 'pointer', opacity: p.disabled || (p.id === 'payhere' && !rates.payhereEnabled) ? 0.67 : 1, border: paymentMethod === p.id ? '2px solid var(--brand)' : '1px solid var(--border-color)' }}
+                aria-disabled={p.disabled || (p.id === 'payhere' && payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled))}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface-2, #f7f7f2)', borderRadius: 12, cursor: p.disabled || (p.id === 'payhere' && payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled)) ? 'not-allowed' : 'pointer', opacity: p.disabled || (p.id === 'payhere' && payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled)) ? 0.67 : 1, border: paymentMethod === p.id ? '2px solid var(--brand)' : '1px solid var(--border-color)' }}
               >
                 <input 
                   type="radio" 
                   name="payment" 
                   checked={paymentMethod === p.id}
-                  disabled={p.disabled || (p.id === 'payhere' && !rates.payhereEnabled)}
+                  disabled={p.disabled || (p.id === 'payhere' && payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled))}
                   onChange={() => setPaymentMethod(p.id)}
                   style={{ width: 18, height: 18, accentColor: 'var(--brand)' }}
                 />
                 <span style={{ fontSize: '1.25rem' }}>{p.icon}</span>
-                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.id==='cash'?t('cashPaymentLabel'):p.id==='bank_transfer'?t('manualBankLabel'):p.id==='payhere'&&!rates.payhereEnabled?t('cardUnavailable'):p.id==='lankaqr'?t('lankaQrSoon'):p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.id==='cash'?t('cashPaymentHelp'):p.id==='bank_transfer'?t('manualBankHelp'):p.id==='payhere'&&rates.payhereEnabled?'Secure card payment via PayHere':p.description}</small></span>
+                <span style={{ display:'flex',flexDirection:'column',gap:3,minWidth:0 }}><strong style={{ fontSize: '0.85rem' }}>{p.id==='cash'?t('cashPaymentLabel'):p.id==='bank_transfer'?t('manualBankLabel'):p.id==='payhere'&&payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled)?t('cardUnavailable'):p.id==='lankaqr'?t('lankaQrSoon'):p.label}</strong><small style={{fontSize:'.74rem',color:'var(--text-muted)',lineHeight:1.45}}>{p.id==='cash'?t('cashPaymentHelp'):p.id==='bank_transfer'?t('manualBankHelp'):p.id==='payhere'&&!payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled)?'Secure card payment via PayHere':p.description}</small></span>
               </label>
             ))}
           </div>
