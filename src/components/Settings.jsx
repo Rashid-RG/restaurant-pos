@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
 import { testPrintReceipt } from '../utils/printer';
+import { getNativePrinterConfig, saveNativePrinterConfig, listNativePrinters, nativePrintTestSlip } from '../utils/native-printer';
 import { restaurantTimeZone, validTimeZone } from '../utils/restaurant-time';
 
 const COMMON_TIME_ZONES = ['Asia/Colombo', 'Asia/Qatar', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'America/New_York'];
@@ -30,6 +31,55 @@ export default function Settings() {
   } = usePOS();
 
   const isMasterSuperAdmin = currentUser?.isPlatformAdmin === true;
+
+  // Direct printing is deliberately opt-in and stored per computer + tenant,
+  // not in the restaurant-wide settings or in Turso.
+  const nativeTenantId = currentUser?.tenant_id || currentUser?.tenantId || '';
+  const [nativeConfig, setNativeConfig] = useState(() => getNativePrinterConfig(nativeTenantId));
+  const [nativePrinters, setNativePrinters] = useState([]);
+  const [nativePrinterName, setNativePrinterName] = useState(() => getNativePrinterConfig(nativeTenantId).printerName);
+  const [nativeBusy, setNativeBusy] = useState(false);
+  const [nativeStatus, setNativeStatus] = useState('');
+  const [nativeTested, setNativeTested] = useState(false);
+  const discoverNativePrinters = async () => {
+    setNativeBusy(true);
+    setNativeStatus('Connecting to QZ Tray on this computer...');
+    try {
+      const found = await listNativePrinters();
+      setNativePrinters(found);
+      setNativeStatus(found.length ? found.length + ' local Windows printer(s) found.' : 'No printers were found. Check QZ Tray and Windows.');
+      if (found.includes(nativePrinterName)) setNativeTested(false);
+    } catch (error) {
+      setNativeStatus(error.message || 'Unable to connect to QZ Tray.');
+      showToast(error.message || 'QZ Tray is not running.', 'error');
+    } finally { setNativeBusy(false); }
+  };
+  const testNativePrinter = async () => {
+    if (!nativePrinters.includes(nativePrinterName)) return;
+    setNativeBusy(true);
+    setNativeStatus('Sending one short native test slip...');
+    try {
+      await nativePrintTestSlip(nativePrinterName, settings?.printerPaperWidth === '58mm' ? '58mm' : '80mm', true);
+      setNativeTested(true);
+      setNativeStatus('Test slip sent. Confirm the slip printed and cut correctly before enabling.');
+    } catch (error) {
+      setNativeTested(false);
+      setNativeStatus(error.message || 'Native print test failed.');
+      showToast(error.message || 'Native test failed. Browser receipts remain available.', 'error');
+    } finally { setNativeBusy(false); }
+  };
+  const toggleNativePrinter = (enabled) => {
+    if (enabled && (!nativePrinters.includes(nativePrinterName) || !nativeTested)) {
+      showToast('Connect QZ Tray, choose the correct printer and send a test slip before enabling.', 'warning');
+      return;
+    }
+    try {
+      const next = saveNativePrinterConfig(nativeTenantId, { enabled, printerName: nativePrinterName, cut: true });
+      setNativeConfig(next);
+      setNativeStatus(enabled ? 'Direct printing enabled for this computer only. Browser print is still available as a fallback.' : 'Direct printing disabled. Existing browser printing restored.');
+    } catch (error) { showToast(error.message, 'error'); }
+  };
+
 
   // Settings sub-tab selection: 'business' | 'menu' | 'database'
   const [subTab, setSubTab] = useState(()=>{
@@ -1189,6 +1239,37 @@ export default function Settings() {
                         >
                           🖨️ Test Print Slip
                         </button>
+                        <div style={{ padding: '14px', border: '1px solid var(--border-color)', borderRadius: '10px', display: 'grid', gap: 10 }}>
+                          <strong style={{ fontSize: 13 }}>Windows Direct Thermal Print (ESC/POS) — Pilot</strong>
+                          <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
+                            Optional per Windows computer. Requires QZ Tray running locally, a connected ESC/POS-compatible printer and permission prompts.
+                            No Windows driver reinstall is needed just to try this mode. Leave disabled to keep the current browser printing.
+                          </p>
+                          <a href="https://qz.io/download/" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Download QZ Tray for Windows</a>
+                          <button type="button" className="btn btn-outline" disabled={nativeBusy} onClick={discoverNativePrinters}>
+                            {nativeBusy ? 'Connecting…' : '1. Connect QZ Tray / Find printers'}
+                          </button>
+                          <label style={{ fontSize: 12, fontWeight: 600 }} htmlFor="gastroflow-native-printer-select">2. Select the correct Windows printer</label>
+                          <select id="gastroflow-native-printer-select" className="form-select" value={nativePrinterName}
+                            onChange={e => { setNativePrinterName(e.target.value); setNativeTested(false); if (nativeConfig.enabled) toggleNativePrinter(false); }}>
+                            <option value="">Select a detected printer</option>
+                            {nativePrinters.map(printer => <option key={printer} value={printer}>{printer}</option>)}
+                          </select>
+                          <button type="button" className="btn btn-outline" disabled={nativeBusy || !nativePrinters.includes(nativePrinterName) || nativeConfig.enabled} onClick={testNativePrinter}>
+                            3. Send one native test slip (includes cut command)
+                          </button>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                            <input type="checkbox" checked={nativeConfig.enabled}
+                              onChange={e => toggleNativePrinter(e.target.checked)}
+                              disabled={nativeBusy || (!nativeConfig.enabled && !nativeTested)} />
+                            Enable native cashier receipt printing on this computer
+                          </label>
+                          {nativeStatus && <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>{nativeStatus}</p>}
+                          <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>
+                            QZ print success means sent to Windows, not confirmed physically printed. Unsigned QZ requests show confirmation prompts.
+                            If a native job fails, manually use the browser Print button; GastroFlow will not submit a duplicate automatically.
+                          </p>
+                        </div>
                         <label style={{ fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', marginTop: '4px' }}>
                           <input 
                             type="checkbox"
