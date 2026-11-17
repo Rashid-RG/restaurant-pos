@@ -18,6 +18,7 @@ import {initInventoryOperations,createInventoryOperations} from './routes/invent
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation} from './lib/checkout-recovery.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
+import { haversineDistanceKm } from './lib/geo-distance.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 import {initOrderInventory,setOrderInventory} from './lib/order-inventory.js';
 import { createOrderChatRouter } from './routes/order-chat.js';
@@ -3310,18 +3311,6 @@ app.post('/api/customer/loyalty/redeem', authenticateCustomer, async (req, res) 
 // ======================================================
 // PUBLIC MENU & ORDER ENDPOINTS (no auth required)
 // ======================================================
-
-// ── Haversine distance (km) between two lat/lng points ──
-function haversineDistanceKm(lat1, lng1, lat2, lng2) {
-  const R = 6371; // Earth's radius in km
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 // ── Peak hour detection (Sri Lanka lunch & dinner rush) ──
 async function isPeakHour(tenantId = 'default_tenant') {
