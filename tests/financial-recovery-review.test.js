@@ -64,6 +64,19 @@ describe('offline financial ledger and invoice recovery assessment',()=>{
   expect(assessRestoredFinancialLedgers(a,b).verified).toBe(false);
   expect(()=>assessRestoredFinancialLedgers([],new Map())).toThrow(/Maps/);
  });
+ it('refuses unsafe JavaScript invoice numbers and cash amounts while allowing exact strings',()=>{
+  const before=fixture(),after=fixture();
+  before.set('invoice_counter',[{id:1,lastNumber:Number.MAX_SAFE_INTEGER+1}]);
+  after.set('invoice_counter',[{id:1,lastNumber:Number.MAX_SAFE_INTEGER+1}]);
+  expect(assessRestoredFinancialLedgers(before,after).invoices.status).toBe('invalid_invoice_counter');
+  before.set('invoice_counter',[{id:1,lastNumber:'9007199254740993'}]);
+  after.set('invoice_counter',[{id:1,lastNumber:'9007199254740993'}]);
+  expect(assessRestoredFinancialLedgers(before,after).invoices.verified).toBe(true);
+  before.set('cash_movements',[{tenant_id:'tenant-A',amount:100000000000000}]);
+  after.set('cash_movements',[{tenant_id:'tenant-A',amount:100000000000000}]);
+  expect(assessRestoredFinancialLedgers(before,after).ledgers.cash_movements.status)
+    .toBe('unsupported_columns_or_amounts');
+ });
  it('does not treat an empty ledger as a missing table',()=>{
   const a=fixture(),b=fixture();
   a.set('manual_refunds',[]);b.set('manual_refunds',[]);
