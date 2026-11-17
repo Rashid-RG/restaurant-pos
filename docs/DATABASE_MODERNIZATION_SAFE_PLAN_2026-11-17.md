@@ -74,6 +74,16 @@ The offline schema inventory now refuses symlink, non-regular, missing, and extr
 
 **Operator cautions:** the tool still reads sensitive plaintext logical backups and produces a restored local database containing customer data. Use only approved offline copies in a secure, access-controlled environment. Temporary incomplete restores are cleaned up on failure, but operators must still safeguard the source plaintext snapshot and any successfully restored database as sensitive customer data. A successful test with synthetic data is not proof that the live Turso dataset has a verified recovery copy.
 
+## Offline restore reconciliation (additional recovery evidence)
+
+After a separately authorized logical backup has been securely restored to a **new, isolated local database**, compare it to the original backup without connecting to Turso:
+
+```bash
+node scripts/reconcile-local-restore.js existing-local-backup.json verified-restored-copy.db
+```
+
+The command opens the existing restored copy with `sqlite3.OPEN_READONLY`, verifies the snapshot's SHA-256 hash, compares canonicalized full table row contents (including BLOB values) without regard to row order, and prints **table names, record counts, and match flags only**. It never prints customer records or order IDs. A mismatch sets a nonzero exit status; a success is one recovery gate, not authorization for migration. The source logical backup **remains plaintext and contains sensitive customer and sales information**. Keep it inside a secure, access-controlled operator environment and never commit it to GitHub or publish it in CI logs. This tool does not validate encrypted archive retention, live Turso data freshness, or per-tenant financial reconciliation; those remain separate acceptance gates.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
@@ -84,6 +94,7 @@ The offline schema inventory now refuses symlink, non-regular, missing, and extr
 - [x] Versioned in-memory additive migration rehearsal and rollback regression tests committed
 - [x] Pure offline before/after schema diff with tenant-risk and index regression tests committed
 - [x] Consolidated offline assessment CLI and risk-report tests committed
+- [x] Read-only restored-copy row reconciliation and privacy regressions committed
 - [x] Recovery file-path and atomic new-destination protection regression tests committed
 - [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
