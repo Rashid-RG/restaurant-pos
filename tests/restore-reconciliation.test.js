@@ -39,6 +39,25 @@ describe('read-only local restore reconciliation',()=>{
    expect(result.stdout).not.toContain('tenant-a');
   });
  });
+ it('reports financial verification for two restaurant tenants without disclosing totals',async()=>{
+  await withCopy(async({backup,file,run})=>{
+   await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, total NUMERIC)');
+   await run('INSERT INTO orders VALUES (?,?,?)',['order-private-a','tenant-secret-A',120.25]);
+   await run('INSERT INTO orders VALUES (?,?,?)',['order-private-b','tenant-secret-B',450]);
+   fs.writeFileSync(backup,JSON.stringify(snapshot([{name:'orders',rows:[
+    {id:'order-private-a',tenant_id:'tenant-secret-A',total:120.25},
+    {id:'order-private-b',tenant_id:'tenant-secret-B',total:450},
+   ]}])));
+   const result=invoke(backup,file);
+   expect(result.status,result.stderr).toBe(0);
+   expect(JSON.parse(result.stdout)).toMatchObject({
+    ok:true,financialVerified:true,
+    tenantFinancials:{status:'checked',ok:true,tenantCount:2,mismatchedTenantCount:0},
+   });
+   expect(result.stdout).not.toContain('tenant-secret');
+   expect(result.stdout).not.toContain('450');
+  });
+ });
  it('fails closed on mismatched records while revealing only aggregate counts',async()=>{
   await withCopy(async({backup,file,run})=>{
    await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, amount INTEGER)');
