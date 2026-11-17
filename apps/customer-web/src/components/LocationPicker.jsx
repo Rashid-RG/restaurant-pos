@@ -120,6 +120,7 @@ export default function LocationPicker({ value, onChange, toast }) {
   function onQueryChange(text) {
     setQuery(text);
     addressSearchGateRef.current.invalidate();
+    setResults([]); // Do not show matches for a previous address while typing.
     setSearching(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (text.trim().length < 3) { setResults([]); return; }
