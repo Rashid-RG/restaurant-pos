@@ -24,13 +24,17 @@ afterEach(()=>vi.unstubAllGlobals());
 
 describe('customer token and public tracking isolation',()=>{
   it('refuses a failure from a public tracking header without customer bearer auth',()=>{
-    expect(shouldClearCustomerTokenForResponse({status:401,message:'Invalid tracking token',customerToken:'abc'})).toBe(false);
-    expect(shouldClearCustomerTokenForResponse({status:403,message:'Expired token',customerToken:'abc',authorizationHeader:'Bearer another'})).toBe(false);
+    expect(shouldClearCustomerTokenForResponse({status:401,message:'Invalid tracking token',customerToken:'abc',endpoint:'/api/customer/auth/me'})).toBe(false);
+    expect(shouldClearCustomerTokenForResponse({status:403,message:'Expired token',customerToken:'abc',authorizationHeader:'Bearer another',endpoint:'/api/customer/auth/me'})).toBe(false);
+  });
+  it('never clears customer sessions from private order links even when both tokens are sent',()=>{
+    expect(shouldClearCustomerTokenForResponse({status:401,message:'Invalid tracking token',customerToken:'abc',authorizationHeader:'Bearer abc',endpoint:'/api/public/orders/order-42'})).toBe(false);
+    expect(shouldClearCustomerTokenForResponse({status:401,message:'Authentication token expired',customerToken:'abc',authorizationHeader:'Bearer abc',endpoint:'/api/public/orders/order-42'})).toBe(false);
   });
   it('clears only when the customer bearer token was actually used and explicitly revoked',()=>{
-    expect(shouldClearCustomerTokenForResponse({status:401,message:'Authentication token expired',customerToken:'abc',authorizationHeader:'Bearer abc'})).toBe(true);
-    expect(shouldClearCustomerTokenForResponse({status:401,message:'Temporary server error',customerToken:'abc',authorizationHeader:'Bearer abc'})).toBe(false);
-    expect(shouldClearCustomerTokenForResponse({status:503,message:'Token invalid',customerToken:'abc',authorizationHeader:'Bearer abc'})).toBe(false);
+    expect(shouldClearCustomerTokenForResponse({status:401,message:'Authentication token expired',customerToken:'abc',authorizationHeader:'Bearer abc',endpoint:'/api/customer/auth/me'})).toBe(true);
+    expect(shouldClearCustomerTokenForResponse({status:401,message:'Temporary server error',customerToken:'abc',authorizationHeader:'Bearer abc',endpoint:'/api/customer/auth/me'})).toBe(false);
+    expect(shouldClearCustomerTokenForResponse({status:503,message:'Token invalid',customerToken:'abc',authorizationHeader:'Bearer abc',endpoint:'/api/customer/auth/me'})).toBe(false);
   });
   it('does not log out customer when an order-specific tracking token expires',async()=>{
     const {storage,values}=testEnvironment();
