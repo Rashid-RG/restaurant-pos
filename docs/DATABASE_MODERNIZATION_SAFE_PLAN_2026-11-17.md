@@ -68,6 +68,12 @@ This command accepts only two existing local, non-symlink JSON files under 5 MiB
 
 Always perform actual-data restore reconciliation, query-plan benchmarking, tenant authorization tests, backup retention verification, a rollback rehearsal and obtain explicit staging approval before any real database mutation.
 
+## Recovery-path file safety hardening
+
+The offline schema inventory now refuses symlink, non-regular, missing, and extra-argument paths before opening SQLite in read-only mode. The logical backup restore command now rejects remote URL input/destination strings, symlinked backup inputs, destination paths equal to the backup source, and existing destination paths. It **reserves a new destination atomically** with exclusive file creation and private permissions to prevent a race between an existence check and libSQL opening the restored file. Restoration continues only to a newly created local database and still validates logical row equivalence, integrity, and foreign keys.
+
+**Operator cautions:** the tool still reads sensitive plaintext logical backups and produces a restored local database containing customer data. Use only approved offline copies in a secure, access-controlled environment. An incomplete output on restore failure must be treated as sensitive and must never be opened as a validated backup. A successful test with synthetic data is not proof that the live Turso dataset has a verified recovery copy.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
@@ -78,6 +84,7 @@ Always perform actual-data restore reconciliation, query-plan benchmarking, tena
 - [x] Versioned in-memory additive migration rehearsal and rollback regression tests committed
 - [x] Pure offline before/after schema diff with tenant-risk and index regression tests committed
 - [x] Consolidated offline assessment CLI and risk-report tests committed
+- [x] Recovery file-path and atomic new-destination protection regression tests committed
 - [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
