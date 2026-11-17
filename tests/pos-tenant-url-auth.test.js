@@ -217,6 +217,35 @@ describe('POS URL restaurant identity isolation', () => {
     expect((await dbGet('SELECT tenant_id FROM tables WHERE id=?',['qa_table_b'])).tenant_id).toBe(tenantB);
   });
 
+  it('staff ETA updates and public ETA capacity stay within the selected restaurant',async()=>{
+    const headers={Authorization:`Bearer ${loginA.body.token}`};
+    await dbRun('INSERT INTO orders(id,tenant_id,status,timestamp,etaMinutes) VALUES(?,?,?,?,?)',
+      ['qa_pending_a',tenantA,'pending',Date.now(),null]);
+    await dbRun('INSERT INTO orders(id,tenant_id,status,timestamp,etaMinutes) VALUES(?,?,?,?,?)',
+      ['qa_pending_b',tenantB,'pending',Date.now(),null]);
+
+    const wrong=await request(app).post('/api/orders/qa_pending_b/eta')
+      .set(headers).send({etaMinutes:90});
+    expect(wrong.status).toBe(404);
+    expect((await dbGet('SELECT etaMinutes FROM orders WHERE id=?',['qa_pending_b'])).etaMinutes).toBeNull();
+
+    const own=await request(app).post('/api/orders/qa_pending_a/eta')
+      .set(headers).send({etaMinutes:25});
+    expect(own.status,own.text).toBe(200);
+    expect((await dbGet('SELECT etaMinutes FROM orders WHERE id=?',['qa_pending_a'])).etaMinutes).toBe(25);
+
+    const trackingSecret=process.env.CUSTOMER_JWT_SECRET;
+    const jwt=(await import('jsonwebtoken')).default;
+    const tracking=jwt.sign({type:'order_tracking',orderId:'qa_pending_b',tenantId:tenantB},trackingSecret,{algorithm:'HS256',expiresIn:'7d'});
+    const b=await request(app).get('/api/public/orders/qa_pending_b/eta')
+      .query({tenantId:tenantB}).set('X-Order-Tracking',tracking);
+    expect(b.status,b.text).toBe(200);
+    expect(b.body.estimatedMinutes).toBe(18); // One pending order in tenant B.
+    const cross=await request(app).get('/api/public/orders/qa_pending_b/eta')
+      .query({tenantId:tenantA}).set('X-Order-Tracking',tracking);
+    expect(cross.status).toBe(404);
+  });
+
   it('rejects Shop B credentials on Shop A POS URL', async () => {
     const response = await login(usernameB,passwordB,tenantA);
     expect(response.status).toBe(403);
