@@ -19,7 +19,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
-import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer } from './lib/identity/index.js';
+import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver } from './lib/identity/index.js';
 import { customerAppUrl, posAppUrl, createOrderConfirmationSender } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 
@@ -5695,27 +5695,8 @@ app.post('/api/auth/reset-password', otpLimiter, async (req, res) => {
 });
 
 // Shared: resolve a reset record from either a token OR an (identifier + code) pair.
-async function resolveReset(userType, { token, email, code, lookupByEmail }) {
-  const now = Date.now();
-  if (token) {
-    const row = await dbGet(
-      'SELECT * FROM password_resets WHERE userType = ? AND tokenHash = ? AND consumedAt IS NULL',
-      [userType, hashCode(token)]
-    );
-    if (row && row.expiresAt >= now) return row;
-    return null;
-  }
-  if (email && code) {
-    const user = await lookupByEmail(email);
-    if (!user) return null;
-    const row = await dbGet(
-      'SELECT * FROM password_resets WHERE userType = ? AND userId = ? AND codeHash = ? AND consumedAt IS NULL ORDER BY createdAt DESC LIMIT 1',
-      [userType, user.id, hashCode(code)]
-    );
-    if (row && row.expiresAt >= now) return row;
-    return null;
-  }
-  return null;
+async function resolveReset(userType, options) {
+  return createPasswordResetResolver({ dbGet, hashCode })(userType, options);
 }
 
 // ── Geocoding proxy (OpenStreetMap Nominatim) ────────────────────────────────
