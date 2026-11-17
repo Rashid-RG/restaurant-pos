@@ -2440,8 +2440,8 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
 app.get('/api/shifts/active', authenticateToken, async (req, res) => {
   try {
     const shift = await dbGet(
-      "SELECT * FROM shifts WHERE userId = ? AND status = 'open' ORDER BY startTime DESC LIMIT 1",
-      [req.user.id]
+      "SELECT * FROM shifts WHERE userId = ? AND tenant_id = ? AND status = 'open' ORDER BY startTime DESC LIMIT 1",
+      [req.user.id, req.tenantId]
     );
     res.json(shift || null);
   } catch (err) {
@@ -2455,8 +2455,8 @@ app.post('/api/shifts/open', authenticateToken, validateRequest(shiftOpenSchema)
   const floatVal = parseFloat(startFloat) || 0;
   try {
     const active = await dbGet(
-      "SELECT id FROM shifts WHERE userId = ? AND status = 'open'",
-      [req.user.id]
+      "SELECT id FROM shifts WHERE userId = ? AND tenant_id = ? AND status = 'open'",
+      [req.user.id, req.tenantId]
     );
     if (active) {
       return res.status(400).json({ error: 'You already have an open shift.' });
@@ -2469,7 +2469,7 @@ app.post('/api/shifts/open', authenticateToken, validateRequest(shiftOpenSchema)
       [shiftId, req.user.id, req.user.username, startTime, floatVal, notes || '', req.tenantId]
     );
     await writeAuditLog(req.user.id, req.user.username, 'open_shift', `Opened cashier shift with float LKR ${floatVal}`);
-    const newShift = await dbGet('SELECT * FROM shifts WHERE id = ?', [shiftId]);
+    const newShift = await dbGet('SELECT * FROM shifts WHERE id = ? AND tenant_id = ?', [shiftId, req.tenantId]);
     res.json(newShift);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -2482,7 +2482,7 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
   let transaction = false;
   try {
     await dbRun('BEGIN TRANSACTION'); transaction = true;
-    const shift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND status = 'open'", [req.user.id]);
+    const shift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND tenant_id = ? AND status = 'open'", [req.user.id, req.tenantId]);
     if (!shift) { await dbRun('ROLLBACK'); transaction = false; return res.status(400).json({ error: 'No active open shift found.' }); }
 
     // Reconcile only this cashier's settled tenders, by settlement time.
@@ -2512,8 +2512,8 @@ app.post('/api/shifts/close', authenticateToken, validateRequest(shiftCloseSchem
     await dbRun(`
       UPDATE shifts
       SET endTime = ?, endFloat = ?, actualCash = ?, expectedCash = ?, status = 'closed', notes = ?
-      WHERE id = ?
-    `, [Date.now(), endCash, endCash, expectedCash, notes || '', shift.id]);
+      WHERE id = ? AND tenant_id = ?
+    `, [Date.now(), endCash, endCash, expectedCash, notes || '', shift.id, req.tenantId]);
 
     await writeAuditLog(req.user.id, req.user.username, 'close_shift', `Closed shift. Expected: ${expectedCash}, Actual: ${endCash}`);
     await dbRun('COMMIT'); transaction = false;
@@ -6395,7 +6395,7 @@ app.post('/api/cash-movements', validateRequest(cashMovementSchema), async (req,
   }
 
   try {
-    const shift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND status = 'open'", [req.user.id]);
+    const shift = await dbGet("SELECT * FROM shifts WHERE userId = ? AND tenant_id = ? AND status = 'open'", [req.user.id, req.tenantId]);
     const movementId = `cm_${Date.now()}`;
     await dbRun(`
       INSERT INTO cash_movements (id, shiftId, userId, type, amount, reason, timestamp, tenant_id)
