@@ -109,7 +109,11 @@ export async function nativePrintReceiptMarkup(markup, { printerName, paperSetti
   if (!Array.isArray(matches) || !matches.includes(printerName)) {
     throw new Error('The selected printer is not available. Reconnect it from GastroFlow Settings.');
   }
-  const html = buildStandaloneReceiptDocument(markup, paper);
+  // The browser-only document has a fallback 180mm @page rule. Strip it
+  // before QZ converts the HTML to native ESC/POS graphics; the physical roll
+  // must end at content height, not at any browser-sized page boundary.
+  const html = buildStandaloneReceiptDocument(markup, paper)
+    .replace(/@page\s*\{[^}]*\}/g, '');
   const widthInches = paper === '58mm' ? 2.047 : 2.992; // content width (52/76 mm)
   const data = [
     { type: 'raw', format: 'html', flavor: 'plain', data: html,
