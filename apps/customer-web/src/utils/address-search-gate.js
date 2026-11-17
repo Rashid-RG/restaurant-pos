@@ -8,6 +8,8 @@ export function createAddressSearchGate(){
     start(){return ++generation;},
     isCurrent(request){return mounted && Number.isSafeInteger(request) && request===generation;},
     invalidate(){generation++;},
+    // React Strict Mode replays mount effects; start a fresh generation there.
+    activate(){mounted=true;generation++;},
     dispose(){mounted=false;generation++;},
   };
 }
