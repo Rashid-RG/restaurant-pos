@@ -38,13 +38,20 @@ An index recommendation is NOT ready for deployment until:
 3. Check impact on POS order writes, stock changes, account registrations, and all tenant access paths.
 4. Rehearse backup, restore, rollback, and two-tenant tests; seek explicit approval for any staging schema update.
 
+## Offline tenant foreign-key review
+
+`inspectDatabaseSchema(dbAll)` now retains foreign-key sequence ordering so composite constraints can be evaluated correctly. Use `reviewTenantForeignKeys(inventory)` from `lib/tenant-foreign-key-review.js` against the inventory of a **separate restored database copy**. This pure function makes no SQL calls and inspects no customer rows.
+
+For relationships where both tables have `tenant_id`, it differentiates a composite foreign key containing child and parent `tenant_id` from an ID-only link. It flags ID-only relationships for **manual review**, not as a proven isolation vulnerability: globally unique IDs, route-level authorization, and deliberate cross-table relationships can change the risk. References to global tables are recorded separately and should not be blindly rewritten. Do not add foreign keys, rebuild tables, or rewrite historical tenant IDs without a verified backup, application contract tests, and explicit approval.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
 - [x] Local-only, read-only schema CLI and safety tests committed
 - [x] Offline restored-copy database health checker and isolated regression tests committed
 - [x] Pure index-coverage review and disposable-database tests committed
-- [ ] Full GitHub Actions results for this change
+- [x] Offline tenant foreign-key relationship review and composite-key tests committed
+- [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
 - [ ] Clone-only migration and rollback rehearsal
