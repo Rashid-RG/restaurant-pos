@@ -71,9 +71,10 @@ describe('read-only local restore reconciliation',()=>{
    };
    await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, total REAL, invoiceNumber INTEGER)');
    await run('CREATE TABLE invoice_counter (id INTEGER PRIMARY KEY, lastNumber INTEGER)');
-   for(const table of ['manual_payments','manual_refunds','refund_transactions'])
-    await run(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, tenant_id TEXT, amountCents INTEGER)`);
-   await run('CREATE TABLE cash_movements (id TEXT PRIMARY KEY, tenant_id TEXT, amount REAL)');
+   await run('CREATE TABLE manual_payments (id TEXT PRIMARY KEY, tenant_id TEXT, orderId TEXT, amountCents INTEGER)');
+   await run('CREATE TABLE manual_refunds (id TEXT PRIMARY KEY, tenant_id TEXT, orderId TEXT, paymentId TEXT, settled INTEGER, amountCents INTEGER)');
+   await run('CREATE TABLE refund_transactions (id TEXT PRIMARY KEY, tenant_id TEXT, orderId TEXT, amountCents INTEGER)');
+   await run('CREATE TABLE cash_movements (id TEXT PRIMARY KEY, tenant_id TEXT, shiftId TEXT, amount REAL)');
    await run('CREATE TABLE shifts (id TEXT PRIMARY KEY, tenant_id TEXT, startFloat REAL, endFloat REAL, actualCash REAL, expectedCash REAL)');
    for(const [table,rows] of Object.entries(data))for(const row of rows){
     const keys=Object.keys(row);
