@@ -6,6 +6,7 @@ import { useLang } from '../context/LanguageContext.jsx';
 import TrackingMap from '../components/TrackingMap.jsx';
 import {contactLinks} from '../utils/contact-actions.js';
 import { canUseHostedOrderStream, canUseHostedWebPush } from '../utils/native-tracking-policy.js';
+import { shouldRefreshNativeTrackingOnResume } from '../utils/native-tracking-resume.js';
 import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS,createTrackingSnapshotGate} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
@@ -296,6 +297,27 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       };
     } catch (err) {}
 
+    // On installed Android/iOS devices background timers are suspended. The
+    // latest authoritative private snapshot must be fetched upon foreground
+    // return or network recovery, without synthetic order/rider updates.
+    let lastNativeResumeAt=0;
+    const refreshOnNativeResume=()=>{
+      const current=orderRef.current;
+      const now=Date.now();
+      if(!shouldRefreshNativeTrackingOnResume({
+        nativeBuild:isPackagedNative,orderId:current?.id,status:current?.status,
+        visible:document.visibilityState!=='hidden',
+        online:navigator.onLine!==false,now,lastResumeAt:lastNativeResumeAt
+      }))return;
+      lastNativeResumeAt=now;
+      fetchOrder(current.id,{silent:true});
+    };
+    if(isPackagedNative){
+      document.addEventListener('visibilitychange',refreshOnNativeResume);
+      window.addEventListener('focus',refreshOnNativeResume);
+      window.addEventListener('online',refreshOnNativeResume);
+    }
+
     // Use 5-second polling only while SSE is unavailable. With a connected
     // stream, reconcile a snapshot after 35 seconds without order events.
     // This bounds server load while still recovering from missed updates.
@@ -308,6 +330,11 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
 
     return () => {
       clearInterval(interval);
+      if(isPackagedNative){
+        document.removeEventListener('visibilitychange',refreshOnNativeResume);
+        window.removeEventListener('focus',refreshOnNativeResume);
+        window.removeEventListener('online',refreshOnNativeResume);
+      }
       if (es) es.close();
       streamHealthyRef.current=false;
       setStreamConnected(false);
