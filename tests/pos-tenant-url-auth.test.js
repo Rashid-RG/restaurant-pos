@@ -121,6 +121,41 @@ describe('POS URL restaurant identity isolation', () => {
     expect(cogs.body.some(item=>item.id==='pos_resource_b')).toBe(false);
   });
 
+  it('cashier shift and cash movement cannot select an open shift from another restaurant',async()=>{
+    const headers={Authorization:`Bearer ${loginA.body.token}`};
+    // A and B deliberately have an open shift referencing the same user ID.
+    // Only A's own shift may be selected, used or closed.
+    const active=await request(app).get('/api/shifts/active').set(headers);
+    expect(active.status,active.text).toBe(200);
+    expect(active.body.id).toBe('qa_shift_own');
+    expect(active.body.tenant_id).toBe(tenantA);
+
+    const duplicateOpen=await request(app).post('/api/shifts/open').set(headers)
+      .send({startFloat:0});
+    expect(duplicateOpen.status).toBe(400);
+
+    const movement=await request(app).post('/api/cash-movements').set(headers)
+      .send({type:'cash_in',amount:10,reason:'Two-tenant integration test'});
+    expect(movement.status,movement.text).toBe(200);
+    const savedMovement=await dbGet('SELECT shiftId,tenant_id FROM cash_movements WHERE id=?',[movement.body.id]);
+    expect(savedMovement).toEqual({shiftId:'qa_shift_own',tenant_id:tenantA});
+
+    const close=await request(app).post('/api/shifts/close').set(headers)
+      .send({actualCash:185,notes:'Two-tenant integration test'});
+    expect(close.status,close.text).toBe(200);
+    expect(close.body.id).toBe('qa_shift_own');
+    expect(close.body.tenant_id).toBe(tenantA);
+    expect(close.body.expectedCash).toBe(185);
+    expect(close.body.status).toBe('closed');
+    const foreign=await dbGet('SELECT status,tenant_id,expectedCash FROM shifts WHERE id=?',['qa_shift_foreign']);
+    expect(foreign.status).toBe('open');
+    expect(foreign.tenant_id).toBe(tenantB);
+    expect(foreign.expectedCash).toBeNull();
+    const after=await request(app).get('/api/shifts/active').set(headers);
+    expect(after.status).toBe(200);
+    expect(after.body).toBeNull();
+  });
+
   it('rejects Shop B credentials on Shop A POS URL', async () => {
     const response = await login(usernameB,passwordB,tenantA);
     expect(response.status).toBe(403);
