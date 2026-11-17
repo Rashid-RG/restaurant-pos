@@ -93,8 +93,8 @@ describe('POS URL restaurant identity isolation', () => {
       ['qa_shift_foreign','pos_user_a','WRONG SHOP',now-20000,999,'open',tenantB]);
     await dbRun("INSERT INTO shifts(id,userId,username,startTime,startFloat,status,tenant_id) VALUES(?,?,?,?,?,?,?)",
       ['qa_shift_own','pos_user_a',usernameA,now-10000,50,'open',tenantA]);
-    await dbRun("INSERT INTO orders(id,total,subtotal,status,timestamp,paymentMethod,tenant_id) VALUES(?,?,?,?,?,?,?)",
-      ['qa_financial_order_a',125,125,'paid',now-8000,'cash',tenantA]);
+    await dbRun("INSERT INTO orders(id,total,subtotal,status,timestamp,paymentMethod,tenant_id,cashierId) VALUES(?,?,?,?,?,?,?,?)",
+      ['qa_financial_order_a',125,125,'paid',now-8000,'cash',tenantA,'pos_user_a']);
     await dbRun("INSERT INTO orders(id,total,subtotal,status,timestamp,paymentMethod,tenant_id) VALUES(?,?,?,?,?,?,?)",
       ['qa_financial_order_b',9999,9999,'paid',now-8000,'cash',tenantB]);
     const result=await request(app).get('/api/reports/x-report')
