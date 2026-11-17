@@ -44,6 +44,12 @@ An index recommendation is NOT ready for deployment until:
 
 For relationships where both tables have `tenant_id`, it differentiates a composite foreign key containing child and parent `tenant_id` from an ID-only link. It flags ID-only relationships for **manual review**, not as a proven isolation vulnerability: globally unique IDs, route-level authorization, and deliberate cross-table relationships can change the risk. References to global tables are recorded separately and should not be blindly rewritten. Do not add foreign keys, rebuild tables, or rewrite historical tenant IDs without a verified backup, application contract tests, and explicit approval.
 
+## Disposable-only versioned migration rehearsal
+
+`lib/migration-rehearsal.js` now provides `rehearseMigrations({seedStatements, migrations})`. It **constructs its own `:memory:` SQLite database**; it accepts no external connection, file path, Turso URL, or secrets. It is not linked into `server.js`, runtime startup, or any deployment script. A fixture supplies synthetic restaurant/order data. Each migration has an immutable `0001_description` version, a SHA-256 checksum of statements, and a ledger row, all applied inside a transaction. Repeating a matching version is idempotent; reusing a version with different SQL fails. Each operation performs SQLite integrity and foreign-key validation before committing, and errors roll back that transaction.
+
+The rehearsal intentionally permits only *single-statement additive* `ALTER TABLE ... ADD COLUMN` or `CREATE INDEX IF NOT EXISTS` operations. It rejects deletes, drops, updates, and other destructive SQL. This is a testing foundation, **not** a licensed production migration engine; it does not establish that a real-data table rebuild would be safe. Never import it into the runtime database boot path or point migration code at the live Turso URL. Any future production migration runner needs independent approval, backup and restore drills, tenant reconciliation, and release controls.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
@@ -51,6 +57,7 @@ For relationships where both tables have `tenant_id`, it differentiates a compos
 - [x] Offline restored-copy database health checker and isolated regression tests committed
 - [x] Pure index-coverage review and disposable-database tests committed
 - [x] Offline tenant foreign-key relationship review and composite-key tests committed
+- [x] Versioned in-memory additive migration rehearsal and rollback regression tests committed
 - [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
