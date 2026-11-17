@@ -1,0 +1,25 @@
+# GastroFlow POS application boundary — incremental migration
+
+**Live-store safety:** A restaurant is actively operating GastroFlow POS. The existing POS entrypoint, Vite root, asset URLs, receipt printing, server API paths, and deployment configuration MUST remain unchanged until an explicitly authorized, tested rollout. No deployment or database writes are part of this change.
+
+## Current runtime (unchanged)
+
+- Root `index.html` loads `/src/main.jsx`.
+- `src/App.jsx` is the POS application and continues to control the shop and platform-owner views.
+- `vite.config.js` and `npm run build` still build the existing POS.
+- The running restaurant's sales, logins, receipts and thermal print paths are unaffected by this repository-only refactor.
+
+## Proposed new application root
+
+`apps/pos-web/src/App.jsx` currently re-exports the existing app, **not** a separate independently deployable POS. The first genuinely moved utility is `apps/pos-web/src/utils/staff-session.js`. The old `src/utils/staff-session.js` remains a compatibility re-export; existing callers require no changes.
+
+## Safe incremental move checklist
+
+1. Move self-contained POS-only utility modules, one at a time, with compatibility exports and unit tests.
+2. Inventory asset, CSS, printer, storage, provider, and server-side imports before moving visual components.
+3. Prepare an isolated POS build root, preserving the existing output filenames, manifest, asset paths, API proxy and deployed URL.
+4. Compare built contents and run POS checkout, kitchen, receipt printing (58mm/80mm), staff login persistence and tenant isolation regression suites.
+5. Test on staging and on a separate, non-customer dataset only after explicit approval.
+6. Switch the build entrypoint only after owner approval and an identified rollback method. **Never silently deploy.**
+
+This initial organization step does not change the active Vite entrypoint or any database schema.
