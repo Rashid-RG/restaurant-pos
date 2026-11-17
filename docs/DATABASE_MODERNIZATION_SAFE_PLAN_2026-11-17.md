@@ -56,6 +56,18 @@ The rehearsal intentionally permits only *single-statement additive* `ALTER TABL
 
 High-risk flags do not automatically mean a migration is unsafe; equally, an additive-only diff is not proof of safety. Validate the source/target schema against actual restored data, billing/invoice identity continuity, per-tenant balances and record counts, query benchmarks, and restore/rollback rehearsal before requesting staging approval. This comparator is **not** a deployment migration runner. It cannot prove that an existing table rebuild will preserve data.
 
+## Consolidated offline migration assessment
+
+Export **schema metadata only** from two isolated, existing local database copies using `scripts/inventory-local-schema.js`, storing the JSON outputs privately. Then use:
+
+```bash
+node scripts/assess-local-schema.js before-schema.json proposed-schema.json
+```
+
+This command accepts only two existing local, non-symlink JSON files under 5 MiB. It never opens a SQLite/Turso connection, sends records to a service or writes files. The pure function `assessDatabaseMigration(before, proposed)` combines the before/after schema diff, possible index coverage gaps, overlapping-index candidates, global uniqueness candidates, and tenant foreign-key warnings into one advisory JSON report. Release gates remain `false` until separately verified; a clean report is **not** approval to migrate or deploy.
+
+Always perform actual-data restore reconciliation, query-plan benchmarking, tenant authorization tests, backup retention verification, a rollback rehearsal and obtain explicit staging approval before any real database mutation.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
@@ -65,6 +77,7 @@ High-risk flags do not automatically mean a migration is unsafe; equally, an add
 - [x] Offline tenant foreign-key relationship review and composite-key tests committed
 - [x] Versioned in-memory additive migration rehearsal and rollback regression tests committed
 - [x] Pure offline before/after schema diff with tenant-risk and index regression tests committed
+- [x] Consolidated offline assessment CLI and risk-report tests committed
 - [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
