@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 const required = [
-  'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','apps/customer-web/src/App.jsx',
+  'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
   'routes/platform.js','shared/ui','tests','infra','docs'
@@ -29,6 +29,8 @@ for (const [legacy, destination] of [
 ]) {
   if (!readFileSync(legacy,'utf8').includes(destination)) findings.push('Missing backwards-compatible platform import: ' + legacy);
 }
+const workspaceSource = readFileSync('src/components/WorkspaceTools.jsx', 'utf8');
+if (!workspaceSource.includes("from '../platform/workspace-policy.js'")) findings.push('POS workspace must consume isolated platform navigation policy');
 const customerConfig = JSON.parse(readFileSync('apps/customer-web/capacitor.config.json', 'utf8'));
 if (customerConfig.appId !== 'com.rstechnologies.gastrofood') findings.push('Unexpected production customer package ID');
 if (customerConfig.server?.url) findings.push('Customer native app must package assets, not point at a remotely hosted WebView');
