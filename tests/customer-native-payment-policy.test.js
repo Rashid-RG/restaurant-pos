@@ -17,7 +17,7 @@ describe('GastroFlow Food native payment and hosted web isolation',()=>{
     const source=readFileSync('apps/customer-web/src/views/CartCheckoutView.jsx','utf8');
     expect(source).toContain("paymentMethod === 'payhere' && payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled)");
     expect(source).toContain("if (!canUseHostedPayHereGateway(import.meta.env.MODE)) throw new Error");
-    expect(source).toContain("!payHereRedirectData || !canUseHostedPayHereGateway(import.meta.env.MODE)");
+    expect(source).toContain("!payhereRedirectData || !canUseHostedPayHereGateway(import.meta.env.MODE)");
     expect(source).toContain("payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled)");
     expect(source).toContain("id: 'cash'");
     expect(source).toContain("id: 'bank_transfer'");
