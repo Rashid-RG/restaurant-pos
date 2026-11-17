@@ -63,10 +63,10 @@ describe('read-only local restore reconciliation',()=>{
    const data={
     orders:[{id:'secret-order-a',tenant_id:'secret-A',total:100,invoiceNumber:1},{id:'secret-order-b',tenant_id:'secret-B',total:200,invoiceNumber:2}],
     invoice_counter:[{id:1,lastNumber:2}],
-    manual_payments:[{id:'payment-a',tenant_id:'secret-A',amountCents:10000}],
-    manual_refunds:[{id:'refund-a',tenant_id:'secret-A',amountCents:500}],
-    refund_transactions:[{id:'refund-a',tenant_id:'secret-A',amountCents:500}],
-    cash_movements:[{id:'cash-a',tenant_id:'secret-A',amount:5.25}],
+    manual_payments:[{id:'payment-a',tenant_id:'secret-A',orderId:'secret-order-a',amountCents:10000}],
+    manual_refunds:[{id:'refund-a',tenant_id:'secret-A',orderId:'secret-order-a',paymentId:'payment-a',settled:1,amountCents:500}],
+    refund_transactions:[{id:'refund-a',tenant_id:'secret-A',orderId:'secret-order-a',amountCents:500}],
+    cash_movements:[{id:'cash-a',tenant_id:'secret-A',shiftId:'shift-a',amount:5.25}],
     shifts:[{id:'shift-a',tenant_id:'secret-A',startFloat:100,endFloat:null,actualCash:105.25,expectedCash:105.25}],
    };
    await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, total REAL, invoiceNumber INTEGER)');
@@ -84,7 +84,7 @@ describe('read-only local restore reconciliation',()=>{
    expect(result.status,result.stderr).toBe(0);
    const report=JSON.parse(result.stdout);
    expect(report).toMatchObject({
-    ok:true,accountingVerified:true,financialVerified:true,
+    ok:true,accountingVerified:true,financialVerified:true,settlementLinksVerified:true,completeFinancialReview:true,recoveryReady:true,
     accounting:{verified:true,invoices:{verified:true,invoiceCount:2},ledgers:{manual_payments:{verified:true},manual_refunds:{verified:true},refund_transactions:{verified:true},cash_movements:{verified:true},shifts:{verified:true}}},
    });
    expect(result.stdout).not.toContain('secret-A');
