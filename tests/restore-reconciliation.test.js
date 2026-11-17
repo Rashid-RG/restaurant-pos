@@ -58,6 +58,44 @@ describe('read-only local restore reconciliation',()=>{
    expect(result.stdout).not.toContain('450');
   });
  });
+ it('runs the complete offline ledger and fiscal invoice acceptance check',async()=>{
+  await withCopy(async({backup,file,run})=>{
+   const data={
+    orders:[{id:'secret-order-a',tenant_id:'secret-A',total:100,invoiceNumber:1},{id:'secret-order-b',tenant_id:'secret-B',total:200,invoiceNumber:2}],
+    invoice_counter:[{id:1,lastNumber:2}],
+    manual_payments:[{id:'payment-a',tenant_id:'secret-A',amountCents:10000}],
+    manual_refunds:[{id:'refund-a',tenant_id:'secret-A',amountCents:500}],
+    refund_transactions:[{id:'refund-a',tenant_id:'secret-A',amountCents:500}],
+    cash_movements:[{id:'cash-a',tenant_id:'secret-A',amount:5.25}],
+    shifts:[{id:'shift-a',tenant_id:'secret-A',startFloat:100,endFloat:null,actualCash:105.25,expectedCash:105.25}],
+   };
+   await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, total REAL, invoiceNumber INTEGER)');
+   await run('CREATE TABLE invoice_counter (id INTEGER PRIMARY KEY, lastNumber INTEGER)');
+   for(const table of ['manual_payments','manual_refunds','refund_transactions'])
+    await run(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, tenant_id TEXT, amountCents INTEGER)`);
+   await run('CREATE TABLE cash_movements (id TEXT PRIMARY KEY, tenant_id TEXT, amount REAL)');
+   await run('CREATE TABLE shifts (id TEXT PRIMARY KEY, tenant_id TEXT, startFloat REAL, endFloat REAL, actualCash REAL, expectedCash REAL)');
+   for(const [table,rows] of Object.entries(data))for(const row of rows){
+    const keys=Object.keys(row);
+    await run(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')})`,Object.values(row));
+   }
+   fs.writeFileSync(backup,JSON.stringify(snapshot(Object.entries(data).map(([name,rows])=>({name,rows})))));
+   const result=invoke(backup,file);
+   expect(result.status,result.stderr).toBe(0);
+   const report=JSON.parse(result.stdout);
+   expect(report).toMatchObject({
+    ok:true,accountingVerified:true,financialVerified:true,
+    accounting:{verified:true,invoices:{verified:true,invoiceCount:2},ledgers:{manual_payments:{verified:true},manual_refunds:{verified:true},refund_transactions:{verified:true},cash_movements:{verified:true},shifts:{verified:true}}},
+   });
+   expect(result.stdout).not.toContain('secret-A');
+   expect(result.stdout).not.toContain('secret-order');
+   expect(result.stdout).not.toContain('105.25');
+   await run('UPDATE manual_refunds SET amountCents=700 WHERE id=?',['refund-a']);
+   const inconsistent=invoke(backup,file);
+   expect(inconsistent.status).toBe(1);
+   expect(JSON.parse(inconsistent.stdout)).toMatchObject({ok:false,accountingVerified:false,accounting:{ledgers:{manual_refunds:{verified:false}}}});
+  });
+ });
  it('fails closed on mismatched records while revealing only aggregate counts',async()=>{
   await withCopy(async({backup,file,run})=>{
    await run('CREATE TABLE orders (id TEXT PRIMARY KEY, tenant_id TEXT, amount INTEGER)');
