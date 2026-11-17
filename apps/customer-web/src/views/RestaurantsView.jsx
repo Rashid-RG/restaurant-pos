@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import './restaurants-mobile.css';
 import { createPortal } from 'react-dom';
 import { MapPin, Search, SlidersHorizontal, Store, ArrowUpRight, RefreshCw, Star, Clock3, Bike, CheckCircle2, AlertCircle, Navigation, ShoppingBag, MapPinned, Sparkles } from 'lucide-react';
 import L from 'leaflet';
@@ -49,6 +50,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const locationRequestRef = useRef(0);
   const addressSearchGateRef = useRef(createAddressSearchGate());
   const restaurantsFetchRef = useRef(0);
+  const hasLoadedRestaurantsRef = useRef(false);
 
   // Render location dialogs outside scrolling app ancestors and freeze the
   // underlying page while either dialog is visible (especially important on iOS).
@@ -432,7 +434,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const fetchRestaurants = async (overrideCoords = null) => {
     const requestId=++restaurantsFetchRef.current;
-    setLoading(true);
+    // Background polling/focus/GPS updates must not replace populated cards with a spinner.
+    if (!hasLoadedRestaurantsRef.current) setLoading(true);
     setLoadError('');
     try {
       const coords = overrideCoords || userCoords;
@@ -441,6 +444,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       if(requestId!==restaurantsFetchRef.current)return;
       const storeList = deduplicateStores(data || []).map(store => ({ ...store, isOpen: acceptsOnlineOrders(store), isOpenNow: acceptsOnlineOrders(store) }));
       setRestaurants(storeList);
+      hasLoadedRestaurantsRef.current = true;
 
       if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
         processStoreProximity(coords.lat, coords.lng, storeList);
@@ -713,7 +717,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       </div>
 
       {/* Discovery sorting — available restaurants always appear first. */}
-      <div role="group" aria-label="Sort restaurants" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
+      <div className="gf-mobile-sort-tabs" role="group" aria-label="Sort restaurants" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
         {[
           { id: 'recommendation', label: 'Browse', desc: 'Available restaurants first' },
           { id: 'fastest', label: 'Prep estimate', desc: 'Restaurant-supplied' },
@@ -745,12 +749,13 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       </div>
 
       {/* Cuisine Tag Selector */}
-      <div role="group" aria-label="Cuisine filters" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 16, scrollbarWidth: 'none' }}>
+      <div className="gf-mobile-cuisine-tabs" role="group" aria-label="Cuisine filters" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 10, marginBottom: 16, scrollbarWidth: 'none' }}>
         {CUISINE_CATEGORIES.map(c => (
           <button
             key={c.id}
             type="button"
             aria-pressed={activeCuisine === c.id}
+            className="gf-mobile-cuisine-tab"
             onClick={() => setActiveCuisine(c.id)}
             style={{
               padding: '8px 14px',
@@ -767,8 +772,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               gap: 6
             }}
           >
-            <span>{c.icon}</span>
-            <span>{c.label}</span>
+            <span className="gf-mobile-cuisine-icon" aria-hidden="true">{c.icon}</span>
+            <span className="gf-mobile-cuisine-label">{c.label}</span>
           </button>
         ))}
       </div>
@@ -873,7 +878,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               }}
             >
               {/* Banner Cover Image / Banner */}
-              <div style={{ height: 130, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div className="gf-mobile-restaurant-banner" style={{ height: 130, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <span style={{ fontSize: '4rem' }}>{r.emoji || '🏬'}</span>
 
                 {/* Top-left: Promo or Personalization Badge */}
@@ -912,7 +917,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               </div>
 
               {/* Card Details */}
-              <div style={{ padding: 14 }}>
+              <div className="gf-mobile-restaurant-details" style={{ padding: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                   <h4 className="gastrofood-store-name">{r.name}</h4>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f59e0b15', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 800 }}>
