@@ -35,6 +35,7 @@ if(args.length!==2||args.some(value=>!value||value.startsWith('-')||
         integrity:integrityOk?'ok':'failed',
         foreignKeyViolationCount,
         ok:report.ok&&integrityOk&&foreignKeyViolationCount===0,
+        recoveryReady:report.ok&&report.completeFinancialReview&&integrityOk&&foreignKeyViolationCount===0,
       };
       // The output intentionally contains no values returned by either PRAGMA,
       // since foreign_key_check may contain private row IDs.
