@@ -103,6 +103,32 @@ describe('offline logical backup + encrypted recovery drill', () => {
     }finally{rmSync(dir,{recursive:true,force:true});}
   });
 
+  it('does not publish an incomplete restore when a foreign-key check fails', async () => {
+    const dir=mkdtempSync(join(tmpdir(),'gastroflow-restore-incomplete-'));
+    try {
+      const payload={
+        format:'gastroflow-logical-backup',version:1,createdAt:Date.now(),
+        schema:[
+          {type:'table',name:'parents',tbl_name:'parents',sql:'CREATE TABLE parents (id TEXT PRIMARY KEY)'},
+          {type:'table',name:'children',tbl_name:'children',sql:'CREATE TABLE children (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parents(id))'},
+        ],
+        tables:[
+          {name:'parents',rows:[]},
+          {name:'children',rows:[{id:'child-a',parent_id:'missing-parent'}]},
+        ],
+      };
+      const input=join(dir,'inconsistent.json'),output=join(dir,'unverified.db');
+      writeFileSync(input,JSON.stringify({payload,sha256:snapshotHash(payload)}));
+      const response=runRestore(input,output);
+      expect(response.status).not.toBe(0);
+      expect(response.stderr).toMatch(/foreign-key violations/);
+      expect(existsSync(output)).toBe(false);
+      expect(readFileSync(input,'utf8')).toContain('missing-parent');
+      const remaining=(await import('node:fs')).readdirSync(dir);
+      expect(remaining).toEqual(['inconsistent.json']);
+    }finally{rmSync(dir,{recursive:true,force:true});}
+  });
+
   it('rejects corrupt snapshot data before creating a destination', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gastroflow-recovery-corrupt-'));
     try {
