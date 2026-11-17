@@ -74,7 +74,9 @@ export async function apiFetch(endpoint, options = {}) {
       if (shouldClearCustomerTokenForResponse({
         status:res.status, message:data?.error || data?.message,
         customerToken, authorizationHeader, endpoint:cleanPath
-      })) {
+      }) && localStorage.getItem(customerTokenKey) === customerToken) {
+        // A late 401 from a previous login must never revoke a newer token,
+        // even when both sessions belong to the same restaurant.
         localStorage.removeItem(customerTokenKey);
       }
     }
