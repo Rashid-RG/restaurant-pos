@@ -20,6 +20,7 @@ import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm } from './lib/geo-distance.js';
 import { createDeliveryFeeCalculator } from './lib/delivery-fee.js';
+import { createPeakHourService } from './lib/peak-hours.js';
 import { isValidSriLankanPhone, isValidAddress } from './lib/customer-contact-validation.js';
 import { customerAppUrl, posAppUrl } from './lib/app-links.js';
 import { generateStrongPassword, generateSecurePin } from './lib/credential-generation.js';
@@ -3272,17 +3273,8 @@ app.post('/api/customer/loyalty/redeem', authenticateCustomer, async (req, res) 
 // PUBLIC MENU & ORDER ENDPOINTS (no auth required)
 // ======================================================
 
-// ── Peak hour detection (Sri Lanka lunch & dinner rush) ──
-async function isPeakHour(tenantId = 'default_tenant') {
-  const now = new Date();
-  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const s = await getSettingsMap(tenantId, ['peakLunchStart', 'peakLunchEnd', 'peakDinnerStart', 'peakDinnerEnd']);
-  const lunchStart = s.peakLunchStart || '11:30';
-  const lunchEnd = s.peakLunchEnd || '14:00';
-  const dinnerStart = s.peakDinnerStart || '18:30';
-  const dinnerEnd = s.peakDinnerEnd || '21:30';
-  return (hhmm >= lunchStart && hhmm <= lunchEnd) || (hhmm >= dinnerStart && hhmm <= dinnerEnd);
-}
+// ── Peak hour detection (unchanged local-time behavior, tenant-scoped settings) ──
+const isPeakHour = createPeakHourService({ getSettingsMap });
 
 // ── Server-authoritative delivery fee calculator ──
 const calculateDeliveryFee = createDeliveryFeeCalculator({ getSettingsMap, isPeakHour });
