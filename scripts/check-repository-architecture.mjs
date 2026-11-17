@@ -63,6 +63,20 @@ if(!tenantResourcePolicy.includes('export function tenantResourceRequest(path)')
 if(!tenantResourcePolicy.includes('export function resourceBelongsToTenant(row,tenantId)')) findings.push('Missing tenant resource ownership policy');
 if(!backendEntrypoint.includes("from './lib/tenancy/resource-policy.js'")) findings.push('Backend must use extracted tenant resource guard');
 if(/\b(?:process\.env|dbRun|dbAll|dbGet)\s*\(/.test(tenantResourcePolicy)) findings.push('Tenant resource policy must be side-effect-free');
+// Critical commercial tenant-isolation regression guard.
+// These exact patterns cover legacy paths until they move behind domain services.
+const financialTenantGuards = [
+  ["driver handover lookup", "SELECT id,total,driverId FROM orders WHERE id=? AND tenant_id=?"],
+  ["driver handover update", "UPDATE orders SET cashCollected=1,cashCollectedAt=? WHERE id=? AND tenant_id=?"],
+  ["COD cash list", "WHERE tenant_id = ? AND (driverId = ? OR ? = '')"],
+  ["staff ETA mutation", "UPDATE orders SET etaMinutes = ? WHERE id = ? AND tenant_id = ?"],
+  ["customer ETA load", "SELECT COUNT(*) as count FROM orders WHERE tenant_id=? AND status IN"],
+  ["transfer target tenant", "SELECT * FROM tables WHERE id = ? AND tenant_id = ?"],
+  ["shift close tenant", "WHERE id = ? AND tenant_id = ?"],
+  ["settlement tenant", "UPDATE orders SET status = ?, paymentStatus = 'paid', paymentMethod = ?, paymentTimestamp = ? WHERE id = ? AND tenant_id = ?"],
+];
+for(const [name,snippet] of financialTenantGuards)
+  if(!backendEntrypoint.includes(snippet)) findings.push('Critical tenant isolation boundary missing: '+name);
 const tenantAccessPolicy=readFileSync('lib/tenancy/access-policy.js','utf8');
 if (!tenantAccessPolicy.includes('export function isStaffAccountAuthorized(user,claims)')) findings.push('Missing tenant JWT account authorization policy');
 if (!tenantAccessPolicy.includes('export function isExpectedRestaurant(selectedTenant,userTenantId)')) findings.push('Missing expected POS tenant URL policy');
