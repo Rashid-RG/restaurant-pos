@@ -45,6 +45,19 @@ The real HTTP two-restaurant test in `tests/pos-tenant-url-auth.test.js` exercis
 
 **Still required:** full cashier ledger and refund isolation review, settlement idempotency, controlled non-customer staging trial, and a comprehensive cross-tenant financial route audit.
 
+## 2026-11-18: Commercial SaaS financial/operations safety batch
+
+This source-only batch narrows the highest-risk legacy SQL paths while preserving the existing shared database and URL contracts.
+
+- Cash-on-delivery handover lists are now tenant-filtered. Receipt handover rejects duplicate IDs, missing or foreign-tenant orders, non-delivered/non-cash orders, wrong drivers, already-collected receipts and mismatched handover totals. Only verified outstanding tenant orders are updated inside a transaction.
+- Payment settlement updates the order, invoice, customer loyalty and order-item notification reads with explicit tenant conditions rather than relying on globally unique IDs alone. The existing webhook signature and settlement authorization remain in place.
+- Table delete and transfer statements require tenant ownership. A transfer also verifies the referenced active order belongs to the authenticated restaurant.
+- Staff ETA changes, public ETA reads, kitchen-load counts and delivery notification reads are explicitly tenant-filtered.
+- `tests/pos-tenant-url-auth.test.js` now exercises real two-restaurant COD handover acceptance/rejection, cross-tenant table operations, scoped ETA updates and ETA capacity computation, in addition to earlier checkout/staff/report tests.
+- `scripts/check-repository-architecture.mjs` checks for critical tenant predicate snippets as interim architectural guardrails until the oversized server is modularized.
+
+**Release state:** GitHub source commits only; no staging deployment, database migrations, backup restoration or changes to live restaurant customers/orders. The regression suite must pass before a separate, explicitly authorized staging release. This is not full commercial SaaS certification: wider concurrency testing, payment-provider production tests, tenant admin cleanup, regulatory review, threat modeling and operational recovery drills remain.
+
 ## What IS done in Phase 6
 
 - **Zod validation** extended from 4 → 9 write routes, matching real bodies with
