@@ -110,6 +110,18 @@ The offline restore reconciliation now also invokes `reviewSettlementRelationshi
 
 The JSON result deliberately separates `ok` (row equivalence, SQLite integrity and foreign-key health), `financialVerified` (per-tenant order totals), `accountingVerified` (ledgers and invoices) and `settlementLinksVerified` (cross-ledger relationships). Only `recoveryReady: true` means **all these offline gates** passed together. Even then, that is **not** production release approval: actual-data backup provenance, encryption, bank settlement, tax rules, invoice gaps, multi-tenant contracts and hardware acceptance still require independently documented review. Current CLI exit status remains compatible with its original row/integrity check; operators must explicitly inspect `recoveryReady` before declaring financial acceptance.
 
+## Recovery readiness false-positive defenses
+
+The offline cross-ledger auditor now detects duplicate or missing IDs before creating lookup maps. Without that guard, duplicate record IDs could silently collapse into one lookup entry and mask a bad payment/refund/shift relationship. The numeric auditor also refuses unsafe JavaScript integer representations of invoice numbers and oversized numeric currency values; exact string/bigint representations remain supported for large integer counters.
+
+For a **strict** recoverability exit status, operators should use:
+
+```bash
+node scripts/reconcile-local-restore.js --require-financial EXISTING-BACKUP.json EXISTING-RESTORED-COPY.db
+```
+
+The original two-path CLI remains backwards compatible and exits successfully for matching rows, integrity and foreign-key checks. **Strict mode additionally requires `recoveryReady: true`**, including tenant totals, all specified accounting tables and settlement relationships. Neither CLI mode is permission to read active Turso data, deploy, migrate or replace a production database. Incomplete financial columns, missing accounting tables, historical schema differences and precision concerns must be addressed on isolated copies before certification.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
