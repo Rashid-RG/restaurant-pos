@@ -1,7 +1,7 @@
 # GastroFlow Food — isolated native Android/iOS bootstrap
 
 **Branch:** `codex/production-readiness` only. **No deployment or signing authorized.**
-These commands create **GastroFlow Food** app projects, not the root POS project. This is an engineering setup guide; actual package installation, APK/IPA generation, and device validation are still pending.
+These commands create **GastroFlow Food** app projects, not the root POS project. The Android debug APK and Android emulator startup were built and verified in GitHub Actions. The iOS simulator project/build, physical phone testing, and mobile API acceptance remain pending.
 
 ## Confirmed requirements
 - Capacitor **8.6.2** (exactly pinned in `apps/customer-web/package.json`).
@@ -20,7 +20,7 @@ npm install --package-lock-only --ignore-scripts
 npm ci --include=dev
 ```
 
-**Known blocker:** A customer-specific `package-lock.json` already exists, but it predates the native package additions and is missing the four Capacitor packages. Do not run `npm ci` against that stale lockfile or declare native readiness.
+**Resolved:** The customer-only `package-lock.json` is now committed with all four Capacitor dependencies pinned and resolved at 8.6.2. Keep the root POS lockfile unchanged.
 
 **GitHub-runner option:** Open **Actions → GastroFlow Food native dependency lock bootstrap → Run workflow** on `codex/production-readiness`. This also runs on relevant branch changes. The workflow resolves dependencies **only inside `apps/customer-web`**, verifies the pinned packages, ensures the root POS `package-lock.json` checksum is unchanged, and uploads `gastrofood-customer-package-lock-candidate` as an artifact. A dependent job then attempts a customer-only Android source project with foreground location permissions and uploads `gastrofood-android-source-candidate` for review. It does **not** sign an APK, publish an app, commit files, change Turso, or deploy. Download the generated `package-lock.json`, review it, replace **only** `apps/customer-web/package-lock.json`, and commit it to the same branch.
 
@@ -107,3 +107,17 @@ The earlier source candidate still contained default Capacitor app launcher/spla
 The standalone customer quality job previously failed after 61 tests passed because its native audit detected the stale customer lockfile. The updated quality workflow regenerates the customer-only lock in its runner before native preflight, but an actual passing run must still be checked.
 
 **Review before release:** Android adaptive icon cropping (circular/squircle), status-bar splash rendering, light/dark contrast, permission prompts, tenant-safe HTTPS/CORS requests, deep-link/order routing, and Gradle debug build. The iOS icon/launch-screen resources require a distinct Xcode acceptance stage.
+
+## 5. iPhone simulator candidate (manual GitHub Actions only)
+
+Use **GitHub Actions → GastroFlow Food iOS simulator candidate → Run workflow** with `codex/production-readiness`. The workflow is **manual-only** because GitHub-hosted macOS minutes may incur charges, depending on repository visibility and plan. It runs on `macos-26` with Xcode 26 or newer, then:
+
+1. Installs the existing root Vite build tools and the **isolated** `apps/customer-web` Capacitor dependencies without editing the POS lockfile.
+2. Builds packaged customer web assets against the staging HTTPS API only.
+3. Creates the isolated `apps/customer-web/ios/` project if it does not exist, syncs assets, and adds **foreground-only** iOS location permission text.
+4. Compiles an iOS **Simulator Debug** `.app` with `CODE_SIGNING_ALLOWED=NO` and checks the bundle ID `com.rstechnologies.gastrofood` and packaged app files.
+5. Uploads `gastrofood-ios-simulator-candidate` (a zipped simulator `.app`) and `gastrofood-ios-source-candidate` for manual inspection. No iOS source files are automatically committed.
+
+**Important:** A simulator `.app` is **not** an iPhone-installable IPA and not an App Store release. This first pipeline has been added but has **not been executed or validated**. Before any device distribution, review iOS icon/splash resources, permissions, ATS rules, dependency lock, app identity, native network CORS and signing. Real iPhone installation requires Apple provisioning and an approved release workflow.
+
+Capacitor 8 requires Xcode 26 or newer. Its recommended iOS package manager is Swift Package Manager; do not invent CocoaPods setup unless a plugin explicitly needs it.
