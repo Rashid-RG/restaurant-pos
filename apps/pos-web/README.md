@@ -29,3 +29,5 @@ The offline sales queue uses the original tenant-specific localStorage keys and 
 ## Component boundary (incremental)
 
 `apps/pos-web/src/components/SupportTicketsView.jsx` now owns the POS support-ticket view. The previous `src/components/SupportTicketsView.jsx` is a compatibility re-export. Its existing `/api/tickets` data access, staff token, POS context and view selection are unchanged; root `src/App.jsx` and Vite still provide the active application entrypoint. The POS print path and sales routes were not moved.
+
+`apps/pos-web/src/components/StoreStatusScreen.jsx` now owns the tenant suspension/deletion screen. Its previous `src/components/StoreStatusScreen.jsx` path is a compatibility re-export; tenant status polling, store switching, and bootstrap gating remain unchanged. This change does not alter tenant status or server authorization policies.
