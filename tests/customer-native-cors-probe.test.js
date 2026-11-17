@@ -1,5 +1,5 @@
 import {describe,it,expect,vi} from 'vitest';
-import {evaluatePreflight,probeNativeCors,evaluateNativeDiscoveryGet,probeNativeDiscoveryGet,WEBVIEW_ORIGINS} from '../scripts/probe-food-native-cors.mjs';
+import {evaluatePreflight,probeNativeCors,evaluateNativeDiscoveryGet,probeNativeDiscoveryGet,probeNativeFeaturePreflights,NATIVE_PREFLIGHT_CASES,WEBVIEW_ORIGINS} from '../scripts/probe-food-native-cors.mjs';
 
 const headers=origin=>new Headers({
   'access-control-allow-origin':origin,
@@ -64,6 +64,48 @@ describe('GastroFlow Food native staging CORS diagnostic',()=>{
   });
   it('does not issue discovery GET to an arbitrary or production host',async()=>{
     await expect(probeNativeDiscoveryGet({host:'https://gastroflow.onrender.com',fetcher:vi.fn()})).rejects.toThrow(/staging/);
+  });
+  it('checks native OTP, private account, checkout and tracking using OPTIONS only',async()=>{
+    const fetcher=vi.fn(async(_url,opts)=>({
+      status:204,
+      headers:new Headers({
+        'access-control-allow-origin':opts.headers.Origin,
+        'access-control-allow-credentials':'true',
+        'access-control-allow-methods':'GET,POST,OPTIONS',
+        'access-control-allow-headers':'authorization,content-type,x-tenant-id,x-order-tracking'
+      })
+    }));
+    const reports=await probeNativeFeaturePreflights({fetcher});
+    expect(reports).toHaveLength(WEBVIEW_ORIGINS.length*NATIVE_PREFLIGHT_CASES.length);
+    expect(reports.every(r=>r.allowed)).toBe(true);
+    for(const [url,opts] of fetcher.mock.calls){
+      expect(url).toMatch(/^https:\/\/gastroflow-staging\.onrender\.com\/api\//);
+      expect(opts.method).toBe('OPTIONS');
+      expect(opts).not.toHaveProperty('body');
+      expect(opts.headers).not.toHaveProperty('Authorization');
+      expect(opts.headers).not.toHaveProperty('X-Tenant-Id');
+      expect(opts.headers).not.toHaveProperty('X-Order-Tracking');
+    }
+  });
+  it('fails closed when checkout POST, customer bearer or tracking headers are not authorized',async()=>{
+    const fetcher=vi.fn(async(_url,opts)=>({
+      status:204,headers:new Headers({
+        'access-control-allow-origin':opts.headers.Origin,
+        'access-control-allow-credentials':'true',
+        'access-control-allow-methods':'GET',
+        'access-control-allow-headers':'content-type,x-tenant-id'
+      })
+    }));
+    const reports=await probeNativeFeaturePreflights({fetcher});
+    expect(reports.find(r=>r.feature==='restaurant-checkout').allowed).toBe(false);
+    expect(reports.find(r=>r.feature==='customer-account').reason).toBe('required-headers-not-authorized');
+    expect(reports.find(r=>r.feature==='private-order-tracking').reason).toBe('required-headers-not-authorized');
+  });
+  it('does not probe arbitrary production hosts during native feature checks',async()=>{
+    const fetcher=vi.fn();
+    await expect(probeNativeFeaturePreflights({host:'https://gastroflow.onrender.com',fetcher}))
+      .rejects.toThrow(/staging/);
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it('refuses a production host',async()=>{
     await expect(probeNativeCors({host:'https://gastroflow.onrender.com',fetcher:vi.fn()})).rejects.toThrow(/staging/);
