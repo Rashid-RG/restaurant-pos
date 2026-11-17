@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { usePOS } from '../context/POSContext';
 import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt, printSelectedReceipt } from '../utils/printer';
 import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
+import { isNativePrintingEnabled, nativePrintReceiptElement } from '../utils/native-printer';
 
 export function getFoodImageForItem(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
@@ -181,17 +182,34 @@ export default function POSView() {
   const [printReceiptOrder, setPrintReceiptOrder] = useState(null);
   const [lastPaidOrder, setLastPaidOrder] = useState(null);
 
-  // Print only after the paid receipt has been committed to React's print portal.
+  // After settlement, use native ESC/POS only when explicitly enabled on
+  // this computer for this tenant. Never auto-fallback on a failed native job:
+  // a spooler may have accepted it, and a second print could duplicate bills.
+  const printerTenantId = currentUser?.tenant_id || currentUser?.tenantId || '';
+  const nativePrinterEnabled = isNativePrintingEnabled(printerTenantId);
+  const printCashierReceipt = async (userInitiated = false) => {
+    if (isNativePrintingEnabled(printerTenantId)) {
+      try {
+        await nativePrintReceiptElement(printerTenantId, settings?.printerPaperWidth || '80mm');
+        showToast('Receipt sent to the Windows print queue. Confirm physical output and paper cut.', 'info');
+        return true;
+      } catch (error) {
+        showToast('Direct print failed: ' + (error.message || error) + '. Use Browser Print to retry manually.', 'error');
+        return false;
+      }
+    }
+    const ok = printRenderedReceipt(settings?.printerPaperWidth || '80mm', { userInitiated });
+    if (!ok) showToast('The receipt has not rendered. Open Last Bill and try again.', 'error');
+    return ok;
+  };
   useEffect(() => {
     if (!printReceiptOrder || !autoPrintRef.current) return;
-    autoPrintRef.current=false;
-    const timer=setTimeout(() => {
-      if (!printRenderedReceipt(settings?.printerPaperWidth || '80mm')) {
-        showToast('The bill was not ready to print. Open Last Bill and try Print Receipt again.','error');
-      }
-    },500);
-    return ()=>clearTimeout(timer);
-  },[printReceiptOrder]);
+    autoPrintRef.current = false;
+    const timer = setTimeout(() => { void printCashierReceipt(false); }, 500);
+    return () => clearTimeout(timer);
+    // Only react to a newly committed paid receipt, not periodic store updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printReceiptOrder]);
 
   const currencySymbol = settings.currencySymbol || 'Rs.';
   const openCustomPrice = (lineIndex, line) => {
@@ -1467,14 +1485,18 @@ export default function POSView() {
               <button 
                 className="btn btn-secondary" 
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                onClick={() => {
-                  if(!printRenderedReceipt(settings?.printerPaperWidth || '80mm', { userInitiated: true })){
-                    showToast('Cannot print: receipt content is missing. Reopen this paid bill and retry.','error');
-                  }
-                }}
+                onClick={() => { void printCashierReceipt(true); }}
               >
-                🖨️ Print Receipt
+                🖨️ {nativePrinterEnabled ? 'Direct Print Receipt' : 'Print Receipt'}
               </button>
+              {nativePrinterEnabled && <button type="button" className="btn btn-secondary" style={{ flex: 1 }}
+                onClick={() => {
+                  if (!printRenderedReceipt(settings?.printerPaperWidth || '80mm', { userInitiated: true })) {
+                    showToast('Receipt content is missing. Open Last Bill and retry.', 'error');
+                  }
+                }}>
+                Browser Print
+              </button>}
               <button 
                 className="btn btn-primary" 
                 style={{ flex: 1 }}
