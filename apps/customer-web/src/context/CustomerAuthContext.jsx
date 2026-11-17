@@ -40,6 +40,8 @@ export function CustomerAuthProvider({ children }) {
   const commitCustomerSession = (data,epoch) => {
     if (!isCurrent(epoch)) throw new Error('Restaurant changed. Please sign in again.');
     if (!data?.token || !data?.customer) throw new Error('Customer login response was incomplete.');
+    // Explicit login supersedes an earlier auto-restore or profile refresh.
+    scopeRef.current.epoch++;
     localStorage.setItem(sessionKey, data.token);
     setCustomer(data.customer);
     return data.customer;
