@@ -2,6 +2,7 @@ import { CookingIcon } from '../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined, ContactRound, AlarmClock, Banknote, ClipboardList } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
+import { platformWorkspaceDestination, visibleWorkspaceDestinations, isPlatformWorkspace } from '../platform/workspace-policy.js';
 import { ConnectionStatus } from '../../shared/ui/Resilience.jsx';
 
 export const workspaceDestinations = [
@@ -24,11 +25,11 @@ export const workspaceDestinations = [
 ];
 export function useDestinations() {
   const { currentUser, activeTab } = usePOS();
-  // Platform-owner navigation uses the active workspace; ordinary restaurant users are unchanged.
-  const destinations = currentUser?.isPlatformAdmin === true && activeTab === 'platform'
-    ? [{ id: 'platform', name: 'Platform administration', description: 'Manage restaurants, plans and platform operations', icon: Store }]
-    : workspaceDestinations;
-  return destinations.filter(item => !item.management || ['owner', 'manager'].includes(currentUser?.role) || Boolean(currentUser?.isPlatformAdmin));
+  // POS and platform-owner navigation are independently defined; permissions stay server-owned.
+  return visibleWorkspaceDestinations(currentUser, activeTab, workspaceDestinations, {
+    ...platformWorkspaceDestination,
+    icon: Store,
+  });
 }
 export default function WorkspaceTools() {
   const { activeTab, setActiveTab, settings, currentUser } = usePOS();
@@ -46,7 +47,7 @@ export default function WorkspaceTools() {
   const navigate = id => { setActiveTab(id); dialog.current.close(); };
   return <>
     <div className="workspace-toolbar">
-      <div className="workspace-location"><Store size={16}/>{currentUser?.isPlatformAdmin === true && activeTab === 'platform' ? <><span>Platform owner</span><span className="workspace-separator">/</span><strong>Platform administration</strong></> : <><span>{settings.businessName || settings.restaurantName || 'My restaurant'}</span><span className="workspace-separator">/</span><strong>{destinations.find(item => item.id === activeTab)?.name || 'Workspace'}</strong></>}</div>
+      <div className="workspace-location"><Store size={16}/>{isPlatformWorkspace(currentUser, activeTab) ? <><span>Platform owner</span><span className="workspace-separator">/</span><strong>Platform administration</strong></> : <><span>{settings.businessName || settings.restaurantName || 'My restaurant'}</span><span className="workspace-separator">/</span><strong>{destinations.find(item => item.id === activeTab)?.name || 'Workspace'}</strong></>}</div>
       <div className="workspace-toolbar-actions"><ConnectionStatus compact/><button className="workspace-search" aria-label="Go to anything" onClick={open}><Search size={15}/><span>Go to anything</span><kbd>⌘ K</kbd></button><span className="workspace-avatar" title={currentUser?.username}>{currentUser?.username?.slice(0, 2).toUpperCase()}</span></div>
     </div>
     <dialog ref={dialog} className="command-dialog" onClick={event => { if (event.target === dialog.current) dialog.current.close(); }} aria-label="Navigate your workspace">
