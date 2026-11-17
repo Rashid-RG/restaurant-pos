@@ -93,10 +93,13 @@ export default function LocationPicker({ value, onChange, toast }) {
   }, [value?.lat, value?.lng]);
 
   // Clean up the debounce timer on unmount.
-  useEffect(() => () => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    commitSequenceRef.current++;
-    addressSearchGateRef.current.dispose();
+  useEffect(() => {
+    addressSearchGateRef.current.activate();
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      commitSequenceRef.current++;
+      addressSearchGateRef.current.dispose();
+    };
   }, []);
 
   async function runSearch(text) {
