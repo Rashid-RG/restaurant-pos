@@ -44,6 +44,7 @@ import { verifyPayhereNotification, paymentAmountMatches } from './lib/payhere.j
 import { validateProductionConfig } from './lib/runtime-config.js';
 import { createDatabaseGate } from './lib/database-gate.js';
 import { createTenantSettingsStore } from './lib/tenancy/settings-store.js';
+import { STAFF_ROLES, isStaffClaim, isStaffAccountAuthorized, isExpectedRestaurant, isPlatformOwner, hasStaffRole, isCustomerTenantMatch } from './lib/tenancy/access-policy.js';
 import { createDatabaseReadiness } from './lib/database-readiness.js';
 import { createOperationalMonitor } from './lib/operational-monitor.js';
 import { sendOperationalAlert } from './lib/ops-alerts.js';
@@ -1756,23 +1757,22 @@ const publicApiLimiter = rateLimit({
 // BUG-002 fix: use JWT_SECRET from env only, fall back to clearly non-production dev constant
 // Also enforces tenant suspension — if the store is suspended, all staff
 // requests are blocked except for platform owners who manage tenants.
-const STAFF_ROLES = ['owner', 'manager', 'cashier', 'kitchen', 'staff', 'admin'];
 const authenticateToken = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Authentication token required.' });
   try {
     const claims = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
-    if (!claims.id || !STAFF_ROLES.includes(claims.role) || claims.type === 'customer') {
+    if (!isStaffClaim(claims)) {
       return res.status(403).json({ error: 'A staff token is required.' });
     }
     const user = await dbGet('SELECT u.id, u.username, u.role, u.tenant_id, CASE WHEN p.userId IS NOT NULL THEN 1 ELSE 0 END AS isPlatformAdmin FROM users u LEFT JOIN platform_ownership p ON p.userId = u.id WHERE u.id = ?', [claims.id]);
-    if (!user || user.tenant_id !== claims.tenant_id || !STAFF_ROLES.includes(user.role)) {
+    if (!isStaffAccountAuthorized(user, claims)) {
       return res.status(403).json({ error: 'Staff account is no longer authorized.' });
     }
     const expectedTenant = req.headers['x-expected-tenant-id'];
     if (expectedTenant) {
       const selected = await resolvePosLoginTenant(expectedTenant);
-      if (!selected || selected.id !== user.tenant_id) {
+      if (!isExpectedRestaurant(selected, user.tenant_id)) {
         return res.status(403).json({
           error: 'This staff account does not belong to the restaurant in this URL.',
           code: 'TENANT_URL_MISMATCH'
@@ -1802,7 +1802,7 @@ const authenticateToken = async (req, res, next) => {
 
 // Platform authority is separate from ownership of an individual restaurant.
 const requirePlatformAdmin = (req, res, next) => {
-  if (req.user?.isPlatformAdmin !== 1 || req.user?.role !== 'owner') {
+  if (!isPlatformOwner(req.user)) {
     return res.status(403).json({ error: 'Platform administrator access only.' });
   }
   next();
@@ -1831,7 +1831,7 @@ const authenticateCustomer = (req, res, next) => {
       if (!account || decoded.sessionVersion !== customerSessionVersion(account)) return res.status(403).json({error:'Customer session expired. Please sign in again.'});
       if(!account)return res.status(403).json({error:'Customer account is unavailable.'});
       const requested=req.headers['x-tenant-id']||req.query.tenant;
-      if(requested&&requested!==account.tenant_id)return res.status(403).json({error:'Customer account belongs to another restaurant.'});
+      if(!isCustomerTenantMatch(requested,account.tenant_id))return res.status(403).json({error:'Customer account belongs to another restaurant.'});
       req.customer={...decoded,...account};next();
     }catch(error){next(error)}
   });
@@ -1866,7 +1866,7 @@ const authenticateDriver = (req, res, next) => {
 // Middleware: Role check
 const requireRole = (allowedRoles) => {
   return (req, res, next) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
+    if (!hasStaffRole(req.user, allowedRoles)) {
       return res.status(403).json({ error: 'Unauthorized. Insufficient role privileges.' });
     }
     next();
@@ -2048,7 +2048,7 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
     if (expectedTenantId !== undefined) {
       const requestedTenant = await resolvePosLoginTenant(expectedTenantId);
       // Never switch the POS URL to match credentials from another store.
-      if (!requestedTenant || requestedTenant.id !== userTenantId) {
+      if (!isExpectedRestaurant(requestedTenant, userTenantId)) {
         return res.status(403).json({
           error: 'These credentials belong to a different restaurant. Use the correct POS store link.',
           code: 'TENANT_URL_MISMATCH'
