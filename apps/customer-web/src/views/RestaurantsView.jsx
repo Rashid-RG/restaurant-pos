@@ -10,6 +10,7 @@ import { restaurantRatingText, restaurantDeliveryText, restaurantEmptyState, sor
 import {matchesRestaurantQuery} from '../utils/discovery-search.js';
 import {acquireBestLocation,permissionAllowsAutomaticLocation} from '../utils/location-acquisition.js';
 import {createAddressSearchGate} from '../utils/address-search-gate.js';
+import {isCurrentLocationSelection} from '../utils/location-selection-guard.js';
 
 
 const CUISINE_CATEGORIES = [
@@ -274,7 +275,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     try {
       const query = encodeURIComponent(manualAddr);
       const data = await apiFetch(`/public/geocode?q=${query}`);
-      if (requestId !== locationRequestRef.current) return;
+      if (!isCurrentLocationSelection(requestId,locationRequestRef.current)) return;
       if (Array.isArray(data) && data.length > 0) {
         handleSelectAddressSuggestion(data[0]);
         return;
@@ -282,9 +283,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     } catch {
       // Manual fallback may proceed only if this is still the latest selection.
     } finally {
-      if (requestId === locationRequestRef.current) setIsSearchingAddress(false);
+      if (isCurrentLocationSelection(requestId,locationRequestRef.current)) setIsSearchingAddress(false);
     }
-    if (requestId !== locationRequestRef.current) return;
+    if (!isCurrentLocationSelection(requestId,locationRequestRef.current)) return;
 
     // Fuzzy match against Sri Lanka city dictionary
     const matchedCoords = resolveCoordsForAddress(manualAddr);
