@@ -958,8 +958,17 @@ export default function POSView() {
               <button className="modal-close" onClick={() => setShowCustomizerModal(false)}>×</button>
             </div>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '24px' }}>
-              <div style={{ fontSize: '40px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '12px' }}>
-                {customizerItem.emoji}
+              <div style={{ width: '96px', height: '96px', flexShrink: 0, overflow: 'hidden', background: 'var(--bg-surface)', borderRadius: '12px' }}>
+                <img
+                  src={getFoodImageForItem(customizerItem)}
+                  alt={customizerItem.name}
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80';
+                  }}
+                />
               </div>
               <div>
                 <h3 style={{ fontSize: '18px', fontWeight: '700' }}>{customizerItem.name}</h3>
