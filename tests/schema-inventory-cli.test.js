@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import sqlite3 from 'sqlite3';
@@ -18,6 +18,20 @@ describe('local-only schema inventory command', () => {
         expect(denied.status).toBe(2);
       }
     } finally { rmSync(root, {recursive:true,force:true}); }
+  });
+
+  it('refuses symlink input and extra arguments rather than reading unintended databases', async () => {
+    const root=mkdtempSync(join(tmpdir(),'gastroflow-db-inventory-link-'));
+    try {
+      const target=join(root,'real.db'), alias=join(root,'alias.db');
+      const db=new sqlite3.Database(target);
+      await new Promise(ok=>db.close(ok));
+      symlinkSync(target,alias);
+      const linked=spawnSync(process.execPath,['scripts/inventory-local-schema.js',alias],{encoding:'utf8'});
+      expect(linked.status).toBe(2);
+      const extra=spawnSync(process.execPath,['scripts/inventory-local-schema.js',target,'unexpected'],{encoding:'utf8'});
+      expect(extra.status).toBe(2);
+    } finally { rmSync(root,{recursive:true,force:true}); }
   });
 
   it('reports schema metadata but never table row values on a disposable local file', async () => {
