@@ -24,10 +24,13 @@ The programmatic API is `inspectDatabaseSchema(dbAll)`, imported from `lib/schem
 
 For a **restored, existing local database file only**, run `node scripts/inventory-local-schema.js /path/to/restored-copy.db`. The command refuses missing paths and remote URLs, opens SQLite with `OPEN_READONLY`, and prints structural metadata only. Do not direct it at the restaurant's active database file.
 
+Run `node scripts/check-local-database-health.js /path/to/restored-copy.db` on the same **existing offline restored copy** to test SQLite integrity and foreign key relationships. The checker refuses remote URLs, missing paths and symlinks, uses `OPEN_READONLY`, and prints only aggregate health results. It is not a replacement for the encrypted backup verification and restore rehearsal.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
 - [x] Local-only, read-only schema CLI and safety tests committed
+- [x] Offline restored-copy database health checker and isolated regression tests committed
 - [ ] Full GitHub Actions results for this change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
