@@ -22,7 +22,7 @@ describe('legacy restaurant peak-hour policy', () => {
     expect(await service('restaurantA')).toBe(true);
     expect(await service('restaurantB')).toBe(false);
     expect(provider).toHaveBeenNthCalledWith(1,'restaurantA',['peakLunchStart','peakLunchEnd','peakDinnerStart','peakDinnerEnd','timeZone','timezone']);
-    expect(provider).toHaveBeenNthCalledWith(2,'restaurantB',['peakLunchStart','peakLunchEnd','peakDinnerStart','peakDinnerEnd']);
+    expect(provider).toHaveBeenNthCalledWith(2,'restaurantB',['peakLunchStart','peakLunchEnd','peakDinnerStart','peakDinnerEnd','timeZone','timezone']);
   });
   it('uses each restaurant timezone for the same UTC instant', async () => {
     // 12:00 in Colombo, 10:30 in Dubai, 09:30 in Qatar.
