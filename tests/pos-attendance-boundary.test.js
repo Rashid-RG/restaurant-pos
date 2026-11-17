@@ -22,7 +22,8 @@ describe('POS attendance component relocation contract', () => {
       '../../../../src/components/my-attendance.css',
     ]) {
       expect(current).toContain(imported);
-      expect(existsSync(resolve(dirname(canonicalPath), imported))).toBe(true);
+      const target = resolve(dirname(canonicalPath), imported);
+      expect([target, target + '.js', target + '.jsx'].some(existsSync)).toBe(true);
     }
   });
 
