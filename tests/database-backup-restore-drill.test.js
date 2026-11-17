@@ -56,7 +56,7 @@ describe('offline logical backup + encrypted recovery drill', () => {
         const result = await verified.execute('SELECT tenant_id,total FROM orders ORDER BY id');
         expect(result.rows.map(row => [row.tenant_id, Number(row.total)])).toEqual([['shop-A', 1200], ['shop-B', 2300]]);
         const blob = await verified.execute('SELECT payload FROM attachments WHERE id=?', ['attachment-A']);
-        expect(Array.from(blob.rows[0].payload)).toEqual([0, 1, 127, 255]);
+        expect(Array.from(new Uint8Array(blob.rows[0].payload))).toEqual([0, 1, 127, 255]);
         expect((await verified.execute('PRAGMA foreign_key_check')).rows).toEqual([]);
       } finally { verified.close(); }
       expect(runRestore(backupFile, restored).status).not.toBe(0);
