@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 const required = [
-  'server.js','apps/pos-web/README.md','apps/pos-web/src/App.jsx','apps/pos-web/src/utils/staff-session.js','apps/pos-web/src/utils/kitchen-recovery.js','apps/pos-web/src/utils/sold-items.js','apps/pos-web/src/utils/offlineSync.js','apps/pos-web/src/components/SupportTicketsView.jsx','apps/pos-web/src/components/StoreStatusScreen.jsx','apps/pos-web/src/components/SubscriptionBilling.jsx','apps/pos-web/src/components/ServiceExceptions.jsx','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
+  'server.js','apps/pos-web/README.md','apps/pos-web/src/App.jsx','apps/pos-web/src/utils/staff-session.js','apps/pos-web/src/utils/kitchen-recovery.js','apps/pos-web/src/utils/sold-items.js','apps/pos-web/src/utils/offlineSync.js','apps/pos-web/src/components/SupportTicketsView.jsx','apps/pos-web/src/components/StoreStatusScreen.jsx','apps/pos-web/src/components/SubscriptionBilling.jsx','apps/pos-web/src/components/ServiceExceptions.jsx','apps/pos-web/src/components/FloorPlan.jsx','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
   'routes/platform.js','lib/orders/index.js','lib/orders/checkout-recovery.js','lib/orders/verification.js','lib/orders/tracking.js','lib/orders/inventory.js','lib/orders/loyalty-reversal.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/identity/password-reset.js','lib/identity/password-reset-resolver.js','lib/identity/customer-login.js','lib/identity/customer-registration.js','lib/identity/customer-registration-duplicates.js','lib/identity/customer-schema-audit.js','docs/CUSTOMER_ACCOUNT_UNIQUENESS_SAFE_MIGRATION.md','lib/communications/index.js','lib/communications/app-links.js','lib/communications/order-confirmation.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
@@ -34,6 +34,8 @@ const legacySubscriptionView = readFileSync('src/components/SubscriptionBilling.
 if (!legacySubscriptionView.includes('../../apps/pos-web/src/components/SubscriptionBilling.jsx')) findings.push('Subscription billing view must retain the existing POS component import');
 const legacyServiceExceptions = readFileSync('src/components/ServiceExceptions.jsx','utf8');
 if (!legacyServiceExceptions.includes('../../apps/pos-web/src/components/ServiceExceptions.jsx')) findings.push('Service exceptions must retain existing POS import compatibility');
+const legacyFloorPlan = readFileSync('src/components/FloorPlan.jsx','utf8');
+if (!legacyFloorPlan.includes('../../apps/pos-web/src/components/FloorPlan.jsx')) findings.push('POS floor plan must retain its original compatibility import');
 const posCompatApp = readFileSync('apps/pos-web/src/App.jsx','utf8');
 if (!posCompatApp.includes('../../../src/App.jsx')) findings.push('Dedicated POS app boundary must preserve existing UI entrypoint during gradual migration');
 const currentHtml = readFileSync('index.html','utf8');
