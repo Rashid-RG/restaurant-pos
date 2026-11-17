@@ -19,7 +19,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
-import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup } from './lib/identity/index.js';
+import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier } from './lib/identity/index.js';
 import { customerAppUrl, posAppUrl, createOrderConfirmationSender } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 
@@ -2968,6 +2968,7 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
   }
 });
 
+const verifyRegistrationOtp = createRegistrationOtpVerifier({ verifyOTPAsync });
 // POST /api/customer/auth/register
 app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
   const { name, email, phone, password, otpCode } = req.body;
@@ -2989,7 +2990,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 
   // Verify OTP (allow either phone or email verification)
   const tenantIdForOtp = await resolvePublicTenant(req);
-  const isOtpValid = (await verifyOTPAsync(cleanPhone, otpCode, 'phone_verify', tenantIdForOtp)) || (cleanEmail && (await verifyOTPAsync(cleanEmail, otpCode, 'phone_verify', tenantIdForOtp)));
+  const isOtpValid = await verifyRegistrationOtp({ tenantId: tenantIdForOtp, phone: cleanPhone, email: cleanEmail, code: otpCode });
 
   if (!isOtpValid) {
     return res.status(400).json({ error: 'Invalid or expired verification code.' });
@@ -3019,7 +3020,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const id = `ca_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const tenantId = await resolvePublicTenant(req);
+    const tenantId = tenantIdForOtp;
     await dbRun(
       `INSERT INTO customer_accounts (id, name, email, phone, passwordHash, loyaltyPoints, totalSpent, createdAt, tenant_id)
        VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
