@@ -4731,7 +4731,9 @@ function notifyPOS(eventData, tenantId) {
 
 // Must run inside the cancellation transaction. Only new, recorded reservations
 // can be returned; historical loyalty balances require separate reconciliation.
-const releaseOrderLoyalty = createReleaseOrderLoyalty({ dbGet, dbRun });
+async function releaseOrderLoyalty(orderId, tenantId) {
+  return createReleaseOrderLoyalty({ dbGet, dbRun })(orderId, tenantId);
+}
 
 // Unified Billing Calculation Helper
 // Thin wrapper — delegates to lib/billing.js (injecting the local DB helpers).
