@@ -115,9 +115,14 @@ Use **GitHub Actions → GastroFlow Food iOS simulator candidate → Run workflo
 1. Installs the existing root Vite build tools and the **isolated** `apps/customer-web` Capacitor dependencies without editing the POS lockfile.
 2. Builds packaged customer web assets against the staging HTTPS API only.
 3. Creates the isolated `apps/customer-web/ios/` project if it does not exist, syncs assets, and adds **foreground-only** iOS location permission text.
+   It also runs `scripts/generate-food-ios-branding.py` against the already approved `public/food-logo.png`, replacing only generated Xcode catalog icon/splash PNGs. The 1024×1024 app icon is opaque; original `Contents.json` structures remain unchanged.
 4. Compiles an iOS **Simulator Debug** `.app` with `CODE_SIGNING_ALLOWED=NO` and checks the bundle ID `com.rstechnologies.gastrofood` and packaged app files.
 5. Uploads `gastrofood-ios-simulator-candidate` (a zipped simulator `.app`) and `gastrofood-ios-source-candidate` for manual inspection. No iOS source files are automatically committed.
 
 **Important:** A simulator `.app` is **not** an iPhone-installable IPA and not an App Store release. This first pipeline has been added but has **not been executed or validated**. Before any device distribution, review iOS icon/splash resources, permissions, ATS rules, dependency lock, app identity, native network CORS and signing. Real iPhone installation requires Apple provisioning and an approved release workflow.
 
 Capacitor 8 requires Xcode 26 or newer. Its recommended iOS package manager is Swift Package Manager; do not invent CocoaPods setup unless a plugin explicitly needs it.
+
+### iOS branding generator verification
+
+A separate inexpensive Ubuntu GitHub workflow, `GastroFlow Food iOS branding generator quality`, tests the asset conversion with disposable fixture catalogs; it does not require macOS, generate an IPA, publish an app, or change customer/production data. The first verified run [44054527118](https://github.com/Rashid-RG/restaurant-pos/actions/runs/44054527118) passed, including opaque 1024×1024 output, splash dimensions, original Xcode catalog preservation, and refusal of unsafe paths. **The actual iOS simulator Xcode workflow remains unexecuted** and its generated icon must be visually reviewed before release.
