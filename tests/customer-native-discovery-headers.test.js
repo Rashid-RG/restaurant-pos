@@ -21,6 +21,25 @@ describe('GastroFlow Food anonymous discovery request headers',()=>{
     expect(opts.headers).not.toHaveProperty('X-Tenant-Id');
     expect(opts.cache).toBe('no-store');
   });
+  it('keeps location-filtered public restaurant listings anonymous without a native preflight',async()=>{
+    const mockFetch=setClient();
+    await apiFetch('/public/restaurants?lat=6.9271&lng=79.8612',{cache:'no-store'});
+    const [url,opts]=mockFetch.mock.calls[0];
+    expect(url).toBe('https://gastroflow-staging.onrender.com/api/public/restaurants?lat=6.9271&lng=79.8612');
+    expect(opts.headers).not.toHaveProperty('Content-Type');
+    expect(opts.headers).not.toHaveProperty('X-Tenant-Id');
+    expect(opts.headers).not.toHaveProperty('Authorization');
+    expect(opts.cache).toBe('no-store');
+  });
+  it('does not mistakenly make a similarly named route or POST anonymous',async()=>{
+    const mockFetch=setClient();
+    await apiFetch('/public/restaurants-extra?lat=6.9');
+    expect(mockFetch.mock.calls[0][1].headers['X-Tenant-Id']).toBe('restaurant-123');
+    await apiFetch('/public/restaurants?lat=6.9',{method:'POST',body:JSON.stringify({test:true})});
+    const opts=mockFetch.mock.calls[1][1];
+    expect(opts.headers['X-Tenant-Id']).toBe('restaurant-123');
+    expect(opts.headers['Content-Type']).toBe('application/json');
+  });
   it('still retains tenant scoping and JSON on write requests',async()=>{
     const mockFetch=setClient();
     await apiFetch('/public/feedback',{method:'POST',body:JSON.stringify({message:'test'})});
