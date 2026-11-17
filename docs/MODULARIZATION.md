@@ -29,6 +29,14 @@ The existing legacy resource pre-handler now calls pure functions in `lib/tenanc
 
 **Remaining security work:** broader route-level authorization, payment and report boundaries, server-wide audit of bypasses and the owner/staff username uniqueness model. Do not deploy this code without explicit staging authorization; it does not imply commercial security certification.
 
+## 2026-11-18: Financial read isolation hardening
+
+The authenticated `/api/reports/x-report` endpoint now requires `tenant_id = req.tenantId` when locating the currently open shift; selecting a staff ID alone is insufficient under malformed historical cross-tenant shift data. The PayHere checkout manual-payment preflight now requires the verified `req.trackingTenant` from the existing order tracking guard when querying `manual_payments`; a similarly named order from another tenant cannot influence this block.
+
+The real HTTP test suite `tests/pos-tenant-url-auth.test.js` includes synthetic two-restaurant financial fixtures, with a deliberately foreign-tenant open shift referencing the same staff ID, and verifies the resulting shift ID, X-report sales, VAT aggregates and COGS menu rows. No schema migration, existing transaction change, or production data operation is part of this batch.
+
+**Risk note:** This checks specific reports and checkout gates. Commercial financial certification still requires complete ledger, reconciliation, cash-drawer, refund and tenant-audit coverage, including backup-based restoration and independent acceptance tests. The branch is not deployed to staging without user approval.
+
 ## What IS done in Phase 6
 
 - **Zod validation** extended from 4 → 9 write routes, matching real bodies with
