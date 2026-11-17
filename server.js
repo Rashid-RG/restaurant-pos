@@ -19,7 +19,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
-import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver } from './lib/identity/index.js';
+import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup } from './lib/identity/index.js';
 import { customerAppUrl, posAppUrl, createOrderConfirmationSender } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 
@@ -3064,6 +3064,7 @@ app.post('/api/customer/auth/register', publicApiLimiter, async (req, res) => {
 });
 
 // POST /api/customer/auth/login
+const findCustomerForLogin = createCustomerLoginLookup({ dbGet, normalizeLkPhone });
 const customerLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many sign-in attempts. Try again later.' }
@@ -3078,8 +3079,7 @@ app.post('/api/customer/auth/login', customerLoginLimiter, async (req, res) => {
 
   try {
     const tenantId = await resolvePublicTenant(req);
-    const customer = await dbGet('SELECT * FROM customer_accounts WHERE tenant_id=? AND (phone=? OR phone=?)',
-      [tenantId, normalizeLkPhone(cleanPhone), cleanPhone]);
+    const customer = await findCustomerForLogin(tenantId, cleanPhone);
     if (!customer) {
       return res.status(401).json({ error: 'Invalid phone number or password.' });
     }
