@@ -22,6 +22,17 @@ describe('One platform owner, independent restaurant owners', () => {
     expect((await request(app).get('/api/auth/me').set(owner())).body.user.isPlatformAdmin).toBe(true);
     expect((await request(app).get('/api/auth/me').set(auth(token('other-default-owner')))).body.user.isPlatformAdmin).toBe(false);
   });
+  it('disables legacy database reset and import even for the real platform owner',async()=>{
+    const before=await dbGet('SELECT COUNT(*) AS n FROM tenants');
+    for(const endpoint of ['/api/database/reset','/api/database/import']) {
+      const response=await request(app).post(endpoint).set(owner()).send({});
+      expect(response.status,response.text).toBe(403);
+      expect(response.body.code).toBe('DATABASE_MUTATION_DISABLED');
+    }
+    expect((await dbGet('SELECT COUNT(*) AS n FROM tenants')).n).toBe(before.n);
+    expect(await dbGet("SELECT id FROM users WHERE id='user_admin'")).toBeTruthy();
+  });
+
   it('does not infer platform rights from default restaurant ownership or forged capability claims', async () => {
     const forged = auth(token('other-default-owner','default_tenant',{isPlatformAdmin:true}));
     for (const endpoint of ['/api/saas/tenants','/api/db/inspect','/api/marketplace/partner-earnings']) expect((await request(app).get(endpoint).set(forged)).status).toBe(403);
