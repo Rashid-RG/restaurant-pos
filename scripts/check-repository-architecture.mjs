@@ -7,7 +7,7 @@ const required = [
   'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
-  'routes/platform.js','lib/orders/index.js','lib/orders/checkout-recovery.js','lib/orders/verification.js','lib/orders/tracking.js','lib/orders/inventory.js','lib/orders/loyalty-reversal.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/identity/password-reset.js','lib/identity/password-reset-resolver.js','lib/identity/customer-login.js','lib/communications/index.js','lib/communications/app-links.js','lib/communications/order-confirmation.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
+  'routes/platform.js','lib/orders/index.js','lib/orders/checkout-recovery.js','lib/orders/verification.js','lib/orders/tracking.js','lib/orders/inventory.js','lib/orders/loyalty-reversal.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/identity/password-reset.js','lib/identity/password-reset-resolver.js','lib/identity/customer-login.js','lib/identity/customer-registration.js','lib/communications/index.js','lib/communications/app-links.js','lib/communications/order-confirmation.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
 ];
 const findings = [];
 for (const entry of required) {
@@ -60,6 +60,8 @@ if (!backendEntrypoint.includes('createOrderConfirmationSender({')) findings.pus
 if (!backendEntrypoint.includes('createPasswordResetIssuer({dbRun, generateToken, generateOtp, hashCode})')) findings.push('Password-reset issuance must use identity domain');
 if (!backendEntrypoint.includes('createPasswordResetResolver({ dbGet, hashCode })')) findings.push('Password reset resolution must delegate to the identity domain');
 if (!backendEntrypoint.includes('createCustomerLoginLookup({ dbGet, normalizeLkPhone })')) findings.push('Customer login must use tenant-scoped identity lookup');
+if (!backendEntrypoint.includes('createRegistrationOtpVerifier({ verifyOTPAsync })')) findings.push('Registration must use the tenant-bound OTP verification service');
+if (!backendEntrypoint.includes('const tenantId = tenantIdForOtp;')) findings.push('Registration must persist using the same restaurant tenant as OTP verification');
 const workspaceSource = readFileSync('src/components/WorkspaceTools.jsx', 'utf8');
 if (!workspaceSource.includes("from '../platform/workspace-policy.js'")) findings.push('POS workspace must consume isolated platform navigation policy');
 const customerConfig = JSON.parse(readFileSync('apps/customer-web/capacitor.config.json', 'utf8'));
