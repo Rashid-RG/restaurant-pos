@@ -7,6 +7,12 @@
 > as a guided refactor to do **incrementally, behind the growing test suite**,
 > rather than in one risky pass.
 
+## 2026-11-18: Commercial SaaS tenancy refactor (incremental)
+
+The production POS entrypoint, settings API contracts, and server database boot sequence remain unchanged. Tenant-scoped settings SQL has been extracted into `lib/tenancy/settings-store.js` using an injected `{dbGet,dbAll,dbRun}` provider, with the previous `getSetting`, `getSettingAny`, `getSettingsMap` and `setSetting` functions in `server.js` retained as compatibility wrappers. This is not a database migration and imports do not execute SQL. The new tests cover two independent restaurant settings sets, key fallback semantics, parameterized reads and tenant-filtered updates. The repository architecture guard enforces the new boundary.
+
+**Next:** add tests before moving one bounded domain at a time; prioritize tenant authorization and payment/reporting route contracts. Keep the existing live restaurant's login, receipt printing, sales and Turso data untouched. Do not deploy this refactor without a separate staging approval.
+
 ## What IS done in Phase 6
 
 - **Zod validation** extended from 4 → 9 write routes, matching real bodies with
