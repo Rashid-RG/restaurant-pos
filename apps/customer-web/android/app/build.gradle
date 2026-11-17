@@ -5,9 +5,10 @@ android {
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.rstechnologies.gastrofood"
+        manifestPlaceholders = [appLabel: "@string/app_name"]
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode (project.findProperty('foodStagingVersionCode')?.toString()?.toInteger() ?: 1)
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -16,7 +17,25 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        // Never generate per-run signing keys for staging. Provision a persistent
+        // keystore through GitHub Actions secrets; no secret is kept in Git.
+        foodStaging {
+            storeFile file(System.getenv('FOOD_STAGING_KEYSTORE_PATH') ?: 'unconfigured-food-staging.jks')
+            storePassword System.getenv('FOOD_STAGING_STORE_PASSWORD') ?: ''
+            keyAlias System.getenv('FOOD_STAGING_KEY_ALIAS') ?: ''
+            keyPassword System.getenv('FOOD_STAGING_KEY_PASSWORD') ?: ''
+        }
+    }
     buildTypes {
+        staging {
+            initWith release
+            applicationIdSuffix '.staging'
+            versionNameSuffix '-staging'
+            signingConfig signingConfigs.foodStaging
+            manifestPlaceholders = [appLabel: "@string/food_staging_app_name"]
+            matchingFallbacks = ['release']
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
