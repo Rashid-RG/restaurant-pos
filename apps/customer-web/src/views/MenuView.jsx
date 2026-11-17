@@ -1,3 +1,4 @@
+import { resolveCustomerImageUrl } from '../utils/native-image-url.js';
 import {startStoreUpdates} from '../utils/live-store.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -824,7 +825,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
                   {item.imageUrl ? (
                     <div className="menu-card-emoji" style={{ padding: 0 }}>
                       <img
-                        src={item.imageUrl}
+                        src={resolveCustomerImageUrl(item.imageUrl,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})}
                         alt={item.name}
                         loading="lazy"
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
@@ -897,7 +898,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
             </div>
 
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              {customizerItem.imageUrl ? <img className="customer-customizer-image" src={customizerItem.imageUrl} alt={customizerItem.name} onError={e=>{e.currentTarget.style.display='none'}} /> : <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>}
+              {customizerItem.imageUrl ? <img className="customer-customizer-image" src={resolveCustomerImageUrl(customizerItem.imageUrl,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})} alt={customizerItem.name} onError={e=>{e.currentTarget.style.display='none'}} /> : <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>}
               <h4 style={{ margin: '8px 0 4px', fontSize: '1.05rem', fontWeight: 700 }}>{customizerItem.name}</h4>
               {availableCustomizerQty < 1 && <p role="status" className="gf-menu-remaining-stock">Stock limit reached for this item in your cart.</p>}
               {availableCustomizerQty > 0 && availableCustomizerQty <= 5 && <p role="status" className="gf-menu-remaining-stock">{availableCustomizerQty} more available to add</p>}
