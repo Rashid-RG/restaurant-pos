@@ -30,6 +30,7 @@ import { initWorkday, createWorkdayRouter } from './routes/workday.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
 import { configuredNativeOrigins, invalidNativeOriginEntries } from './lib/customer-native-origins.js';
+import { resolveCustomerCorsOrigins, customerCorsOriginHandler } from './lib/customer-cors-policy.js';
 import express from 'express';
 import { amountInCents, validateManualTender, staffReceipt } from './lib/tenders.js';
 import { validateDeliveryProof } from './lib/delivery-proof.js';
@@ -217,16 +218,11 @@ app.use(helmet({
 //    testing on a phone, the machine's LAN IP (e.g. http://192.168.x.x:3001). Allowing
 //    any origin in dev avoids CORS 500s while keeping production locked down.
 const isProd = process.env.NODE_ENV === 'production';
-const allowedOrigins = [
-  ...(!isProd ? ['http://localhost:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001',
-  'http://localhost:5173',
-  'http://localhost:5174'] : []),
-  ...configuredNativeOrigins(process.env.CUSTOMER_NATIVE_ORIGINS),
-  ...String(process.env.CORS_ORIGIN || '').split(',').map(s => s.trim())
-].filter(Boolean);
+const allowedOrigins = resolveCustomerCorsOrigins({
+  isProd,
+  nativeOrigins: process.env.CUSTOMER_NATIVE_ORIGINS,
+  corsOrigin: process.env.CORS_ORIGIN
+});
 
 // Ignore invalid native origin entries instead of widening the production CORS policy.
 if (invalidNativeOriginEntries(process.env.CUSTOMER_NATIVE_ORIGINS).length)
@@ -269,15 +265,9 @@ function generateSecurePin(length = 6) {
 }
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // Non-browser clients (curl, server-to-server, SSE) send no Origin — always allow.
-    if (!origin) return callback(null, true);
-    if (!isProd) return callback(null, true);              // dev: allow all
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Deny cleanly (no CORS headers) instead of throwing — the browser blocks it,
-    // and we never turn a disallowed origin into a noisy 500.
-    return callback(null, false);
-  },
+  // Exact same production allowlist behavior as before, now regression-tested
+  // end to end for mobile OPTIONS preflight and anonymous discovery GET.
+  origin: customerCorsOriginHandler({isProd, allowedOrigins}),
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
