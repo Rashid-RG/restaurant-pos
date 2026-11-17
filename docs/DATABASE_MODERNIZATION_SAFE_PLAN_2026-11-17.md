@@ -104,6 +104,12 @@ All comparisons are grouped internally by restaurant and return **only** counts 
 
 To avoid interfering with an active restaurant, these checks only run against an offline restored copy and existing snapshot. No real backup, restore or migration has yet been performed with live customer data.
 
+## Cross-ledger relationship and comprehensive recovery gate
+
+The offline restore reconciliation now also invokes `reviewSettlementRelationships(restoredTables)` from `lib/financial-settlement-links.js`. It checks that manual payments reference orders within the same restaurant; manual refunds reference the correct payment and order; settled manual refunds have matching refund-transaction records; and cash movements with a shift reference belong to a shift in the same restaurant. It reports **only** a count of checks and warnings. Missing legacy columns and absent tables remain **incomplete**, never silently verified.
+
+The JSON result deliberately separates `ok` (row equivalence, SQLite integrity and foreign-key health), `financialVerified` (per-tenant order totals), `accountingVerified` (ledgers and invoices) and `settlementLinksVerified` (cross-ledger relationships). Only `recoveryReady: true` means **all these offline gates** passed together. Even then, that is **not** production release approval: actual-data backup provenance, encryption, bank settlement, tax rules, invoice gaps, multi-tenant contracts and hardware acceptance still require independently documented review. Current CLI exit status remains compatible with its original row/integrity check; operators must explicitly inspect `recoveryReady` before declaring financial acceptance.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
@@ -117,6 +123,7 @@ To avoid interfering with an active restaurant, these checks only run against an
 - [x] Read-only restored-copy row reconciliation and privacy regressions committed
 - [x] Private per-tenant order totals comparison and offline tests committed
 - [x] Offline accounting-ledger and invoice-continuity assessment with regression tests committed
+- [x] Cross-tenant settlement link checks and combined recovery-readiness report committed
 - [x] Recovery file-path and atomic new-destination protection regression tests committed
 - [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
