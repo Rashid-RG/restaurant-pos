@@ -156,6 +156,67 @@ describe('POS URL restaurant identity isolation', () => {
     expect(after.body).toBeNull();
   });
 
+  it('driver COD list and handover cannot access another restaurant receipts', async()=>{
+    const headers={Authorization:`Bearer ${loginA.body.token}`};
+    for(const [id,tid,driver,amount] of [
+      ['qa_cod_a',tenantA,'qa_driver_a',220],
+      ['qa_cod_b',tenantB,'qa_driver_b',950]
+    ]) await dbRun(
+      "INSERT INTO orders(id,tenant_id,driverId,total,status,paymentMethod,timestamp,cashCollected) VALUES(?,?,?,?,?,?,?,0)",
+      [id,tid,driver,amount,'delivered','cod',Date.now()]
+    );
+    const list=await request(app).get('/api/driver/cash-reconciliation').set(headers);
+    expect(list.status,list.text).toBe(200);
+    expect(list.body.uncollectedOrders.some(x=>x.id==='qa_cod_a')).toBe(true);
+    expect(list.body.uncollectedOrders.some(x=>x.id==='qa_cod_b')).toBe(false);
+
+    const foreign=await request(app).post('/api/driver/cash-reconciliation/handover')
+      .set(headers).send({driverId:'qa_driver_b',orderIds:['qa_cod_b'],amountHandedOver:950});
+    expect(foreign.status).toBe(409);
+    expect((await dbGet('SELECT cashCollected FROM orders WHERE id=?',['qa_cod_b'])).cashCollected).toBe(0);
+
+    const incorrect=await request(app).post('/api/driver/cash-reconciliation/handover')
+      .set(headers).send({driverId:'qa_driver_a',orderIds:['qa_cod_a'],amountHandedOver:50});
+    expect(incorrect.status).toBe(409);
+    expect((await dbGet('SELECT cashCollected FROM orders WHERE id=?',['qa_cod_a'])).cashCollected).toBe(0);
+
+    const accepted=await request(app).post('/api/driver/cash-reconciliation/handover')
+      .set(headers).send({driverId:'qa_driver_a',orderIds:['qa_cod_a'],amountHandedOver:220});
+    expect(accepted.status,accepted.text).toBe(200);
+    expect((await dbGet('SELECT cashCollected FROM orders WHERE id=?',['qa_cod_a'])).cashCollected).toBe(1);
+    expect((await dbGet('SELECT cashCollected FROM orders WHERE id=?',['qa_cod_b'])).cashCollected).toBe(0);
+
+    const replay=await request(app).post('/api/driver/cash-reconciliation/handover')
+      .set(headers).send({driverId:'qa_driver_a',orderIds:['qa_cod_a'],amountHandedOver:220});
+    expect(replay.status).toBe(409);
+  });
+
+  it('restaurant A cannot transfer a table into or out of restaurant B',async()=>{
+    const headers={Authorization:`Bearer ${loginA.body.token}`};
+    for(const [id,tid,order] of [
+      ['qa_table_a',tenantA,'qa_financial_order_a'],
+      ['qa_table_b',tenantB,'qa_financial_order_b'],
+      ['qa_table_a_empty',tenantA,null]
+    ]) await dbRun(
+      "INSERT INTO tables(id,number,status,currentOrderId,tenant_id) VALUES(?,?,?,?,?)",
+      [id,id,order?'occupied':'free',order,tid]
+    );
+    const transfer=await request(app).post('/api/tables/transfer')
+      .set(headers).send({fromTableId:'qa_table_a',toTableId:'qa_table_b'});
+    expect(transfer.status).toBe(404);
+    expect((await dbGet('SELECT currentOrderId FROM tables WHERE id=?',['qa_table_b'])).currentOrderId)
+      .toBe('qa_financial_order_b');
+    expect((await dbGet('SELECT tableId FROM orders WHERE id=?',['qa_financial_order_b'])).tableId)
+      .toBeNull();
+    const deleteForeign=await request(app).delete('/api/tables/qa_table_b').set(headers);
+    expect(deleteForeign.status).toBe(404);
+    expect(await dbGet('SELECT id FROM tables WHERE id=?',['qa_table_b'])).toBeTruthy();
+    const saved=await request(app).post('/api/tables')
+      .set(headers).send({id:'qa_table_b',number:'injected',capacity:2,status:'free'});
+    expect(saved.status).toBe(404);
+    expect((await dbGet('SELECT tenant_id FROM tables WHERE id=?',['qa_table_b'])).tenant_id).toBe(tenantB);
+  });
+
   it('rejects Shop B credentials on Shop A POS URL', async () => {
     const response = await login(usernameB,passwordB,tenantA);
     expect(response.status).toBe(403);
