@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 const required = [
-  'server.js','apps/pos-web/README.md','apps/pos-web/src/App.jsx','apps/pos-web/src/utils/staff-session.js','apps/pos-web/src/utils/kitchen-recovery.js','apps/pos-web/src/utils/sold-items.js','apps/pos-web/src/utils/offlineSync.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
+  'server.js','apps/pos-web/README.md','apps/pos-web/src/App.jsx','apps/pos-web/src/utils/staff-session.js','apps/pos-web/src/utils/kitchen-recovery.js','apps/pos-web/src/utils/sold-items.js','apps/pos-web/src/utils/offlineSync.js','apps/pos-web/src/components/SupportTicketsView.jsx','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
   'routes/platform.js','lib/orders/index.js','lib/orders/checkout-recovery.js','lib/orders/verification.js','lib/orders/tracking.js','lib/orders/inventory.js','lib/orders/loyalty-reversal.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/identity/password-reset.js','lib/identity/password-reset-resolver.js','lib/identity/customer-login.js','lib/identity/customer-registration.js','lib/identity/customer-registration-duplicates.js','lib/identity/customer-schema-audit.js','docs/CUSTOMER_ACCOUNT_UNIQUENESS_SAFE_MIGRATION.md','lib/communications/index.js','lib/communications/app-links.js','lib/communications/order-confirmation.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
@@ -26,6 +26,8 @@ for (const file of ['kitchen-recovery.js','sold-items.js','offlineSync.js']) {
   const legacy = readFileSync('src/utils/' + file, 'utf8');
   if (!legacy.includes('../../apps/pos-web/src/utils/' + file)) findings.push('POS migrated utility lacks compatibility export: ' + file);
 }
+const legacySupportView = readFileSync('src/components/SupportTicketsView.jsx','utf8');
+if (!legacySupportView.includes('../../apps/pos-web/src/components/SupportTicketsView.jsx')) findings.push('Legacy POS support tickets view must preserve its compatibility export');
 const posCompatApp = readFileSync('apps/pos-web/src/App.jsx','utf8');
 if (!posCompatApp.includes('../../../src/App.jsx')) findings.push('Dedicated POS app boundary must preserve existing UI entrypoint during gradual migration');
 const currentHtml = readFileSync('index.html','utf8');
