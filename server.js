@@ -6314,9 +6314,22 @@ app.get('/api/tables', async (req, res) => {
 app.post('/api/tables', requireRole(['owner', 'manager']), async (req, res) => {
   const { id, number, capacity, status, currentOrderId } = req.body;
   try {
-    await dbRun('INSERT OR REPLACE INTO tables (id, number, capacity, status, currentOrderId, tenant_id) VALUES (?, ?, ?, ?, ?, ?)', [
-      id, number, capacity, status, currentOrderId, req.tenantId
-    ]);
+    // Never REPLACE a globally keyed table; REPLACE may delete another tenant's row.
+    const existing = await dbGet('SELECT tenant_id FROM tables WHERE id = ?', [id]);
+    if (existing && existing.tenant_id !== req.tenantId) {
+      return res.status(404).json({ error: 'Record not found.' });
+    }
+    if (currentOrderId) {
+      const linkedOrder = await dbGet('SELECT id FROM orders WHERE id = ? AND tenant_id = ?', [currentOrderId,req.tenantId]);
+      if (!linkedOrder) return res.status(404).json({ error: 'Active order not found for this restaurant.' });
+    }
+    if (existing) {
+      await dbRun('UPDATE tables SET number=?,capacity=?,status=?,currentOrderId=? WHERE id=? AND tenant_id=?',
+        [number,capacity,status,currentOrderId || null,id,req.tenantId]);
+    } else {
+      await dbRun('INSERT INTO tables (id, number, capacity, status, currentOrderId, tenant_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [id,number,capacity,status,currentOrderId || null,req.tenantId]);
+    }
     await writeAuditLog(req.user.id, req.user.username, 'save_table', `Created/updated table ${number} (${id})`);
     res.json({ id, number, capacity, status, currentOrderId });
   } catch (err) {
@@ -6720,6 +6733,9 @@ app.post('/api/orders/:id/refund', async (req, res) => {
 
 // Database maintenance backup endpoints
 app.post('/api/database/import', databaseLimiter, requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
+  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_LEGACY_DATABASE_MUTATIONS !== 'true') {
+    return res.status(403).json({ error: 'Legacy database import is disabled. Use verified offline recovery.', code: 'DATABASE_MUTATION_DISABLED' });
+  }
   const backup = req.body;
   try {
     // Begin transaction
@@ -6815,6 +6831,9 @@ app.post('/api/database/import', databaseLimiter, requireRole(['owner']), requir
 });
 
 app.post('/api/database/reset', databaseLimiter, requireRole(['owner']), requirePlatformAdmin, async (req, res) => {
+  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_LEGACY_DATABASE_MUTATIONS !== 'true') {
+    return res.status(403).json({ error: 'Factory reset is disabled for shared restaurant databases.', code: 'DATABASE_MUTATION_DISABLED' });
+  }
   try {
     // Factory reset affects only the platform (default) tenant — paying tenants untouched.
     await dbRun("DELETE FROM order_items WHERE orderId IN (SELECT id FROM orders WHERE tenant_id = 'default_tenant')");
