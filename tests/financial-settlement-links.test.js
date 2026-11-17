@@ -2,7 +2,7 @@ import {describe,expect,it} from 'vitest';
 import {reviewSettlementRelationships} from '../lib/financial-settlement-links.js';
 const fixture=()=>new Map(Object.entries({
  orders:[{id:'secret-order-A',tenant_id:'tenant-A'},{id:'secret-order-B',tenant_id:'tenant-B'}],
- manual_payments:[{id:'payment-A',orderId:'secret-order-A',tenant_id:'tenant-A'}],
+ manual_payments:[{id:'payment-A',orderId:'secret-order-A',tenant_id:'tenant-A',amountCents:1000}],
  manual_refunds:[{id:'refund-A',orderId:'secret-order-A',paymentId:'payment-A',tenant_id:'tenant-A',settled:1,amountCents:250}],
  refund_transactions:[{id:'refund-A',orderId:'secret-order-A',tenant_id:'tenant-A',amountCents:250}],
  shifts:[{id:'shift-A',tenant_id:'tenant-A'}],
