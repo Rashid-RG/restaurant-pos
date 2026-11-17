@@ -27,6 +27,24 @@ describe('GastroFlow Food delivery address search consistency',()=>{
     expect(gate.isCurrent(last)).toBe(false);
     expect(gate.isCurrent(gate.start())).toBe(false);
   });
+  it('restores a fresh search generation after Strict Mode effect cleanup/replay',()=>{
+    const gate=createAddressSearchGate();
+    const first=gate.start();
+    gate.dispose();
+    gate.activate();
+    expect(gate.isCurrent(first)).toBe(false);
+    const fresh=gate.start();
+    expect(gate.isCurrent(fresh)).toBe(true);
+  });
+  it('guards the Stores tab autocomplete after query changes, modal closing and location selection',()=>{
+    const source=readFileSync('apps/customer-web/src/views/RestaurantsView.jsx','utf8');
+    expect(source).toContain("addressSearchGateRef.current.invalidate()");
+    expect(source).toContain("addressSearchGateRef.current.isCurrent(request)");
+    expect(source).toContain("[customAddressInput, showLocationModal]");
+    expect(source).toContain("if (!showLocationModal || customAddressInput.trim().length < 3) return");
+    expect(source).toContain("addressSearchGateRef.current.start()");
+    expect(source).toContain("clearTimeout(timer)");
+  });
   it('guards list updates, errors, loading state and result selection in actual picker',()=>{
     const source=readFileSync('apps/customer-web/src/components/LocationPicker.jsx','utf8');
     expect(source).toContain('const request=addressSearchGateRef.current.start()');
@@ -34,6 +52,7 @@ describe('GastroFlow Food delivery address search consistency',()=>{
     expect(source).toContain('if (addressSearchGateRef.current.isCurrent(request)) setSearching(false)');
     expect(source).toContain('addressSearchGateRef.current.invalidate()');
     expect(source).toContain('addressSearchGateRef.current.dispose()');
+    expect(source).toContain('addressSearchGateRef.current.activate()');
     expect(source).toContain('commit(r.lat, r.lng, r.label)');
   });
 });
