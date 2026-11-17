@@ -29,7 +29,6 @@ const stageDir=fs.mkdtempSync(path.join(path.dirname(destination),'.gastroflow-r
 fs.chmodSync(stageDir,0o700);
 const stage=path.join(stageDir,'candidate.db');
 let client;
-let verified=false;
 let records=0;
 try {
  client=createClient({url:`file:${stage}`});
@@ -56,7 +55,6 @@ try {
  // Exclusive hard-link publication (same filesystem). Unlike rename, link
  // fails with EEXIST; an operator's existing database is never replaced.
  fs.linkSync(stage,destination);
- verified=true;
  console.log(JSON.stringify({verified:true,tables:backup.payload.tables.length,records,sha256:backup.sha256,destination}));
 }finally{
  if(client)client.close();
