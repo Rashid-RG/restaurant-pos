@@ -6360,6 +6360,11 @@ app.post('/api/tables/transfer', requireRole(['owner', 'manager', 'cashier']), a
     }
 
     const orderId = fromTable.currentOrderId;
+    const currentOrder = await dbGet('SELECT id FROM orders WHERE id=? AND tenant_id=?', [orderId,req.tenantId]);
+    if (!currentOrder) {
+      await dbRun('ROLLBACK');
+      return res.status(404).json({ error: 'Active order not found for this restaurant.' });
+    }
     // Update order's tableId pointer
     await dbRun('UPDATE orders SET tableId = ? WHERE id = ? AND tenant_id = ?', [toTableId, orderId,req.tenantId]);
     // Free source table
