@@ -32,6 +32,16 @@ describe('restored settlement relationship audit',()=>{
   const result=reviewSettlementRelationships(tables);
   expect(result.verified).toBe(true);
  });
+ it('rejects duplicate and missing ledger IDs even when tenant relationships appear valid',()=>{
+  const tables=fixture();
+  tables.get('manual_payments').push({...tables.get('manual_payments')[0]});
+  const duplicate=reviewSettlementRelationships(tables);
+  expect(duplicate).toMatchObject({status:'checked',verified:false,duplicateReferenceCount:1});
+  expect(duplicate.relationshipWarnings).toBeGreaterThanOrEqual(1);
+  const missing=fixture();
+  missing.get('cash_movements')[0].id=null;
+  expect(reviewSettlementRelationships(missing)).toMatchObject({verified:false,duplicateReferenceCount:1});
+ });
  it('marks missing tables and missing columns as incomplete rather than passing',()=>{
   const tables=fixture();
   tables.delete('manual_payments');
