@@ -263,24 +263,28 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   };
 
   const handleSaveCustomAddress = async (e) => {
-    locationRequestRef.current++;
     e.preventDefault();
-    if (!customAddressInput.trim()) return;
-
-    setIsSearchingAddress(true);
     const manualAddr = customAddressInput.trim();
+    if (!manualAddr) return;
+    const requestId = ++locationRequestRef.current;
+    // A manual save supersedes pending autocomplete. Never commit an old
+    // geocoder result after a new query, GPS/pin selection, or dialog close.
+    addressSearchGateRef.current.invalidate();
+    setIsSearchingAddress(true);
     try {
       const query = encodeURIComponent(manualAddr);
       const data = await apiFetch(`/public/geocode?q=${query}`);
+      if (requestId !== locationRequestRef.current) return;
       if (Array.isArray(data) && data.length > 0) {
         handleSelectAddressSuggestion(data[0]);
         return;
       }
-    } catch (err) {
-      console.warn('Geocoding submit error:', err);
+    } catch {
+      // Manual fallback may proceed only if this is still the latest selection.
     } finally {
-      setIsSearchingAddress(false);
+      if (requestId === locationRequestRef.current) setIsSearchingAddress(false);
     }
+    if (requestId !== locationRequestRef.current) return;
 
     // Fuzzy match against Sri Lanka city dictionary
     const matchedCoords = resolveCoordsForAddress(manualAddr);
@@ -512,7 +516,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           <div className="restaurants-location-dialog" role="dialog" aria-modal="true" aria-label="Select delivery location" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, maxWidth: 440, width: '100%', maxHeight:'calc(100dvh - 32px)', overflowY:'auto', color: 'var(--text-1)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 {t('selectDeliveryLocation') || 'Select Delivery Location'}</h3>
-              <button type="button" aria-label="Close location picker" onClick={() => setShowLocationModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-1)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
+              <button type="button" aria-label="Close location picker" onClick={() => {
+                  locationRequestRef.current++;
+                  addressSearchGateRef.current.invalidate();
+                  setShowLocationModal(false);
+                }} style={{ background: 'none', border: 'none', color: 'var(--text-1)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
             </div>
 
             {/* GPS Auto-detect button */}
@@ -547,7 +555,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                   type="text"
                   placeholder="e.g. 45 Main Street, Kandy or Galle Road"
                   value={customAddressInput}
-                  onChange={e => setCustomAddressInput(e.target.value)}
+                  onChange={e => {
+                    locationRequestRef.current++;
+                    setCustomAddressInput(e.target.value);
+                  }}
                   style={{ flex: 1, padding: '10px 12px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', fontSize: '0.88rem' }}
                 />
                 <button type="submit" style={{ padding: '10px 16px', borderRadius: 8, background: '#ff6b35', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
