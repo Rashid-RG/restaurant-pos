@@ -21,6 +21,14 @@ A new pure module, `lib/tenancy/access-policy.js`, owns the existing staff claim
 
 **Still required before commercial SaaS certification:** comprehensive two-restaurant API integration tests, route-level tenant filtering audits, staff username uniqueness policy, and a reviewed migration/rollback process. This commit is a non-deployed source refactor and is not proof that every route is tenant secure.
 
+## 2026-11-18: Legacy POS resource ownership boundaries
+
+The existing legacy resource pre-handler now calls pure functions in `lib/tenancy/resource-policy.js`. Explicitly enumerated resource paths map to permitted database tables; the helper extracts URL IDs, body IDs, and table-transfer IDs, while authenticated middleware retains the existing tenant-scoped ownership query and 404 response. No endpoint address, role permission, schema or database operation is added.
+
+`tests/tenant-resource-policy.test.js` covers canonical route mapping, body- and path-supplied IDs, protected table transfer references and cross-restaurant ownership. The real HTTP suite `tests/pos-tenant-url-auth.test.js` now also checks separate staff/menu list visibility for two restaurants and rejects an attempt by one store to overwrite the other store's menu item.
+
+**Remaining security work:** broader route-level authorization, payment and report boundaries, server-wide audit of bypasses and the owner/staff username uniqueness model. Do not deploy this code without explicit staging authorization; it does not imply commercial security certification.
+
 ## What IS done in Phase 6
 
 - **Zod validation** extended from 4 → 9 write routes, matching real bodies with
