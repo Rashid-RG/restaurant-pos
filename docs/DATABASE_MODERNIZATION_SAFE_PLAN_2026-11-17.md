@@ -22,9 +22,12 @@
 ## How to use the inventory safely
 The programmatic API is `inspectDatabaseSchema(dbAll)`, imported from `lib/schema-inventory.js`. `dbAll` must be an **externally supplied read-only query function** against a restored copy or properly limited account. The helper executes only `SELECT` against SQLite schema metadata and `PRAGMA table_info/index_list/index_xinfo/foreign_key_list`; it reads no customer rows. Do **not** invoke it automatically against the active Turso database.
 
+For a **restored, existing local database file only**, run `node scripts/inventory-local-schema.js /path/to/restored-copy.db`. The command refuses missing paths and remote URLs, opens SQLite with `OPEN_READONLY`, and prints structural metadata only. Do not direct it at the restaurant's active database file.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
+- [x] Local-only, read-only schema CLI and safety tests committed
 - [ ] Full GitHub Actions results for this change
 - [ ] Approved read-only inventory of actual customer schema
 - [ ] Encrypted backup and verified restore of a live-data snapshot
