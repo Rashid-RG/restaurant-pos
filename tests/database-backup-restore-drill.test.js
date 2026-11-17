@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLibsqlStore } from '../lib/libsql-store.js';
-import { captureSnapshot, snapshotHash } from '../lib/snapshots.js';
+import { captureSnapshot, snapshotHash, decodeBackupValue, encodeBackupValue } from '../lib/snapshots.js';
 import { encryptBackup, decryptBackup } from '../lib/backup-encryption.js';
 
 const secret = 'disposable-recovery-drill-secret-at-least-32-characters';
@@ -64,6 +64,16 @@ describe('offline logical backup + encrypted recovery drill', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 45000);
+
+  it('round-trips binary backup fields as native Uint8Array for local libSQL parameters', () => {
+    const original = new Uint8Array([0, 7, 127, 128, 255]);
+    const encoded = encodeBackupValue(original);
+    const restored = decodeBackupValue(encoded);
+    expect(restored).toBeInstanceOf(Uint8Array);
+    expect(restored.constructor).toBe(Uint8Array);
+    expect(Array.from(restored)).toEqual(Array.from(original));
+    expect(encodeBackupValue(restored)).toEqual(encoded);
+  });
 
   it('rejects corrupt snapshot data before creating a destination', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gastroflow-recovery-corrupt-'));
