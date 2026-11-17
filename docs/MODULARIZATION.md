@@ -13,6 +13,14 @@ The production POS entrypoint, settings API contracts, and server database boot 
 
 **Next:** add tests before moving one bounded domain at a time; prioritize tenant authorization and payment/reporting route contracts. Keep the existing live restaurant's login, receipt printing, sales and Turso data untouched. Do not deploy this refactor without a separate staging approval.
 
+## 2026-11-18: Tenant authentication policy extraction
+
+A new pure module, `lib/tenancy/access-policy.js`, owns the existing staff claim validation, account-to-token tenant comparison, selected POS URL tenant match, platform owner authorization, permitted staff roles, and customer tenant selector comparison. `server.js` still performs the same JWT verification, account and subscription database lookups, response status codes, and error messages; only these policy decisions were extracted. No API path or login token format was changed, and the active tenant database is not accessed by importing the module.
+
+`tests/tenant-access-policy.test.js` uses two synthetic restaurants to cover cross-tenant staff credentials and URL mismatches, platform owner versus restaurant owner authorization, role revocation and customer session boundaries. The architecture guard requires the new pure module and tests.
+
+**Still required before commercial SaaS certification:** comprehensive two-restaurant API integration tests, route-level tenant filtering audits, staff username uniqueness policy, and a reviewed migration/rollback process. This commit is a non-deployed source refactor and is not proof that every route is tenant secure.
+
 ## What IS done in Phase 6
 
 - **Zod validation** extended from 4 → 9 write routes, matching real bodies with
