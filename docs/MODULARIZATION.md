@@ -58,6 +58,14 @@ This source-only batch narrows the highest-risk legacy SQL paths while preservin
 
 **Release state:** GitHub source commits only; no staging deployment, database migrations, backup restoration or changes to live restaurant customers/orders. The regression suite must pass before a separate, explicitly authorized staging release. This is not full commercial SaaS certification: wider concurrency testing, payment-provider production tests, tenant admin cleanup, regulatory review, threat modeling and operational recovery drills remain.
 
+## 2026-11-18: Commercial SaaS destructive-operation safety
+
+The legacy `/api/database/import` and `/api/database/reset` endpoints now fail closed by default and always deny in `NODE_ENV=production`, including for the authenticated platform owner. They remain source-compatible for an explicitly enabled *non-production* legacy test scenario (`ENABLE_LEGACY_DATABASE_MUTATIONS=true`), not for commercial live restoration. Use the verified offline recovery process and formal staging approval instead.
+
+The POS table creation/update endpoint no longer uses `INSERT OR REPLACE` on the globally unique table ID (which could delete a foreign restaurant's record). Existing tenant-owned tables are updated with `WHERE id=? AND tenant_id=?`; new tables are inserted normally; provided current-order references must belong to the same tenant. Tests now verify rejected foreign order links and correct same-tenant updates, plus platform-owner reset/import rejection with unchanged records.
+
+**Still open:** full authorization inventory for legacy backend routes, end-to-end payment/refund and backup recovery drills, safe per-tenant staff identity model, backend decomposition, tenant onboarding operations and isolation under concurrency, hardware acceptance, native device verification, and a separate authorized staged release. This batch makes no changes to the running POS or live Turso data.
+
 ## What IS done in Phase 6
 
 - **Zod validation** extended from 4 → 9 write routes, matching real bodies with
