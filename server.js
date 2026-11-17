@@ -3328,15 +3328,15 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
 // ── Uber Eats Smart Dynamic ETA Engine Helper ──
 export async function calculateOrderETA(orderId, tenantId = 'default_tenant') {
   try {
-    const order = await dbGet('SELECT * FROM orders WHERE id = ?', [orderId]);
+    const order = await dbGet('SELECT * FROM orders WHERE id = ? AND tenant_id = ?', [orderId,tenantId]);
     if (!order) return { estimatedMinutes: 25, estimatedDeliveryTime: Date.now() + 25 * 60 * 1000 };
 
     const items = await dbAll(
-      `SELECT m.prepTimeMinutes, oi.quantity
+      `SELECT m.preparationTime AS prepTimeMinutes, oi.quantity
        FROM order_items oi
-       JOIN menu_items m ON oi.menuItemId = m.id
-       WHERE oi.orderId = ?`,
-      [orderId]
+       JOIN menu_items m ON oi.menuItemId = m.id AND m.tenant_id = oi.tenant_id
+       WHERE oi.orderId = ? AND oi.tenant_id = ?`,
+      [orderId,tenantId]
     );
 
     let maxItemPrep = 15;
