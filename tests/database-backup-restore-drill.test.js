@@ -75,6 +75,11 @@ describe('offline logical backup + encrypted recovery drill', () => {
     expect(restored.constructor).toBe(Uint8Array);
     expect(Array.from(restored)).toEqual(Array.from(original));
     expect(encodeBackupValue(restored)).toEqual(encoded);
+    // The local libSQL driver returns ArrayBuffer, not only Uint8Array.
+    const arrayBuffer = original.buffer.slice(0);
+    expect(encodeBackupValue(arrayBuffer)).toEqual(encoded);
+    const padded = new Uint8Array([99, ...original, 99]);
+    expect(encodeBackupValue(padded.subarray(1, 6))).toEqual(encoded);
   });
 
   it('rejects corrupt snapshot data before creating a destination', async () => {
