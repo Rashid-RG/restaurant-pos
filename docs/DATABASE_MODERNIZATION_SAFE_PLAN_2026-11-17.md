@@ -90,6 +90,20 @@ The offline `scripts/reconcile-local-restore.js` command now includes a **separa
 
 If the orders table or required columns are absent, or a value cannot safely be interpreted with two-decimal precision, the financial gate is **not verified**; a successful generic row-equality check does not mean the financial gate passed. The two-decimal assumption must be confirmed against the actual GastroFlow currency and schema before relying on this result for live-data recovery. This does not replace payment-ledger, tax, tips, refunds, invoice-sequence or cash-drawer reconciliation.
 
+## Offline financial ledgers and invoice continuity
+
+The recovery report includes a separate `accounting` section from `lib/financial-recovery-review.js`. It checks the **actual GastroFlow accounting tables** from the saved and restored copies without connecting to Turso:
+
+- `manual_payments.amountCents` and `manual_refunds.amountCents` (exact integer cents)
+- `refund_transactions.amountCents` (separate from manual refunds, never double-count these tables)
+- `cash_movements.amount` (two-decimal currency)
+- `shifts.startFloat/endFloat/actualCash/expectedCash` (nullable fields, two-decimal currency)
+- `orders.invoiceNumber` and global `invoice_counter.lastNumber` (uniqueness, presence and counter continuity)
+
+All comparisons are grouped internally by restaurant and return **only** counts of groups checked, mismatches and verification status. Tenant IDs, record IDs, raw currency amounts, payment references, private order records and customer details are not emitted. This remains a distinct acceptance gate: `accountingVerified` is false if required tables or fields are missing, even when row-by-row reconciliation passes. For real historical databases, field conventions and known legacy nullability must be examined before treating the report as a financial signoff. It does not establish that all payment-provider settlements reconcile with bank records.
+
+To avoid interfering with an active restaurant, these checks only run against an offline restored copy and existing snapshot. No real backup, restore or migration has yet been performed with live customer data.
+
 ## Current acceptance
 - [x] Non-mutating schema inventory implemented
 - [x] In-memory tests for tenant uniqueness, metadata escaping and no row exposure added
@@ -102,6 +116,7 @@ If the orders table or required columns are absent, or a value cannot safely be 
 - [x] Consolidated offline assessment CLI and risk-report tests committed
 - [x] Read-only restored-copy row reconciliation and privacy regressions committed
 - [x] Private per-tenant order totals comparison and offline tests committed
+- [x] Offline accounting-ledger and invoice-continuity assessment with regression tests committed
 - [x] Recovery file-path and atomic new-destination protection regression tests committed
 - [ ] Full GitHub Actions results for the latest change
 - [ ] Approved read-only inventory of actual customer schema
