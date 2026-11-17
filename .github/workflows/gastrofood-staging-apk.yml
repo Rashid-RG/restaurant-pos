@@ -46,9 +46,18 @@ jobs:
         run: |
           set -euo pipefail
           echo "Android SDK: ${ANDROID_HOME:-not-set}"
-          command -v sdkmanager
-          sdkmanager --version
-          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER=""
+          for candidate in "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" "$SDK_ROOT/cmdline-tools/bin/sdkmanager"; do
+            if [ -x "$candidate" ]; then SDKMANAGER="$candidate"; break; fi
+          done
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          fi
+          if [ -z "$SDKMANAGER" ]; then echo "::error::Android SDK manager not found in $SDK_ROOT"; exit 1; fi
+          echo "Using $SDKMANAGER"
+          "$SDKMANAGER" --version
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
 
       - name: Install root dependencies
         run: npm ci --include=dev --no-audit --no-fund
