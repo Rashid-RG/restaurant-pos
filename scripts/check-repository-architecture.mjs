@@ -7,7 +7,7 @@ const required = [
   'server.js','src/App.jsx','src/platform/PlatformAdmin.jsx','src/platform/PlatformOperations.jsx','src/platform/workspace-policy.js','apps/customer-web/src/App.jsx',
   'apps/driver-web/src/App.jsx','apps/customer-web/android/app/build.gradle',
   'apps/customer-web/capacitor.config.json','lib/db_adapter.js',
-  'routes/platform.js','lib/orders/index.js','lib/orders/checkout-recovery.js','lib/orders/verification.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/communications/index.js','lib/communications/app-links.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
+  'routes/platform.js','lib/orders/index.js','lib/orders/checkout-recovery.js','lib/orders/verification.js','lib/orders/tracking.js','lib/identity/index.js','lib/identity/contact-validation.js','lib/identity/credential-generation.js','lib/communications/index.js','lib/communications/app-links.js','lib/delivery/index.js','lib/delivery/fee.js','lib/delivery/peak-hours.js','lib/delivery/geo-distance.js','shared/ui','tests','infra','docs'
 ];
 const findings = [];
 for (const entry of required) {
@@ -51,6 +51,8 @@ if (!backendEntrypoint.includes("from './lib/orders/index.js'")) findings.push('
 if (!readFileSync('lib/checkout-recovery.js','utf8').includes("./orders/checkout-recovery.js")) findings.push('Order recovery compatibility export must remain available');
 if (!readFileSync('lib/order-verification.js','utf8').includes("./orders/verification.js")) findings.push('Checkout proof compatibility export must remain available');
 if (backendEntrypoint.includes("from './lib/order-verification.js'")) findings.push('Backend should consume the order domain entrypoint, not the legacy proof path');
+if (!readFileSync('lib/order-tracking.js','utf8').includes("./orders/tracking.js")) findings.push('Tracking compatibility export must remain available');
+if (backendEntrypoint.includes("from './lib/order-tracking.js'")) findings.push('Backend must use canonical orders domain tracking entrypoint');
 const workspaceSource = readFileSync('src/components/WorkspaceTools.jsx', 'utf8');
 if (!workspaceSource.includes("from '../platform/workspace-policy.js'")) findings.push('POS workspace must consume isolated platform navigation policy');
 const customerConfig = JSON.parse(readFileSync('apps/customer-web/capacitor.config.json', 'utf8'));
