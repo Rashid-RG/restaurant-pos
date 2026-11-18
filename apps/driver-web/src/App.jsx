@@ -397,7 +397,7 @@ export default function App() {
       params.delete('tenantId');
       const invitation=params.get('invite');
       if(invitation){sessionStorage.setItem('gastrodriver_hiring_invite',invitation);params.delete('invite');}
-      else {sessionStorage.removeItem('gastrodriver_hiring_invite');}
+      else if(prior && prior!==selected.id){sessionStorage.removeItem('gastrodriver_hiring_invite');}
       window.history.replaceState(null,'',window.location.pathname+'?'+params.toString());
       return selected;
     }catch(error){setHiringError(error.message||'Unable to verify restaurant.');return null;}
