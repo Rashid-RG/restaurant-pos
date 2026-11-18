@@ -10,6 +10,9 @@ on:
       - apps/customer-web/android/app/src/main/res/values/strings.xml
       - .github/workflows/verify-food-android-variant.yml
       - .github/workflows/gastrofood-staging-apk.yml
+      - scripts/check-food-native-release-boundary.mjs
+      - tests/customer-native-release-boundary.test.js
+      - .github/workflows/food-native-ios-simulator.yml
 
 permissions:
   contents: read
@@ -42,6 +45,7 @@ jobs:
         run: |
           npm ci --include=dev --no-audit --no-fund
           npm ci --include=dev --no-audit --no-fund --prefix apps/customer-web
+          node scripts/check-food-native-release-boundary.mjs
           npm run customer:native:build
       - name: Synchronize isolated Android project
         working-directory: apps/customer-web
