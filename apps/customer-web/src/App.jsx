@@ -294,6 +294,11 @@ function InnerApp({ switchRestaurant }) {
       setAiCustomize({ itemId: String(extraParams.customize), quantity: Number(extraParams.qty) || 1, tenantId: String(extraParams.tenant || ''), requestId: Date.now() });
     }
     setView(v);
+    // Mobile tab switches must start at the new screen's top, not preserve
+    // the previous screen's scroll offset (which can show an empty viewport).
+    window.scrollTo(0, 0);
+    const main = document.getElementById('customer-main');
+    if (main) main.scrollTop = 0;
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('view', v);
