@@ -105,6 +105,11 @@ export default function App() {
   const [invitationEntry,setInvitationEntry]=useState('');
   const [hiringMode,setHiringMode]=useState('search');
   const [hiringError,setHiringError]=useState('');
+  const [recoveryOpen,setRecoveryOpen]=useState(false);
+  const [recoveryEmail,setRecoveryEmail]=useState('');
+  const [recoveryCode,setRecoveryCode]=useState('');
+  const [recoveryBusy,setRecoveryBusy]=useState(false);
+  const [recoveryCodeSent,setRecoveryCodeSent]=useState(false);
   const [manualApplicationToken,setManualApplicationToken]=useState(sessionStorage.getItem('gastrodriver_manual_application')||'');
   const [manualEvidence,setManualEvidence]=useState({});
   const [selfieCandidate,setSelfieCandidate]=useState(null);
@@ -445,6 +450,38 @@ export default function App() {
     window.history.replaceState(null,'',window.location.pathname+(params.size?'?'+params.toString():''));
   };
 
+  const requestRecoveryCode=async()=>{
+    if(!selectedHiringRestaurant?.id){showToast('Choose your restaurant first.','warning');return;}
+    if(!recoveryEmail.trim()){showToast('Enter the email used for your application.','warning');return;}
+    setRecoveryBusy(true);
+    try{
+      await apiFetch('/public/drivers/request-email-code',{
+        method:'POST',body:JSON.stringify({email:recoveryEmail.trim()})
+      });
+      setRecoveryCodeSent(true);
+      showToast('A fresh application code was sent to your email.','success');
+    }catch(error){showToast(error.message,'error');}
+    finally{setRecoveryBusy(false);}
+  };
+  const restorePendingApplication=async()=>{
+    if(!selectedHiringRestaurant?.id)return;
+    setRecoveryBusy(true);
+    try{
+      const result=await apiFetch('/public/drivers/recover-application',{
+        method:'POST',body:JSON.stringify({email:recoveryEmail.trim(),verificationCode:recoveryCode.trim()})
+      });
+      sessionStorage.setItem('gastrodriver_manual_application',result.applicationToken);
+      setManualApplicationToken(result.applicationToken);
+      setManualVehicleType(result.vehicleType);
+      setManualEvidence({});
+      setManualConsent(false);
+      setRecoveryOpen(false);
+      setRecoveryCode('');
+      showToast('Application restored. Complete your verification evidence.','success');
+    }catch(error){showToast(error.message||'Could not restore application.','error');}
+    finally{setRecoveryBusy(false);}
+  };
+
   const handleSendRegCode = async () => {
     if (!selectedHiringRestaurant?.id) { showToast('Select your restaurant or enter a valid invitation first.', 'warning'); return; }
     if (!reg.email.trim()) { showToast('Enter your email address first.', 'warning'); return; }
@@ -637,6 +674,20 @@ export default function App() {
               </button>
             </form>
 
+            {selectedHiringRestaurant && !manualApplicationToken && <section className="card" aria-label="Resume pending rider application" style={{padding:16,marginTop:12,borderRadius:15}}>
+              <button type="button" className="btn-outline" style={{width:'100%'}} onClick={()=>setRecoveryOpen(value=>!value)}>
+                {recoveryOpen?'Close recovery':'Already applied? Resume document submission'}
+              </button>
+              {recoveryOpen&&<div style={{display:'grid',gap:10,marginTop:12}}>
+                <p style={{fontSize:12,color:'var(--text-muted)',margin:0}}>Use the same restaurant and email from your pending application. We will email a fresh verification code.</p>
+                <input className="input-field" type="email" value={recoveryEmail} onChange={e=>{setRecoveryEmail(e.target.value);setRecoveryCodeSent(false);}} placeholder="Registered email" autoComplete="email"/>
+                <button className="btn-outline" type="button" disabled={recoveryBusy||!recoveryEmail.trim()} onClick={requestRecoveryCode}>{recoveryBusy?'Processing…':'Send email code'}</button>
+                {recoveryCodeSent&&<>
+                  <input className="input-field" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" value={recoveryCode} onChange={e=>setRecoveryCode(e.target.value.replace(/[^0-9]/g,''))} placeholder="Six-digit email code"/>
+                  <button className="btn-emerald" type="button" disabled={recoveryBusy||recoveryCode.length!==6} onClick={restorePendingApplication}>Restore secure application</button>
+                </>}
+              </div>}
+            </section>}
             {manualApplicationToken && <section className="card" aria-label="Secure manual identity document submission" style={{marginTop:12,display:'flex',flexDirection:'column',gap:12}}>
               <strong>Secure manual NIC / passport, selfie and driving-licence submission</strong>
               <p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>
