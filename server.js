@@ -4543,6 +4543,32 @@ app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(d
   } catch (_) { return res.status(500).json({ error: 'Could not request email verification.' }); }
 });
 
+// A pending rider may recover a document-submission session only after a new,
+// tenant-bound OTP proves control of the same registered email. No account
+// duplication or restaurant switching is permitted.
+app.post('/api/public/drivers/recover-application',driverApplicationLimiter,async(req,res)=>{
+  const email=normalizeDriverEmail(req.body?.email);
+  const code=req.body?.verificationCode;
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || typeof code!=='string' || !/^\d{6}$/.test(code))
+    return res.status(400).json({error:'Enter your email and a valid six-digit verification code.'});
+  try{
+    const tenantId=await resolveDriverRegistrationTenant(req);
+    if(!tenantId)return res.status(400).json({error:'Choose your restaurant before continuing.'});
+    if(!(await verifyOTPAsync(email,code,DRIVER_SIGNUP_PURPOSE,tenantId)))
+      return res.status(400).json({error:'Invalid or expired verification code.'});
+    const rider=await dbGet(
+      "SELECT id,name,vehicleType FROM drivers WHERE tenant_id=? AND LOWER(email)=? AND status='pending_approval'",
+      [tenantId,email]);
+    if(!rider)return res.status(404).json({error:'No pending application was found for this restaurant and email.'});
+    const applicationToken=jwt.sign({purpose:'driver_manual_application',driverId:rider.id,tenant_id:tenantId},
+      process.env.JWT_SECRET||JWT_SECRET,{algorithm:'HS256',expiresIn:'14d'});
+    res.set('Cache-Control','no-store').json({
+      success:true,applicationToken,vehicleType:rider.vehicleType,
+      message:'Application restored. Complete any outstanding secure identity evidence.'
+    });
+  }catch(_){res.status(500).json({error:'Unable to resume application.'});}
+});
+
 // Signed provider results are deliberately scoped to an existing session's purpose.
 // Never persist identity photos, full licence numbers, or grant delivery access here.
 app.post('/api/webhooks/driver-identity/veriff', async (req, res) => {
