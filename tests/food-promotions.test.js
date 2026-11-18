@@ -30,7 +30,7 @@ function fixture(){
     if(sql.includes('LEFT JOIN tenants'))return rows.filter(row=>row.status==='active' &&
       (row.starts_at==null||row.starts_at<=p[0]) && (row.ends_at==null||row.ends_at>p[1]) &&
       (row.tenant_id==null||tenants.some(t=>t.id===row.tenant_id&&t.status==='active')));
-    if(sql.includes('WHERE tenant_id=?'))return rows.filter(r=>r.tenant_id===p[0]);
+    if(sql.includes('WHERE tenant_id=?')||sql.includes('WHERE c.tenant_id=?'))return rows.filter(r=>r.tenant_id===p[0]);
     return rows;
   };
   const authenticateToken=(req,res,next)=>{
