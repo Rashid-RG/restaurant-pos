@@ -24,10 +24,11 @@ describe('GastroFlow Food tenant-scoped customer auth lifecycle',()=>{
     expect(code).toContain('scopeRef.current.mounted = false');
     expect(code).toContain('scopeRef.current.epoch++');
     expect(code).toContain('if (!isCurrent(epoch)) return');
-    expect(code).toContain("localStorage.getItem(sessionKey) === token");
+    expect(code).toContain("readCustomerSessionToken(sessionTenant) === token");
     expect(code).toContain('if (!isCurrent(epoch)) throw new Error');
-    expect(code).toContain("if (isCurrent(epoch) && localStorage.getItem(sessionKey) === token) setCustomer(data)");
-    expect(code).toContain("localStorage.removeItem(sessionKey)");
+    expect(code).toContain("if (isCurrent(epoch) && readCustomerSessionToken(sessionTenant) === token) setCustomer(data)");
+    expect(code).toContain("clearCustomerSessionToken(sessionTenant)");
+    expect(code).toContain("clearCustomerSessionTokenIfMatch(sessionTenant,token)");
     expect(code).not.toContain('localStorage.removeItem(tokenKey())');
   });
 });
