@@ -1,4 +1,5 @@
 import PlatformOperations from './PlatformOperations';
+import PromotionManager from '../components/PromotionManager';
 import React, { useEffect, useState } from 'react';
 import { 
   Store, Plus, RefreshCw, Search, ShieldCheck, X, Key, Copy, Check, 
@@ -369,6 +370,9 @@ export default function PlatformAdmin({ embedded = false }) {
           style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
         >
           <Megaphone size={16} /> Broadcast Alerts
+        </button>
+        <button className={`btn ${activeSubTab === 'promotions' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setActiveSubTab('promotions')} style={{display:'flex',alignItems:'center',gap:'8px',borderRadius:'10px'}}>
+          <Megaphone size={16}/> Campaigns & Offers
         </button>
         <button
           className={`btn ${activeSubTab === 'branding' ? 'btn-primary' : 'btn-outline'}`}
@@ -1075,6 +1079,8 @@ export default function PlatformAdmin({ embedded = false }) {
           </form>
         </section>
       )}
+
+      {activeSubTab === 'promotions' && <PromotionManager platform restaurants={partners} />}
 
       {/* TAB 6: PLATFORM OPERATIONS & FINANCIALS */}
       {activeSubTab === 'operations' && (
