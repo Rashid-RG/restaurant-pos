@@ -100,6 +100,8 @@ function AppContent() {
         return <OnlineOrders />;
       case 'delivery':
         return <DeliveryView />;
+      case 'rider-verification':
+        return ['owner','manager'].includes(currentUser?.role) ? <DeliveryView verificationOnly /> : <Dashboard />;
       case 'tickets':
         return <SupportTicketsView />;
       case 'online-store':
