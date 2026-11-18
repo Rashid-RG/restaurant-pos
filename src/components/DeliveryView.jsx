@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
 import { restaurantTimeZone } from '../utils/restaurant-time';
+import RiderRecruitmentPanel from './RiderRecruitmentPanel';
 
-export default function DeliveryView() {
-  const { orders, showToast, settings } = usePOS();
+export default function DeliveryView({verificationOnly=false}) {
+  const { orders, showToast, settings,currentUser } = usePOS();
+  const [verificationTab,setVerificationTab]=useState('Pending');
+  const [auditRows,setAuditRows]=useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState({});
@@ -181,6 +184,25 @@ export default function DeliveryView() {
 
   const pendingDrivers = drivers.filter(d => d.status === 'pending_approval');
   const activeDrivers = drivers.filter(d => d.status !== 'pending_approval' && d.status !== 'rejected');
+  const verificationStatus=d=>d.status==='rejected'?'Rejected':
+    d.status==='pending_approval'?
+      d.manualReviewStatus==='resubmit'?'Resubmit':
+      d.manualReviewStatus==='rejected'?'Rejected':
+      d.manualReviewStatus==='approved'?'Under Review':'Pending':'Approved';
+  const statusCounts=['Pending','Under Review','Resubmit','Approved','Rejected'].map(name=>({
+    name,count:drivers.filter(d=>verificationStatus(d)===name).length
+  }));
+  const visibleVerificationDrivers=drivers.filter(d=>verificationStatus(d)===verificationTab);
+  const canReview=['owner','manager'].includes(currentUser?.role);
+  const fetchVerificationAudit=async()=>{
+    if(!canReview)return;
+    try{
+      const res=await fetch('/api/delivery/driver-verification/audit',{headers:{Authorization:'Bearer '+localStorage.getItem('gastroflow_token')},cache:'no-store'});
+      if(res.ok)setAuditRows((await res.json()).reviews||[]);
+    }catch(_){}
+  };
+  useEffect(()=>{if(verificationOnly)void fetchVerificationAudit();},[verificationOnly,drivers.length]);
+
 
   // Uber Eats-grade Multi-Order Stacking Batch state
   const [selectedBatchOrders, setSelectedBatchOrders] = useState([]);
@@ -217,21 +239,35 @@ export default function DeliveryView() {
     <div className="main-content">
       <div className="view-header">
         <div className="view-title">
-          <h1>🛵 Delivery Dispatch & Fleet Management</h1>
-          <p>Review rider self-registrations, approve fleet drivers, and assign active orders.</p>
+          <h1>{verificationOnly?'🛡️ Rider Verification Center':'🛵 Delivery Dispatch & Fleet Management'}</h1>
+          <p>{verificationOnly?'Private restaurant-owned identity review, hiring and audit history.':'Assign active orders and manage delivery operations.'}</p>
         </div>
       </div>
 
       <div className="view-body" style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: '30px' }}>
         
+        {verificationOnly && canReview && <>
+          <RiderRecruitmentPanel/>
+          <section style={{padding:20,borderRadius:18,border:'1px solid var(--border-color)',background:'var(--bg-card)',display:'grid',gap:15}}>
+            <div><h3 style={{margin:0}}>Driver application workspace</h3><p style={{fontSize:13,color:'var(--text-muted)',margin:'6px 0 0'}}>Choose a status to review. Only your restaurant's applicants appear here.</p></div>
+            <div role="tablist" aria-label="Rider verification states" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:9}}>
+              {statusCounts.map(({name,count})=><button key={name} type="button" role="tab" aria-selected={verificationTab===name} onClick={()=>setVerificationTab(name)}
+                className={verificationTab===name?'btn btn-primary':'btn btn-outline'}
+                style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',padding:'12px 14px',borderRadius:12}}>
+                <span>{name}</span><strong>{count}</strong>
+              </button>)}
+            </div>
+          </section>
+        </>}
+        {verificationOnly && !canReview && <p role="alert">Only restaurant owners and managers may review rider verification evidence.</p>}
         {/* 0. Pending Driver Registrations Queue */}
-        {pendingDrivers.length > 0 && (
+        {verificationOnly && canReview && visibleVerificationDrivers.length>0 && (
           <div style={{ background: 'rgba(234, 179, 8, 0.08)', border: '2px dashed #eab308', borderRadius: '12px', padding: '20px' }}>
             <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800, color: '#eab308', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              ⏳ Pending Rider Self-Registration Applications ({pendingDrivers.length})
+              ⏳ {verificationTab} Rider Applications ({visibleVerificationDrivers.length})
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-              {pendingDrivers.map(d => (
+              {visibleVerificationDrivers.map(d => (
                 <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: '1rem' }}>👤 {d.name}</div>
@@ -312,6 +348,21 @@ export default function DeliveryView() {
           </div>
         )}
         
+        {verificationOnly && canReview && visibleVerificationDrivers.length===0 && (
+          <div style={{borderRadius:15,padding:26,textAlign:'center',border:'1px dashed var(--border-color)',color:'var(--text-muted)'}}>
+            No applications in {verificationTab.toLowerCase()}. Select another status or invite new riders.
+          </div>
+        )}
+        {verificationOnly && canReview && <section style={{padding:20,border:'1px solid var(--border-color)',borderRadius:16,background:'var(--bg-card)'}}>
+          <h3 style={{margin:'0 0 12px'}}>Verification audit history</h3>
+          <p style={{color:'var(--text-muted)',fontSize:12}}>Tenant-specific manager decisions and standing-check attestations. No identity images are included.</p>
+          <button type="button" className="btn btn-outline" onClick={fetchVerificationAudit}>Refresh audit</button>
+          <div style={{overflowX:'auto',marginTop:12}}><table style={{width:'100%',fontSize:12}}>
+            <thead><tr><th>Rider</th><th>Review status</th><th>Identity</th><th>DMT standing</th><th>Reviewed at</th></tr></thead>
+            <tbody>{auditRows.map((row,i)=><tr key={row.driverId+'-'+i}><td>{row.driverName}</td><td>{row.state}</td><td>{row.identityType}</td><td>{row.standingCheck==='manager_checked_external'?'Manager-attested':'Not checked'}</td><td>{row.reviewedAt?new Date(row.reviewedAt).toLocaleString():'Not reviewed'}</td></tr>)}</tbody>
+          </table>{!auditRows.length&&<p style={{fontSize:13,color:'var(--text-muted)'}}>No manual reviews recorded.</p>}</div>
+        </section>}
+        {!verificationOnly && <>
         {/* 1. Register New Delivery Driver Form */}
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px' }}>
           <h3 style={{ margin: '0 0 14px', fontSize: '1rem', fontWeight: 800 }}>➕ Register New Fleet Driver</h3>
@@ -497,6 +548,7 @@ export default function DeliveryView() {
           </div>
         </div>
 
+        </>}
         {manualPreview && <div role="dialog" aria-modal="true" aria-label="Protected driver document" style={{position:'fixed',inset:0,zIndex:20000,background:'rgba(0,0,0,0.87)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,padding:20}}>
           <p style={{color:'#fff',fontSize:13}}>Protected evidence for {manualPreview.driverId} · {manualPreview.kind}. Do not download or forward.</p>
           <img src={manualPreview.src} alt="Sensitive applicant evidence" style={{maxWidth:'95vw',maxHeight:'75vh',objectFit:'contain',borderRadius:8}}/>
