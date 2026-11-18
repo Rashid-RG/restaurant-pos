@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   android-debug-apk:
+    if: github.ref == 'refs/heads/codex/production-readiness'
     name: Build permanently signed GastroFlow Food Staging APK
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -55,12 +56,20 @@ jobs:
           "$SDKMANAGER" --version
           "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
 
+      - name: Record protected POS lockfile checksum
+        run: sha256sum package-lock.json > "$RUNNER_TEMP/pos-lock.sha256"
+
       - name: Install root dependencies
         run: npm ci --include=dev --no-audit --no-fund
 
       - name: Install isolated customer native dependencies
         working-directory: apps/customer-web
         run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Audit native customer release boundaries
+        run: |
+          node scripts/check-food-native-release-boundary.mjs
+          node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
 
       - name: Compile customer native interface and validate API target
         run: |
@@ -135,6 +144,9 @@ jobs:
           else
             echo 'Signed staging APK: NOT generated' >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Verify POS dependency lock still matches source
+        run: sha256sum --check "$RUNNER_TEMP/pos-lock.sha256"
 
       - name: Upload signed staging APK
         uses: actions/upload-artifact@v4
