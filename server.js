@@ -21,6 +21,7 @@ import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
 import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier, createCustomerRegistrationDuplicates, isCustomerRegistrationUniqueConflict } from './lib/identity/index.js';
 import { createCustomerOtpLoginLookup } from './lib/identity/customer-otp-login.js';
+import { buildTenantOtpSmsMessage } from './lib/identity/otp-message.js';
 import { customerAppUrl, posAppUrl, createOrderConfirmationSender } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 
@@ -2875,7 +2876,8 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
           : `Email dispatch issue (${emailError || 'check SMTP credentials'}). OTP code active on server.`
       });
     } else {
-      const msg = `Your ${storeName} verification code is ${code}. Valid for 10 minutes.`;
+      const storeName = await getSettingAny(otpTenantId,['restaurantName','businessName'],'GastroFlow');
+      const msg = buildTenantOtpSmsMessage({storeName,code});
 
       const smsRes = await sendSms({ to: cleanDest, message: msg });
       if (!smsRes?.success) {
