@@ -110,9 +110,18 @@ export default function MarketplaceMenu({ onChooseStore }) {
   }, [allItems, query, selectedCategory]);
 
   const heroFoodImage = allItems.find(({item}) => item.imageUrl)?.item.imageUrl;
+  // Automatically enrich store campaigns with a real photo from that store's
+  // available public menu, never from another restaurant.
+  const promotionImages = useMemo(() => {
+    const images = {};
+    for (const {item,store} of allItems) {
+      if (item.imageUrl && !images[store.id]) images[store.id]=item.imageUrl;
+    }
+    return images;
+  },[allItems]);
 
   return <div className="marketplace-menu">
-    <PromotionShowcase stores={stores} onChooseStore={onChooseStore} onCampaignCount={setPromotionCount}/>
+    <PromotionShowcase stores={stores} itemImages={promotionImages} onChooseStore={onChooseStore} onCampaignCount={setPromotionCount}/>
     <section className={'marketplace-hero '+(promotionCount>0?'has-live-promotions':'')} >
       <div className="marketplace-eyebrow"><UtensilsCrossed size={17}/> EXPLORE GASTROFLOW</div>
       {promotionCount===0 && <div className="marketplace-hero-layout">
