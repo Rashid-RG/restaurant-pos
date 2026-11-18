@@ -1146,11 +1146,14 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>{t.serviceCharge}</span><span>Rs. {serviceCharge.toFixed(2)}</span>
+              <span>{t.serviceCharge} ({Number(rates.serviceChargeRate || 0).toFixed(1)}%)</span><span>Rs. {serviceCharge.toFixed(2)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>{t.taxes}</span><span>Rs. {tax.toFixed(2)}</span>
+              <span>{t.taxes} ({Number(rates.taxRate || 0).toFixed(1)}%)</span><span>Rs. {tax.toFixed(2)}</span>
             </div>
+            <small style={{color:'var(--text-muted)',lineHeight:1.5}}>
+              Service charge and tax use this restaurant's configured rates. Delivery charges use the server's restaurant-specific quote. Final payable amounts are validated by the server before ordering.
+            </small>
             {orderType === 'delivery' && (
               <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, background: 'rgba(0,0,0,0.02)' }}>
                 {visibleDeliveryBreakdown?.isOutOfRange ? (
