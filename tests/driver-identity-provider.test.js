@@ -40,6 +40,15 @@ describe('Automated rider identity provider security boundary',()=>{
    }
    expect(interpretVeriffDecision({verification:{id:'licence-session',status:'declined',document:base.verification.document}},'driving_licence').state).toBe('rejected');
  });
+ it('routes extracted mismatching driving classes to manual review',()=>{
+    const base={verification:{id:'licence-3',status:'approved',document:{type:'DRIVERS_LICENSE',country:'LK',validUntil:'2028-01-31'}}};
+    const now=Date.parse('2026-11-18T00:00:00Z');
+    expect(interpretVeriffDecision({...base,verification:{...base.verification,additionalVerifiedData:{driversLicenseCategories:['B']}}},'driving_licence',now,'Motorbike').state).toBe('review');
+    expect(interpretVeriffDecision({...base,verification:{...base.verification,additionalVerifiedData:{driversLicenseCategories:['A']}}},'driving_licence',now,'Motorbike').state).toBe('verified');
+    // Category extraction is optional; it cannot silently claim to verify a class.
+    expect(interpretVeriffDecision(base,'driving_licence',now,'Motorbike').state).toBe('verified');
+    expect(interpretVeriffDecision({...base,verification:{...base.verification,additionalVerifiedData:{driversLicenseCategory:{B1:true}}}},'driving_licence',now,'TukTuk').state).toBe('verified');
+ });
  it('requests document-specific LK driving-licence capture at the provider, not an unrestricted ID', async()=>{
    const mock=vi.fn(async()=>({ok:true,json:async()=>({verification:{id:'license-1',url:'https://magic.veriff.com/v/licence-1'}})}));
    await createVeriffSession({driverId:'drv_1234567890-abc',checkType:'driving_licence',env,fetchImpl:mock});
