@@ -4,6 +4,7 @@ import { Search, Store, ArrowUpRight, UtensilsCrossed, RefreshCw, MapPin, Shoppi
 import { apiFetch, apiUrl } from '../utils/api.js';
 import { marketplaceReadSignal } from '../utils/native-marketplace-timeout.js';
 import './MarketplaceMenu.css';
+import PromotionShowcase from '../components/PromotionShowcase.jsx';
 
 const asItems = (menu) => Array.isArray(menu?.items) ? menu.items : [];
 const isMenuItemAvailable = item => item.isAvailable !== 0 && item.isAvailable !== false && (item.stock === undefined || item.stock === null || Number(item.stock) > 0);
@@ -91,7 +92,8 @@ export default function MarketplaceMenu({ onChooseStore }) {
     const names = new Set();
     for (const {item} of allItems) {
       const category = String(item.categoryName || item.category || '').trim();
-      if (category && category.length <= 32) names.add(category);
+      // Never show internal category IDs (cat_*) in customer-facing filters.
+      if (category && category.length <= 32 && !/^cat[_-]/i.test(category)) names.add(category);
     }
     return ['All', ...Array.from(names).slice(0, 6)];
   }, [allItems]);
@@ -109,6 +111,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
   const heroFoodImage = allItems.find(({item}) => item.imageUrl)?.item.imageUrl;
 
   return <div className="marketplace-menu">
+    <PromotionShowcase stores={stores} onChooseStore={onChooseStore}/>
     <section className="marketplace-hero">
       <div className="marketplace-eyebrow"><UtensilsCrossed size={17}/> EXPLORE GASTROFLOW</div>
       <div className="marketplace-hero-layout">
