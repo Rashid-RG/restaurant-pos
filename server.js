@@ -3,6 +3,7 @@ import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-emai
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview, requiredLicenceClass, managerLicenceClassMatches } from './lib/driver-onboarding.js';
 import { DRIVER_DOCUMENT_KINDS, manualDocumentKey, manualDocumentsConfigured, decodeManualDocument, encryptManualDocument, decryptManualDocument, documentKindsForVehicle } from './lib/driver-manual-documents.js';
+import { safeDriverVerificationSummary } from './lib/driver-review-access.js';
 import { veriffConfigured, drivingLicenceProviderEnabled, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
@@ -4294,6 +4295,33 @@ app.delete('/api/users/:id', authenticateToken, requireRole(['owner', 'manager']
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
+});
+
+// PLATFORM OWNER: verification oversight is aggregate, read-only and deliberately
+// excludes document images, driver IDs, phone numbers, names and application tokens.
+// Restaurants retain full responsibility for inspecting and approving their riders.
+app.get('/api/platform/driver-verification-oversight',authenticateToken,requirePlatformAdmin,async(req,res)=>{
+  try{
+    const tenants=await dbAll('SELECT id,name FROM tenants ORDER BY name ASC');
+    const rows=await dbAll(`SELECT d.tenant_id,d.status AS driver_status,
+      (SELECT m.review_state FROM driver_manual_reviews m WHERE m.tenant_id=d.tenant_id AND m.driver_id=d.id) AS manual_review_status,
+      (SELECT c.state FROM driver_identity_checks c WHERE c.tenant_id=d.tenant_id AND c.driver_id=d.id AND COALESCE(c.check_type,'identity')='identity' ORDER BY c.created_at DESC LIMIT 1) AS identity_status,
+      (SELECT c.state FROM driver_identity_checks c WHERE c.tenant_id=d.tenant_id AND c.driver_id=d.id AND c.check_type='driving_licence' ORDER BY c.created_at DESC LIMIT 1) AS licence_status
+      FROM drivers d WHERE d.status='pending_approval'`);
+    const summaries=tenants.map(t=>({
+      tenantId:t.id,restaurant:t.name,
+      ...safeDriverVerificationSummary(rows.filter(r=>r.tenant_id===t.id))
+    })).filter(t=>t.pending>0);
+    await writeAuditLog(req.user.id,req.user.username,'platform_driver_oversight',
+      'Viewed aggregate rider verification status without accessing sensitive documents');
+    res.set('Cache-Control','no-store').json({
+      scope:'platform_aggregate_only',
+      documentsAccessible:false,
+      restaurantApprovalAuthority:false,
+      dmtOfficialLookupAvailable:false,
+      restaurants:summaries
+    });
+  }catch(_){res.status(500).json({error:'Could not load verification oversight.'});}
 });
 
 // ── DELIVERY DRIVERS & ASSIGNMENT ENDPOINTS ──
