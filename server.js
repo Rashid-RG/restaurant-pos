@@ -4470,14 +4470,18 @@ async function resolveDriverInvitation(code){
 // Preview never reveals the invitation token in API response or application logs.
 app.get('/api/public/drivers/restaurant',publicApiLimiter,async(req,res)=>{
   try{
-    const code=req.query.invite;
+    const code=req.query.invite || req.headers['x-driver-invitation'];
     let tenant;
-    if(code) tenant=await resolveDriverInvitation(code);
-    else {
+    if(code){
+      tenant=await resolveDriverInvitation(code);
+      if(tenant && driverTenantSelector(req) && await resolvePublicTenant(req)!==tenant.id)tenant=null;
+    }else {
       const selected=driverTenantSelector(req);
       if(!selected)return res.status(400).json({error:'Select a restaurant or enter an invitation code.'});
       const resolved=await resolvePublicTenant(req);
-      tenant=await dbGet("SELECT id,name,subdomain FROM tenants WHERE id=? AND status IN ('active','trial')",[resolved]);
+      tenant=await dbGet(`SELECT t.id,t.name,t.subdomain FROM tenants t
+         LEFT JOIN driver_recruitment_settings r ON r.tenant_id=t.id
+         WHERE t.id=? AND t.status IN ('active','trial') AND (r.tenant_id IS NULL OR r.discoverable=1)`,[resolved]);
     }
     if(!tenant)return res.status(404).json({error:'Restaurant or invitation not found.'});
     res.set('Cache-Control','no-store').json({restaurant:tenant});
@@ -4509,8 +4513,14 @@ async function resolveDriverRegistrationTenant(req) {
   const selector = driverTenantSelector(req);
   if (!selector) return null;
   const tenantId = await resolvePublicTenant(req);
-  const tenant = await dbGet('SELECT id,status FROM tenants WHERE id=?', [tenantId]);
-  return tenant && ['active','trial'].includes(tenant.status) ? tenant.id : null;
+  const tenant=await dbGet(`SELECT t.id,t.status,r.discoverable
+    FROM tenants t LEFT JOIN driver_recruitment_settings r ON r.tenant_id=t.id
+    WHERE t.id=?`,[tenantId]);
+  // Legacy restaurants with no recruitment preferences retain existing links.
+  // Once the owner configures a closed hiring policy, only a valid invitation works.
+  return tenant && ['active','trial'].includes(tenant.status) &&
+    (tenant.discoverable===null || tenant.discoverable===undefined || Number(tenant.discoverable)===1)
+    ? tenant.id : null;
 }
 
 // Dedicated driver signup OTP: hashed, ten-minute expiry, purpose-bound, no token issuance.
