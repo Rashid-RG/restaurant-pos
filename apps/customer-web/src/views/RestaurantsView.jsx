@@ -35,6 +35,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     localStorage.getItem('gastroflow_delivery_address') || 'Choose delivery location'
   );
   const [showLocationModal, setShowLocationModal] = useState(false);
+  const [showMoreCities, setShowMoreCities] = useState(false);
+  const [locationPickerMessage, setLocationPickerMessage] = useState('');
   const [isDetectingGps, setIsDetectingGps] = useState(false);
   const [customAddressInput, setCustomAddressInput] = useState('');
 
@@ -187,9 +189,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       } catch {
         // A reverse-geocode outage cannot discard a valid device GPS location.
       }
+      setShowLocationModal(false);
+      setLocationPickerMessage('');
       if(!silent)toast(`Location found (accuracy approximately ${accuracy} metres). Check the map pin before ordering.`,'success');
     }catch(err){
-      if(requestId===locationRequestRef.current && !silent)toast(err.message||'Location unavailable. Choose a map pin.','warning');
+      if(requestId===locationRequestRef.current && !silent) {
+        setLocationPickerMessage(err.message||'Location unavailable. Search for an address or select a map pin.');
+        toast(err.message||'Location unavailable. Choose a map pin.','warning');
+      }
     }finally{
       if(requestId===locationRequestRef.current)setIsDetectingGps(false);
     }
@@ -517,10 +524,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
       {/* Location Picker Modal */}
       {showLocationModal && createPortal(
-        <div className="customer-location-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div className="restaurants-location-dialog" role="dialog" aria-modal="true" aria-label="Select delivery location" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, maxWidth: 440, width: '100%', maxHeight:'calc(100dvh - 32px)', overflowY:'auto', color: 'var(--text-1)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 {t('selectDeliveryLocation') || 'Select Delivery Location'}</h3>
+        <div className="customer-location-backdrop gf-location-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="restaurants-location-dialog gf-location-sheet" role="dialog" aria-modal="true" aria-label="Select delivery location" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24, maxWidth: 440, width: '100%', maxHeight:'calc(100dvh - 32px)', overflowY:'auto', color: 'var(--text-1)' }}>
+            <div className="gf-location-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div><span className="gf-location-eyebrow">DELIVERY ADDRESS</span><h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>📍 {t('selectDeliveryLocation') || 'Select Delivery Location'}</h3><p>Search, use GPS, or tap the map for your exact entrance.</p></div>
               <button type="button" aria-label="Close location picker" onClick={() => {
                   locationRequestRef.current++;
                   addressSearchGateRef.current.invalidate();
@@ -530,7 +537,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
             {/* GPS Auto-detect button */}
             <button
-              onClick={() => { detectRealGpsLocation(); setShowLocationModal(false); }}
+              onClick={() => { setLocationPickerMessage(''); void detectRealGpsLocation(); }}
               disabled={isDetectingGps}
               style={{
                 width: '100%',
@@ -552,10 +559,13 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               <span>🎯 {isDetectingGps ? (t('locatingGps') || 'Locating via GPS...') : (t('useMyGps') || 'Use My Current Real GPS Location')}</span>
             </button>
 
+            {locationPickerMessage && <p role="alert" className="gf-location-error">{locationPickerMessage}</p>}
+            <div className="gf-location-current" role="status"><span>Selected location</span><strong>{deliveryLocation}</strong>{userAccuracy != null && <small>Last GPS accuracy: approximately {Math.round(userAccuracy)} m</small>}</div>
+
             {/* Live Search & Autocomplete Form */}
-            <form onSubmit={handleSaveCustomAddress} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14, position: 'relative' }}>
+            <form className="gf-location-search" onSubmit={handleSaveCustomAddress} style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14, position: 'relative' }}>
               <label style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700 }}>🔍 Search Address or Landmark (Live Autocomplete):</label>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="gf-location-search-row" style={{ display: 'flex', gap: 8 }}>
                 <input
                   type="text"
                   placeholder="e.g. 45 Main Street, Kandy or Galle Road"
@@ -588,14 +598,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               )}
             </form>
 
-            {/* Interactive Leaflet Pin Picker Map */}
-            <InteractiveMapPicker userCoords={userCoords} onPinLocationChange={handlePinLocationChange} />
+            {/* Map pin is a genuine coordinate choice, not a city approximation. */}
+            <div className="gf-location-map-heading"><strong>Pinpoint your entrance</strong><span>Tap the map or drag its marker</span></div>
+            <div className="gf-location-map-frame"><InteractiveMapPicker userCoords={userCoords} onPinLocationChange={handlePinLocationChange} /></div>
+            <button type="button" className="gf-location-confirm" disabled={!userCoords || !Number.isFinite(userCoords.lat) || !Number.isFinite(userCoords.lng)} onClick={() => setShowLocationModal(false)}>Confirm selected location</button>
 
-            <div style={{ fontSize: '0.78rem', color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', marginBottom: 10, marginTop: 14 }}>
-              Or Select Quick City Pin:
-            </div>
+            <button type="button" className="gf-location-cities-toggle" aria-expanded={showMoreCities} onClick={() => setShowMoreCities(value => !value)}>{showMoreCities ? 'Hide city shortcuts −' : 'Browse city shortcuts +'}</button>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+            {showMoreCities && <div className="gf-location-city-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
               {[
                 'Colombo 03, Western',
                 'Kandy City, Central',
@@ -624,7 +634,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                   📍 {loc}
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
         </div>,
         document.body
