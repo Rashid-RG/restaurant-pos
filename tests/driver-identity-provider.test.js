@@ -23,6 +23,29 @@ describe('Automated rider identity provider security boundary',()=>{
   expect(interpretVeriffDecision({verification:{id:'session-1',status:'unknown'}}).state).toBe('review');
   expect(interpretVeriffDecision({verification:{status:'approved'}})).toBeNull();
  });
+ it('requires an actual approved LK driving licence and extracted future expiry',()=>{
+   const base={verification:{id:'licence-session',status:'approved',document:{type:'DRIVERS_LICENSE',country:'LK',validUntil:'2028-01-31'}}};
+   const accepted=interpretVeriffDecision(base,'driving_licence',Date.parse('2026-11-18T00:00:00Z'));
+   expect(accepted).toEqual({sessionId:'licence-session',state:'verified',documentExpiry:'2028-01-31'});
+   for(const document of [
+     {type:'PASSPORT',country:'LK',validUntil:'2028-01-31'},
+     {type:'DRIVERS_LICENSE',country:'US',validUntil:'2028-01-31'},
+     {type:'DRIVERS_LICENSE',country:'LK',validUntil:null},
+     {type:'DRIVERS_LICENSE',country:'LK',validUntil:'2020-01-01'},
+     {type:'DRIVERS_LICENSE',country:'LK',validUntil:'2028-02-30'},
+     {type:'DRIVERS_LICENSE',country:'LK',validUntil:'2028-01-31',specimen:{nonStandardDrivingLicense:true}},
+     {type:'DRIVERS_LICENSE',country:'LK',validUntil:'2028-01-31',specimen:{hasSecurityRisk:true}}
+   ]) {
+     expect(interpretVeriffDecision({verification:{...base.verification,document}},'driving_licence',Date.parse('2026-11-18T00:00:00Z')).state).toBe('review');
+   }
+   expect(interpretVeriffDecision({verification:{id:'licence-session',status:'declined',document:base.verification.document}},'driving_licence').state).toBe('rejected');
+ });
+ it('requests document-specific LK driving-licence capture at the provider, not an unrestricted ID', async()=>{
+   const mock=vi.fn(async()=>({ok:true,json:async()=>({verification:{id:'license-1',url:'https://magic.veriff.com/v/licence-1'}})}));
+   await createVeriffSession({driverId:'drv_1234567890-abc',checkType:'driving_licence',env,fetchImpl:mock});
+   const payload=JSON.parse(mock.mock.calls[0][1].body);
+   expect(payload.verification.document).toEqual({type:'DRIVERS_LICENSE',country:'LK'});
+ });
  it('creates a provider-hosted session without sending identity documents or tenant secrets',async()=>{
   const mock=vi.fn(async(url,init)=>({ok:true,json:async()=>({verification:{id:'v-1',url:'https://magic.veriff.com/v/v-1'}})}));
   const result=await createVeriffSession({driverId:'drv_1234567890-abc',env,fetchImpl:mock});
