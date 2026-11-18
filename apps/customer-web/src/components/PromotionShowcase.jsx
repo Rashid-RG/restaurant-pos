@@ -60,8 +60,25 @@ export default function PromotionShowcase({stores=[],itemImages={},onChooseStore
     },5800);
     return ()=>window.clearInterval(timer);
   },[campaigns.length,paused,offersOpen,popup]);
+  const eventFor = (campaign,event) => {
+    // Aggregate, anonymous analytics; never block ordering/navigation on errors.
+    void apiFetch('/public/food-promotions/'+encodeURIComponent(campaign.id)+'/events',{
+      method:'POST',body:JSON.stringify({event})
+    }).catch(()=>{});
+  };
+  useEffect(()=>{
+    const campaign=campaigns[active];
+    if(!campaign||document.visibilityState!=='visible')return;
+    const key='gastrofood_promo_view_'+campaign.id;
+    try {
+      if(sessionStorage.getItem(key))return;
+      sessionStorage.setItem(key,'1');
+    }catch{return;}
+    eventFor(campaign,'impression');
+  },[campaigns,active]);
   const select=delta=>setActive(i=>(i+delta+campaigns.length)%campaigns.length);
   const go=c=>{
+    eventFor(c,'click');
     setOffersOpen(false);setPopup(null);
     const store=c.tenantId&&stores.find(s=>s.id===c.tenantId);
     if(store)onChooseStore(store);
