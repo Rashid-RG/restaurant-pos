@@ -6,6 +6,7 @@ import {initPromotions,createPromotionsRouter} from '../routes/food-promotions.j
 function fixture(){
   const rows=[];const tenants=[{id:'store-a',status:'active'},{id:'store-b',status:'active'}];
   const dbRun=async(sql,p=[])=>{
+    if(sql.includes('INSERT INTO food_promotion_metrics')) return;
     if(sql.startsWith('INSERT INTO food_promotion_campaigns'))rows.push({
       id:p[0],tenant_id:p[1],title:p[2],subtitle:p[3],offer_label:p[4],
       image_url:p[5],call_to_action:p[6],status:p[7],starts_at:p[8],ends_at:p[9],
@@ -47,7 +48,7 @@ const item={title:'Real BBQ Friday Deal',subtitle:'10% discount on selected dish
 describe('GastroFlow restaurant advertisement and offer security',()=>{
   it('initializes only additive promotion tables and indexes',async()=>{
     const sql=[];await initPromotions(async statement=>sql.push(statement));
-    expect(sql.length).toBe(3);expect(sql.join(' ')).not.toMatch(/DROP TABLE|DELETE FROM|ALTER TABLE/i);
+    expect(sql.length).toBe(4);expect(sql.join(' ')).not.toMatch(/DROP TABLE|DELETE FROM|ALTER TABLE/i);
   });
   it('requires a staff session and prevents any cross-tenant update',async()=>{
     const {app}=fixture();
@@ -67,6 +68,15 @@ describe('GastroFlow restaurant advertisement and offer security',()=>{
     expect((await request(app).get('/api/public/food-promotions')).body.campaigns).toHaveLength(1);
     tenants[0].status='suspended';
     expect((await request(app).get('/api/public/food-promotions')).body.campaigns).toHaveLength(0);
+  });
+  it('counts valid live engagement only, without customer identity',async()=>{
+    const {app}=fixture();
+    const created=await request(app).post('/api/food-promotions/manage').set('Authorization','Bearer owner-a').send(item);
+    const id=created.body.campaign.id;
+    const allowed=await request(app).post('/api/public/food-promotions/'+id+'/events').send({event:'impression'});
+    expect(allowed.status).toBe(204);
+    expect((await request(app).post('/api/public/food-promotions/'+id+'/events').send({event:'purchase'})).status).toBe(400);
+    expect((await request(app).post('/api/public/food-promotions/invalid/events').send({event:'click'})).status).toBe(400);
   });
   it('rejects untrusted promotion images and separates platform control',async()=>{
     const {app}=fixture();
