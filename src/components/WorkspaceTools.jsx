@@ -13,6 +13,7 @@ export const workspaceDestinations = [
   { id: 'online-orders', name: 'Online Orders', description: 'Review, accept and manage customer online orders', icon: ClipboardList },
   { id: 'online-store', name: 'Online Store', description: 'Your customer storefront and online business', icon: Store, management: true },
   { id: 'delivery', name: 'Dispatch', description: 'Assign and track deliveries', icon: Truck },
+  { id: 'rider-verification', name: 'Rider Verification', description: 'Review rider identity, manage applications and hiring invitations', icon: ClipboardList, management: true },
   { id: 'inventory', name: 'Inventory', description: 'Menu, stock and ingredients', icon: Package, management: true },
   { id: 'sold-items', name: 'Sold Items', description: 'Items sold, quantities and gross item sales', icon: ChartNoAxesCombined, management: true },
   { id: 'my-attendance', name: 'My Attendance', description: 'Clock in or out and see your shifts', icon: AlarmClock },
