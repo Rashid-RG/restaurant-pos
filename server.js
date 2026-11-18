@@ -1,6 +1,7 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
+import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders } from './lib/driver-onboarding.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
 import { gastroContextualSuggestions } from './lib/gastromate-conversation.js';
@@ -91,6 +92,7 @@ import {
   userCreateSchema,
   driverLoginSchema,
   driverRegisterSchema,
+  driverOtpRequestSchema,
   tenantCreateSchema
 } from './lib/validation.js';
 import { getPlan, checkLimit, planList } from './lib/plans.js';
@@ -2756,7 +2758,7 @@ export function normalizeOtpDestination(dest) {
 // Comparing hash(input) vs stored hash prevents plaintext exposure in process dumps / logs.
 // Purpose-bound, single-use OTP in shared storage (not process-local memory).
 async function verifyOTPAsync(destination, code, purpose, tenantId) {
-  if (!destination || !/^\d{6}$/.test(String(code)) || !isOtpPurpose(purpose) || !tenantId) return false;
+  if (!destination || !/^\d{6}$/.test(String(code)) || (!isOtpPurpose(purpose) && purpose !== DRIVER_SIGNUP_PURPOSE) || !tenantId) return false;
   const normalized = normalizeOtpDestination(destination);
   const alternate = normalized.startsWith('+94') ? '0' + normalized.slice(3) : normalized;
   const now = Date.now();
@@ -4278,24 +4280,68 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
   }
 });
 
+// Only explicitly selected, existing restaurants may receive driver applications.
+async function resolveDriverRegistrationTenant(req) {
+  const selector = driverTenantSelector(req);
+  if (!selector) return null;
+  const tenantId = await resolvePublicTenant(req);
+  const tenant = await dbGet('SELECT id,status FROM tenants WHERE id=?', [tenantId]);
+  return tenant && tenant.status !== 'suspended' ? tenant.id : null;
+}
+
+// Dedicated driver signup OTP: hashed, ten-minute expiry, purpose-bound, no token issuance.
+app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(driverOtpRequestSchema), async (req, res) => {
+  if (!isEmailConfigured()) return res.status(503).json({ error: 'Email verification is temporarily unavailable.' });
+  try {
+    const tenantId = await resolveDriverRegistrationTenant(req);
+    if (!tenantId) return res.status(400).json({ error: 'Open the driver application from your restaurant registration link.' });
+    const email = normalizeDriverEmail(req.body.email);
+    const code = String(crypto.randomInt(100000, 1000000));
+    const id = 'driver_otp_' + crypto.randomUUID();
+    await dbRun('DELETE FROM otp_codes WHERE tenant_id=? AND destination=? AND purpose=?', [tenantId, email, DRIVER_SIGNUP_PURPOSE]);
+    await dbRun('INSERT INTO otp_codes (id,channel,destination,purpose,codeHash,expiresAt,createdAt,tenant_id) VALUES (?,?,?,?,?,?,?,?)',
+      [id,'email',email,DRIVER_SIGNUP_PURPOSE,hashCode(code),Date.now()+600000,Date.now(),tenantId]);
+    let result;
+    try {
+      result = await sendEmail({
+        to: email, subject: 'GastroDriver application verification',
+        html: buildOtpEmail({ code, purpose: 'driver signup', destination: email }),
+        text: 'Your GastroDriver application verification code is ' + code + '. It expires in 10 minutes. Do not share it.'
+      });
+    } catch (_) { result = null; }
+    if (!result?.success) {
+      await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
+      return res.status(503).json({ error: 'Could not send the verification code. Please try again.' });
+    }
+    return res.set('Cache-Control','no-store').json({
+      success: true, message: 'Verification code sent. Check your email inbox.'
+    });
+  } catch (_) { return res.status(500).json({ error: 'Could not request email verification.' }); }
+});
+
 // Public Driver Self-Registration Endpoint (Phase 2: password + tenant-bound)
 app.post('/api/public/drivers/register', driverApplicationLimiter, validateRequest(driverRegisterSchema), async (req, res) => {
-  const { name, phone, password, email, vehicleType, plateNumber } = req.body;
+  const { name, phone, password, email, verificationCode, vehicleType, plateNumber } = req.body;
   try {
-    const tenantId = await resolvePublicTenant(req);
-    const cleanPhone = String(phone).replace(/[\s-]/g, '');
-    const existing = await dbGet('SELECT id FROM drivers WHERE phone = ? AND tenant_id = ?', [cleanPhone, tenantId]);
-    if (existing) return res.status(409).json({ error: 'This phone already has a driver application for this restaurant. Contact the restaurant for assistance.' });
+    const tenantId = await resolveDriverRegistrationTenant(req);
+    if (!tenantId) return res.status(400).json({ error: 'Open the driver application from your restaurant registration link.' });
+    const cleanPhone = String(phone).replace(/[\\s-]/g, '');
+    const cleanEmail = normalizeDriverEmail(email);
+    const existing = await dbGet('SELECT id FROM drivers WHERE tenant_id=? AND (phone=? OR LOWER(email)=?)',
+      [tenantId,cleanPhone,cleanEmail]);
+    if (existing) return res.status(409).json({ error: 'An application already exists for these details at this restaurant. Contact the restaurant for assistance.' });
+    if (!(await verifyOTPAsync(cleanEmail,verificationCode,DRIVER_SIGNUP_PURPOSE,tenantId))) {
+      return res.status(400).json({ error: 'Invalid or expired email verification code.' });
+    }
     const id = 'drv_' + crypto.randomUUID();
     const passwordHash = await bcrypt.hash(password, 12);
     await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, email || null, tenantId
+      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId
     ]);
-    // Registration never grants driver permissions. Contact and identity are still unverified.
-    broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType });
-    res.status(202).json({ success: true, id, status: 'pending_approval', message: 'Application received. The restaurant must verify your details and approve access before you can deliver.' });
-  } catch (err) {
-    res.status(500).json({ error: errMsg(err) });
+    broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType },tenantId);
+    return res.status(202).json({ success: true, id, status: 'pending_approval', message: 'Email verified and application submitted. The restaurant must review your identity and vehicle eligibility before approval.' });
+  } catch (_) {
+    return res.status(500).json({ error: 'Could not submit application. Check your details or request a new code.' });
   }
 });
 
