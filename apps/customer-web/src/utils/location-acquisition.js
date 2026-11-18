@@ -17,22 +17,32 @@ export async function permissionAllowsAutomaticLocation(permissions=globalThis.n
     return status?.state==='granted';
   } catch {return false;}
 }
+// Explicit user action may request a fresh location; silent requests still
+// require already-granted browser permission at the UI call site.
+// Retry once with a network/coarse fix when a high-accuracy fix times out or
+// has unacceptable accuracy. Never substitute IP/geocoder data as device GPS.
 export async function acquireBestLocation(geolocation=globalThis.navigator?.geolocation) {
   if (!geolocation?.getCurrentPosition) throw new Error('Location services are unavailable on this device.');
   const attempt=options=>new Promise((resolve,reject)=>geolocation.getCurrentPosition(resolve,reject,options));
-  let position;
+  const denied=()=>new Error('Location permission was denied. Allow location access in device settings, or choose a map pin.');
+  let firstFix=null;
   try {
-    position=await attempt({enableHighAccuracy:true,timeout:13000,maximumAge:30000});
+    firstFix=validatePosition(await attempt({enableHighAccuracy:true,timeout:13000,maximumAge:30000}));
   } catch(error) {
-    if (error?.code===1) throw new Error('Location permission was denied. Allow location access in device settings, or choose a map pin.');
-    try {
-      position=await attempt({enableHighAccuracy:false,timeout:8000,maximumAge:60000});
-    } catch {
-      throw new Error('Could not get a GPS fix. Check device location services or select your address manually.');
-    }
+    if (error?.code===1) throw denied();
   }
-  const fix=validatePosition(position);
-  if (!fix) throw new Error('Location accuracy is too low for nearby recommendations. Move outdoors or choose a map pin.');
-  if (!inSriLankaBounds(fix)) throw new Error('Detected location is outside the supported Sri Lankan service area.');
-  return fix;
+  if(firstFix && inSriLankaBounds(firstFix))return firstFix;
+  // Do not use an out-of-service-area GPS fix as an excuse to return a
+  // potentially unrelated cached coordinate. Only retry an invalid fix.
+  if(firstFix)throw new Error('Detected location is outside the supported Sri Lankan service area.');
+  let secondFix=null;
+  try {
+    secondFix=validatePosition(await attempt({enableHighAccuracy:false,timeout:8000,maximumAge:60000}));
+  } catch(error) {
+    if(error?.code===1)throw denied();
+    throw new Error('Could not get a GPS fix. Check device location services or select your address manually.');
+  }
+  if (!secondFix) throw new Error('Location accuracy is too low for nearby recommendations. Move outdoors or choose a map pin.');
+  if (!inSriLankaBounds(secondFix)) throw new Error('Detected location is outside the supported Sri Lankan service area.');
+  return secondFix;
 }
