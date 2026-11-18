@@ -3,13 +3,13 @@ import { driverRegisterSchema } from '../lib/validation.js';
 
 const valid = {
   name: 'Test Rider', phone: '0771234567', password: 'secure-passphrase-123',
-  email: '', vehicleType: 'Motorbike', plateNumber: 'WP-1234', privacyAccepted: true
+  email: 'driver@example.com', verificationCode: '123456', vehicleType: 'Motorbike', plateNumber: 'WP-1234', privacyAccepted: true
 };
 
 describe('driver self-registration validation boundary', () => {
   it('accepts bounded applications with explicit privacy acknowledgement', () => {
     expect(driverRegisterSchema.parse(valid).privacyAccepted).toBe(true);
-    expect(driverRegisterSchema.parse({ ...valid, email: null }).email).toBeNull();
+    expect(driverRegisterSchema.safeParse({ ...valid, email: null }).success).toBe(false);
   });
 
   it('rejects no consent, weak passwords, malformed phones and unsupported vehicles', () => {
