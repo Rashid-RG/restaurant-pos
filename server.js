@@ -5274,6 +5274,18 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
   }
 });
 
+// Financial visibility is read-only; no earnings or payout numbers are invented.
+// Cash in hand is not the driver's compensation. Only confirmed deliveries count.
+app.get('/api/public/driver/cash-summary', authenticateDriver, async (req, res) => {
+  try {
+    const rows=await dbAll(
+      "SELECT total,status,paymentMethod,cashCollected FROM orders WHERE tenant_id=? AND driverId=? AND status='delivered' AND paymentMethod IN ('cash','cod') ORDER BY timestamp DESC",
+      [req.driver.tenant_id,req.driver.driverId]
+    );
+    return res.set('Cache-Control','no-store').json(summarizeDriverCashOrders(rows));
+  } catch (_) { return res.status(500).json({error:'Could not load the cash summary.'}); }
+});
+
 // POST /api/public/driver/assign — Driver claims a delivery ticket (own tenant only)
 app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
   const { orderId } = req.body;
