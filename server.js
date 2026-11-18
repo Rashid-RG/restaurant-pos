@@ -4478,7 +4478,7 @@ app.get('/api/delivery/drivers/:id/manual-document/:kind',authenticateToken,requ
 // Manager review of submitted documents is separate from Veriff automation and
 // never claims an official DMT status without direct external confirmation.
 app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
-  const {identityKind,decision,dmtStandingStatus='not_checked',licenceClass,licenceExpiry}=req.body||{};
+  const {identityKind,decision,selfieMatched,documentAuthenticityConfirmed,dmtStandingStatus='not_checked',licenceClass,licenceExpiry}=req.body||{};
   if(!['nic','passport'].includes(identityKind) || !['approve','reject','resubmit'].includes(decision) ||
      !['not_checked','manager_checked_external'].includes(dmtStandingStatus))
     return res.status(400).json({error:'Invalid review decision or identity type.'});
@@ -4489,6 +4489,8 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
     const rows=await dbAll("SELECT kind,digest,viewed_at,viewed_by FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[req.tenantId,req.params.id]);
     if(decision==='approve' && kinds.some(k=>!rows.some(r=>r.kind===k)))
       return res.status(409).json({error:'Required identity and licence images must all be submitted.'});
+    if(decision==='approve' && (selfieMatched!==true || documentAuthenticityConfirmed!==true))
+      return res.status(400).json({error:'The manager must attest to visually matching the selfie and inspecting original identity evidence.'});
     if(decision==='approve' && kinds.some(k=>!rows.some(r=>r.kind===k && r.viewed_by===req.user.id && r.viewed_at)))
       return res.status(409).json({error:'The reviewing manager must open every required identity, selfie and licence image before passing the manual review.'});
     if(decision==='approve' && rider.vehicleType!=='Bicycle' &&
@@ -4500,6 +4502,7 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
       [req.tenantId,req.params.id,decision==='approve'?'approved':decision==='reject'?'rejected':'resubmit',
        identityKind,digest,dmtStandingStatus,rider.vehicleType==='Bicycle'?null:licenceExpiry||null,
        rider.vehicleType==='Bicycle'?null:licenceClass||null,req.user.id,Date.now(),Date.now()]);
+    // The review decision remains manual (not an automated face-match or official DMT check).
     await writeAuditLog(req.user.id,req.user.username,'review_driver_manual_evidence',
       `Manual rider evidence ${req.params.id}: ${decision}; DMT standing: ${dmtStandingStatus}`);
     res.set('Cache-Control','no-store').json({success:true,status:decision,message:'Evidence review recorded. Rider account is still awaiting a separate approval.'});
