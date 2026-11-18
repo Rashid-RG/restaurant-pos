@@ -10,6 +10,8 @@ on:
       - apps/customer-web/android/app/src/main/java/com/rstechnologies/gastrofood/**
       - apps/customer-web/src/utils/native-secure-session-android.js
       - tests/customer-native-android-secure-session.test.js
+      - apps/customer-web/src/utils/native-secure-session-diagnostic.js
+      - tests/customer-native-secure-session-diagnostic.test.js
       - apps/customer-web/android/app/src/main/res/values/strings.xml
       - .github/workflows/verify-food-android-variant.yml
       - .github/workflows/gastrofood-staging-apk.yml
@@ -51,7 +53,7 @@ jobs:
           node scripts/check-food-native-release-boundary.mjs
           npm run customer:native:build
       - name: Verify native Keystore JS and Java safety contract
-        run: npm test -- --run tests/customer-native-android-secure-session.test.js
+        run: npm test -- --run tests/customer-native-android-secure-session.test.js tests/customer-native-secure-session-diagnostic.test.js
 
       - name: Synchronize isolated Android project
         working-directory: apps/customer-web
