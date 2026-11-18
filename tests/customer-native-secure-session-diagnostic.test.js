@@ -44,6 +44,16 @@ describe('GastroFlow Food native secure-storage disposable self-test',()=>{
       .toEqual({ready:false,reason:'native-readback-failed'});
     expect(store.remove).toHaveBeenCalledTimes(1);
   });
+  it('detects a native deletion that falsely reports success and retries cleanup',async()=>{
+    const store=makeStore();
+    // First deletion is acknowledged but does not remove the disposable key.
+    const realRemove=store.remove.getMockImplementation();
+    store.remove.mockImplementationOnce(async()=>{}).mockImplementation(realRemove);
+    expect(await verifyNativeSecureSessionBridge({secureStore:store,randomUUID:uuid()}))
+      .toEqual({ready:false,reason:'native-delete-failed'});
+    expect(store.remove).toHaveBeenCalledTimes(2);
+    expect(await store.get(store.set.mock.calls[0][0])).toBeNull();
+  });
   it('returns sanitized errors and cleans up without exposing test values',async()=>{
     const store=makeStore();
     store.get.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('sensitive payload'));
