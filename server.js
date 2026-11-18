@@ -4270,7 +4270,9 @@ app.delete('/api/users/:id', authenticateToken, requireRole(['owner', 'manager']
 // ── DELIVERY DRIVERS & ASSIGNMENT ENDPOINTS ──
 app.get('/api/delivery/drivers', authenticateToken, async (req, res) => {
   try {
-    const drivers = await dbAll('SELECT id, name, phone, status, vehicleType, plateNumber, email FROM drivers WHERE tenant_id = ?', [req.tenantId]);
+    const drivers = await dbAll(`SELECT d.id,d.name,d.phone,d.status,d.vehicleType,d.plateNumber,d.email,
+      (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id ORDER BY c.created_at DESC LIMIT 1) AS identityStatus
+      FROM drivers d WHERE d.tenant_id=?`,[req.tenantId]);
     res.json(drivers);
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
@@ -4435,6 +4437,14 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
     return res.status(400).json({ error: 'Confirm that applicant identity and vehicle eligibility have been reviewed before approval.' });
   }
   try {
+    if(status==='available' && veriffConfigured()){
+      const check=await dbGet(
+        'SELECT state FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? ORDER BY created_at DESC LIMIT 1',
+        [req.tenantId,id]);
+      if(check?.state!=='verified') return res.status(409).json({
+        error:'The identity provider has not confirmed a verified identity for this applicant.'
+      });
+    }
     const updated = await dbRun(
       'UPDATE drivers SET status = ? WHERE id = ? AND tenant_id = ? AND status = ?',
       [status, id, req.tenantId, 'pending_approval']
