@@ -1751,6 +1751,14 @@ const databaseLimiter = rateLimit({
 });
 
 // Public API rate limiter (customer-facing)
+const driverApplicationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many driver applications from this connection. Try again later.' }
+});
+
 const publicApiLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 100,
@@ -1857,7 +1865,7 @@ const authenticateDriver = (req, res, next) => {
     }
     try {
       const driver = await dbGet('SELECT status FROM drivers WHERE id = ? AND tenant_id = ?', [decoded.driverId, decoded.tenant_id]);
-      if (!driver || ['pending_approval', 'rejected', 'suspended'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
+      if (!driver || !['available', 'active', 'busy'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
       const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [decoded.tenant_id]);
       if (!tenant || tenant.status === 'suspended') return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
       const subscription = await dbGet('SELECT paidThrough,status FROM saas_contracts WHERE tenant_id=?',[decoded.tenant_id]);
@@ -4271,7 +4279,7 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
 });
 
 // Public Driver Self-Registration Endpoint (Phase 2: password + tenant-bound)
-app.post('/api/public/drivers/register', publicApiLimiter, validateRequest(driverRegisterSchema), async (req, res) => {
+app.post('/api/public/drivers/register', driverApplicationLimiter, validateRequest(driverRegisterSchema), async (req, res) => {
   const { name, phone, password, email, vehicleType, plateNumber } = req.body;
   try {
     const tenantId = await resolvePublicTenant(req);
@@ -4292,7 +4300,7 @@ app.post('/api/public/drivers/register', publicApiLimiter, validateRequest(drive
 });
 
 // POST /api/driver/auth/login — Driver login → tenant-bound JWT { driverId, tenant_id, role:'driver' }
-app.post('/api/driver/auth/login', publicApiLimiter, validateRequest(driverLoginSchema), async (req, res) => {
+app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchema), async (req, res) => {
   const { phone, password } = req.body || {};
   if (!phone || !password) return res.status(400).json({ error: 'Phone and password are required.' });
   try {
@@ -4306,6 +4314,7 @@ app.post('/api/driver/auth/login', publicApiLimiter, validateRequest(driverLogin
     if(driverTenant.status==='suspended'||driver.status==='suspended') return res.status(403).json({error:'Driver or restaurant unavailable.'});
     if (driver.status === 'pending_approval') return res.status(403).json({ error: 'Your account is awaiting admin approval.' });
     if (driver.status === 'rejected') return res.status(403).json({ error: 'Your driver account has been rejected.' });
+    if (!['available', 'active', 'busy'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is not active.' });
     const token = jwt.sign(
       { driverId: driver.id, tenant_id: driver.tenant_id || 'default_tenant', role: 'driver', name: driver.name },
       process.env.JWT_SECRET || JWT_SECRET,
