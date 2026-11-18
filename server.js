@@ -1,7 +1,7 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
-import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview } from './lib/driver-onboarding.js';
+import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview, requiredLicenceClass, managerLicenceClassMatches } from './lib/driver-onboarding.js';
 import { veriffConfigured, drivingLicenceProviderEnabled, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
@@ -1222,6 +1222,7 @@ async function initTables() {
     await safeAddColumn('drivers', 'licenseVerifiedUntil', 'BIGINT');
     await safeAddColumn('drivers', 'licenseVerifiedAt', 'BIGINT');
     await safeAddColumn('drivers', 'licenseVerifiedBy', 'TEXT');
+    await safeAddColumn('drivers', 'licenseVerifiedClass', 'TEXT');
     // Driver auth columns: password hash + email so drivers can log in (Phase 2).
     for (const col of [{ name: 'passwordHash', type: 'TEXT' }, { name: 'email', type: 'TEXT' }]) {
       await safeAddColumn('drivers', col.name, col.type);
@@ -4389,7 +4390,7 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
     const id = 'drv_' + crypto.randomUUID();
     const passwordHash = await bcrypt.hash(password, 12);
     await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id, licenseReviewRequired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId, 1
+      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId, vehicleType==='Bicycle'?0:1
     ]);
     let identityVerificationUrl = null;
     let licenceVerificationUrl = null;
@@ -4458,19 +4459,25 @@ app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchem
 // Managers may review pending applications only. No implicit activation or cross-tenant approval.
 app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id } = req.params;
-  const { status, verificationConfirmed, licenceConfirmed, licenceExpiry } = req.body || {};
+  const { status, verificationConfirmed, licenceConfirmed, licenceExpiry, licenceClass } = req.body || {};
   if (!['available', 'rejected'].includes(status)) return res.status(400).json({ error: 'Choose approve or reject.' });
   if (status === 'available' && verificationConfirmed !== true) {
     return res.status(400).json({ error: 'Confirm that applicant identity and vehicle eligibility have been reviewed before approval.' });
   }
   let licenceVerifiedUntil=null;
-  if(status==='available') {
-    licenceVerifiedUntil=verifiedLicenceExpiry(licenceExpiry);
-    if(licenceConfirmed!==true || licenceVerifiedUntil===null) return res.status(400).json({
-      error:'A manager must inspect the original driving licence, confirm the correct vehicle category and enter a valid future expiry date.'
-    });
-  }
+  let approvedVehicleType=null;
   try {
+    if (status==='available') {
+      const applicant=await dbGet("SELECT vehicleType FROM drivers WHERE id=? AND tenant_id=? AND status='pending_approval'", [id,req.tenantId]);
+      if(!applicant) return res.status(409).json({error:'Application is not pending at your restaurant.'});
+      approvedVehicleType=applicant.vehicleType;
+      if(requiredLicenceClass(approvedVehicleType)===undefined) return res.status(400).json({error:'Unsupported vehicle type.'});
+      if(approvedVehicleType!=='Bicycle'){
+        licenceVerifiedUntil=verifiedLicenceExpiry(licenceExpiry);
+        if(licenceConfirmed!==true || licenceVerifiedUntil===null || !managerLicenceClassMatches(approvedVehicleType,licenceClass))
+          return res.status(400).json({error:'Confirm a valid original driving licence with the correct vehicle class and expiry date.'});
+      }
+    }
     if(status==='available' && veriffConfigured()){
       const check=await dbGet(
         'SELECT state FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? ORDER BY created_at DESC LIMIT 1',
@@ -4479,7 +4486,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
         error:'The identity provider has not confirmed a verified identity for this applicant.'
       });
     }
-    if(status==='available' && drivingLicenceProviderEnabled()){
+    if(status==='available' && approvedVehicleType!=='Bicycle' && drivingLicenceProviderEnabled()){
       const licenceCheck=await dbGet(
         "SELECT state,document_expiry FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? AND check_type='driving_licence' ORDER BY created_at DESC LIMIT 1",
         [req.tenantId,id]
@@ -4494,8 +4501,8 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
       });
     }
     const updated = await dbRun(
-      'UPDATE drivers SET status = ?, licenseReviewRequired = CASE WHEN ? = ? THEN 1 ELSE licenseReviewRequired END, licenseVerifiedUntil = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedUntil END, licenseVerifiedAt = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedAt END, licenseVerifiedBy = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedBy END WHERE id = ? AND tenant_id = ? AND status = ?',
-      [status,status,'available',status,'available',licenceVerifiedUntil,status,'available',Date.now(),status,'available',req.user.id,id,req.tenantId,'pending_approval']
+      'UPDATE drivers SET status = ?, licenseReviewRequired = CASE WHEN ? = ? THEN ? ELSE licenseReviewRequired END, licenseVerifiedUntil = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedUntil END, licenseVerifiedAt = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedAt END, licenseVerifiedBy = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedBy END, licenseVerifiedClass = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedClass END WHERE id = ? AND tenant_id = ? AND status = ?',
+      [status,status,'available',approvedVehicleType==='Bicycle'?0:1,status,'available',licenceVerifiedUntil,status,'available',Date.now(),status,'available',req.user.id,status,'available',approvedVehicleType==='Bicycle'?null:licenceClass,id,req.tenantId,'pending_approval']
     );
     if (updated.changes !== 1) return res.status(409).json({ error: 'Application is no longer pending or does not belong to your restaurant.' });
     await writeAuditLog(req.user.id, req.user.username, 'review_driver', `Reviewed driver ${id} as ${status}; eligibility attested: ${verificationConfirmed === true}`);
