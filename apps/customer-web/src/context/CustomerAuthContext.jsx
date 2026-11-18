@@ -3,6 +3,7 @@ import { apiFetch } from '../utils/api.js';
 import { getActiveTenant } from '../utils/tenant.js';
 import { shouldForgetCustomerSession } from '../utils/auth-recovery.js';
 import { customerSessionKey, isCurrentCustomerAuthAttempt } from '../utils/customer-auth-scope.js';
+import { shouldRevalidateNativeCustomerSession, isCurrentNativeSessionCheck } from '../utils/native-session-revalidation.js';
 
 const CustomerAuthContext = createContext(null);
 
@@ -12,6 +13,7 @@ export function CustomerAuthProvider({ children }) {
   const scopeRef = useRef({ tenant: getActiveTenant(), epoch: 0, mounted: true });
   const [customer, setCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
+  const sessionCheckRef = useRef({lastCheckedAt:Date.now(),inFlight:false});
   const sessionKey = customerSessionKey(scopeRef.current.tenant);
   const isCurrent = (epoch) => isCurrentCustomerAuthAttempt({
     scope: scopeRef.current, activeTenant: getActiveTenant(), epoch
@@ -36,6 +38,59 @@ export function CustomerAuthProvider({ children }) {
       .finally(() => { if (isCurrent(epoch)) setLoading(false); });
     return () => { scopeRef.current.mounted = false; scopeRef.current.epoch++; };
   }, [sessionKey]);
+
+  // Packaged Android and iPhone WebViews can keep a screen suspended for
+  // hours. Revalidate the original tenant-scoped session when foregrounded,
+  // without logging out on a network outage or racing with a newer login.
+  useEffect(() => {
+    if (import.meta.env.MODE !== 'native') return;
+    let disposed=false;
+    const check=async()=>{
+      const token=localStorage.getItem(sessionKey);
+      const now=Date.now();
+      const state=sessionCheckRef.current;
+      if(!shouldRevalidateNativeCustomerSession({
+        nativeBuild:true,token,
+        visible:document.visibilityState!=='hidden',
+        online:navigator.onLine!==false,now,
+        lastCheckedAt:state.lastCheckedAt,inFlight:state.inFlight
+      }))return;
+      const epoch=scopeRef.current.epoch;
+      state.inFlight=true;
+      state.lastCheckedAt=now;
+      try{
+        const data=await apiFetch('/customer/auth/me',{
+          headers:{Authorization:`Bearer ${token}`}
+        });
+        if(disposed || !isCurrentNativeSessionCheck({
+          activeTenant:getActiveTenant(),tenant:scopeRef.current.tenant,
+          token,savedToken:localStorage.getItem(sessionKey),epoch,
+          currentEpoch:scopeRef.current.epoch,mounted:scopeRef.current.mounted
+        }))return;
+        if(data)setCustomer(data);
+      }catch(error){
+        if(disposed || !shouldForgetCustomerSession(error) ||
+          !isCurrentNativeSessionCheck({
+            activeTenant:getActiveTenant(),tenant:scopeRef.current.tenant,
+            token,savedToken:localStorage.getItem(sessionKey),epoch,
+            currentEpoch:scopeRef.current.epoch,mounted:scopeRef.current.mounted
+          }))return;
+        localStorage.removeItem(sessionKey);
+        setCustomer(null);
+      }finally{state.inFlight=false;}
+    };
+    document.addEventListener('visibilitychange',check);
+    window.addEventListener('focus',check);
+    window.addEventListener('pageshow',check);
+    window.addEventListener('online',check);
+    return()=>{
+      disposed=true;
+      document.removeEventListener('visibilitychange',check);
+      window.removeEventListener('focus',check);
+      window.removeEventListener('pageshow',check);
+      window.removeEventListener('online',check);
+    };
+  },[sessionKey]);
 
   const commitCustomerSession = (data,epoch) => {
     if (!isCurrent(epoch)) throw new Error('Restaurant changed. Please sign in again.');
