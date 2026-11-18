@@ -351,3 +351,71 @@
 @media(prefers-reduced-motion:reduce) {
   .customer-premium .marketplace-item-footer button {transition:none!important;}
 }
+
+
+/* Store discovery belongs to the same GastroFlow signature interface. */
+@media(max-width:640px) {
+  .customer-premium .gastrofood-discovery {
+    padding:11px 15px 14px!important;
+  }
+  .customer-premium .gastrofood-discovery .restaurants-location-row {
+    margin-bottom:11px!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-modern-hero {
+    padding:21px 19px!important;
+    background:linear-gradient(135deg,#e3f5e7,#f4f9ec 65%,#fcf0dd)!important;
+    border:1px solid #dce8da!important;
+    border-radius:25px!important;
+    box-shadow:none!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-eyebrow {
+    font-size:10px!important;letter-spacing:.13em!important;color:#286d4f!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-copy h1 {
+    font-size:clamp(27px,7vw,37px)!important;line-height:1.1!important;
+    color:#14372b!important;letter-spacing:-.055em!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-copy p {
+    font-size:13px!important;line-height:1.5!important;
+    color:#64796c!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-kpis span {
+    border-radius:10px!important;background:#ffffffb9!important;
+    border:1px solid #d8eadc!important;font-size:11px!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-food {
+    border-radius:50%!important;
+    background:#fff7df!important;
+    box-shadow:0 8px 22px rgba(24,70,44,.1)!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-modern-search {
+    background:#fff!important;border:1.5px solid #d9e7dc!important;
+    border-radius:17px!important;box-shadow:none!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-quick-filters {
+    margin-top:10px!important;gap:7px!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-quick-filters>button {
+    border-radius:999px!important;min-height:42px!important;
+    background:#fff!important;border:1px solid #d9e8dc!important;
+    font-size:12px!important;color:#265f45!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-quick-filters>button.active {
+    background:#0e684b!important;color:white!important;
+    border-color:#0e684b!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-modern-grid {
+    gap:14px!important;
+  }
+  .customer-premium .gastrofood-discovery .gf-mobile-restaurant-banner {
+    height:160px!important;
+    background:linear-gradient(135deg,#c7e6d5,#e8f4e1 55%,#f1ead6)!important;
+  }
+  .customer-premium .gastrofood-discovery .gf-mobile-restaurant-details {
+    padding:16px!important;
+  }
+  .customer-premium .gastrofood-discovery .gastrofood-store-name {
+    font-size:19px!important;line-height:1.25!important;
+    font-weight:850!important;color:#19372b!important;
+  }
+}
