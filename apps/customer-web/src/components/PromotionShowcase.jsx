@@ -91,6 +91,7 @@ export default function PromotionShowcase({stores=[],itemImages={},onChooseStore
     <span className="gf-offer-creative"><Sparkles size={14}/> {c.offerLabel||'FROM GASTROFLOW FOOD'}</span>
     <strong>{c.title}</strong>
     <p>{c.subtitle||'Explore this promotion from your local food marketplace.'}</p>
+    {c.coupon?.code&&<div className="gf-promo-coupon" aria-label="Restaurant checkout coupon"><span>Use code</span><strong>{c.coupon.code}</strong><small>{c.coupon.type==='percent'?c.coupon.value+'% off':'Rs. '+c.coupon.value+' off'}{c.coupon.minSpend>0?' · Min Rs. '+c.coupon.minSpend:''}</small></div>}
     {c.tenantId&&<span className="gf-offer-store"><Store size={14}/> {stores.find(s=>s.id===c.tenantId)?.name||'Participating restaurant'}</span>}
     <button type="button" onClick={()=>go(c)}>{c.cta||'Browse menu'} <ArrowRight size={17}/></button>
   </div>;
@@ -103,6 +104,7 @@ export default function PromotionShowcase({stores=[],itemImages={},onChooseStore
             <span className="gf-promo-kicker"><Sparkles size={15}/> {c.offerLabel||'MADE FOR YOUR APPETITE'}</span>
             <h2>{c.title}</h2>
             <p>{c.subtitle||'Fresh offers from GastroFlow Food.'}</p>
+            {c.coupon?.code&&<span className="gf-promo-code-badge">CODE: {c.coupon.code}</span>}
             <button type="button" onClick={()=>go(c)}>{c.cta||'View offer'} <ArrowRight size={18}/></button>
           </div>
           <div className="gf-promo-photo">
