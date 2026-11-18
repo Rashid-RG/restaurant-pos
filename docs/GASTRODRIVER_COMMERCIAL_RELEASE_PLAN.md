@@ -96,3 +96,15 @@ The manual route is not automatic identity proofing. After restaurant-specific e
 - Still missing for full remote identity assurance: provider-backed liveness/presentation-attack detection, direct official licence-standing lookup, deletion of abandoned applications after an approved retention window, incident response and security penetration testing.
 
 References: https://pages.nist.gov/800-63-4/sp800-63a/ial-general/ ; https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+
+## Two administrative levels — verification access (2026-11-18)
+
+**Platform owner / RS Technologies:** Open **Platform Owner → Driver Verification Oversight**. This is a distinct read-only page and a platform-admin-protected API (`GET /api/platform/driver-verification-oversight`). It shows aggregate pending driver counts, manual reviews and provider-check counts grouped by restaurant. It never returns applicant identity photos, NIC/passport numbers, rider contact data, document images or applicant-specific review actions. Platform-wide support does **not** silently grant document visibility.
+
+**Restaurant owner or manager:** Open **Restaurant POS → Delivery → Pending Rider Self-Registration Applications**. This is the only place to inspect protected identity and selfie evidence, attest that a selfie matches the document, check licence category/expiry, record manual review and separately approve/reject the applicant. API access requires a valid restaurant staff JWT, role `owner` or `manager`, plus exact tenant-specific document/driver ownership. Another tenant's evidence is not found.
+
+**Cashiers and other restaurant staff:** Cannot retrieve sensitive evidence or approve applications. **Drivers** can submit their own documents using a signed, tenant-specific temporary application token only while their application is pending, but cannot review or approve.
+
+**Escalations:** If a restaurant requests platform assistance on a suspicious application, platform staff see aggregate status only. The restaurant manager must examine evidence and make the approval decision. A future formal delegated-review feature would require explicit restaurant consent, named reviewer permissions, separate data-access grants, expiry, audit records and privacy/legal approval; it does not exist by default.
+
+The official DMT standing field remains **manager-reported external review**, never an assertion that GastroFlow has an official government status API. Real Veriff document authenticity/liveness remains contingent on activating and testing the provider.
