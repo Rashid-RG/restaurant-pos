@@ -22,7 +22,7 @@ const apiFetch = async (url, opts = {}) => {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...((new URLSearchParams(location.search).get('tenant') || new URLSearchParams(location.search).get('tenantId') || sessionStorage.getItem('gastrodriver_selected_tenant')) ? { 'X-Tenant-Id': new URLSearchParams(location.search).get('tenant') || new URLSearchParams(location.search).get('tenantId') || sessionStorage.getItem('gastrodriver_selected_tenant') } : {}),
-      ...(new URLSearchParams(location.search).get('invite') ? {'X-Driver-Invitation':new URLSearchParams(location.search).get('invite')} : {}),
+      ...((new URLSearchParams(location.search).get('invite') || sessionStorage.getItem('gastrodriver_hiring_invite')) ? {'X-Driver-Invitation':new URLSearchParams(location.search).get('invite') || sessionStorage.getItem('gastrodriver_hiring_invite')} : {}),
       ...opts.headers
     }
   });
@@ -395,6 +395,9 @@ export default function App() {
       const params=new URLSearchParams(window.location.search);
       params.set('tenant',selected.id);
       params.delete('tenantId');
+      const invitation=params.get('invite');
+      if(invitation){sessionStorage.setItem('gastrodriver_hiring_invite',invitation);params.delete('invite');}
+      else {sessionStorage.removeItem('gastrodriver_hiring_invite');}
       window.history.replaceState(null,'',window.location.pathname+'?'+params.toString());
       return selected;
     }catch(error){setHiringError(error.message||'Unable to verify restaurant.');return null;}
@@ -441,6 +444,7 @@ export default function App() {
   };
   const resetHiringSelection=()=>{
     sessionStorage.removeItem('gastrodriver_selected_tenant');
+    sessionStorage.removeItem('gastrodriver_hiring_invite');
     sessionStorage.removeItem('gastrodriver_manual_application');
     setSelectedHiringRestaurant(null);setManualApplicationToken('');
     setManualEvidence({});setRegCodeSentTo('');
