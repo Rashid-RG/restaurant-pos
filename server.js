@@ -4446,7 +4446,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
   }
   let licenceVerifiedUntil=null;
   if (status==='available') {
-    if(licenceConfirmed!==true || typeof licenceExpiry!=='string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(licenceExpiry)) return res.status(400).json({error:'Review the original driving licence and enter its valid expiry date.'});
+    if(licenceConfirmed!==true || typeof licenceExpiry!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(licenceExpiry)) return res.status(400).json({error:'Review the original driving licence and enter its valid expiry date.'});
     const parsed=Date.parse(licenceExpiry+'T23:59:59.999Z');
     if(!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0,10)!==licenceExpiry || parsed<Date.now()) return res.status(400).json({error:'Driving licence expiry must be a valid future date.'});
     licenceVerifiedUntil=parsed;
