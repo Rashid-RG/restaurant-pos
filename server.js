@@ -1214,6 +1214,12 @@ async function initTables() {
       updated_at BIGINT NOT NULL
     )`);
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_identity_checks_driver ON driver_identity_checks(tenant_id,driver_id)');
+    // Additive licence review metadata: existing active drivers remain unaffected.
+    // Newly self-registered applicants must have manager-confirmed valid licences.
+    await safeAddColumn('drivers', 'licenseReviewRequired', 'INTEGER DEFAULT 0');
+    await safeAddColumn('drivers', 'licenseVerifiedUntil', 'BIGINT');
+    await safeAddColumn('drivers', 'licenseVerifiedAt', 'BIGINT');
+    await safeAddColumn('drivers', 'licenseVerifiedBy', 'TEXT');
     // Driver auth columns: password hash + email so drivers can log in (Phase 2).
     for (const col of [{ name: 'passwordHash', type: 'TEXT' }, { name: 'email', type: 'TEXT' }]) {
       await safeAddColumn('drivers', col.name, col.type);
@@ -1878,8 +1884,9 @@ const authenticateDriver = (req, res, next) => {
       return res.status(403).json({ error: 'Invalid or expired driver token.' });
     }
     try {
-      const driver = await dbGet('SELECT status FROM drivers WHERE id = ? AND tenant_id = ?', [decoded.driverId, decoded.tenant_id]);
+      const driver = await dbGet('SELECT status,licenseReviewRequired,licenseVerifiedUntil FROM drivers WHERE id = ? AND tenant_id = ?', [decoded.driverId, decoded.tenant_id]);
       if (!driver || !['available', 'active', 'busy', 'offline'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
+      if (Number(driver.licenseReviewRequired)===1 && (!Number.isFinite(Number(driver.licenseVerifiedUntil)) || Number(driver.licenseVerifiedUntil)<Date.now())) return res.status(403).json({error:'Driving licence verification is missing or expired. Contact the restaurant.',code:'DRIVER_LICENCE_REVIEW_REQUIRED'});
       const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [decoded.tenant_id]);
       if (!tenant || tenant.status === 'suspended') return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
       const subscription = await dbGet('SELECT paidThrough,status FROM saas_contracts WHERE tenant_id=?',[decoded.tenant_id]);
@@ -4373,8 +4380,8 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
     }
     const id = 'drv_' + crypto.randomUUID();
     const passwordHash = await bcrypt.hash(password, 12);
-    await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId
+    await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id, licenseReviewRequired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId, 1
     ]);
     let identityVerificationUrl = null;
     if(veriffConfigured() && req.body.identityConsent === true) {
@@ -4414,6 +4421,7 @@ app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchem
     if (driver.status === 'pending_approval') return res.status(403).json({ error: 'Your account is awaiting admin approval.' });
     if (driver.status === 'rejected') return res.status(403).json({ error: 'Your driver account has been rejected.' });
     if (!['available', 'active', 'busy', 'offline'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is not active.' });
+    if(Number(driver.licenseReviewRequired)===1 && (!Number.isFinite(Number(driver.licenseVerifiedUntil)) || Number(driver.licenseVerifiedUntil)<Date.now())) return res.status(403).json({error:'Driving licence is not yet verified or has expired.',code:'DRIVER_LICENCE_REVIEW_REQUIRED'});
     const token = jwt.sign(
       { driverId: driver.id, tenant_id: driver.tenant_id || 'default_tenant', role: 'driver', name: driver.name },
       process.env.JWT_SECRET || JWT_SECRET,
@@ -4431,10 +4439,17 @@ app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchem
 // Managers may review pending applications only. No implicit activation or cross-tenant approval.
 app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id } = req.params;
-  const { status, verificationConfirmed } = req.body || {};
+  const { status, verificationConfirmed, licenceConfirmed, licenceExpiry } = req.body || {};
   if (!['available', 'rejected'].includes(status)) return res.status(400).json({ error: 'Choose approve or reject.' });
   if (status === 'available' && verificationConfirmed !== true) {
     return res.status(400).json({ error: 'Confirm that applicant identity and vehicle eligibility have been reviewed before approval.' });
+  }
+  let licenceVerifiedUntil=null;
+  if (status==='available') {
+    if(licenceConfirmed!==true || typeof licenceExpiry!=='string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(licenceExpiry)) return res.status(400).json({error:'Review the original driving licence and enter its valid expiry date.'});
+    const parsed=Date.parse(licenceExpiry+'T23:59:59.999Z');
+    if(!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0,10)!==licenceExpiry || parsed<Date.now()) return res.status(400).json({error:'Driving licence expiry must be a valid future date.'});
+    licenceVerifiedUntil=parsed;
   }
   try {
     if(status==='available' && veriffConfigured()){
@@ -4446,8 +4461,8 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
       });
     }
     const updated = await dbRun(
-      'UPDATE drivers SET status = ? WHERE id = ? AND tenant_id = ? AND status = ?',
-      [status, id, req.tenantId, 'pending_approval']
+      'UPDATE drivers SET status = ?, licenseReviewRequired = CASE WHEN ? = ? THEN 1 ELSE licenseReviewRequired END, licenseVerifiedUntil = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedUntil END, licenseVerifiedAt = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedAt END, licenseVerifiedBy = CASE WHEN ? = ? THEN ? ELSE licenseVerifiedBy END WHERE id = ? AND tenant_id = ? AND status = ?',
+      [status,status,'available',status,'available',licenceVerifiedUntil,status,'available',Date.now(),status,'available',req.user.id,id,req.tenantId,'pending_approval']
     );
     if (updated.changes !== 1) return res.status(409).json({ error: 'Application is no longer pending or does not belong to your restaurant.' });
     await writeAuditLog(req.user.id, req.user.username, 'review_driver', `Reviewed driver ${id} as ${status}; eligibility attested: ${verificationConfirmed === true}`);
