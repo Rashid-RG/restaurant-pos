@@ -203,3 +203,43 @@
  cursor:pointer;min-height:38px;max-width:calc(100% - 40px);
 }
 .customer-auth-route .auth-reference-otp-link:focus-visible{outline:3px solid #4db57a;outline-offset:3px}
+
+
+/* Native Android/iPhone authentication: compact registration, consistent controls
+   and accessible recovery states. Scoped to the customer auth route only. */
+.customer-auth-route .auth-reference-page .auth-reference-register-form{
+ display:grid;gap:12px;
+}
+.customer-auth-route .auth-reference-register-form .form-group{
+ margin-top:0!important;min-width:0;
+}
+.customer-auth-route .auth-reference-register-form .form-group>label{
+ display:block;margin-bottom:6px;font-size:13px;font-weight:750;color:#244e39;
+}
+.customer-auth-route .auth-reference-register-form .form-control{
+ min-height:50px;box-sizing:border-box;border:1.5px solid #d4ded7;
+ border-radius:14px;font-size:16px;line-height:1.25;
+ background:#fff;color:#153f2d;
+}
+.customer-auth-route .auth-reference-register-form .form-control:focus{
+ outline:2px solid #52ab7f;outline-offset:1px;border-color:#137548;
+}
+.customer-auth-route .auth-reference-register-form button[type="submit"]{
+ min-height:52px;border-radius:15px;font-size:16px;font-weight:800;
+ background:linear-gradient(120deg,#149762,#07683f);
+}
+.customer-auth-route .customer-auth-unavailable{
+ margin:6px 0 4px;color:#87401b;font-size:13px;line-height:1.5;
+}
+.customer-auth-route .customer-auth-retry{
+ min-height:42px;padding:8px 16px;border:1px solid #14784d;border-radius:12px;
+ background:#f0fbf5;color:#075b37;font-weight:750;cursor:pointer;
+}
+.customer-auth-route .customer-auth-retry:focus-visible{
+ outline:3px solid #51b785;outline-offset:2px;
+}
+@media(max-width:600px){
+ .customer-auth-route .auth-reference-register-form{gap:10px}
+ .customer-auth-route .auth-reference-register-form .form-control{min-height:48px}
+ .customer-auth-route .auth-reference-page{padding-bottom:max(100px,env(safe-area-inset-bottom))!important}
+}
