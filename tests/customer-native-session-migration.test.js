@@ -73,12 +73,19 @@ describe('GastroFlow Food future native secure-token migration',()=>{
   const legacy=memory(),native=secure(),key=customerSessionKey('restaurant-A');
   legacy.setItem(key,'abc');
   let release;
-  const paused={get:()=>new Promise(resolve=>{release=resolve}),set:native.set,remove:native.remove};
+  let firstRead=true;
+  const paused={...native,get:async k=>{
+    if(firstRead){
+      firstRead=false;
+      await new Promise(resolve=>{release=resolve});
+    }
+    return native.get(k);
+  }};
   const first=migrateCustomerTokenToNativeStorage({tenant:'restaurant-A',secureStore:paused,legacyStorage:legacy});
   expect((await migrateCustomerTokenToNativeStorage({tenant:'restaurant-A',secureStore:native,legacyStorage:legacy})).status).toBe('migration-in-progress');
-  release(null);
-  // Paused adapter's next read may require a second promise to resolve; just
-  // verify the first call remains responsible for that tenant.
-  expect(typeof first.then).toBe('function');
+  release();
+  expect(await first).toEqual({status:'migrated'});
+  expect(await native.get(key)).toBe('abc');
+  expect(legacy.getItem(key)).toBeNull();
  });
 });
