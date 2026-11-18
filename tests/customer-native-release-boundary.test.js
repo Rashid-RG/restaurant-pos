@@ -43,13 +43,18 @@ describe('GastroFlow Food native distribution boundaries',()=>{
      expect.stringMatching(/POS dependency lockfile/)
    ]));
  });
- it('fails if unsigned simulator checks are removed or iOS starts on every push',()=>{
+ it('fails if unsigned simulator checks are removed or iOS runs on unrestricted pushes',()=>{
    const f=fixture();
    f.iosWorkflow=f.iosWorkflow.replace('CODE_SIGNING_ALLOWED=NO','CODE_SIGNING_ALLOWED=YES')
-      .replace('workflow_dispatch:','workflow_dispatch:\n  push:');
+      .replace('branches: [codex/production-readiness]','branches: [main]');
    expect(nativeReleaseBoundaryErrors(f)).toEqual(expect.arrayContaining([
      expect.stringMatching(/signed device IPA/),
-     expect.stringMatching(/manually started/)
+     expect.stringMatching(/workflow-file-only push/)
    ]));
+ });
+ it('rejects broad automatic simulator triggers outside the workflow bootstrap path',()=>{
+   const f=fixture();
+   f.iosWorkflow=f.iosWorkflow.replace('- .github/workflows/food-native-ios-simulator.yml','- apps/customer-web/**');
+   expect(nativeReleaseBoundaryErrors(f).join(' ')).toMatch(/workflow-file-only push/);
  });
 });
