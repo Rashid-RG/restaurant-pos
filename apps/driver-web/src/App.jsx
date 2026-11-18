@@ -96,6 +96,7 @@ export default function App() {
   const [reg, setReg] = useState({ name: '', phone: '', email: '', verificationCode: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false, identityConsent: false });
   const [regSubmitting, setRegSubmitting] = useState(false);
   const [identityVerificationLink,setIdentityVerificationLink] = useState('');
+  const [licenceVerificationLink,setLicenceVerificationLink] = useState('');
   const [sendingRegCode, setSendingRegCode] = useState(false);
   const [regCodeSentTo, setRegCodeSentTo] = useState('');
 
@@ -374,6 +375,7 @@ export default function App() {
       const res = await apiFetch('/public/drivers/register', { method: 'POST', body: JSON.stringify(reg) });
       showToast(res.message || 'Application submitted for restaurant review.', 'success');
       if(res.identityVerificationUrl) setIdentityVerificationLink(res.identityVerificationUrl);
+      if(res.licenceVerificationUrl) setLicenceVerificationLink(res.licenceVerificationUrl);
       setShowRegModal(false);
       setRegCodeSentTo('');
       setLoginPhone(reg.phone);
@@ -441,6 +443,11 @@ export default function App() {
               </button>
             </form>
 
+            {licenceVerificationLink && <div className="card" role="status" style={{marginTop:12}}>
+              <strong>Sri Lankan driving-licence check</strong>
+              <p style={{fontSize:12}}>Continue secure document authenticity verification on Veriff. The restaurant still needs to confirm your vehicle category, expiry and legal driving eligibility before approval.</p>
+              <a className="btn-emerald" href={licenceVerificationLink} target="_blank" rel="noopener noreferrer">Verify driving licence</a>
+            </div>}
             {identityVerificationLink && <div className="card" role="status" style={{marginTop:12}}><strong>Identity verification is ready</strong><p style={{fontSize:12}}>Continue on Veriff's secure document and selfie verification page. This does not automatically grant delivery access.</p><a className="btn-emerald" href={identityVerificationLink} target="_blank" rel="noopener noreferrer">Continue identity verification</a></div>}
             <button className="btn-outline" onClick={() => setShowRegModal(true)}
               style={{ width: '100%', padding: 14, marginTop: 16, fontSize: '0.92rem' }}>
