@@ -20,3 +20,11 @@ jobs:
       - run: npm test
       - run: npm run build:all
       - run: node scripts/production-smoke.js
+
+  # Only an explicitly tagged commit on the customer development branch
+  # invokes the reusable macOS simulator workflow. No deployment or signing.
+  ios-native-simulator:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-ios-simulator]')
+    uses: ./.github/workflows/food-native-ios-simulator.yml
+    permissions:
+      contents: read
