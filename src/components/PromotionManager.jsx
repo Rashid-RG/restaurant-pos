@@ -3,7 +3,13 @@ import { Megaphone,Plus,RefreshCw,Image as ImageIcon,Eye,PauseCircle,PlayCircle,
 import './PromotionManager.css';
 
 const blank=()=>({title:'',subtitle:'',offerLabel:'',imageUrl:'',cta:'Explore menu',status:'draft',startsAt:null,endsAt:null,showPopup:false,autoCreative:true,coupon:null});
-const datetime=value=>value?new Date(value).toISOString().slice(0,16):'';
+const datetime=value=>{
+  if(!value)return '';
+  const date=new Date(value);if(!Number.isFinite(date.getTime()))return '';
+  const pad=n=>String(n).padStart(2,'0');
+  return date.getFullYear()+'-'+pad(date.getMonth()+1)+'-'+pad(date.getDate())+
+    'T'+pad(date.getHours())+':'+pad(date.getMinutes());
+};
 const parseDate=value=>value?new Date(value).getTime():null;
 
 export default function PromotionManager({platform=false,restaurants=[]}) {
