@@ -7,6 +7,7 @@ export default function DeliveryView() {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState({});
+  const [verifiedApplications, setVerifiedApplications] = useState({});
 
   // Driver registration form states
   const [name, setName] = useState('');
@@ -125,11 +126,12 @@ export default function DeliveryView() {
       const res = await fetch(`/api/delivery/drivers/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected' })
+        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected', verificationConfirmed: action === 'approve' && verifiedApplications[id] === true })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(`Driver ${driverName} ${action === 'approve' ? 'approved & activated!' : 'rejected.'}`, action === 'approve' ? 'success' : 'info');
+      setVerifiedApplications(previous => ({ ...previous, [id]: false }));
       fetchDrivers();
     } catch (err) {
       showToast('Approval error: ' + err.message, 'error');
@@ -199,11 +201,12 @@ export default function DeliveryView() {
                       Awaiting Admin Approval
                     </span>
                   </div>
+                  <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
                   <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
                     <button
                       className="btn btn-success"
                       onClick={() => handleApproveDriver(d.id, d.name, 'approve')}
-                      disabled={loading}
+                      disabled={loading || verifiedApplications[d.id] !== true}
                       style={{ flex: 1, padding: '8px', fontSize: '0.82rem', fontWeight: 700, background: '#10b981', color: '#fff', border: 'none' }}
                     >
                       ✓ Approve Driver
