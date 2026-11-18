@@ -22,8 +22,10 @@ export async function verifyNativeSecureSessionBridge({
     written=true;
     if(await secureStore.get(key)!==value)return {ready:false,reason:'native-readback-failed'};
     await secureStore.remove(key);
-    written=false;
+    // Do not assume a successful native bridge response means deletion stuck.
+    // Keep cleanup enabled until the read-back confirms the value is gone.
     if(await secureStore.get(key)!==null)return {ready:false,reason:'native-delete-failed'};
+    written=false;
     return {ready:true,reason:'verified'};
   }catch{
     // No exception text is returned: some providers include sensitive keys.
