@@ -82,3 +82,17 @@ References:
 **Important limitations:** This is an integration foundation, **not a successful real-provider end-to-end verification**. No provider account/keys, DMT record-lookup API, real Sri Lankan licence, or real callback were independently tested. It cannot prove licence revocation/suspension or lawful vehicle entitlement. Confirm production privacy and cross-border biometric-processing obligations before collecting real documents.
 
 Sources: https://www.veriff.com/supported-countries ; https://devdocs.veriff.com/apidocs/v1sessions ; https://devdocs.veriff.com/docs/decision-webhook
+
+## Manual NIC/passport + selfie + licence fallback (staging pilot)
+
+The manual route is not automatic identity proofing. After restaurant-specific email OTP registration, a pending applicant can upload **identity front, identity back/supporting page, a selfie, and for motorized vehicles both driving-licence sides**. The selfie input requests the front camera on supporting mobile devices, offers a preview and retake, and requires explicit consent; device camera capture is not cryptographic proof of a live human.
+
+- Required staging environment: generate a random **32-byte base64** value for `DRIVER_DOCUMENT_ENCRYPTION_KEY`; provision it privately on the staging Render service, preserving all existing environment variables. Never commit/paste it, and preserve it during deployments or encrypted pending evidence becomes unreadable.
+- Only authenticated restaurant **owner/manager** may open encrypted images. The server decrypts in memory for authorized review, records an audit log and a view stamp per document, and uses no publicly accessible image URL.
+- A manual pass requires the same manager to open every required document, explicitly attest that the selfie visually matches the identity portrait, attest that document/original evidence was examined, and confirm correct motor-vehicle class and future licence expiry. All required images must still match the reviewed evidence hashes at final approval.
+- The manager separately **approves or rejects** the driver; manual evidence alone never activates a driver. Final approval purges encrypted image blobs and keeps minimum review/audit metadata.
+- **DMT status** is never labelled as an automated check. The manager may record that they performed an external check; the app must not assert the official result without authoritative verification.
+- The privacy notice must be reviewed for Sri Lankan PDPA compliance, data residency/cross-border processing, administrator access and retention; never upload real ID images to staging until this is authorized.
+- Still missing for full remote identity assurance: provider-backed liveness/presentation-attack detection, direct official licence-standing lookup, deletion of abandoned applications after an approved retention window, incident response and security penetration testing.
+
+References: https://pages.nist.gov/800-63-4/sp800-63a/ial-general/ ; https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
