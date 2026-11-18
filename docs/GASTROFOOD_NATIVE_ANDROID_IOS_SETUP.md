@@ -89,6 +89,12 @@ The helper `apps/customer-web/src/utils/native-session-revalidation.js` and test
 
 **Not yet delivered:** Keychain/Android Keystore-backed storage, signed iPhone distribution, mobile push, Android/iPhone device acceptance, background notifications and certificate rotation. The existing customer token is still stored using the prior WebView/localStorage approach, so do not advertise hardware-backed secure storage.
 
+## 2026-11-18: Isolated customer session storage boundary
+
+The Food app now reads, writes and revokes tenant-scoped customer session tokens through `apps/customer-web/src/utils/customer-session-store.js`. This preserves the previously installed app's `gastroflow_customer_token:<encoded tenant>` key format and keeps existing users signed in. Both `CustomerAuthContext.jsx` and `api.js` use the shared API; stale auth errors use compare-and-remove rather than deleting a newer or different restaurant session. Disposable storage tests verify migration-free compatibility and isolation.
+
+**Storage security status:** the adapter still uses existing WebView `localStorage`, not Android Keystore or iOS Keychain. Hardware-backed credential storage requires a vetted native plugin/bridge, separate package-lock and native project updates, safe migration of previously stored tokens, and physical-device verification. Do not promise secure hardware storage or submit a signed mobile release based on this refactor alone.
+
 ## 4. Staging API and native security gate
 Production-mode CORS currently does **not** grant native origins automatically. When real devices are ready for testing, set the staging service's `CUSTOMER_NATIVE_ORIGINS` explicitly to the origins actually used (`https://localhost` for Android, `capacitor://localhost` for iOS), after authorization. The backend's allowed native origins are exact matches and do not replace tenant authentication. **Do not change Render environment or deploy without explicit approval.**
 
