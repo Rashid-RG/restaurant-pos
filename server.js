@@ -1867,7 +1867,7 @@ const authenticateDriver = (req, res, next) => {
     }
     try {
       const driver = await dbGet('SELECT status FROM drivers WHERE id = ? AND tenant_id = ?', [decoded.driverId, decoded.tenant_id]);
-      if (!driver || !['available', 'active', 'busy'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
+      if (!driver || !['available', 'active', 'busy', 'offline'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
       const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [decoded.tenant_id]);
       if (!tenant || tenant.status === 'suspended') return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
       const subscription = await dbGet('SELECT paidThrough,status FROM saas_contracts WHERE tenant_id=?',[decoded.tenant_id]);
@@ -4360,7 +4360,7 @@ app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchem
     if(driverTenant.status==='suspended'||driver.status==='suspended') return res.status(403).json({error:'Driver or restaurant unavailable.'});
     if (driver.status === 'pending_approval') return res.status(403).json({ error: 'Your account is awaiting admin approval.' });
     if (driver.status === 'rejected') return res.status(403).json({ error: 'Your driver account has been rejected.' });
-    if (!['available', 'active', 'busy'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is not active.' });
+    if (!['available', 'active', 'busy', 'offline'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is not active.' });
     const token = jwt.sign(
       { driverId: driver.id, tenant_id: driver.tenant_id || 'default_tenant', role: 'driver', name: driver.name },
       process.env.JWT_SECRET || JWT_SECRET,
@@ -5226,6 +5226,26 @@ app.get('/api/public/drivers', authenticateToken, async (req, res) => {
   res.json(drivers);
 });
 
+// Driver controls dispatch availability, not account approval.
+// Existing accepted deliveries remain assigned while a rider goes offline.
+app.get('/api/public/driver/profile', authenticateDriver, async (req, res) => {
+  const profile = await dbGet('SELECT id,name,phone,email,status,vehicleType,plateNumber FROM drivers WHERE id=? AND tenant_id=?',
+    [req.driver.driverId,req.driver.tenant_id]);
+  if (!profile) return res.status(404).json({ error:'Driver not found.' });
+  res.set('Cache-Control','no-store').json({ driver:profile });
+});
+app.post('/api/public/driver/availability', authenticateDriver, async (req, res) => {
+  const desired = req.body?.availability;
+  if (!['online','offline'].includes(desired)) return res.status(400).json({ error:'Choose online or offline.' });
+  const t=req.driver.tenant_id, id=req.driver.driverId;
+  const active=await dbGet("SELECT COUNT(*) AS total FROM orders WHERE tenant_id=? AND driverId=? AND (diningType='delivery' OR orderType='delivery') AND status IN ('pending','preparing','ready','picked_up','out_for_delivery','arrived')",[t,id]);
+  const nextStatus = desired==='offline' ? 'offline' : Number(active?.total)>0 ? 'busy' : 'available';
+  const changed=await dbRun("UPDATE drivers SET status=? WHERE id=? AND tenant_id=? AND status IN ('available','active','busy','offline')",
+    [nextStatus,id,t]);
+  if(changed.changes!==1)return res.status(409).json({ error:'Driver availability changed. Refresh and retry.' });
+  res.set('Cache-Control','no-store').json({ success:true,status:nextStatus,activeDeliveries:Number(active?.total)||0 });
+});
+
 // GET /api/public/driver/orders — Orders assigned to or available for a driver
 // All driver action endpoints require a driver JWT and are scoped to the driver's
 // tenant (Phase 2). The driver id + tenant come from the token, never the request body.
@@ -5237,10 +5257,11 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
       "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND driverId = ? AND status NOT IN ('delivered', 'paid', 'cancelled') ORDER BY timestamp DESC",
       [t, driverId]
     );
-    const unassigned = await dbAll(
+    const eligibility = await dbGet('SELECT status FROM drivers WHERE id=? AND tenant_id=?', [driverId,t]);
+    const unassigned = eligibility && eligibility.status!=='offline' ? await dbAll(
       "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') ORDER BY timestamp DESC",
       [t]
-    );
+    ) : [];
     const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
     const zoneSetting = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [t, 'timeZone']);
     const timeZone = restaurantTimeZone({ timeZone: zoneSetting?.value });
@@ -5260,6 +5281,8 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
   const t = req.driver.tenant_id;
   if (!orderId) return res.status(400).json({ error: 'orderId is required.' });
   try {
+    const availability = await dbGet('SELECT status FROM drivers WHERE id=? AND tenant_id=?',[driverId,t]);
+    if (!availability || availability.status==='offline') return res.status(409).json({error:'Go online before claiming a new delivery.'});
     const order = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
     if (!order || order.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
     const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
