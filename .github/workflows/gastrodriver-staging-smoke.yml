@@ -1,0 +1,43 @@
+name: GastroDriver staging HTTP smoke check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/production-readiness]
+    paths:
+      - '.github/workflows/gastrodriver-staging-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  driver-staging-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read-only health, rider app and verification config probes
+        env:
+          BASE: https://gastroflow-staging.onrender.com
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --location --max-time 60 "$BASE/api/health" -o /tmp/gastro-health.json
+          curl --fail-with-body --silent --show-error --location --max-time 60 "$BASE/api/public/driver/verification-capabilities" -o /tmp/gastro-verification.json
+          curl --fail-with-body --silent --show-error --location --max-time 60 "$BASE/driver-app/" -o /tmp/gastro-driver.html
+          jq -e '(.identityProviderConfigured | type) == "boolean" and (.licenceDocumentFlowConfigured | type) == "boolean" and (.emailCodeConfigured | type) == "boolean" and (.officialDmtStandingLookupConfigured == false) and (.providerEndToEndVerified == false)' /tmp/gastro-verification.json >/dev/null
+          grep -qi 'GastroDriver' /tmp/gastro-driver.html
+          echo 'Staging server: responding'
+          echo 'Driver app: responding'
+          echo "Email OTP configured: $(jq -r .emailCodeConfigured /tmp/gastro-verification.json)"
+          echo "Veriff integration configured: $(jq -r .identityProviderConfigured /tmp/gastro-verification.json)"
+          echo "Licence document automation configured: $(jq -r .licenceDocumentFlowConfigured /tmp/gastro-verification.json)"
+          echo 'Real provider decision tested: NOT YET (requires a real Veriff sandbox account)'
+          {
+            echo "## Staging GastroDriver smoke result"
+            echo ""
+            echo "- Read-only health: succeeded"
+            echo "- Driver app: succeeded"
+            echo "- Email OTP configured: $(jq -r .emailCodeConfigured /tmp/gastro-verification.json)"
+            echo "- Veriff provider configured: $(jq -r .identityProviderConfigured /tmp/gastro-verification.json)"
+            echo "- Licence verification enabled: $(jq -r .licenceDocumentFlowConfigured /tmp/gastro-verification.json)"
+            echo "- Actual Veriff transaction: not tested; the endpoint intentionally does not claim otherwise"
+          } >> "$GITHUB_STEP_SUMMARY"
