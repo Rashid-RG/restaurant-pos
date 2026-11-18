@@ -85,8 +85,10 @@ export function trackingHeroMessage(status, type = 'takeaway') {
 
 // Poll promptly when SSE disconnects; avoid duplicate 5-second API requests
 // while a healthy stream is delivering updates. Periodically reconcile anyway.
-export function shouldPollTrackingSnapshot({streamConnected=false,lastSnapshotAt=null,now=Date.now(),visible=true}={}) {
-  if(!visible)return false;
+export function shouldPollTrackingSnapshot({streamConnected=false,lastSnapshotAt=null,now=Date.now(),visible=true,online=true}={}) {
+  // Mobile WebViews may keep a timer alive after connectivity is lost.
+  // Wait for an online/foreground event rather than repeatedly issuing doomed requests.
+  if(!visible || !online)return false;
   if(!streamConnected)return true;
   return !Number.isFinite(lastSnapshotAt)||lastSnapshotAt<=0||now-lastSnapshotAt>=TRACKING_UPDATE_STALE_MS;
 }
