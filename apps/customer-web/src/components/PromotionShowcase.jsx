@@ -16,7 +16,7 @@ const imageUrl = raw => {
 const isValid = item => item && typeof item.id==='string' &&
   typeof item.title==='string' && (item.status==='active' || !item.status);
 
-export default function PromotionShowcase({stores=[],onChooseStore}) {
+export default function PromotionShowcase({stores=[],onChooseStore,onCampaignCount}) {
   const [campaigns,setCampaigns]=useState([]);
   const [active,setActive]=useState(0);
   const [offersOpen,setOffersOpen]=useState(false);
@@ -30,10 +30,11 @@ export default function PromotionShowcase({stores=[],onChooseStore}) {
       const data=await apiFetch('/public/food-promotions',{cache:'no-store'});
       const list=Array.isArray(data?.campaigns)?data.campaigns.filter(isValid):[];
       setCampaigns(list);
+      onCampaignCount?.(list.length);
       setActive(i=>list.length?Math.min(i,list.length-1):0);
       setError(false);
     } catch { setError(true); }
-  },[]);
+  },[onCampaignCount]);
   useEffect(()=>{
     void reload();
     const onFocus=()=>void reload();
