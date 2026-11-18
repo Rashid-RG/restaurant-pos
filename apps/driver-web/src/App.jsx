@@ -99,6 +99,7 @@ export default function App() {
   const [licenceVerificationLink,setLicenceVerificationLink] = useState('');
   const [manualApplicationToken,setManualApplicationToken]=useState(sessionStorage.getItem('gastrodriver_manual_application')||'');
   const [manualEvidence,setManualEvidence]=useState({});
+  const [selfieCandidate,setSelfieCandidate]=useState(null);
   const [manualUploading,setManualUploading]=useState('');
   const [manualConsent,setManualConsent]=useState(false);
   const [manualVehicleType,setManualVehicleType]=useState('Motorbike');
@@ -369,6 +370,23 @@ export default function App() {
     finally { setSendingRegCode(false); }
   };
 
+  const handleSelfieCapture = (file) => {
+    if(!file)return;
+    if(!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size>2*1024*1024){
+      showToast('Selfie must be JPEG, PNG or WebP and under 2 MB.', 'warning');return;
+    }
+    setSelfieCandidate(previous => {
+      if(previous?.url)URL.revokeObjectURL(previous.url);
+      return {file,url:URL.createObjectURL(file)};
+    });
+  };
+  const clearSelfieCapture = () => {
+    setSelfieCandidate(previous => {
+      if(previous?.url)URL.revokeObjectURL(previous.url);
+      return null;
+    });
+  };
+
   const submitManualEvidence = async (kind,file) => {
     if(!file || !manualApplicationToken)return;
     if(!manualConsent) { showToast('Please accept sensitive-document storage consent first.','warning');return; }
@@ -389,6 +407,7 @@ export default function App() {
         body:JSON.stringify({kind,contentType:file.type,data,consent:true})
       });
       setManualEvidence(previous=>({...previous,[kind]:true}));
+      if(kind==='selfie')clearSelfieCapture();
       showToast(uploaded.message||'Encrypted evidence submitted.','success');
     }catch(error){showToast(error.message||'Evidence upload failed.','error');}
     finally{setManualUploading('');}
@@ -409,6 +428,7 @@ export default function App() {
         setManualApplicationToken(res.applicationToken);
         setManualVehicleType(reg.vehicleType);
         setManualEvidence({});
+        clearSelfieCapture();
         setManualConsent(false);
       }
       if(res.identityVerificationUrl) setIdentityVerificationLink(res.identityVerificationUrl);
@@ -481,14 +501,28 @@ export default function App() {
             </form>
 
             {manualApplicationToken && <section className="card" aria-label="Secure manual identity document submission" style={{marginTop:12,display:'flex',flexDirection:'column',gap:12}}>
-              <strong>Secure manual NIC / passport and licence submission</strong>
+              <strong>Secure manual NIC / passport, selfie and driving-licence submission</strong>
               <p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>
                 Use this when automated verification is not available. Photos are encrypted in the restaurant database, visible only to managers during review, and deleted after the final approval decision. Uploading photos is not identity verification or official DMT clearance.
               </p>
               <label style={{fontSize:13,display:'flex',gap:8,alignItems:'start'}}>
                 <input type="checkbox" checked={manualConsent} onChange={e=>setManualConsent(e.target.checked)}/>
-                I consent to securely storing my NIC/passport and, if applicable, driving-licence photos for this restaurant's identity review.
+                I consent to encrypted storage of my NIC/passport, selfie photo and driving-licence evidence (if applicable) for restricted restaurant-manager review. I understand a selfie photograph is not automated liveness verification.
               </label>
+              <div style={{display:'flex',flexDirection:'column',gap:8,border:'1px solid var(--border-color)',borderRadius:10,padding:12}}>
+                <strong style={{fontSize:13}}>Selfie photo {manualEvidence.selfie?'✓ Submitted':''}</strong>
+                <p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>Take a clear front-facing selfie with your entire face visible, good lighting and no sunglasses. Your manager will compare it to your ID image. This is not an automated biometric or liveness check.</p>
+                <label style={{fontSize:12}}>Take selfie with front camera
+                  <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" disabled={!manualConsent || Boolean(manualUploading)} onChange={e=>{const file=e.target.files?.[0];if(file)handleSelfieCapture(file);e.target.value='';}}/>
+                </label>
+                {selfieCandidate && <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+                  <img src={selfieCandidate.url} alt="Preview of selfie awaiting submission" style={{width:'min(230px,80%)',aspectRatio:'3 / 4',objectFit:'cover',borderRadius:10,border:'1px solid var(--border-color)'}}/>
+                  <div style={{display:'flex',gap:8}}>
+                    <button type="button" className="btn-outline" onClick={clearSelfieCapture}>Retake</button>
+                    <button type="button" className="btn-emerald" disabled={!manualConsent || Boolean(manualUploading)} onClick={()=>submitManualEvidence('selfie',selfieCandidate.file)}>{manualUploading==='selfie'?'Uploading…':'Confirm and submit selfie'}</button>
+                  </div>
+                </div>}
+              </div>
               {[
                 ['identity_front','NIC front / passport photo page'],
                 ['identity_back','NIC back / passport supporting page'],
@@ -501,7 +535,7 @@ export default function App() {
                 <input type="file" accept="image/jpeg,image/png,image/webp" disabled={!manualConsent||Boolean(manualUploading)} onChange={e=>{const file=e.target.files?.[0];if(file) void submitManualEvidence(kind,file);e.target.value='';}}/>
                 {manualUploading===kind && <span role="status">Encrypting and submitting…</span>}
               </label>)}
-              <small style={{color:'var(--text-muted)'}}>Maximum 2 MB per photo. Use secure HTTPS on your own device. Never send documents through chat or email.</small>
+              <small style={{color:'var(--text-muted)'}}>Maximum 2 MB per photo. On mobile, the front-camera capture is device-dependent and does not prove liveness. Use secure HTTPS. Never send identity evidence through chat or email.</small>
             </section>}
             {licenceVerificationLink && <div className="card" role="status" style={{marginTop:12}}>
               <strong>Sri Lankan driving-licence check</strong>
