@@ -1236,6 +1236,18 @@ async function initTables() {
       created_at BIGINT NOT NULL, PRIMARY KEY(tenant_id,driver_id)
     )`);
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_manual_reviews_tenant ON driver_manual_reviews(tenant_id,review_state)');
+    // Recruitment is opt-in for public search. Invitations are random, hashed,
+    // revocable and tenant-bound; existing rider accounts remain unchanged.
+    await dbRun(`CREATE TABLE IF NOT EXISTS driver_recruitment_settings (
+      tenant_id TEXT PRIMARY KEY, discoverable INTEGER NOT NULL DEFAULT 0,
+      updated_at BIGINT NOT NULL
+    )`);
+    await dbRun(`CREATE TABLE IF NOT EXISTS driver_recruitment_invites (
+      code_hash TEXT PRIMARY KEY, tenant_id TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL, revoked_at BIGINT
+    )`);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_recruitment_invites_tenant ON driver_recruitment_invites(tenant_id,expires_at)');
     // Additive licence review metadata: existing active drivers remain unaffected.
     // Newly self-registered applicants must have manager-confirmed valid licences.
     await safeAddColumn('drivers', 'licenseReviewRequired', 'INTEGER DEFAULT 0');
@@ -4354,6 +4366,95 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
   }
 });
 
+// Restaurant hiring controls are separate from platform verification oversight.
+app.get('/api/delivery/driver-recruitment',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const tenant=await dbGet('SELECT id,name,subdomain FROM tenants WHERE id=?',[req.tenantId]);
+    if(!tenant)return res.status(404).json({error:'Restaurant not found.'});
+    const settings=await dbGet('SELECT discoverable FROM driver_recruitment_settings WHERE tenant_id=?',[req.tenantId]);
+    const invites=await dbAll(
+      'SELECT code_hash,created_at,expires_at,revoked_at FROM driver_recruitment_invites WHERE tenant_id=? ORDER BY created_at DESC LIMIT 20',
+      [req.tenantId]);
+    res.set('Cache-Control','no-store').json({
+      restaurant:{id:tenant.id,name:tenant.name,subdomain:tenant.subdomain},
+      discoverable:settings?.discoverable===1,
+      activeInviteCount:invites.filter(i=>!i.revoked_at&&i.expires_at>Date.now()).length
+    });
+  }catch(_){res.status(500).json({error:'Unable to load recruitment controls.'});}
+});
+app.post('/api/delivery/driver-recruitment',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  if(typeof req.body?.discoverable!=='boolean')
+    return res.status(400).json({error:'Choose whether the restaurant is searchable.'});
+  try{
+    await dbRun('INSERT INTO driver_recruitment_settings (tenant_id,discoverable,updated_at) VALUES (?,?,?) ON CONFLICT(tenant_id) DO UPDATE SET discoverable=excluded.discoverable,updated_at=excluded.updated_at',
+      [req.tenantId,req.body.discoverable?1:0,Date.now()]);
+    await writeAuditLog(req.user.id,req.user.username,'driver_recruitment_visibility',
+      `Changed restaurant rider search visibility to ${req.body.discoverable}`);
+    res.json({success:true,discoverable:req.body.discoverable});
+  }catch(_){res.status(500).json({error:'Could not update recruitment visibility.'});}
+});
+app.post('/api/delivery/driver-recruitment/invitations',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const code=crypto.randomBytes(18).toString('base64url');
+    const hash=crypto.createHash('sha256').update(code).digest('hex');
+    const expiresAt=Date.now()+14*24*60*60*1000;
+    await dbRun('INSERT INTO driver_recruitment_invites (code_hash,tenant_id,created_by,created_at,expires_at) VALUES (?,?,?,?,?)',
+      [hash,req.tenantId,req.user.id,Date.now(),expiresAt]);
+    await writeAuditLog(req.user.id,req.user.username,'create_driver_invitation',
+      `Created a 14-day rider invitation for tenant ${req.tenantId}`);
+    // Raw secret returned exactly once. Do not log, enumerate or embed in analytics.
+    res.set('Cache-Control','no-store').status(201).json({code,expiresAt});
+  }catch(_){res.status(500).json({error:'Could not issue driver invitation.'});}
+});
+app.post('/api/delivery/driver-recruitment/invitations/revoke-all',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    await dbRun('UPDATE driver_recruitment_invites SET revoked_at=? WHERE tenant_id=? AND revoked_at IS NULL',[Date.now(),req.tenantId]);
+    await writeAuditLog(req.user.id,req.user.username,'revoke_driver_invitations','Revoked outstanding driver invitations');
+    res.json({success:true});
+  }catch(_){res.status(500).json({error:'Could not revoke invitations.'});}
+});
+// Public directory contains only intentionally published active restaurants.
+// A non-public restaurant can still recruit through a time-limited invitation.
+app.get('/api/public/drivers/restaurants',publicApiLimiter,async(req,res)=>{
+  const q=String(req.query.q||'').trim();
+  if(q.length<2 || q.length>80)return res.status(400).json({error:'Search using at least two letters.'});
+  try{
+    const rows=await dbAll(`SELECT t.id,t.name,t.subdomain
+      FROM tenants t JOIN driver_recruitment_settings r ON r.tenant_id=t.id
+      WHERE r.discoverable=1 AND t.status IN ('active','trial')
+        AND LOWER(t.name) LIKE LOWER(?) ESCAPE '\\'
+      ORDER BY t.name ASC LIMIT 12`,
+      ['%'+q.replace(/[\\%_]/g,c=>'\\'+c)+'%']);
+    res.set('Cache-Control','no-store').json({restaurants:rows});
+  }catch(_){res.status(500).json({error:'Restaurant search is unavailable.'});}
+});
+async function resolveDriverInvitation(code){
+  if(typeof code!=='string' || !/^[A-Za-z0-9_-]{24}$/.test(code))return null;
+  const digest=crypto.createHash('sha256').update(code).digest('hex');
+  return dbGet(`SELECT t.id,t.name,t.subdomain FROM driver_recruitment_invites i
+     JOIN tenants t ON t.id=i.tenant_id
+     WHERE i.code_hash=? AND i.revoked_at IS NULL AND i.expires_at>?
+       AND t.status IN ('active','trial')`,[digest,Date.now()]);
+}
+// Preview never reveals the invitation token in API response or application logs.
+app.get('/api/public/drivers/restaurant',publicApiLimiter,async(req,res)=>{
+  try{
+    const code=req.query.invite;
+    let tenant;
+    if(code) tenant=await resolveDriverInvitation(code);
+    else {
+      const selected=driverTenantSelector(req);
+      if(!selected)return res.status(400).json({error:'Select a restaurant or enter an invitation code.'});
+      const resolved=await resolvePublicTenant(req);
+      tenant=await dbGet(`SELECT t.id,t.name,t.subdomain FROM tenants t
+        JOIN driver_recruitment_settings r ON r.tenant_id=t.id
+        WHERE t.id=? AND t.status IN ('active','trial') AND r.discoverable=1`,[resolved]);
+    }
+    if(!tenant)return res.status(404).json({error:'Restaurant or invitation not found.'});
+    res.set('Cache-Control','no-store').json({restaurant:tenant});
+  }catch(_){res.status(500).json({error:'Unable to verify restaurant selection.'});}
+});
+
 // Diagnostic capability only: no secrets, no provider-account validation claim.
 app.get('/api/public/driver/verification-capabilities', publicApiLimiter, (_req, res) => {
   res.set('Cache-Control', 'no-store').json({
@@ -4368,11 +4469,19 @@ app.get('/api/public/driver/verification-capabilities', publicApiLimiter, (_req,
 
 // Only explicitly selected, existing restaurants may receive driver applications.
 async function resolveDriverRegistrationTenant(req) {
+  const invite=req.headers['x-driver-invitation'] || req.query.invite;
+  if(invite){
+    const matched=await resolveDriverInvitation(invite);
+    if(!matched)return null;
+    // If an explicit restaurant was also supplied, it must match the invitation.
+    if(driverTenantSelector(req) && await resolvePublicTenant(req)!==matched.id)return null;
+    return matched.id;
+  }
   const selector = driverTenantSelector(req);
   if (!selector) return null;
   const tenantId = await resolvePublicTenant(req);
   const tenant = await dbGet('SELECT id,status FROM tenants WHERE id=?', [tenantId]);
-  return tenant && tenant.status !== 'suspended' ? tenant.id : null;
+  return tenant && ['active','trial'].includes(tenant.status) ? tenant.id : null;
 }
 
 // Dedicated driver signup OTP: hashed, ten-minute expiry, purpose-bound, no token issuance.
