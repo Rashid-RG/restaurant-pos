@@ -15,6 +15,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
   const [menus, setMenus] = useState({});
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [promotionCount,setPromotionCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [menusLoaded, setMenusLoaded] = useState(0);
   const [error, setError] = useState('');
@@ -111,10 +112,10 @@ export default function MarketplaceMenu({ onChooseStore }) {
   const heroFoodImage = allItems.find(({item}) => item.imageUrl)?.item.imageUrl;
 
   return <div className="marketplace-menu">
-    <PromotionShowcase stores={stores} onChooseStore={onChooseStore}/>
-    <section className="marketplace-hero">
+    <PromotionShowcase stores={stores} onChooseStore={onChooseStore} onCampaignCount={setPromotionCount}/>
+    <section className={'marketplace-hero '+(promotionCount>0?'has-live-promotions':'')} >
       <div className="marketplace-eyebrow"><UtensilsCrossed size={17}/> EXPLORE GASTROFLOW</div>
-      <div className="marketplace-hero-layout">
+      {promotionCount===0 && <div className="marketplace-hero-layout">
         <div className="marketplace-hero-copy">
           <h1>What are you craving today?</h1>
           <p>Delicious meals from local kitchens, ready when you are.</p>
@@ -124,7 +125,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
             ? <img src={resolveCustomerImageUrl(heroFoodImage,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})} alt="" loading="lazy"/>
             : <span>🍜</span>}
         </div>
-      </div>
+      </div>}
       <label className="marketplace-search">
         <Search size={21} aria-hidden="true"/>
         <span className="sr-only">Search available menus</span>
