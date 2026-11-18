@@ -20,6 +20,7 @@ import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
 import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier, createCustomerRegistrationDuplicates, isCustomerRegistrationUniqueConflict } from './lib/identity/index.js';
+import { createCustomerOtpLoginLookup } from './lib/identity/customer-otp-login.js';
 import { customerAppUrl, posAppUrl, createOrderConfirmationSender } from './lib/communications/index.js';
 import {initGroupCarts,createGroupCartHandlers} from './routes/group-cart.js';
 
@@ -2892,6 +2893,7 @@ app.post(['/api/otp/send', '/api/auth/send-otp'], otpLimiter, async (req, res) =
   }
 });
 
+const findCustomerForOtpLogin = createCustomerOtpLoginLookup({dbGet,normalizeLkPhone});
 // POST /api/otp/verify — Verify OTP code and login existing customer or return verification status
 app.post('/api/otp/verify', otpLimiter, async (req, res) => {
   try {
@@ -2920,10 +2922,7 @@ app.post('/api/otp/verify', otpLimiter, async (req, res) => {
     }
 
     // Check if account already exists
-    const customer = await dbGet(
-      'SELECT * FROM customer_accounts WHERE tenant_id=? AND (LOWER(email)=? OR phone=?)',
-      [await resolvePublicTenant(req), cleanDest, cleanDest]
-    );
+    const customer = await findCustomerForOtpLogin(await resolvePublicTenant(req),cleanDest);
 
     if (customer) {
       const secret = process.env.CUSTOMER_JWT_SECRET || process.env.JWT_SECRET || JWT_SECRET;
