@@ -220,3 +220,134 @@
     background:#fff!important;
   }
 }
+
+
+/* GastroFlow Food signature design — November 2026
+ * Unique editorial food-marketplace language: evergreen ink, lime highlights,
+ * warm ivory surfaces, expressive real food imagery and spacious product cards.
+ * Dedicated customer app only; POS/owner/driver UIs are not affected.
+ */
+.customer-premium:not(.customer-auth-route) {
+  --gf-signature-ink:#132e27;
+  --gf-signature-forest:#075a44;
+  --gf-signature-lime:#d9f4a7;
+  --gf-signature-cream:#f8f9f2;
+  background:#f8f9f5!important;
+}
+.customer-premium .marketplace-category-row {
+  display:flex;gap:9px;overflow-x:auto;scrollbar-width:none;
+  padding:1px 1px 7px;overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.customer-premium .marketplace-category-row::-webkit-scrollbar{display:none}
+.customer-premium .marketplace-category-row button {
+  flex:0 0 auto;min-height:42px;border-radius:999px;
+  background:#fff;color:#355f4b;border:1px solid #d8e5dc;
+  padding:9px 16px;white-space:nowrap;font-size:13px;font-weight:750;
+  box-shadow:0 3px 9px rgba(15,61,38,.025);cursor:pointer;
+}
+.customer-premium .marketplace-category-row button.is-active {
+  background:#0c6348!important;color:white!important;
+  border-color:#0c6348!important;
+}
+.customer-premium .marketplace-category-row button:focus-visible {
+  outline:3px solid #76ba91;outline-offset:2px;
+}
+.customer-premium .marketplace-hero-layout {
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(125px,34%);
+  align-items:center;gap:12px;
+}
+.customer-premium .marketplace-hero-visual {
+  width:100%;aspect-ratio:1/1;border-radius:50%;overflow:hidden;
+  background:radial-gradient(circle at 25% 25%,#fff3c5,#d5ebc0 80%);
+  display:grid;place-items:center;
+  border:5px solid rgba(255,255,255,.62);
+  box-shadow:0 13px 30px rgba(3,57,39,.12);
+}
+.customer-premium .marketplace-hero-visual img {
+  width:100%;height:100%;object-fit:cover;
+}
+.customer-premium .marketplace-hero-visual span {font-size:clamp(55px,7vw,105px);}
+.customer-premium .marketplace-hero-copy {min-width:0;}
+.customer-premium .marketplace-results-title span {
+  color:#35714f!important;letter-spacing:.13em!important;
+}
+.customer-premium .marketplace-results-title h2 {
+  color:#17372b!important;font-weight:850;letter-spacing:-.035em!important;
+}
+.customer-premium .marketplace-item {
+  border:1px solid #e0e8df!important;background:#fff;
+  box-shadow:0 10px 30px rgba(13,59,32,.07)!important;
+}
+.customer-premium .marketplace-item-info h3 {font-weight:850!important;color:#17362a!important;}
+.customer-premium .marketplace-item-footer button {
+  background:#0b684c!important;
+  transition:background .15s ease,transform .15s ease;
+}
+.customer-premium .marketplace-item-footer button:active {transform:scale(.97);}
+.customer-premium .marketplace-store {
+  background:white!important;border:1px solid #dae9dc!important;
+  box-shadow:0 5px 20px rgba(15,71,44,.035)!important;
+}
+.customer-premium .marketplace-store-icon {
+  border-radius:16px!important;background:#e8f7e6!important;
+}
+@media (max-width:640px) {
+  .customer-premium .marketplace-menu {padding:12px 16px 28px!important;}
+  .customer-premium .marketplace-hero {
+    background:linear-gradient(130deg,#e7f8e7 0%,#f3f9e9 60%,#f7edd9 100%)!important;
+    padding:21px 18px 19px!important;border-radius:25px!important;
+    border:1px solid #dcecd9!important;
+  }
+  .customer-premium .marketplace-eyebrow {font-size:10px!important;letter-spacing:.12em!important;}
+  .customer-premium .marketplace-hero-layout {gap:9px;grid-template-columns:minmax(0,1fr) 34%;}
+  .customer-premium .marketplace-hero h1 {
+    font-size:clamp(24px,6.4vw,34px)!important;
+    line-height:1.11!important;letter-spacing:-.05em!important;
+    margin:13px 0 9px!important;
+  }
+  .customer-premium .marketplace-hero p {font-size:12px!important;line-height:1.5!important;margin:0!important;}
+  .customer-premium .marketplace-hero-visual {
+    border-width:3px!important;box-shadow:0 8px 18px rgba(6,73,47,.12)!important;
+  }
+  .customer-premium .marketplace-hero-visual span {font-size:56px!important;}
+  .customer-premium .marketplace-search {margin-top:18px!important;}
+  .customer-premium .marketplace-category-row {margin-top:14px; margin-bottom:0;}
+  .customer-premium .marketplace-item-grid {gap:12px!important;}
+  .customer-premium .marketplace-item {
+    grid-template-columns:minmax(0,43%) minmax(0,1fr)!important;
+    min-height:164px!important;
+    border-radius:19px!important;
+  }
+  .customer-premium .marketplace-item-image {
+    min-height:164px!important;height:100%!important;
+  }
+  .customer-premium .marketplace-item-info {padding:13px 12px!important;}
+  .customer-premium .marketplace-item-info p {font-size:12px!important;}
+  .customer-premium .marketplace-store {
+    min-height:80px!important;border-radius:19px!important;
+  }
+  .customer-premium .gastrofood-discovery .gastrofood-restaurant-card {
+    border-radius:22px!important;
+    border:1px solid #dfebe1!important;
+    box-shadow:0 8px 23px rgba(15,59,36,.065)!important;
+  }
+  .customer-premium .gastrofood-discovery .gf-mobile-restaurant-banner {
+    max-height:178px;overflow:hidden;
+  }
+  .customer-premium .bottom-nav {
+    border-radius:20px 20px 0 0!important;
+    box-shadow:0 -8px 22px rgba(11,63,38,.075)!important;
+  }
+  .customer-premium .bottom-nav .nav-item.active {
+    border-radius:16px!important;
+    background:#e8f7e7!important;
+  }
+}
+@media(max-width:370px) {
+  .customer-premium .marketplace-hero-layout {grid-template-columns:minmax(0,1fr) 29%;}
+  .customer-premium .marketplace-hero-visual span {font-size:38px!important;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .customer-premium .marketplace-item-footer button {transition:none!important;}
+}
