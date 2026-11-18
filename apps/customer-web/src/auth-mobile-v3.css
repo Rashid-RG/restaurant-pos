@@ -6,7 +6,7 @@
   .app-shell.customer-premium.customer-auth-route {
     display:block!important;
     width:100%!important;
-    min-height:100dvh!important;
+    min-height:0!important;
     height:auto!important;
     padding:0!important;
     margin:0!important;
@@ -28,16 +28,16 @@
     position:relative!important;
     width:100%!important;
     max-width:600px!important;
-    min-height:100dvh!important;
+    min-height:0!important;
     height:auto!important;
     box-sizing:border-box!important;
     margin:0 auto!important;
-    padding:0 0 max(25px,env(safe-area-inset-bottom,0px))!important;
+    padding:0 0 max(16px,env(safe-area-inset-bottom,0px))!important;
     overflow:visible!important;
     isolation:isolate!important;
     background-color:#fff!important;
     background-image:
-      linear-gradient(180deg,#fff 0%,#fff 49%,rgba(255,255,255,.99) 70%,rgba(245,252,242,.68) 91%,rgba(237,248,231,.54) 100%),
+      linear-gradient(180deg,#fff 0%,#fff 80%,rgba(246,251,246,.96) 100%),
       url('/customer/auth-food-garden.svg')!important;
     background-position:center top,center bottom!important;
     background-size:100% 100%,100% auto!important;
@@ -179,7 +179,7 @@
     line-height:1.45!important;
     color:#6b796e!important;
   }
-  /* On larger iPhones the remaining natural height shows the food art, not a blank slab. */
+  /* The form owns its intrinsic height. Never create a viewport-sized empty footer. */
   .customer-auth-route #customer-main .auth-reference-page:has(.auth-reference-login-form) {
     background-size:100% 100%,100% auto!important;
   }
@@ -194,4 +194,35 @@
 }
 @media(prefers-reduced-motion:reduce){
  .customer-auth-route #customer-main * {scroll-behavior:auto!important;animation-duration:.01ms!important;}
+}
+
+
+/* Standalone iOS uses a translucent system status bar. Reserve the actual
+ * status-bar region before the branding header, rather than placing the logo
+ * underneath the clock and Dynamic Island. In regular Safari, browser chrome
+ * already reserves this space and this additional inset is not applied. */
+@media (max-width:680px) and (display-mode:standalone) {
+  .app-shell.customer-premium.customer-auth-route {
+    padding-top:max(55px,env(safe-area-inset-top,0px))!important;
+    background:linear-gradient(180deg,#07553d 0 110px,#f8faf6 110px)!important;
+  }
+}
+/* iOS also supports the legacy home-screen flag; it must not double-apply. */
+@supports (-webkit-touch-callout:none) {
+  @media (max-width:680px) {
+    .customer-auth-route #customer-main .auth-hero-brand {
+      overflow:visible!important;
+    }
+  }
+}
+@media(max-width:680px) {
+  .customer-auth-route #customer-main .auth-reference-page {
+    background-image:linear-gradient(180deg,#fff 0%,#fff 89%,#f5faf3 100%)!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-page:has(.auth-reference-register-form) {
+    background-image:linear-gradient(180deg,#fff 0%,#fff 89%,#f5faf3 100%)!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-page > p.text-center:last-child {
+    padding-bottom:4px!important;
+  }
 }
