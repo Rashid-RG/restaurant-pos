@@ -21,7 +21,8 @@ const apiFetch = async (url, opts = {}) => {
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(new URLSearchParams(location.search).get('tenant') ? { 'X-Tenant-Id': new URLSearchParams(location.search).get('tenant') } : {}),
+      ...((new URLSearchParams(location.search).get('tenant') || new URLSearchParams(location.search).get('tenantId') || sessionStorage.getItem('gastrodriver_selected_tenant')) ? { 'X-Tenant-Id': new URLSearchParams(location.search).get('tenant') || new URLSearchParams(location.search).get('tenantId') || sessionStorage.getItem('gastrodriver_selected_tenant') } : {}),
+      ...(new URLSearchParams(location.search).get('invite') ? {'X-Driver-Invitation':new URLSearchParams(location.search).get('invite')} : {}),
       ...opts.headers
     }
   });
@@ -97,6 +98,13 @@ export default function App() {
   const [regSubmitting, setRegSubmitting] = useState(false);
   const [identityVerificationLink,setIdentityVerificationLink] = useState('');
   const [licenceVerificationLink,setLicenceVerificationLink] = useState('');
+  const [selectedHiringRestaurant,setSelectedHiringRestaurant]=useState(null);
+  const [hiringSearch,setHiringSearch]=useState('');
+  const [hiringResults,setHiringResults]=useState([]);
+  const [hiringBusy,setHiringBusy]=useState(false);
+  const [invitationEntry,setInvitationEntry]=useState('');
+  const [hiringMode,setHiringMode]=useState('search');
+  const [hiringError,setHiringError]=useState('');
   const [manualApplicationToken,setManualApplicationToken]=useState(sessionStorage.getItem('gastrodriver_manual_application')||'');
   const [manualEvidence,setManualEvidence]=useState({});
   const [selfieCandidate,setSelfieCandidate]=useState(null);
@@ -117,6 +125,7 @@ export default function App() {
   // ── Auth ──
   const handleLogin = async (e) => {
     e.preventDefault();
+    if(!selectedHiringRestaurant?.id){showToast('Choose your restaurant first.','warning');return;}
     if (!loginPhone || !loginPassword) { showToast('Enter your phone and password', 'warning'); return; }
     setLoggingIn(true);
     try {
@@ -358,8 +367,86 @@ export default function App() {
     }
   };
 
+  const resolveRestaurantSelection=async(query)=>{
+    setHiringError('');
+    try{
+      const result=await apiFetch('/public/drivers/restaurant'+query);
+      if(!result.restaurant?.id)throw new Error('Restaurant not found.');
+      const selected=result.restaurant;
+      const prior=sessionStorage.getItem('gastrodriver_selected_tenant');
+      if(prior && prior!==selected.id){
+        setRegCodeSentTo('');
+        setReg(previous=>({...previous,verificationCode:''}));
+        // Never allow a pending evidence token for a different restaurant
+        // to silently carry over when changing restaurants.
+        sessionStorage.removeItem('gastrodriver_manual_application');
+        setManualApplicationToken('');
+        setManualEvidence({});
+      }
+      sessionStorage.setItem('gastrodriver_selected_tenant',selected.id);
+      setSelectedHiringRestaurant(selected);
+      setHiringResults([]);
+      setHiringSearch('');
+      const params=new URLSearchParams(window.location.search);
+      params.set('tenant',selected.id);
+      params.delete('tenantId');
+      window.history.replaceState(null,'',window.location.pathname+'?'+params.toString());
+      return selected;
+    }catch(error){setHiringError(error.message||'Unable to verify restaurant.');return null;}
+  };
+
+  useEffect(()=>{
+    const params=new URLSearchParams(location.search);
+    const invitation=params.get('invite');
+    const tenant=params.get('tenant')||params.get('tenantId')||sessionStorage.getItem('gastrodriver_selected_tenant');
+    if(invitation){
+      setHiringMode('invite');
+      void resolveRestaurantSelection('?invite='+encodeURIComponent(invitation));
+    }else if(tenant){
+      void resolveRestaurantSelection('?tenantId='+encodeURIComponent(tenant));
+    }
+  },[]);
+
+  useEffect(()=>{
+    const q=hiringSearch.trim();
+    if(q.length<2){setHiringResults([]);return;}
+    let ignore=false;
+    const timer=setTimeout(async()=>{
+      setHiringBusy(true);
+      try{
+        const response=await apiFetch('/public/drivers/restaurants?q='+encodeURIComponent(q));
+        if(!ignore)setHiringResults(response.restaurants||[]);
+      }catch(_){if(!ignore)setHiringResults([]);}
+      finally{if(!ignore)setHiringBusy(false);}
+    },320);
+    return()=>{ignore=true;clearTimeout(timer);};
+  },[hiringSearch]);
+
+  const useInvitation=async()=>{
+    const invitation=invitationEntry.trim();
+    if(!/^[A-Za-z0-9_-]{24}$/.test(invitation)){
+      setHiringError('Enter the full invitation code supplied by the restaurant.');return;
+    }
+    const params=new URLSearchParams(location.search);
+    params.set('invite',invitation);
+    params.delete('tenant');params.delete('tenantId');
+    window.history.replaceState(null,'',window.location.pathname+'?'+params.toString());
+    const selected=await resolveRestaurantSelection('?invite='+encodeURIComponent(invitation));
+    if(selected)setInvitationEntry('');
+  };
+  const resetHiringSelection=()=>{
+    sessionStorage.removeItem('gastrodriver_selected_tenant');
+    sessionStorage.removeItem('gastrodriver_manual_application');
+    setSelectedHiringRestaurant(null);setManualApplicationToken('');
+    setManualEvidence({});setRegCodeSentTo('');
+    setReg(previous=>({...previous,verificationCode:''}));
+    const params=new URLSearchParams(location.search);
+    params.delete('tenant');params.delete('tenantId');params.delete('invite');
+    window.history.replaceState(null,'',window.location.pathname+(params.size?'?'+params.toString():''));
+  };
+
   const handleSendRegCode = async () => {
-    if (!new URLSearchParams(location.search).get('tenant') && !new URLSearchParams(location.search).get('tenantId')) { showToast('Open registration from your restaurant-specific delivery link.', 'warning'); return; }
+    if (!selectedHiringRestaurant?.id) { showToast('Select your restaurant or enter a valid invitation first.', 'warning'); return; }
     if (!reg.email.trim()) { showToast('Enter your email address first.', 'warning'); return; }
     setSendingRegCode(true);
     try {
@@ -429,6 +516,7 @@ export default function App() {
 
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
+    if(!selectedHiringRestaurant?.id){showToast('Confirm the restaurant before registering.','warning');return;}
     if (!reg.name || !reg.phone || !reg.email || !reg.password || !reg.verificationCode) { showToast('Enter your details and the emailed verification code.', 'warning'); return; }
     if (regCodeSentTo !== reg.email.trim().toLowerCase()) { showToast('Request a verification code for this email first.', 'warning'); return; }
     if (reg.password.length < 10) { showToast('Password must be at least 10 characters.', 'warning'); return; }
@@ -497,6 +585,41 @@ export default function App() {
                 Sign in with your registered phone and password
               </p>
             </div>
+
+            <section className="card" aria-label="Select recruiting restaurant" style={{display:'flex',flexDirection:'column',gap:12,padding:18,marginBottom:18,border:'1px solid var(--border-color)',borderRadius:16}}>
+              <div style={{display:'flex',gap:9,alignItems:'center',justifyContent:'space-between'}}>
+                <div><strong style={{fontSize:15}}>Your restaurant</strong><p style={{margin:'3px 0 0',fontSize:12,color:'var(--text-muted)'}}>One GastroDriver app. Private restaurant-specific application.</p></div>
+                <span style={{fontSize:24}} aria-hidden="true">🏪</span>
+              </div>
+              {selectedHiringRestaurant ? <>
+                <div style={{padding:12,background:'rgba(16,185,129,.08)',border:'1px solid rgba(16,185,129,.3)',borderRadius:12}}>
+                  <strong style={{display:'block'}}>{selectedHiringRestaurant.name}</strong>
+                  <small style={{color:'var(--text-muted)'}}>Verified restaurant selection · {selectedHiringRestaurant.subdomain}</small>
+                </div>
+                <button type="button" className="btn-outline" onClick={resetHiringSelection}>Choose a different restaurant</button>
+              </> : <>
+                <div style={{display:'flex',gap:8}}>
+                  <button type="button" className={hiringMode==='search'?'btn-emerald':'btn-outline'} onClick={()=>setHiringMode('search')} style={{flex:1}}>Find restaurant</button>
+                  <button type="button" className={hiringMode==='invite'?'btn-emerald':'btn-outline'} onClick={()=>setHiringMode('invite')} style={{flex:1}}>Invitation code</button>
+                </div>
+                {hiringMode==='search'?<>
+                  <label style={{fontSize:12,fontWeight:700}}>Search restaurants accepting applications</label>
+                  <input className="input-field" value={hiringSearch} onChange={e=>setHiringSearch(e.target.value)} placeholder="Type at least 2 letters" autoComplete="off"/>
+                  {hiringBusy&&<span role="status" style={{fontSize:12}}>Searching…</span>}
+                  {hiringResults.length>0&&<div style={{display:'grid',gap:7,maxHeight:210,overflowY:'auto'}}>
+                    {hiringResults.map(restaurant=><button type="button" key={restaurant.id} className="btn-outline" onClick={()=>resolveRestaurantSelection('?tenantId='+encodeURIComponent(restaurant.id))} style={{textAlign:'left',padding:12,borderRadius:10}}>
+                      <strong>{restaurant.name}</strong><br/><small>{restaurant.subdomain}</small>
+                    </button>)}
+                  </div>}
+                  {!hiringBusy&&hiringSearch.trim().length>2&&hiringResults.length===0&&<small style={{color:'var(--text-muted)'}}>No opted-in restaurants found. Ask your restaurant for an invitation code.</small>}
+                </>:<>
+                  <label style={{fontSize:12,fontWeight:700}}>Restaurant invitation code</label>
+                  <input className="input-field" value={invitationEntry} onChange={e=>setInvitationEntry(e.target.value)} placeholder="Paste your private hiring code" autoCapitalize="off" autoComplete="off"/>
+                  <button type="button" className="btn-emerald" onClick={useInvitation} disabled={!invitationEntry.trim()}>Verify invitation</button>
+                </>}
+                {hiringError&&<small role="alert" style={{color:'#dc2626'}}>{hiringError}</small>}
+              </>}
+            </section>
 
             <form onSubmit={handleLogin} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 20, margin: 0 }}>
               <div>
@@ -741,6 +864,7 @@ export default function App() {
             <div className="card device-dialog" role="dialog" aria-modal="true" aria-label="Driver application" style={{ maxWidth: 440, width: '100%', maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>🛵 Rider Self-Registration</h3>
+                <span style={{fontSize:11,color:'var(--text-muted)'}}>{selectedHiringRestaurant?.name||'Select a restaurant before registering'}</span>
                 <button aria-label="Close driver application" onClick={() => setShowRegModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
               </div>
 
@@ -762,7 +886,7 @@ export default function App() {
                 <label style={{display:'flex',gap:10,alignItems:'flex-start',fontSize:'0.78rem',lineHeight:1.5}}><input type="checkbox" checked={reg.identityConsent===true} onChange={e=>setReg({...reg,identityConsent:e.target.checked})} style={{marginTop:4,width:18,height:18}}/><span>I consent to optional third-party identity verification, which may process my NIC/passport image, selfie and biometric information under that provider's notice. If the provider is unavailable, the restaurant must arrange a separate secure review.</span></label>
                 <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                   <button type="button" className="btn-outline" onClick={() => setShowRegModal(false)} style={{ flex: 1 }}>Cancel</button>
-                  <button type="submit" className="btn-emerald" disabled={regSubmitting} style={{ flex: 2 }}>
+                  <button type="submit" className="btn-emerald" disabled={regSubmitting||!selectedHiringRestaurant} style={{ flex: 2 }}>
                     {regSubmitting ? 'Submitting…' : 'Submit Application'}
                   </button>
                 </div>
