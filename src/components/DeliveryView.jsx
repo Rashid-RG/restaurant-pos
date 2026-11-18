@@ -9,6 +9,8 @@ export default function DeliveryView() {
   const [selectedDriver, setSelectedDriver] = useState({});
   const [verifiedApplications, setVerifiedApplications] = useState({});
   const [licenceReviews, setLicenceReviews] = useState({});
+  const [manualReviews,setManualReviews]=useState({});
+  const [manualPreview,setManualPreview]=useState(null);
 
   // Driver registration form states
   const [name, setName] = useState('');
@@ -120,6 +122,41 @@ export default function DeliveryView() {
     }
   };
 
+  const inspectManualDocument = async (driverId,kind) => {
+    try {
+      const token=localStorage.getItem('gastroflow_token');
+      const res=await fetch(`/api/delivery/drivers/${encodeURIComponent(driverId)}/manual-document/${kind}`,{
+        headers:{Authorization:`Bearer ${token}`}
+      });
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||'Document unavailable.');
+      setManualPreview({driverId,kind,src:`data:${data.contentType};base64,${data.data}`});
+    }catch(error){showToast(error.message||'Unable to open protected document.','error');}
+  };
+  const decideManualReview = async (driver,decision) => {
+    try {
+      setLoading(true);
+      const review=manualReviews[driver.id]||{};
+      const licence=licenceReviews[driver.id]||{};
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch(`/api/delivery/drivers/${driver.id}/manual-review`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({
+          identityKind:review.identityKind||'nic',
+          decision,dmtStandingStatus:review.dmtStandingStatus||'not_checked',
+          licenceClass:licence.licenceClass,licenceExpiry:licence.expiry
+        })
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Manual review failed.');
+      showToast('Manual document review saved. Final rider approval is separate.','success');
+      setManualPreview(null);
+      await fetchDrivers();
+    }catch(error){showToast(error.message||'Manual review failed.','error');}
+    finally{setLoading(false);}
+  };
+
   const handleApproveDriver = async (id, driverName, action) => {
     try {
       setLoading(true);
@@ -204,7 +241,34 @@ export default function DeliveryView() {
                     </span>
                     <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Automated ID verification: <strong>{d.identityStatus === 'verified' ? 'Provider verified' : d.identityStatus === 'rejected' ? 'Provider rejected — review required' : d.identityStatus === 'resubmit' ? 'Resubmission requested' : d.identityStatus === 'created' || d.identityStatus === 'review' ? 'Verification in progress' : 'Not verified'}</strong></div>
                     <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Driving-licence document: <strong>{d.licenceDocumentStatus === 'verified' ? 'Document authenticity verified; class and standing still need review' : d.licenceDocumentStatus === 'rejected' ? 'Provider rejected' : d.licenceDocumentStatus === 'resubmit' ? 'Resubmission needed' : d.licenceDocumentStatus === 'review' ? 'Manual review needed' : d.licenceDocumentStatus === 'created' ? 'Waiting for provider' : 'No provider check recorded'}</strong></div>
+                    <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Manual review: <strong>{d.manualReviewStatus||'Not reviewed'}</strong> · DMT standing: {d.dmtReviewStatus==='manager_checked_external'?'Manager recorded external check':'Not officially checked'}</div>
                   </div>
+                  <section style={{border:'1px solid var(--border-color)',borderRadius:9,padding:10,display:'flex',flexDirection:'column',gap:8}}>
+                    <strong style={{fontSize:13}}>Manual NIC/passport & licence review</strong>
+                    <select className="form-input" value={manualReviews[d.id]?.identityKind||'nic'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],identityKind:e.target.value}}))}>
+                      <option value="nic">Sri Lankan NIC</option>
+                      <option value="passport">Passport</option>
+                    </select>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                      {[
+                        ['identity_front','Identity front'],['identity_back','Identity back'],
+                        ...(d.vehicleType==='Bicycle'?[]:[['licence_front','Licence front'],['licence_back','Licence back']])
+                      ].map(([kind,label])=><button type="button" key={kind} className="btn btn-outline" style={{fontSize:11,padding:5}} onClick={()=>inspectManualDocument(d.id,kind)}>{label}</button>)}
+                    </div>
+                    <label style={{fontSize:12}}>DMT standing review
+                      <select className="form-input" value={manualReviews[d.id]?.dmtStandingStatus||'not_checked'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],dmtStandingStatus:e.target.value}}))}>
+                        <option value="not_checked">Not officially checked</option>
+                        <option value="manager_checked_external">Manager completed external standing review (not system-verified)</option>
+                      </select>
+                    </label>
+                    <p style={{fontSize:11,color:'var(--text-muted)',margin:0}}>Confirm image quality, original identity, licence class, expiry and any external DMT standing independently. Files are deleted after final approval.</p>
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      <button type="button" className="btn btn-success" disabled={loading} onClick={()=>decideManualReview(d,'approve')}>Record manual pass</button>
+                      <button type="button" className="btn btn-outline" disabled={loading} onClick={()=>decideManualReview(d,'resubmit')}>Request resubmission</button>
+                      <button type="button" className="btn btn-danger" disabled={loading} onClick={()=>decideManualReview(d,'reject')}>Reject evidence</button>
+                    </div>
+                  </section>
+                  <div style={{display:'none'}}
                   <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
                   {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Verified driving licence class
                     <select className="form-input" value={licenceReviews[d.id]?.licenceClass || ''} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],licenceClass:e.target.value}}))}>
