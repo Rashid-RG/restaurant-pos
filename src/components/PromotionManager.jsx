@@ -92,6 +92,7 @@ export default function PromotionManager({platform=false,restaurants=[]}) {
         {campaigns.map(c=><article key={c.id} className="gf-campaign-card">
           <div className="gf-campaign-card-art">{c.imageUrl?<img src={c.imageUrl} loading="lazy" alt=""/>:<Gift size={42}/>}</div>
           <div className="gf-campaign-card-body"><span>{c.offerLabel||'GastroFlow Food'} · {c.status}</span><strong>{c.title}</strong><small>{c.subtitle}</small>
+            <div className="gf-campaign-metrics" aria-label="Campaign engagement"><span>Views <b>{Number(c.impressions||0).toLocaleString()}</b></span><span>Opens <b>{Number(c.clicks||0).toLocaleString()}</b></span></div>
             <div className="gf-campaign-actions"><button type="button" onClick={()=>edit(c)} disabled={busy}><Eye size={15}/> Edit</button>
               <button type="button" disabled={busy} onClick={()=>setStatus(c,c.status==='active'?'paused':'active')}>{c.status==='active'?<PauseCircle size={15}/>:<PlayCircle size={15}/>} {c.status==='active'?'Pause':'Activate'}</button>
             </div>
