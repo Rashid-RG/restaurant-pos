@@ -50,6 +50,7 @@ function isRushHour(timeZone = 'Asia/Colombo') {
 
 export default function App() {
   const [driver, setDriver] = useState(JSON.parse(localStorage.getItem(DRIVER_KEY) || 'null'));
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [restaurantTimeZone, setRestaurantTimeZone] = useState('Asia/Colombo');
   const [activeOrders, setActiveOrders] = useState([]);
   const [history, setHistory] = useState([]);
@@ -151,6 +152,23 @@ export default function App() {
     setDispatchLastSynced(null);setDispatchSyncError(false);
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(DRIVER_KEY);
+  };
+
+  const updateAvailability = async () => {
+    if (!driver || availabilityLoading) return;
+    setAvailabilityLoading(true);
+    try {
+      const next = driver.status === 'offline' ? 'online' : 'offline';
+      const response = await apiFetch('/public/driver/availability', { method:'POST', body:JSON.stringify({ availability: next }) });
+      setDriver(previous => {
+        const updated={ ...previous, status:response.status };
+        localStorage.setItem(DRIVER_KEY,JSON.stringify(updated));
+        return updated;
+      });
+      showToast(next==='online'?'Ready for new deliveries.':'You are offline for new deliveries.', 'success');
+      fetchDriverOrders();
+    } catch (error) { showToast(error.message || 'Could not update availability.', 'error'); }
+    finally { setAvailabilityLoading(false); }
   };
 
   // ── High-Professional Driver Delivery Ringtone Alert ──
@@ -430,6 +448,7 @@ export default function App() {
           /* ── Rider dashboard ── */
           <div>
             <section className="driver-welcome"><span>YOUR DAY, IN MOTION</span><h1>Let’s make every<br/>delivery a good one.</h1><p>Welcome back, {driver.name?.split(' ')[0]}. Your assigned orders and pickup opportunities are all here.</p><ConnectionStatus compact/></section>
+            <div className="card" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}><div><strong>{driver.status === 'offline' ? 'Offline — no new delivery offers' : 'Online — available for dispatch'}</strong><div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5 }}>Current deliveries remain assigned even when you stop accepting new work.</div></div><button type="button" className="btn-emerald" onClick={updateAvailability} disabled={availabilityLoading}>{availabilityLoading ? 'Updating…' : driver.status === 'offline' ? 'Go online' : 'Go offline'}</button></div>
             <div className="driver-dispatch-sync" role="status" aria-live="polite"><strong>{dispatchSyncError || !dispatchLastSynced || driverClock-dispatchLastSynced>25000 ? 'Checking dispatch connection' : 'Dispatch synced'}</strong><span>{dispatchLastSynced ? 'Last confirmed '+new Date(dispatchLastSynced).toLocaleTimeString() : 'Waiting for first update'}</span>{dispatchSyncError && <button type="button" onClick={fetchDriverOrders}>Retry now</button>}</div>
             <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
 
