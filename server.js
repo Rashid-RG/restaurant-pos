@@ -2,6 +2,7 @@ import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOr
 import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders } from './lib/driver-onboarding.js';
+import { veriffConfigured, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
 import { gastroContextualSuggestions } from './lib/gastromate-conversation.js';
@@ -250,7 +251,7 @@ app.use(cors({
   origin: customerCorsOriginHandler({isProd, allowedOrigins}),
   credentials: true
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '10mb', verify: (req, _res, bytes) => { if (req.path === '/api/webhooks/driver-identity/veriff') req.rawIdentityWebhook = Buffer.from(bytes); } }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' })); // Limit body size for security
 // A cash-only deployment must never initiate, sign or accept online payments.
 app.use(['/api/payments/payhere', '/api/public/payment/payhere'], (req, res, next) => {
@@ -1202,6 +1203,17 @@ async function initTables() {
       await safeAddColumn('users', col.name, col.type);
     }
 
+    // Provider-hosted identity checks: metadata only; no IDs, selfies or biometric data stored here.
+    await dbRun(`CREATE TABLE IF NOT EXISTS driver_identity_checks (
+      session_id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      driver_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      state TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_identity_checks_driver ON driver_identity_checks(tenant_id,driver_id)');
     // Driver auth columns: password hash + email so drivers can log in (Phase 2).
     for (const col of [{ name: 'passwordHash', type: 'TEXT' }, { name: 'email', type: 'TEXT' }]) {
       await safeAddColumn('drivers', col.name, col.type);
@@ -4319,6 +4331,30 @@ app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(d
   } catch (_) { return res.status(500).json({ error: 'Could not request email verification.' }); }
 });
 
+// Veriff's signed, idempotent decision webhook. Never grants driver access.
+app.post('/api/webhooks/driver-identity/veriff', async (req, res) => {
+  if (!verifyVeriffWebhook({
+    rawBody:req.rawIdentityWebhook,
+    signature:req.headers['x-hmac-signature'],
+    authClient:req.headers['x-auth-client']
+  })) return res.status(401).json({error:'Invalid identity provider signature.'});
+  const decision=interpretVeriffDecision(req.body);
+  if(!decision) return res.status(400).json({error:'Invalid identity decision.'});
+  try {
+    // The saved provider session is the sole identity-to-tenant authority.
+    // Duplicate/out-of-order webhooks never undo an existing final decision.
+    const updated=await dbRun(
+      "UPDATE driver_identity_checks SET state=?,updated_at=? WHERE session_id=? AND provider='veriff' AND state NOT IN ('verified','rejected','expired')",
+      [decision.state,Date.now(),decision.sessionId]
+    );
+    if(updated.changes!==1){
+      const existing=await dbGet('SELECT session_id FROM driver_identity_checks WHERE session_id=?',[decision.sessionId]);
+      if(!existing) return res.status(404).json({error:'Unknown identity session.'});
+    }
+    return res.status(200).json({ok:true});
+  } catch (_) { return res.status(500).json({error:'Could not record identity decision.'}); }
+});
+
 // Public Driver Self-Registration Endpoint (Phase 2: password + tenant-bound)
 app.post('/api/public/drivers/register', driverApplicationLimiter, validateRequest(driverRegisterSchema), async (req, res) => {
   const { name, phone, password, email, verificationCode, vehicleType, plateNumber } = req.body;
@@ -4338,8 +4374,23 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
     await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
       id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId
     ]);
+    let identityVerificationUrl = null;
+    if(veriffConfigured() && req.body.identityConsent === true) {
+      try {
+        const provider=await createVeriffSession({driverId:id});
+        await dbRun('INSERT INTO driver_identity_checks (session_id,tenant_id,driver_id,provider,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
+          [provider.sessionId,tenantId,id,'veriff','created',Date.now(),Date.now()]);
+        identityVerificationUrl=provider.url;
+      } catch (error) {
+        console.warn('[Driver identity] Verification session unavailable:',error.message);
+      }
+    }
     broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType },tenantId);
-    return res.status(202).json({ success: true, id, status: 'pending_approval', message: 'Email verified and application submitted. The restaurant must review your identity and vehicle eligibility before approval.' });
+    return res.status(202).json({
+      success:true,id,status:'pending_approval',identityVerificationUrl,
+      identityStatus:identityVerificationUrl?'created':'not_started',
+      message:'Email verified and application submitted. Identity and vehicle eligibility must be reviewed before driver activation.'
+    });
   } catch (_) {
     return res.status(500).json({ error: 'Could not submit application. Check your details or request a new code.' });
   }
