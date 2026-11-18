@@ -276,7 +276,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   };
 
   // Promotions are verified and priced by the backend for the selected restaurant.
-  const cartFingerprint = JSON.stringify(items.map(i=>({id:i.id,qty:i.qty,selectedModifiers:i.selectedModifiers||[],notes:i.notes||''})));
+  const cartFingerprint = JSON.stringify({orderType,items:items.map(i=>({id:i.id,qty:i.qty,selectedModifiers:i.selectedModifiers||[],notes:i.notes||''}))});
   useEffect(()=>{
     if(appliedPromo && appliedPromo.cartFingerprint !== cartFingerprint) setAppliedPromo(null);
   },[cartFingerprint,appliedPromo]);
@@ -286,7 +286,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     try {
       const result=await apiFetch('/public/promotions/preview',{
         method:'POST',body:JSON.stringify({
-          code,
+          code,orderType,
           items:items.map(i=>({menuItemId:i.id,quantity:i.qty,selectedModifiers:i.selectedModifiers||[],notes:i.notes||''}))
         })
       });
