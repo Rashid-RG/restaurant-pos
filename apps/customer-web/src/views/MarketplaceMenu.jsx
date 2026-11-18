@@ -13,6 +13,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
   const [stores, setStores] = useState([]);
   const [menus, setMenus] = useState({});
   const [query, setQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [loading, setLoading] = useState(true);
   const [menusLoaded, setMenusLoaded] = useState(0);
   const [error, setError] = useState('');
@@ -86,19 +87,41 @@ export default function MarketplaceMenu({ onChooseStore }) {
     return asItems(menu).filter(isMenuItemAvailable).map(item => ({ item, store }));
   }), [stores, menus]);
 
+  const categories = useMemo(() => {
+    const names = new Set();
+    for (const {item} of allItems) {
+      const category = String(item.categoryName || item.category || '').trim();
+      if (category && category.length <= 32) names.add(category);
+    }
+    return ['All', ...Array.from(names).slice(0, 6)];
+  }, [allItems]);
+
   const visibleItems = useMemo(() => {
     const search = query.trim().toLocaleLowerCase();
-    if (!search) return allItems;
-    return allItems.filter(({ item, store }) =>
-      [item.name, item.description, store.name, store.cuisine].some(value => String(value || '').toLocaleLowerCase().includes(search))
-    );
-  }, [allItems, query]);
+    return allItems.filter(({ item, store }) => {
+      const category = String(item.categoryName || item.category || '').trim();
+      if (selectedCategory !== 'All' && category !== selectedCategory) return false;
+      return !search || [item.name, item.description, store.name, store.cuisine, category]
+        .some(value => String(value || '').toLocaleLowerCase().includes(search));
+    });
+  }, [allItems, query, selectedCategory]);
+
+  const heroFoodImage = allItems.find(({item}) => item.imageUrl)?.item.imageUrl;
 
   return <div className="marketplace-menu">
     <section className="marketplace-hero">
       <div className="marketplace-eyebrow"><UtensilsCrossed size={17}/> EXPLORE GASTROFLOW</div>
-      <h1>What are you craving today?</h1>
-      <p>Explore food from available restaurants, compare dishes and choose the restaurant you want to order from.</p>
+      <div className="marketplace-hero-layout">
+        <div className="marketplace-hero-copy">
+          <h1>What are you craving today?</h1>
+          <p>Delicious meals from local kitchens, ready when you are.</p>
+        </div>
+        <div className="marketplace-hero-visual" aria-hidden="true">
+          {heroFoodImage
+            ? <img src={resolveCustomerImageUrl(heroFoodImage,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})} alt="" loading="lazy"/>
+            : <span>🍜</span>}
+        </div>
+      </div>
       <label className="marketplace-search">
         <Search size={21} aria-hidden="true"/>
         <span className="sr-only">Search available menus</span>
@@ -106,6 +129,9 @@ export default function MarketplaceMenu({ onChooseStore }) {
       </label>
       <div className="marketplace-stats"><span><Store size={16}/> {stores.length} open restaurants</span><span><ShoppingBag size={16}/> {allItems.length} available dishes</span></div>
     </section>
+    {categories.length > 1 && <div className="marketplace-category-row" role="group" aria-label="Filter dishes by category">
+      {categories.map(category => <button key={category} type="button" className={selectedCategory === category ? 'is-active' : ''} aria-pressed={selectedCategory === category} onClick={() => setSelectedCategory(category)}>{category === 'All' ? 'All dishes' : category}</button>)}
+    </div>}
 
     {error && <div className="marketplace-error" role="alert">{error}<button type="button" onClick={() => setRefresh(n => n + 1)}><RefreshCw size={16}/> Retry</button></div>}
     {loading && <p className="marketplace-loading" role="status">Loading menus from available restaurants… {menusLoaded}/{stores.length}</p>}
@@ -113,7 +139,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
     {!loading && !error && stores.length > 0 && visibleItems.length === 0 && <div className="marketplace-empty"><Search size={32}/><h2>No matching dishes found</h2><p>Try another search or select a restaurant in Stores.</p></div>}
 
     {visibleItems.length > 0 && <>
-      <div className="marketplace-results-title"><div><span>DISCOVER OUR MENUS</span><h2>Available dishes</h2></div><small>{visibleItems.length} result{visibleItems.length === 1 ? '' : 's'}</small></div>
+      <div className="marketplace-results-title"><div><span>MADE FOR YOUR APPETITE</span><h2>Explore delicious picks</h2></div><small>{visibleItems.length} result{visibleItems.length === 1 ? '' : 's'}</small></div>
       <div className="marketplace-item-grid">
         {visibleItems.map(({ item, store }) => <article className="marketplace-item" key={`${store.id}:${item.id}`}>
           <div className="marketplace-item-image">
@@ -131,7 +157,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
       </div>
     </>}
     {stores.length > 0 && <section className="marketplace-restaurants">
-      <div className="marketplace-results-title"><div><span>YOUR RESTAURANTS</span><h2>Order directly from a store</h2></div></div>
+      <div className="marketplace-results-title"><div><span>LOCAL FAVORITES</span><h2>Choose your kitchen</h2></div></div>
       <div className="marketplace-store-grid">{stores.map(store => <button type="button" key={store.id} className="marketplace-store" onClick={() => onChooseStore(store)}>
         <div className="marketplace-store-icon"><Store size={23}/></div><div><strong>{store.name}</strong><small><MapPin size={12}/>{store.location || store.cuisine || 'Restaurant'}</small></div><ArrowUpRight size={20}/>
       </button>)}</div>
