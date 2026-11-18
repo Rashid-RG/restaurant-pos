@@ -387,6 +387,20 @@ export default function App() {
     });
   };
 
+  useEffect(() => {
+    if(!manualApplicationToken)return;
+    let ignore=false;
+    apiFetch('/public/drivers/manual-application',{
+      headers:{Authorization:'Bearer '+manualApplicationToken}
+    }).then(data=>{
+      if(ignore)return;
+      const accepted=new Set(data.requiredKinds||[]);
+      setManualVehicleType(accepted.has('licence_front')?'Motorbike':'Bicycle');
+      setManualEvidence(Object.fromEntries((data.documents||[]).map(doc=>[doc.kind,true])));
+    }).catch(()=>{});
+    return()=>{ignore=true;};
+  },[manualApplicationToken]);
+
   const submitManualEvidence = async (kind,file) => {
     if(!file || !manualApplicationToken)return;
     if(!manualConsent) { showToast('Please accept sensitive-document storage consent first.','warning');return; }
