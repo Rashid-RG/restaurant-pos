@@ -425,69 +425,16 @@ function InnerApp({ switchRestaurant }) {
         {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
 
-        {/* Keep legal links available without forcing a long footer beneath food cards. */}
-        {(view === 'restaurants' || view === 'legal') && <footer className="customer-page-footer" style={{
-          padding: '24px 16px 44px',
-          textAlign: 'center',
-          borderTop: '1px solid var(--border-color)',
-          background: 'var(--surface-1, rgba(0,0,0,0.02))',
-          marginTop: 40,
-          fontSize: '0.78rem',
-          color: 'var(--text-muted)'
-        }}>
-          <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-1)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
-            <span>GastroFlow Bistro & Marketplace Platform</span>
+        {/* A compact policy entry replaces the oversized legal footer in food browsing.
+            Full policies remain available inside the legal view. */}
+        {view === 'restaurants' && (
+          <div className="customer-mobile-policy-link">
+            <button type="button" onClick={() => navigate('legal')}>
+              Policies, refunds & delivery information
+            </button>
+            <span>GastroFlow Food · RS Technologies</span>
           </div>
-
-          {/* Professional Policy Pill Grid */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px 12px', marginBottom: 16 }}>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              📄 Terms of Service
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              🔒 Privacy Policy
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              💸 Refund Policy
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              🚚 Delivery Tariffs
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--brand)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
-            >
-              💳 Merchant Compliance
-            </button>
-          </div>
-
-          {/* Signature & Founder Rights */}
-          <div style={{ padding: '12px 16px', background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border-color)', maxWidth: 460, margin: '0 auto 12px' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-1)', fontWeight: 700 }}>
-              Crafted & Engineered by <strong style={{ color: 'var(--brand)' }}>RS Technologies</strong> 🇱🇰
-            </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-              Owner & Founder: <strong style={{ color: 'var(--text-1)' }}>Mohammed Rashid</strong>
-            </div>
-          </div>
-
-          <div style={{ fontSize: '0.68rem', opacity: 0.6, marginTop: 4 }}>
-            © {new Date().getFullYear()} RS Technologies. All rights reserved. Registered in Sri Lanka.
-          </div>
-        </footer>}
+        )}
       </main>
 
       {/* Global 24/7 GastroAI Concierge Assistant */}
