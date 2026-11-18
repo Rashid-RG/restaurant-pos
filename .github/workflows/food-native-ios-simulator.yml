@@ -2,8 +2,15 @@ name: GastroFlow Food iOS simulator candidate
 
 # Explicit only: macOS runners may consume billed GitHub Actions minutes.
 # Builds the separate customer iPhone app with no signing, deployment, or data.
+# Workflow-dispatch registration requires a copy on main. Keep this work
+# exclusively on codex/production-readiness and trigger a single unsigned
+# simulator validation when this workflow file is changed on that branch.
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/production-readiness]
+    paths:
+      - .github/workflows/food-native-ios-simulator.yml
 
 permissions:
   contents: read
