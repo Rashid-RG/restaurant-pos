@@ -104,6 +104,9 @@ export function CustomerAuthProvider({ children }) {
     scopeRef.current.epoch++;
     saveCustomerSessionToken(sessionTenant, data.token);
     setCustomer(data.customer);
+    // A newer explicit login must finish bootstrap even when an older
+    // restoration request is discarded by the epoch guard.
+    setLoading(false);
     return data.customer;
   };
 
@@ -137,6 +140,9 @@ export function CustomerAuthProvider({ children }) {
     scopeRef.current.epoch++;
     clearCustomerSessionToken(sessionTenant);
     setCustomer(null);
+    // Logout also supersedes any in-flight restore; do not strand the shell
+    // in its initial loading state when that stale request resolves.
+    setLoading(false);
   }, [sessionKey]);
 
   const refreshProfile = useCallback(async () => {
