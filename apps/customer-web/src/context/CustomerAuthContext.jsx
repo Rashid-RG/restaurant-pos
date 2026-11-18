@@ -72,7 +72,10 @@ export function CustomerAuthProvider({ children }) {
         if(disposed || !shouldForgetCustomerSession(error) ||
           !isCurrentNativeSessionCheck({
             activeTenant:getActiveTenant(),tenant:scopeRef.current.tenant,
-            token,savedToken:localStorage.getItem(sessionKey),epoch,
+            // apiFetch may already have removed this exact token on a verified
+            // revoked-session response. Epoch still prevents a prior logout or
+            // login from being overwritten, and a newer token never matches.
+            token,savedToken:localStorage.getItem(sessionKey) ?? token,epoch,
             currentEpoch:scopeRef.current.epoch,mounted:scopeRef.current.mounted
           }))return;
         localStorage.removeItem(sessionKey);
