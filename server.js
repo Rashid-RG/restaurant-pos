@@ -1,7 +1,7 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
-import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders } from './lib/driver-onboarding.js';
+import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview } from './lib/driver-onboarding.js';
 import { veriffConfigured, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
@@ -1886,7 +1886,7 @@ const authenticateDriver = (req, res, next) => {
     try {
       const driver = await dbGet('SELECT status,licenseReviewRequired,licenseVerifiedUntil FROM drivers WHERE id = ? AND tenant_id = ?', [decoded.driverId, decoded.tenant_id]);
       if (!driver || !['available', 'active', 'busy', 'offline'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is unavailable.' });
-      if (Number(driver.licenseReviewRequired)===1 && (!Number.isFinite(Number(driver.licenseVerifiedUntil)) || Number(driver.licenseVerifiedUntil)<Date.now())) return res.status(403).json({error:'Driving licence verification is missing or expired. Contact the restaurant.',code:'DRIVER_LICENCE_REVIEW_REQUIRED'});
+      if (needsLicenceReview(driver)) return res.status(403).json({error:'Driving licence verification is missing or expired. Contact the restaurant.',code:'DRIVER_LICENCE_REVIEW_REQUIRED'});
       const tenant = await dbGet('SELECT status FROM tenants WHERE id = ?', [decoded.tenant_id]);
       if (!tenant || tenant.status === 'suspended') return res.status(403).json({ error: 'This restaurant is unavailable.', code: 'TENANT_SUSPENDED' });
       const subscription = await dbGet('SELECT paidThrough,status FROM saas_contracts WHERE tenant_id=?',[decoded.tenant_id]);
@@ -4421,7 +4421,7 @@ app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchem
     if (driver.status === 'pending_approval') return res.status(403).json({ error: 'Your account is awaiting admin approval.' });
     if (driver.status === 'rejected') return res.status(403).json({ error: 'Your driver account has been rejected.' });
     if (!['available', 'active', 'busy', 'offline'].includes(driver.status)) return res.status(403).json({ error: 'Driver account is not active.' });
-    if(Number(driver.licenseReviewRequired)===1 && (!Number.isFinite(Number(driver.licenseVerifiedUntil)) || Number(driver.licenseVerifiedUntil)<Date.now())) return res.status(403).json({error:'Driving licence is not yet verified or has expired.',code:'DRIVER_LICENCE_REVIEW_REQUIRED'});
+    if(needsLicenceReview(driver)) return res.status(403).json({error:'Driving licence is not yet verified or has expired.',code:'DRIVER_LICENCE_REVIEW_REQUIRED'});
     const token = jwt.sign(
       { driverId: driver.id, tenant_id: driver.tenant_id || 'default_tenant', role: 'driver', name: driver.name },
       process.env.JWT_SECRET || JWT_SECRET,
@@ -4445,11 +4445,11 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
     return res.status(400).json({ error: 'Confirm that applicant identity and vehicle eligibility have been reviewed before approval.' });
   }
   let licenceVerifiedUntil=null;
-  if (status==='available') {
-    if(licenceConfirmed!==true || typeof licenceExpiry!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(licenceExpiry)) return res.status(400).json({error:'Review the original driving licence and enter its valid expiry date.'});
-    const parsed=Date.parse(licenceExpiry+'T23:59:59.999Z');
-    if(!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0,10)!==licenceExpiry || parsed<Date.now()) return res.status(400).json({error:'Driving licence expiry must be a valid future date.'});
-    licenceVerifiedUntil=parsed;
+  if(status==='available') {
+    licenceVerifiedUntil=verifiedLicenceExpiry(licenceExpiry);
+    if(licenceConfirmed!==true || licenceVerifiedUntil===null) return res.status(400).json({
+      error:'A manager must inspect the original driving licence, confirm the correct vehicle category and enter a valid future expiry date.'
+    });
   }
   try {
     if(status==='available' && veriffConfigured()){
