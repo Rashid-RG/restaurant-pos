@@ -41,5 +41,8 @@ describe('restaurant-reviewed driver licence gate',()=>{
     expect(providerLicenceClassMatches({additionalVerifiedData:{driversLicenseCategory:{B:true}}},'Motorbike')).toBe(false);
     expect(providerLicenceClassMatches({additionalVerifiedData:{driversLicenseCategories:['B1']}},'TukTuk')).toBe(true);
     expect(providerLicenceClassMatches({additionalVerifiedData:{driversLicenseCategories:['B']}},'TukTuk')).toBe(false);
+    expect(providerLicenceClassMatches({additionalVerifiedData:{driversLicenseCategory:{A:true},driversLicenseCategoryUntil:{A:'2026-11-17'}}},'Motorbike',now)).toBe(false);
+    expect(providerLicenceClassMatches({additionalVerifiedData:{driversLicenseCategory:{A:true},driversLicenseCategoryFrom:{A:'2026-11-19'}}},'Motorbike',now)).toBe(false);
+    expect(providerLicenceClassMatches({additionalVerifiedData:{driversLicenseCategory:{A:true},driversLicenseCategoryUntil:{A:'2027-11-19'}}},'Motorbike',now)).toBe(true);
   });
 });
