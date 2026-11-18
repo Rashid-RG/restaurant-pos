@@ -77,8 +77,13 @@ jobs:
           grep -q 'customClass="GastroFoodViewController"' apps/customer-web/ios/App/App/Base.lproj/Main.storyboard
           grep -q 'kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly' apps/customer-web/ios/App/App/GastroFoodSecureSessionPlugin.swift
           shasum -a 256 -c "$RUNNER_TEMP/pos-lock.sha256"
-      - name: Install iPhone branding image processor
-        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Install iPhone branding image processor in isolated Python environment
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/gastrofood-ios-python"
+          "$RUNNER_TEMP/gastrofood-ios-python/bin/python" -m pip install --disable-pip-version-check Pillow==11.3.0
+          echo "$RUNNER_TEMP/gastrofood-ios-python/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gastrofood-ios-python/bin/python" -c 'from PIL import Image; print("Pillow isolated and available")'
       - name: Test iPhone asset generation and POS project isolation
         run: python3 -m unittest discover -s tests -p test_food_ios_branding.py -v
       - name: Apply approved GastroFlow Food iPhone launcher and splash assets
