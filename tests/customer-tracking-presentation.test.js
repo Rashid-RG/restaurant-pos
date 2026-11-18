@@ -61,6 +61,9 @@ describe('GastroFood real order tracking presentation',()=>{
     expect(shouldPollTrackingSnapshot({streamConnected:true,lastSnapshotAt:now-35000,now})).toBe(true);
     expect(shouldPollTrackingSnapshot({streamConnected:true,lastSnapshotAt:null,now})).toBe(true);
     expect(shouldPollTrackingSnapshot({streamConnected:false,lastSnapshotAt:null,now,visible:false})).toBe(false);
+    expect(shouldPollTrackingSnapshot({streamConnected:false,lastSnapshotAt:null,now,online:false})).toBe(false);
+    expect(shouldPollTrackingSnapshot({streamConnected:true,lastSnapshotAt:now-35000,now,online:false})).toBe(false);
+    expect(shouldPollTrackingSnapshot({streamConnected:false,lastSnapshotAt:null,now,online:true})).toBe(true);
   });
   it('keeps rider stages distinct from delivered in the customer hero',()=>{
     for(const state of ['ready','picked_up','out_for_delivery','arrived']) {
