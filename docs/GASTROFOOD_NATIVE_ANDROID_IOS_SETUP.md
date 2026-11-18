@@ -81,6 +81,14 @@ Android requests `ACCESS_COARSE_LOCATION` and `ACCESS_FINE_LOCATION` and declare
 
 **Device acceptance remains essential:** Check that the OS permission prompts appear when requested, accuracy is shown rather than guaranteed, permission-denied/revoked users can still select a map pin, and a delayed geocoder does not overwrite the selected coordinates. This setup is not equivalent to installing or testing `@capacitor/geolocation`, which would require a separately pinned dependency, lockfile refresh, runtime integration and native-sync acceptance.
 
+## 2026-11-18: Native foreground customer session recovery
+
+Packaged GastroFlow Food now revalidates the existing restaurant-scoped customer session after a prolonged foreground/background or connectivity transition. It listens for `visibilitychange`, `focus`, `pageshow` and `online` only in `MODE=native`, checks no more than once per minute, and skips checks while hidden or offline. Server-confirmed invalid/revoked authentication clears that matching session; transient network failures do not sign the customer out. Late responses cannot overwrite a newer login or another restaurant's state. The hosted web session lifecycle is unchanged.
+
+The helper `apps/customer-web/src/utils/native-session-revalidation.js` and test `tests/customer-native-session-revalidation.test.js` cover throttling, tenant/account switches and event cleanup. These checks use the existing HTTPS customer profile endpoint; they do not add a native token storage plugin or alter backend authentication.
+
+**Not yet delivered:** Keychain/Android Keystore-backed storage, signed iPhone distribution, mobile push, Android/iPhone device acceptance, background notifications and certificate rotation. The existing customer token is still stored using the prior WebView/localStorage approach, so do not advertise hardware-backed secure storage.
+
 ## 4. Staging API and native security gate
 Production-mode CORS currently does **not** grant native origins automatically. When real devices are ready for testing, set the staging service's `CUSTOMER_NATIVE_ORIGINS` explicitly to the origins actually used (`https://localhost` for Android, `capacitor://localhost` for iOS), after authorization. The backend's allowed native origins are exact matches and do not replace tenant authentication. **Do not change Render environment or deploy without explicit approval.**
 
