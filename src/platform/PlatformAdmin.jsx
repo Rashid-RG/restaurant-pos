@@ -1,4 +1,5 @@
 import PlatformOperations from './PlatformOperations';
+import PlatformDriverVerification from './PlatformDriverVerification';
 import PromotionManager from '../components/PromotionManager';
 import React, { useEffect, useState } from 'react';
 import { 
@@ -380,6 +381,13 @@ export default function PlatformAdmin({ embedded = false }) {
           style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
         >
           <Palette size={16} /> Platform Branding & Company
+        </button>
+        <button
+          className={`btn ${activeSubTab === 'driver-verification' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveSubTab('driver-verification')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
+        >
+          <ShieldCheck size={16} /> Driver Verification Oversight
         </button>
         <button
           className={`btn ${activeSubTab === 'operations' ? 'btn-primary' : 'btn-outline'}`}
@@ -1081,6 +1089,9 @@ export default function PlatformAdmin({ embedded = false }) {
       )}
 
       {activeSubTab === 'promotions' && <PromotionManager platform restaurants={partners} />}
+
+      {/* PLATFORM OWNER: aggregate verification status only, never private rider documents. */}
+      {activeSubTab === 'driver-verification' && <PlatformDriverVerification />}
 
       {/* TAB 6: PLATFORM OPERATIONS & FINANCIALS */}
       {activeSubTab === 'operations' && (
