@@ -4,6 +4,7 @@ import { isPlatformWorkspace, visibleWorkspaceDestinations } from '../src/platfo
 const restaurant = [
   { id: 'dashboard', management: false },
   { id: 'staff-management', management: true },
+  { id: 'rider-verification', management: true },
   { id: 'online-orders', management: false },
 ];
 const platform = { id: 'platform' };
@@ -29,6 +30,15 @@ describe('restaurant vs platform-owner navigation boundaries', () => {
       .toEqual([platform]);
     expect(visibleWorkspaceDestinations(platformOwner, 'dashboard', restaurant, platform))
       .toEqual(restaurant);
+  });
+
+  it('never shows private restaurant verification to a platform-only account',()=>{
+    const platformOnly={role:'platform_admin',isPlatformAdmin:true};
+    const allowed=visibleWorkspaceDestinations(platformOnly,'dashboard',restaurant,platform).map(x=>x.id);
+    expect(allowed).not.toContain('rider-verification');
+    const manager={role:'manager',isPlatformAdmin:false};
+    expect(visibleWorkspaceDestinations(manager,'dashboard',restaurant,platform).map(x=>x.id))
+      .toContain('rider-verification');
   });
 
   it('does not trust a truthy string or missing flag as platform authority', () => {
