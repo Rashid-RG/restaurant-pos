@@ -41,9 +41,12 @@ export default function PromotionManager({platform=false,restaurants=[]}) {
     setBusy(true);setError('');setNotice('');
     try{
       if(form.endsAt&&form.startsAt&&form.endsAt<=form.startsAt)throw new Error('End date must be after start date.');
-      const coupon=form.coupon ? {...form.coupon,code:form.coupon.code.trim().toUpperCase(),
-        value:Number(form.coupon.value),minSpend:Number(form.coupon.minSpend),
-        maxUses:Number(form.coupon.maxUses),perCustomerLimit:Number(form.coupon.perCustomerLimit)} : undefined;
+      const coupon=form.coupon ? {
+        code:String(form.coupon.code||'').trim().toUpperCase(),
+        type:form.coupon.type,value:Number(form.coupon.value),
+        minSpend:Number(form.coupon.minSpend),maxUses:Number(form.coupon.maxUses),
+        perCustomerLimit:Number(form.coupon.perCustomerLimit),orderType:form.coupon.orderType
+      } : undefined;
       const body={...form,coupon,...(platform&&!editing?{tenantId:tenant||null}:{})};
       const url=editing?endpoint+'/'+encodeURIComponent(editing):endpoint;
       await request(url,{method:editing?'PATCH':'POST',body:JSON.stringify(body)});
@@ -85,7 +88,7 @@ export default function PromotionManager({platform=false,restaurants=[]}) {
           <label className="gf-campaign-field"><span>Ends (optional)</span><input type="datetime-local" value={datetime(form.endsAt)} onChange={e=>update('endsAt',parseDate(e.target.value))}/></label>
         </div>
         <section className="gf-campaign-coupon-setup" aria-label="Verified checkout discount rules">
-          <label className="gf-campaign-check"><input type="checkbox" checked={!!form.coupon} disabled={platform&&!editing&&!tenant}
+          <label className="gf-campaign-check"><input type="checkbox" checked={!!form.coupon} disabled={(platform&&!editing&&!tenant)||(!!editing&&!!form.coupon)}
             onChange={e=>setForm(prev=>({...prev,coupon:e.target.checked?{code:'',type:'percent',value:10,minSpend:0,maxUses:0,perCustomerLimit:0,orderType:'any'}:null}))}/>
             Enable a real checkout discount code
           </label>
