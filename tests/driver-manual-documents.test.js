@@ -39,9 +39,9 @@ describe('Encrypted manual rider document evidence',()=>{
     expect(()=>decryptManualDocument({...sealed,ciphertext:'AAAA'},context,key)).toThrow();
     expect(()=>decryptManualDocument(sealed,context,crypto.randomBytes(32))).toThrow();
   });
-  it('requires both identity and appropriate licence images for motorized couriers',()=>{
-    expect(documentKindsForVehicle('Bicycle')).toEqual(['identity_front','identity_back']);
-    expect(documentKindsForVehicle('Car')).toEqual(['identity_front','identity_back','licence_front','licence_back']);
+  it('requires identity, selfie and appropriate licence images before manual review',()=>{
+    expect(documentKindsForVehicle('Bicycle')).toEqual(['identity_front','identity_back','selfie']);
+    expect(documentKindsForVehicle('Car')).toEqual(['identity_front','identity_back','selfie','licence_front','licence_back']);
     expect(documentKindsForVehicle('Unknown')).toEqual([]);
   });
 });
