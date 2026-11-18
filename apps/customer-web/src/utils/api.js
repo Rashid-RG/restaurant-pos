@@ -1,6 +1,7 @@
 import { getActiveTenant } from './tenant.js';
 import { resolveApiUrl } from './native-api-origin.js';
 import { shouldClearCustomerTokenForResponse } from './customer-token-invalidation.js';
+import { readCustomerSessionToken, clearCustomerSessionTokenIfMatch } from './customer-session-store.js';
 
 export function apiUrl(endpoint, location = window.location) {
   return resolveApiUrl(endpoint,{
@@ -22,8 +23,7 @@ export async function apiFetch(endpoint, options = {}) {
 
   const trackedOrder = cleanPath.match(/^\/api\/public\/orders\/([^/?]+)/)?.[1] || (['/api/public/feedback','/api/payments/payhere/checkout','/api/public/payment/payhere/hash'].includes(cleanPath) && JSON.parse(options.body || '{}').orderId);
   const trackingAccess = trackedOrder && localStorage.getItem(`gastroflow_order_access_${trackedOrder}`);
-  const customerTokenKey = 'gastroflow_customer_token:' + encodeURIComponent(activeTenant || 'default_tenant');
-  const customerToken = localStorage.getItem(customerTokenKey);
+  const customerToken = readCustomerSessionToken(activeTenant);
   // This public listing supports location query parameters. It remains global
   // discovery; only the path (not its query string) determines header policy.
   const isPublicDiscovery=cleanPath.split('?')[0]==='/api/public/restaurants' && (!options.method || options.method.toUpperCase()==='GET');
@@ -76,10 +76,9 @@ export async function apiFetch(endpoint, options = {}) {
       if (shouldClearCustomerTokenForResponse({
         status:res.status, message:data?.error || data?.message,
         customerToken, authorizationHeader, endpoint:cleanPath
-      }) && localStorage.getItem(customerTokenKey) === customerToken) {
-        // A late 401 from a previous login must never revoke a newer token,
-        // even when both sessions belong to the same restaurant.
-        localStorage.removeItem(customerTokenKey);
+      })) {
+        // A late 401 must never revoke a newer login or another restaurant.
+        clearCustomerSessionTokenIfMatch(activeTenant,customerToken);
       }
     }
     const msg = typeof data?.error === 'string'
