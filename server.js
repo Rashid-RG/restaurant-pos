@@ -4429,7 +4429,7 @@ async function authenticatePendingDriverApplication(req,res,next){
 
 // Sensitive data is encrypted with DRIVER_DOCUMENT_ENCRYPTION_KEY; refuse rather
 // than silently saving plaintext if there is no application-specific key.
-app.post('/api/public/drivers/manual-document', driverApplicationLimiter, authenticatePendingDriverApplication, async(req,res)=>{
+app.post('/api/public/drivers/manual-document', publicApiLimiter, authenticatePendingDriverApplication, async(req,res)=>{
   const key=manualDocumentKey();
   if(!key)return res.status(503).json({error:'Secure manual document storage has not been enabled.'});
   if(req.body?.consent!==true)return res.status(400).json({error:'Explicit sensitive-document handling consent is required.'});
@@ -4446,7 +4446,7 @@ app.post('/api/public/drivers/manual-document', driverApplicationLimiter, authen
     res.set('Cache-Control','no-store').status(201).json({success:true,kind:doc.kind,message:'Encrypted document received for restaurant review. Not yet verified.'});
   }catch(_){res.status(500).json({error:'Could not securely save the document.'});}
 });
-app.get('/api/public/drivers/manual-application',driverApplicationLimiter,authenticatePendingDriverApplication,async(req,res)=>{
+app.get('/api/public/drivers/manual-application',publicApiLimiter,authenticatePendingDriverApplication,async(req,res)=>{
   const a=req.manualApplicant;
   try{
     const rows=await dbAll("SELECT kind,created_at FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[a.tenantId,a.driverId]);
@@ -4607,7 +4607,29 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
           return res.status(400).json({error:'Confirm a valid original driving licence with the correct vehicle class and expiry date.'});
       }
     }
-    if(status==='available' && veriffConfigured()){
+    // Automated evidence or explicitly reviewed encrypted manual evidence
+    // must substantiate approval. Neither self-attestation nor images alone suffice.
+    const manual=await dbGet(
+      'SELECT review_state,licence_expiry,licence_class,evidence_digest FROM driver_manual_reviews WHERE tenant_id=? AND driver_id=?',
+      [req.tenantId,id]
+    );
+    const manualApproved=manual?.review_state==='approved';
+    if(status==='available' && manualApproved && approvedVehicleType!=='Bicycle' &&
+       (manual.licence_expiry!==licenceExpiry || manual.licence_class!==licenceClass))
+      return res.status(409).json({error:'Manual evidence review does not match the licence details being approved.'});
+    if(status==='available' && manualApproved){
+      const kinds=documentKindsForVehicle(approvedVehicleType);
+      const proofs=await dbAll(
+        "SELECT kind,digest FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",
+        [req.tenantId,id]
+      );
+      if(kinds.some(k=>!proofs.some(p=>p.kind===k)) ||
+        crypto.createHash('sha256').update(proofs.sort((a,b)=>a.kind.localeCompare(b.kind)).map(p=>p.kind+':'+p.digest).join('|')).digest('hex')!==manual.evidence_digest)
+        return res.status(409).json({error:'Document evidence changed since review. Repeat manual review.'});
+    }
+    if(status==='available' && !manualApproved && !veriffConfigured())
+      return res.status(409).json({error:'Complete the encrypted manual evidence review before approving the driver.'});
+    if(status==='available' && !manualApproved && veriffConfigured()){
       const check=await dbGet(
         "SELECT state FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? AND COALESCE(check_type,'identity')='identity' ORDER BY created_at DESC LIMIT 1",
         [req.tenantId,id]);
@@ -4615,7 +4637,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
         error:'The identity provider has not confirmed a verified identity for this applicant.'
       });
     }
-    if(status==='available' && approvedVehicleType!=='Bicycle' && drivingLicenceProviderEnabled()){
+    if(status==='available' && !manualApproved && approvedVehicleType!=='Bicycle' && drivingLicenceProviderEnabled()){
       const licenceCheck=await dbGet(
         "SELECT state,document_expiry FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? AND check_type='driving_licence' ORDER BY created_at DESC LIMIT 1",
         [req.tenantId,id]
@@ -4634,6 +4656,9 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
       [status,status,'available',approvedVehicleType==='Bicycle'?0:1,status,'available',licenceVerifiedUntil,status,'available',Date.now(),status,'available',req.user.id,status,'available',approvedVehicleType==='Bicycle'?null:licenceClass,id,req.tenantId,'pending_approval']
     );
     if (updated.changes !== 1) return res.status(409).json({ error: 'Application is no longer pending or does not belong to your restaurant.' });
+    // Minimize retention of sensitive encrypted images once the restaurant
+    // has issued its final rider approval/rejection.
+    await dbRun('DELETE FROM driver_manual_documents WHERE tenant_id=? AND driver_id=?',[req.tenantId,id]);
     await writeAuditLog(req.user.id, req.user.username, 'review_driver', `Reviewed driver ${id} as ${status}; eligibility attested: ${verificationConfirmed === true}`);
     broadcastEvent('driver_updated', { id, status });
     res.json({ success: true, message: `Driver application ${status === 'available' ? 'approved' : 'rejected'}.` });
