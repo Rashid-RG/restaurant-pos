@@ -4271,22 +4271,21 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
 });
 
 // Public Driver Self-Registration Endpoint (Phase 2: password + tenant-bound)
-app.post('/api/public/drivers/register', validateRequest(driverRegisterSchema), async (req, res) => {
+app.post('/api/public/drivers/register', publicApiLimiter, validateRequest(driverRegisterSchema), async (req, res) => {
   const { name, phone, password, email, vehicleType, plateNumber } = req.body;
-  if (!name || !phone) return res.status(400).json({ error: 'Full name and phone number are required.' });
-  if (!password || String(password).length < 6) return res.status(400).json({ error: 'A password of at least 6 characters is required.' });
   try {
     const tenantId = await resolvePublicTenant(req);
-    const cleanPhone = String(phone).replace(/[\s-]/g, '');
+    const cleanPhone = String(phone).replace(/[\\s-]/g, '');
     const existing = await dbGet('SELECT id FROM drivers WHERE phone = ? AND tenant_id = ?', [cleanPhone, tenantId]);
-    if (existing) return res.status(400).json({ error: 'A driver with this phone number is already registered.' });
-    const id = 'drv_' + Date.now();
-    const passwordHash = await bcrypt.hash(String(password), 10);
+    if (existing) return res.status(409).json({ error: 'This phone already has a driver application for this restaurant. Contact the restaurant for assistance.' });
+    const id = 'drv_' + crypto.randomUUID();
+    const passwordHash = await bcrypt.hash(password, 12);
     await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      id, name, cleanPhone, 'pending_approval', vehicleType || 'Motorbike', plateNumber || 'Unassigned', passwordHash, email || null, tenantId
+      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, email || null, tenantId
     ]);
-    broadcastEvent('driver_registered', { id, name, phone: cleanPhone, vehicleType, plateNumber });
-    res.json({ success: true, id, message: 'Driver registration submitted! Awaiting admin approval.' });
+    // Registration never grants driver permissions. Contact and identity are still unverified.
+    broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType });
+    res.status(202).json({ success: true, id, status: 'pending_approval', message: 'Application received. The restaurant must verify your details and approve access before you can deliver.' });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
