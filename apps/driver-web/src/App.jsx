@@ -92,8 +92,10 @@ export default function App() {
 
   // Registration modal
   const [showRegModal, setShowRegModal] = useState(false);
-  const [reg, setReg] = useState({ name: '', phone: '', email: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false });
+  const [reg, setReg] = useState({ name: '', phone: '', email: '', verificationCode: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false });
   const [regSubmitting, setRegSubmitting] = useState(false);
+  const [sendingRegCode, setSendingRegCode] = useState(false);
+  const [regCodeSentTo, setRegCodeSentTo] = useState('');
 
   // Bug 6 fix: cancel pending timer before setting a new one to prevent
   // setState-on-unmounted-component warnings and stale toast flashes.
@@ -330,9 +332,22 @@ export default function App() {
     }
   };
 
+  const handleSendRegCode = async () => {
+    if (!new URLSearchParams(location.search).get('tenant') && !new URLSearchParams(location.search).get('tenantId')) { showToast('Open registration from your restaurant-specific delivery link.', 'warning'); return; }
+    if (!reg.email.trim()) { showToast('Enter your email address first.', 'warning'); return; }
+    setSendingRegCode(true);
+    try {
+      const result = await apiFetch('/public/drivers/request-email-code', { method: 'POST', body: JSON.stringify({email:reg.email.trim()}) });
+      setRegCodeSentTo(reg.email.trim().toLowerCase());
+      showToast(result.message || 'Verification code sent.', 'success');
+    } catch (err) { showToast(err.message || 'Unable to send verification code.', 'error'); }
+    finally { setSendingRegCode(false); }
+  };
+
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
-    if (!reg.name || !reg.phone || !reg.password) { showToast('Name, phone and password are required.', 'warning'); return; }
+    if (!reg.name || !reg.phone || !reg.email || !reg.password || !reg.verificationCode) { showToast('Enter your details and the emailed verification code.', 'warning'); return; }
+    if (regCodeSentTo !== reg.email.trim().toLowerCase()) { showToast('Request a verification code for this email first.', 'warning'); return; }
     if (reg.password.length < 10) { showToast('Password must be at least 10 characters.', 'warning'); return; }
     if (!reg.privacyAccepted) { showToast('Review and acknowledge the application privacy notice.', 'warning'); return; }
     try {
@@ -340,6 +355,7 @@ export default function App() {
       const res = await apiFetch('/public/drivers/register', { method: 'POST', body: JSON.stringify(reg) });
       showToast(res.message || 'Application submitted for restaurant review.', 'success');
       setShowRegModal(false);
+      setRegCodeSentTo('');
       setLoginPhone(reg.phone);
       setReg({ name: '', phone: '', email: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false });
     } catch (err) {
@@ -594,7 +610,9 @@ export default function App() {
               <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <input className="input-field" type="text" value={reg.name} onChange={e => setReg({ ...reg, name: e.target.value })} placeholder="Full name" required />
                 <input className="input-field" type="tel" inputMode="tel" value={reg.phone} onChange={e => setReg({ ...reg, phone: e.target.value })} placeholder="Phone (e.g. 0771234567)" required />
-                <input className="input-field" type="email" autoComplete="email" value={reg.email} onChange={e => setReg({ ...reg, email: e.target.value })} placeholder="Email address (optional; not yet verified)" />
+                <input className="input-field" type="email" autoComplete="email" value={reg.email} onChange={e => setReg({ ...reg, email: e.target.value })} placeholder="Email address for verification" required />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input className="input-field" type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={reg.verificationCode} onChange={e => setReg({ ...reg, verificationCode: e.target.value.replace(/[^0-9]/g, '') })} placeholder="6-digit email code" required /><button type="button" className="btn-outline" onClick={handleSendRegCode} disabled={sendingRegCode || !reg.email} style={{ whiteSpace: 'nowrap' }}>{sendingRegCode ? 'Sending…' : 'Email code'}</button></div>
+                {regCodeSentTo && <small role="status" style={{ color: 'var(--text-muted)' }}>Code requested for {regCodeSentTo}. Check inbox or spam. Expires after 10 minutes.</small>}
                 <input className="input-field" type="password" autoComplete="new-password" minLength={10} maxLength={72} value={reg.password} onChange={e => setReg({ ...reg, password: e.target.value })} placeholder="Create a password (10–72 characters)" required />
                 <select className="input-field" value={reg.vehicleType} onChange={e => setReg({ ...reg, vehicleType: e.target.value })}>
                   <option value="Motorbike">🛵 Motorbike / Scooter</option>
@@ -603,7 +621,7 @@ export default function App() {
                   <option value="Bicycle">🚲 Bicycle</option>
                 </select>
                 <input className="input-field" type="text" value={reg.plateNumber} onChange={e => setReg({ ...reg, plateNumber: e.target.value })} placeholder="Plate number (e.g. WP BZ-9988)" />
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.78rem', lineHeight: 1.5, color: 'var(--text-muted)' }}><input type="checkbox" checked={reg.privacyAccepted} onChange={e => setReg({ ...reg, privacyAccepted: e.target.checked })} required style={{ marginTop: 4, width: 18, height: 18, flexShrink: 0 }} /><span>I understand my name, phone, optional email and vehicle information will be submitted to this restaurant to review my rider application. My contact and identity are not verified by submitting this form.</span></label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.78rem', lineHeight: 1.5, color: 'var(--text-muted)' }}><input type="checkbox" checked={reg.privacyAccepted} onChange={e => setReg({ ...reg, privacyAccepted: e.target.checked })} required style={{ marginTop: 4, width: 18, height: 18, flexShrink: 0 }} /><span>I understand my details will be shared with the selected restaurant for review. Email verification proves email control only; phone, identity, licence and vehicle eligibility still require checks.</span></label>
                 <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                   <button type="button" className="btn-outline" onClick={() => setShowRegModal(false)} style={{ flex: 1 }}>Cancel</button>
                   <button type="submit" className="btn-emerald" disabled={regSubmitting} style={{ flex: 2 }}>
