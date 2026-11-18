@@ -2,7 +2,7 @@ import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOr
 import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview } from './lib/driver-onboarding.js';
-import { veriffConfigured, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
+import { veriffConfigured, drivingLicenceProviderEnabled, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
 import { gastroContextualSuggestions } from './lib/gastromate-conversation.js';
@@ -1213,6 +1213,7 @@ async function initTables() {
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
     )`);
+    await safeAddColumn('driver_identity_checks','check_type',"TEXT DEFAULT 'identity'");
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_identity_checks_driver ON driver_identity_checks(tenant_id,driver_id)');
     // Additive licence review metadata: existing active drivers remain unaffected.
     // Newly self-registered applicants must have manager-confirmed valid licences.
@@ -4278,7 +4279,8 @@ app.delete('/api/users/:id', authenticateToken, requireRole(['owner', 'manager']
 app.get('/api/delivery/drivers', authenticateToken, async (req, res) => {
   try {
     const drivers = await dbAll(`SELECT d.id,d.name,d.phone,d.status,d.vehicleType,d.plateNumber,d.email,
-      (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id ORDER BY c.created_at DESC LIMIT 1) AS identityStatus
+      (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND COALESCE(c.check_type,'identity')='identity' ORDER BY c.created_at DESC LIMIT 1) AS identityStatus,
+      (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND c.check_type='driving_licence' ORDER BY c.created_at DESC LIMIT 1) AS licenceDocumentStatus
       FROM drivers d WHERE d.tenant_id=?`,[req.tenantId]);
     res.json(drivers);
   } catch (err) {
@@ -4340,26 +4342,31 @@ app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(d
   } catch (_) { return res.status(500).json({ error: 'Could not request email verification.' }); }
 });
 
-// Veriff's signed, idempotent decision webhook. Never grants driver access.
+// Signed provider results are deliberately scoped to an existing session's purpose.
+// Never persist identity photos, full licence numbers, or grant delivery access here.
 app.post('/api/webhooks/driver-identity/veriff', async (req, res) => {
   if (!verifyVeriffWebhook({
     rawBody:req.rawIdentityWebhook,
     signature:req.headers['x-hmac-signature'],
     authClient:req.headers['x-auth-client']
   })) return res.status(401).json({error:'Invalid identity provider signature.'});
-  const decision=interpretVeriffDecision(req.body);
-  if(!decision) return res.status(400).json({error:'Invalid identity decision.'});
+  const sessionId=req.body?.verification?.id;
+  if(typeof sessionId!=='string' || !sessionId) return res.status(400).json({error:'Invalid verification session.'});
   try {
-    // The saved provider session is the sole identity-to-tenant authority.
-    // Duplicate/out-of-order webhooks never undo an existing final decision.
-    const updated=await dbRun(
+    const saved=await dbGet(
+      'SELECT session_id,check_type FROM driver_identity_checks WHERE session_id=? AND provider=?',
+      [sessionId,'veriff']
+    );
+    if(!saved) return res.status(404).json({error:'Unknown identity session.'});
+    const checkType=saved.check_type==='driving_licence'?'driving_licence':'identity';
+    const decision=interpretVeriffDecision(req.body,checkType);
+    if(!decision) return res.status(400).json({error:'Invalid identity decision.'});
+    // Do not allow out-of-order notifications to overwrite final results.
+    // Store only a minimal state, not document images or personal fields.
+    await dbRun(
       "UPDATE driver_identity_checks SET state=?,updated_at=? WHERE session_id=? AND provider='veriff' AND state NOT IN ('verified','rejected','expired')",
       [decision.state,Date.now(),decision.sessionId]
     );
-    if(updated.changes!==1){
-      const existing=await dbGet('SELECT session_id FROM driver_identity_checks WHERE session_id=?',[decision.sessionId]);
-      if(!existing) return res.status(404).json({error:'Unknown identity session.'});
-    }
     return res.status(200).json({ok:true});
   } catch (_) { return res.status(500).json({error:'Could not record identity decision.'}); }
 });
@@ -4384,6 +4391,7 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
       id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId, 1
     ]);
     let identityVerificationUrl = null;
+    let licenceVerificationUrl = null;
     if(veriffConfigured() && req.body.identityConsent === true) {
       try {
         const provider=await createVeriffSession({driverId:id});
@@ -4394,9 +4402,19 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
         console.warn('[Driver identity] Verification session unavailable:',error.message);
       }
     }
+    if(drivingLicenceProviderEnabled() && req.body.identityConsent === true && vehicleType!=='Bicycle') {
+      try {
+        const provider=await createVeriffSession({driverId:id,checkType:'driving_licence'});
+        await dbRun('INSERT INTO driver_identity_checks (session_id,tenant_id,driver_id,provider,state,check_type,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)',
+          [provider.sessionId,tenantId,id,'veriff','created','driving_licence',Date.now(),Date.now()]);
+        licenceVerificationUrl=provider.url;
+      } catch (error) {
+        console.warn('[Driver licence] Verification session unavailable:',error.message);
+      }
+    }
     broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType },tenantId);
     return res.status(202).json({
-      success:true,id,status:'pending_approval',identityVerificationUrl,
+      success:true,id,status:'pending_approval',identityVerificationUrl,licenceVerificationUrl,
       identityStatus:identityVerificationUrl?'created':'not_started',
       message:'Email verified and application submitted. Identity and vehicle eligibility must be reviewed before driver activation.'
     });
@@ -4458,6 +4476,15 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
         [req.tenantId,id]);
       if(check?.state!=='verified') return res.status(409).json({
         error:'The identity provider has not confirmed a verified identity for this applicant.'
+      });
+    }
+    if(status==='available' && drivingLicenceProviderEnabled()){
+      const licenceCheck=await dbGet(
+        "SELECT state FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? AND check_type='driving_licence' ORDER BY created_at DESC LIMIT 1",
+        [req.tenantId,id]
+      );
+      if(licenceCheck?.state!=='verified') return res.status(409).json({
+        error:'Sri Lankan driving-licence document authenticity has not been verified by the configured provider.'
       });
     }
     const updated = await dbRun(
