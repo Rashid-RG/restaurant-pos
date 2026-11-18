@@ -38,7 +38,9 @@ jobs:
         working-directory: apps/customer-web
         run: npm ci --include=dev --no-audit --no-fund
       - name: Verify customer native dependency lock and identifier
-        run: node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+        run: |
+          node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+          node scripts/check-food-native-release-boundary.mjs
       - name: Build isolated customer web assets for staging
         env:
           VITE_NATIVE_API_ORIGIN: https://gastroflow-staging.onrender.com
