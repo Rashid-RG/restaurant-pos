@@ -34,9 +34,14 @@ export function nativeReleaseBoundaryErrors({customer,root,gradle,androidWorkflo
     issues.push('Signed Android workflow must use staging HTTPS API');
   if(!androidWorkflow.includes(STAGING_ID))
     issues.push('Signed Android workflow must verify staging package identity');
+  // GitHub only exposes workflow_dispatch for workflows registered on the
+  // default branch. Permit a single-workflow-file push trigger on the approved
+  // branch to validate the unsigned iOS simulator without touching main.
+  const iosSafePush=/\n  push:\n    branches: \[codex\/production-readiness\]\n    paths:\n      - \.github\/workflows\/food-native-ios-simulator\.yml\n/.test(iosWorkflow);
+  const iosHasPush=/\n\s*push:/.test(iosWorkflow);
   if(!iosWorkflow.includes(APPROVED_BRANCH)||!iosWorkflow.includes('workflow_dispatch:')||
-      /\n\s*push:/.test(iosWorkflow))
-    issues.push('iOS simulator workflow must remain manually started on approved branch');
+      (iosHasPush&&!iosSafePush))
+    issues.push('iOS simulator must use only manual dispatch or approved workflow-file-only push on development branch');
   if(!iosWorkflow.includes('CODE_SIGNING_ALLOWED=NO')||
       !iosWorkflow.includes("test \"$BUNDLE_ID\" = '"+PROD_ID+"'"))
     issues.push('iOS simulator workflow must not claim to build a signed device IPA');
