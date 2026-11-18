@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Store, ExternalLink, Copy, ClipboardList, UtensilsCrossed, Truck, Settings2, CheckCircle2, CircleAlert, Power, Clock3, ArrowUpRight, Eye, Package } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
 import './OnlineStoreWorkspace.css';
+import PromotionManager from './PromotionManager';
 
 export default function OnlineStoreWorkspace() {
   const { currentUser, settings = {}, menuItems = [], setActiveTab, updateSetting, showToast } = usePOS();
@@ -134,6 +135,8 @@ export default function OnlineStoreWorkspace() {
             </button>)}
           </div>
         </section>
+
+        <PromotionManager />
 
         <div className="store-workspace-bottom">
           <section className="store-workspace-checklist" aria-labelledby="store-start-title">
