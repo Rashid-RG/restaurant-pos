@@ -95,6 +95,12 @@ The Food app now reads, writes and revokes tenant-scoped customer session tokens
 
 **Storage security status:** the adapter still uses existing WebView `localStorage`, not Android Keystore or iOS Keychain. Hardware-backed credential storage requires a vetted native plugin/bridge, separate package-lock and native project updates, safe migration of previously stored tokens, and physical-device verification. Do not promise secure hardware storage or submit a signed mobile release based on this refactor alone.
 
+## 2026-11-18: Safe future Keychain/Keystore token migration
+
+Added `apps/customer-web/src/utils/native-session-migration.js` as a **dormant**, dependency-free migration contract; ordinary customer authentication still uses the existing tenant-scoped WebView storage. Before any native bridge is enabled, its `get`, `set`, and `remove` operations must be backed by a reviewed Android Keystore/iOS Keychain implementation and verified on actual devices. The migration module copies the exact existing tenant key, reads the stored value back for verification, and removes the legacy value only if the legacy token has not changed. A native write/read error preserves the original customer login; an existing different secure token is never overwritten. Concurrent migrations for the same tenant are rejected.
+
+Test coverage: `tests/customer-native-session-migration.test.js` verifies per-restaurant isolation, unavailability, failed writes, verification failure, newer logins, and concurrent migration attempts. **This is preparation, not completed hardware-backed storage or an app release.** No migration runs against existing customers. A later phase must: select and pin an audited native bridge, set up Android/iOS platform projects, integrate asynchronous token retrieval into the customer API, handle conflicting tokens and interrupted migrations, verify auth on both physical devices, and only then authorize opt-in migration. Never install an unreviewed secure-storage plugin or delete legacy credentials on build.
+
 ## 4. Staging API and native security gate
 Production-mode CORS currently does **not** grant native origins automatically. When real devices are ready for testing, set the staging service's `CUSTOMER_NATIVE_ORIGINS` explicitly to the origins actually used (`https://localhost` for Android, `capacitor://localhost` for iOS), after authorization. The backend's allowed native origins are exact matches and do not replace tenant authentication. **Do not change Render environment or deploy without explicit approval.**
 
