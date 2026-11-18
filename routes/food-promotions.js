@@ -23,6 +23,13 @@ export async function initPromotions(dbRun) {
   )`);
   await dbRun('CREATE INDEX IF NOT EXISTS food_promo_status_dates ON food_promotion_campaigns(status, starts_at, ends_at)');
   await dbRun('CREATE INDEX IF NOT EXISTS food_promo_tenant ON food_promotion_campaigns(tenant_id, status)');
+  // Anonymous aggregate counts only. No user identifiers, tracking IDs or PII.
+  await dbRun(`CREATE TABLE IF NOT EXISTS food_promotion_metrics (
+    campaign_id TEXT PRIMARY KEY,
+    impressions INTEGER NOT NULL DEFAULT 0,
+    clicks INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+  )`);
 }
 const safeImage = z.string().trim().max(1000).refine(value => {
   if (!value) return true;
@@ -48,7 +55,8 @@ const present = row => ({
   offerLabel:row.offer_label,imageUrl:row.image_url,cta:row.call_to_action,
   status:row.status,startsAt:row.starts_at,endsAt:row.ends_at,
   showPopup:row.show_popup === 1,autoCreative:row.auto_creative === 1,
-  createdAt:row.created_at,updatedAt:row.updated_at
+  createdAt:row.created_at,updatedAt:row.updated_at,
+  impressions:Number(row.impressions||0),clicks:Number(row.clicks||0)
 });
 
 export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requireRole,requirePlatformAdmin,publicApiLimiter}) {
@@ -70,10 +78,38 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
     } catch(err){next(err);}
   });
 
+  // Count campaign engagement without storing cookies, identifiers or customer data.
+  // Public requests are rate limited; no view/click event affects checkout charges.
+  router.post('/public/food-promotions/:id/events',publicApiLimiter,async(req,res,next)=>{
+    try {
+      const event=req.body?.event;
+      if(event!=='impression' && event!=='click')
+        return res.status(400).json({error:'Unsupported campaign event.'});
+      if(!/^[a-f0-9-]{36}$/i.test(req.params.id))
+        return res.status(400).json({error:'Invalid campaign identifier.'});
+      const now=Date.now();
+      const campaign=await dbGet(`SELECT c.id FROM food_promotion_campaigns c
+        LEFT JOIN tenants t ON t.id=c.tenant_id
+        WHERE c.id=? AND c.status='active'
+        AND (c.starts_at IS NULL OR c.starts_at<=?)
+        AND (c.ends_at IS NULL OR c.ends_at>?)
+        AND (c.tenant_id IS NULL OR t.status='active')`,[req.params.id,now,now]);
+      if(!campaign)return res.status(404).json({error:'Campaign unavailable.'});
+      await dbRun(`INSERT INTO food_promotion_metrics (campaign_id,impressions,clicks,updated_at)
+        VALUES (?,?,?,?)
+        ON CONFLICT(campaign_id) DO UPDATE SET
+        impressions=food_promotion_metrics.impressions+excluded.impressions,
+        clicks=food_promotion_metrics.clicks+excluded.clicks,
+        updated_at=excluded.updated_at`,
+        [req.params.id,Number(event==='impression'),Number(event==='click'),now]);
+      res.status(204).end();
+    }catch(err){next(err);}
+  });
+
   // Store staff can only manage campaigns bound to their authenticated tenant.
   router.get('/food-promotions/manage',authenticateToken,requireRole(['owner','manager']),async(req,res,next)=>{
     try {
-      const rows=await dbAll('SELECT * FROM food_promotion_campaigns WHERE tenant_id=? ORDER BY updated_at DESC LIMIT 100',[req.tenantId]);
+      const rows=await dbAll('SELECT c.*,COALESCE(m.impressions,0) AS impressions,COALESCE(m.clicks,0) AS clicks FROM food_promotion_campaigns c LEFT JOIN food_promotion_metrics m ON m.campaign_id=c.id WHERE c.tenant_id=? ORDER BY c.updated_at DESC LIMIT 100',[req.tenantId]);
       res.json({campaigns:rows.map(present)});
     } catch(err){next(err);}
   });
@@ -110,7 +146,7 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
   // but only using the explicitly authorized platform identity.
   router.get('/platform/food-promotions',authenticateToken,requirePlatformAdmin,async(req,res,next)=>{
     try {
-      res.json({campaigns:(await dbAll('SELECT * FROM food_promotion_campaigns ORDER BY updated_at DESC LIMIT 250')).map(present)});
+      res.json({campaigns:(await dbAll('SELECT c.*,COALESCE(m.impressions,0) AS impressions,COALESCE(m.clicks,0) AS clicks FROM food_promotion_campaigns c LEFT JOIN food_promotion_metrics m ON m.campaign_id=c.id ORDER BY c.updated_at DESC LIMIT 250')).map(present)});
     }catch(err){next(err);}
   });
   router.post('/platform/food-promotions',authenticateToken,requirePlatformAdmin,async(req,res,next)=>{
