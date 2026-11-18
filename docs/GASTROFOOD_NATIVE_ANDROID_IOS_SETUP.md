@@ -107,6 +107,14 @@ The isolated `apps/customer-web/android/` project now contains `FoodSecureSessio
 
 **Not yet activated:** Existing customer authentication still uses the legacy tenant-scoped WebView storage. The native bridge is not called on login, logout, or API requests until a controlled migration is audited. The Android SDK 36 CI workflow compiles the Java plugin and runs tests, but compilation alone does not prove runtime encryption, authentication, installation, device lock behavior or migration safety. The iPhone Keychain bridge is **not** implemented. Android API-level compatibility, physical-phone read/write/restart verification, key invalidation recovery, migration rollback and logout cleanup must pass before enabling this backend. Never switch authenticated users to the native store without signed-device tests.
 
+## 2026-11-18: iPhone Keychain implementation and simulator compile gate
+
+The repository now includes reviewed **iOS Keychain plugin source** in `scripts/native/ios/GastroFoodSecureSessionPlugin.swift` and its dedicated `GastroFoodViewController.swift`. The Keychain entry uses a distinct app service, tenant-scoped account key, device-only accessibility after first unlock, and disabled iCloud synchronisation. A JavaScript adapter (`apps/customer-web/src/utils/native-secure-session-ios.js`) exposes the same `get/set/remove` interface as the Android Keystore adapter.
+
+The existing manually dispatched, unsigned `food-native-ios-simulator.yml` pipeline installs those Swift files into the **generated customer-only Xcode project**, registers the plugin with Capacitor through a dedicated storyboard controller, and compiles the complete simulator app. This integration uses the pin `xcodeproj 1.27.0` and fails closed if the project's App group, target, or storyboard differs from the expected Capacitor 8 template.
+
+**Important limitations:** Normal GitHub JavaScript tests are *not* an Xcode build. The macOS/iOS simulator workflow is manual-only and has not been run in this batch; successful iOS compilation and runtime Keychain behavior still require separate confirmation. The plugin is not yet active in customer auth, no previous customer session is migrated, and signed iPhone TestFlight distribution requires Apple Developer membership, credentials and a separate approved workflow. The Android plugin similarly needs a confirmed native SDK/Gradle build plus physical-device acceptance before any activation.
+
 ## 4. Staging API and native security gate
 Production-mode CORS currently does **not** grant native origins automatically. When real devices are ready for testing, set the staging service's `CUSTOMER_NATIVE_ORIGINS` explicitly to the origins actually used (`https://localhost` for Android, `capacitor://localhost` for iOS), after authorization. The backend's allowed native origins are exact matches and do not replace tenant authentication. **Do not change Render environment or deploy without explicit approval.**
 
