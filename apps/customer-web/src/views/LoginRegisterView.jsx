@@ -12,6 +12,18 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const { t, dict } = useLang();
   // tab: 'login' | 'register' | 'forgot' | 'reset'
   const [tab, setTab] = useState(resetToken ? 'reset' : 'login');
+  // Switching between login, registration and recovery must always start at the
+  // beginning of that form. Standalone iOS Safari may retain the previous scroll.
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+      const main = document.getElementById('customer-main');
+      if (main) main.scrollTop = 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [tab]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { login, loginWithOtp, register } = useCustomerAuth();
