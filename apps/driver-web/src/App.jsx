@@ -92,7 +92,7 @@ export default function App() {
 
   // Registration modal
   const [showRegModal, setShowRegModal] = useState(false);
-  const [reg, setReg] = useState({ name: '', phone: '', password: '', vehicleType: 'Motorbike', plateNumber: '' });
+  const [reg, setReg] = useState({ name: '', phone: '', email: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false });
   const [regSubmitting, setRegSubmitting] = useState(false);
 
   // Bug 6 fix: cancel pending timer before setting a new one to prevent
@@ -333,14 +333,15 @@ export default function App() {
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     if (!reg.name || !reg.phone || !reg.password) { showToast('Name, phone and password are required.', 'warning'); return; }
-    if (reg.password.length < 6) { showToast('Password must be at least 6 characters.', 'warning'); return; }
+    if (reg.password.length < 10) { showToast('Password must be at least 10 characters.', 'warning'); return; }
+    if (!reg.privacyAccepted) { showToast('Review and acknowledge the application privacy notice.', 'warning'); return; }
     try {
       setRegSubmitting(true);
       const res = await apiFetch('/public/drivers/register', { method: 'POST', body: JSON.stringify(reg) });
-      showToast(res.message || 'Registration submitted! Awaiting admin approval.', 'success');
+      showToast(res.message || 'Application submitted for restaurant review.', 'success');
       setShowRegModal(false);
       setLoginPhone(reg.phone);
-      setReg({ name: '', phone: '', password: '', vehicleType: 'Motorbike', plateNumber: '' });
+      setReg({ name: '', phone: '', email: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false });
     } catch (err) {
       showToast(err.message || 'Registration failed', 'error');
     } finally {
@@ -584,7 +585,7 @@ export default function App() {
         {/* Self-registration modal */}
         {showRegModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <div className="card device-dialog" role="dialog" aria-modal="true" aria-label="Driver application" style={{ maxWidth: 440, width: '100%', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div className="card device-dialog" role="dialog" aria-modal="true" aria-label="Driver application" style={{ maxWidth: 440, width: '100%', maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>🛵 Rider Self-Registration</h3>
                 <button aria-label="Close driver application" onClick={() => setShowRegModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
@@ -593,20 +594,23 @@ export default function App() {
               <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <input className="input-field" type="text" value={reg.name} onChange={e => setReg({ ...reg, name: e.target.value })} placeholder="Full name" required />
                 <input className="input-field" type="tel" inputMode="tel" value={reg.phone} onChange={e => setReg({ ...reg, phone: e.target.value })} placeholder="Phone (e.g. 0771234567)" required />
-                <input className="input-field" type="password" value={reg.password} onChange={e => setReg({ ...reg, password: e.target.value })} placeholder="Create a password (min 6 chars)" required />
+                <input className="input-field" type="email" autoComplete="email" value={reg.email} onChange={e => setReg({ ...reg, email: e.target.value })} placeholder="Email address (optional; not yet verified)" />
+                <input className="input-field" type="password" autoComplete="new-password" minLength={10} maxLength={72} value={reg.password} onChange={e => setReg({ ...reg, password: e.target.value })} placeholder="Create a password (10–72 characters)" required />
                 <select className="input-field" value={reg.vehicleType} onChange={e => setReg({ ...reg, vehicleType: e.target.value })}>
                   <option value="Motorbike">🛵 Motorbike / Scooter</option>
                   <option value="TukTuk">🛺 Three Wheeler / TukTuk</option>
                   <option value="Car">🚗 Car / Van</option>
+                  <option value="Bicycle">🚲 Bicycle</option>
                 </select>
                 <input className="input-field" type="text" value={reg.plateNumber} onChange={e => setReg({ ...reg, plateNumber: e.target.value })} placeholder="Plate number (e.g. WP BZ-9988)" />
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.78rem', lineHeight: 1.5, color: 'var(--text-muted)' }}><input type="checkbox" checked={reg.privacyAccepted} onChange={e => setReg({ ...reg, privacyAccepted: e.target.checked })} required style={{ marginTop: 4, width: 18, height: 18, flexShrink: 0 }} /><span>I understand my name, phone, optional email and vehicle information will be submitted to this restaurant to review my rider application. My contact and identity are not verified by submitting this form.</span></label>
                 <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                   <button type="button" className="btn-outline" onClick={() => setShowRegModal(false)} style={{ flex: 1 }}>Cancel</button>
                   <button type="submit" className="btn-emerald" disabled={regSubmitting} style={{ flex: 2 }}>
                     {regSubmitting ? 'Submitting…' : 'Submit Application'}
                   </button>
                 </div>
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0 }}>Your account needs admin approval before you can sign in.</p>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0 }}>Applications are pending review. The restaurant must check identity, licence and vehicle eligibility before approving delivery access. Do not upload identity documents through this form.</p>
               </form>
             </div>
           </div>
