@@ -20,6 +20,9 @@ function fixture(){
   };
   const dbGet=async(sql,p=[])=>{
     if(sql.includes('FROM tenants'))return tenants.find(t=>t.id===p[0]);
+    if(sql.includes('LEFT JOIN tenants'))return rows.find(r=>r.id===p[0]&&r.status==='active' &&
+      (r.starts_at==null||r.starts_at<=p[1]) && (r.ends_at==null||r.ends_at>p[2]) &&
+      (r.tenant_id==null||tenants.some(t=>t.id===r.tenant_id&&t.status==='active')));
     if(sql.includes('FROM food_promotion_campaigns'))return rows.find(r=>r.id===p[0]&&(p.length<2||r.tenant_id===p[1]));
     return null;
   };
