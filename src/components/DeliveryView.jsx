@@ -8,6 +8,7 @@ export default function DeliveryView() {
   const [loading, setLoading] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState({});
   const [verifiedApplications, setVerifiedApplications] = useState({});
+  const [licenceReviews, setLicenceReviews] = useState({});
 
   // Driver registration form states
   const [name, setName] = useState('');
@@ -126,12 +127,13 @@ export default function DeliveryView() {
       const res = await fetch(`/api/delivery/drivers/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected', verificationConfirmed: action === 'approve' && verifiedApplications[id] === true })
+        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected', verificationConfirmed: action === 'approve' && verifiedApplications[id] === true, licenceConfirmed: action === 'approve' && licenceReviews[id]?.checked === true, licenceExpiry: action === 'approve' ? licenceReviews[id]?.expiry : undefined })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(`Driver ${driverName} ${action === 'approve' ? 'approved & activated!' : 'rejected.'}`, action === 'approve' ? 'success' : 'info');
       setVerifiedApplications(previous => ({ ...previous, [id]: false }));
+      setLicenceReviews(previous => ({ ...previous, [id]: { checked: false, expiry: '' } }));
       fetchDrivers();
     } catch (err) {
       showToast('Approval error: ' + err.message, 'error');
@@ -203,11 +205,13 @@ export default function DeliveryView() {
                     <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Automated ID verification: <strong>{d.identityStatus === 'verified' ? 'Provider verified' : d.identityStatus === 'rejected' ? 'Provider rejected — review required' : d.identityStatus === 'resubmit' ? 'Resubmission requested' : d.identityStatus === 'created' || d.identityStatus === 'review' ? 'Verification in progress' : 'Not verified'}</strong></div>
                   </div>
                   <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
+                  <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Driving licence expiry (verified from the original licence)<input type="date" className="form-input" value={licenceReviews[d.id]?.expiry || ''} min={new Date().toISOString().slice(0,10)} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],expiry:e.target.value}}))}/></label>
+                  <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,lineHeight:1.5}}><input type="checkbox" checked={licenceReviews[d.id]?.checked===true} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],checked:e.target.checked}}))} style={{marginTop:3}}/>I checked the genuine driving licence, correct vehicle category and expiry.</label>
                   <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
                     <button
                       className="btn btn-success"
                       onClick={() => handleApproveDriver(d.id, d.name, 'approve')}
-                      disabled={loading || verifiedApplications[d.id] !== true}
+                      disabled={loading || verifiedApplications[d.id] !== true || licenceReviews[d.id]?.checked!==true || !licenceReviews[d.id]?.expiry}
                       style={{ flex: 1, padding: '8px', fontSize: '0.82rem', fontWeight: 700, background: '#10b981', color: '#fff', border: 'none' }}
                     >
                       ✓ Approve Driver
