@@ -130,7 +130,7 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
           const data=await response.json();
           const candidate=data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text?.trim();
           // AI only suggests styling copy; authoritative offer terms remain untouched.
-          if(candidate&&candidate.length<=85&&!/\\d|%|\\bfree\\b|\\bguarantee\\b/i.test(candidate)){
+          if(candidate&&candidate.length<=85&&!/\d|%|\bfree\b|\bguarantee\b/i.test(candidate)){
             tagline=candidate;engine='ai-assisted-copy';
           }
         }
