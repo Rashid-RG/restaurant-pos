@@ -26,3 +26,5 @@
 .gf-campaign-error,.gf-campaign-success{padding:12px;border-radius:12px;font-size:13px}
 .gf-campaign-error{background:#fff0ee;color:#a22823}.gf-campaign-success{background:#eaf8e7;color:#126544}
 @media(max-width:860px){.gf-campaign-layout{grid-template-columns:1fr}}@media(max-width:480px){.gf-campaign-manager{padding:12px}.gf-campaign-form,.gf-campaign-list{padding:13px}.gf-campaign-two{grid-template-columns:1fr}}
+
+.gf-campaign-metrics{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 2px}.gf-campaign-metrics span{font-size:11px;color:#3b6a50;background:#e9f7eb;padding:6px 8px;border-radius:8px}.gf-campaign-metrics b{color:#13563a;font-size:13px}
