@@ -4,6 +4,7 @@ import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview, requiredLicenceClass, managerLicenceClassMatches } from './lib/driver-onboarding.js';
 import { DRIVER_DOCUMENT_KINDS, manualDocumentKey, manualDocumentsConfigured, decodeManualDocument, encryptManualDocument, decryptManualDocument, documentKindsForVehicle } from './lib/driver-manual-documents.js';
 import { safeDriverVerificationSummary } from './lib/driver-review-access.js';
+import { riderEmailTemplate } from './lib/driver-onboarding-emails.js';
 import { veriffConfigured, drivingLicenceProviderEnabled, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
@@ -4366,6 +4367,21 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
   }
 });
 
+// Notification failures do not roll back completed identity-review decisions.
+async function notifyRiderApplication({tenantId,driverId,event,recipient}){
+  if(!isEmailConfigured())return;
+  try{
+    const tenant=await dbGet('SELECT name,ownerEmail FROM tenants WHERE id=?',[tenantId]);
+    const rider=await dbGet('SELECT name,email FROM drivers WHERE id=? AND tenant_id=?',[driverId,tenantId]);
+    if(!tenant||!rider)return;
+    const to=recipient==='owner'?tenant.ownerEmail:rider.email;
+    if(typeof to!=='string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))return;
+    const msg=riderEmailTemplate({event,restaurant:tenant.name,rider:recipient==='owner'?'Restaurant manager':rider.name});
+    const result=await sendEmail({to,...msg});
+    if(!result?.success)console.warn('[Driver notifications] Email provider rejected an onboarding update');
+  }catch(_){console.warn('[Driver notifications] Could not send onboarding status notification');}
+}
+
 // Restaurant hiring controls are separate from platform verification oversight.
 app.get('/api/delivery/driver-recruitment',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
   try{
@@ -4639,6 +4655,8 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
       [req.tenantId,req.params.id,decision==='approve'?'approved':decision==='reject'?'rejected':'resubmit',
        identityKind,digest,dmtStandingStatus,rider.vehicleType==='Bicycle'?null:licenceExpiry||null,
        rider.vehicleType==='Bicycle'?null:licenceClass||null,req.user.id,Date.now(),Date.now()]);
+    void notifyRiderApplication({tenantId:req.tenantId,driverId:req.params.id,
+      event:decision==='approve'?'manual_approved':decision==='reject'?'manual_rejected':'resubmit'});
     // The review decision remains manual (not an automated face-match or official DMT check).
     await writeAuditLog(req.user.id,req.user.username,'review_driver_manual_evidence',
       `Manual rider evidence ${req.params.id}: ${decision}; DMT standing: ${dmtStandingStatus}`);
@@ -4688,6 +4706,8 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
       }
     }
     broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType },tenantId);
+    void notifyRiderApplication({tenantId,driverId:id,event:'submitted'});
+    void notifyRiderApplication({tenantId,driverId:id,event:'manager_pending',recipient:'owner'});
     const applicationToken=jwt.sign({purpose:'driver_manual_application',driverId:id,tenant_id:tenantId},
       process.env.JWT_SECRET||JWT_SECRET,{algorithm:'HS256',expiresIn:'14d'});
     return res.status(202).json({
@@ -4807,6 +4827,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
     await dbRun('DELETE FROM driver_manual_documents WHERE tenant_id=? AND driver_id=?',[req.tenantId,id]);
     await writeAuditLog(req.user.id, req.user.username, 'review_driver', `Reviewed driver ${id} as ${status}; eligibility attested: ${verificationConfirmed === true}`);
     broadcastEvent('driver_updated', { id, status });
+    void notifyRiderApplication({tenantId:req.tenantId,driverId:id,event:status==='available'?'approved':'rejected'});
     res.json({ success: true, message: `Driver application ${status === 'available' ? 'approved' : 'rejected'}.` });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
