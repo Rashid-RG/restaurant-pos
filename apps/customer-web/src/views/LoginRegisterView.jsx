@@ -29,6 +29,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const [regConfirm, setRegConfirm] = useState('');
   const [regOtpChannel, setRegOtpChannel] = useState('email');
   const [authCapabilities,setAuthCapabilities] = useState({ emailOtp:false,smsOtp:false });
+  const [capabilityStatus,setCapabilityStatus] = useState('loading');
 
   // Forgot / reset password
   const [forgotEmail, setForgotEmail] = useState('');
@@ -43,14 +44,24 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
   const [otpBusy, setOtpBusy] = useState(false);
   const [activeOtpDestination, setActiveOtpDestination] = useState('');
 
-  useEffect(() => {
-    apiFetch('/public/customer-auth-capabilities', { cache:'no-store' })
-      .then(c => {
-        const available={emailOtp:c?.emailOtp===true,smsOtp:c?.smsOtp===true};
-        setAuthCapabilities(available);
-        setRegOtpChannel(available.emailOtp?'email':available.smsOtp?'sms':'email');
-      }).catch(() => setAuthCapabilities({emailOtp:false,smsOtp:false}));
-  }, []);
+  const refreshAuthCapabilities = async () => {
+    setCapabilityStatus('loading');
+    try {
+      const c = await apiFetch('/public/customer-auth-capabilities', { cache:'no-store' });
+      if (typeof c?.emailOtp !== 'boolean' || typeof c?.smsOtp !== 'boolean') {
+        throw new Error('Incomplete verification service response');
+      }
+      const available = {emailOtp:c.emailOtp,smsOtp:c.smsOtp};
+      setAuthCapabilities(available);
+      setRegOtpChannel(available.emailOtp?'email':available.smsOtp?'sms':'email');
+      setCapabilityStatus(available.emailOtp || available.smsOtp ? 'ready' : 'unconfigured');
+    } catch {
+      setAuthCapabilities({emailOtp:false,smsOtp:false});
+      setCapabilityStatus('unreachable');
+    }
+  };
+
+  useEffect(() => { refreshAuthCapabilities(); }, []);
 
   useEffect(() => {
     setError('');
@@ -89,8 +100,8 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
     if (!validRegistrationPassword(regPassword)) { setError('Password must be 10–72 characters.'); return; }
     if (regPassword !== regConfirm) { setError('Passwords do not match.'); return; }
 
-    if (!authCapabilities.emailOtp && !authCapabilities.smsOtp) {
-      setError('Registration verification is unavailable. Contact GastroFlow support.');
+    if (capabilityStatus !== 'ready') {
+      setError(capabilityStatus === 'unreachable' ? 'Cannot contact the verification service. Check your connection and retry.' : 'Registration verification is unavailable. Contact GastroFlow support.');
       return;
     }
     if (!authCapabilities[regOtpChannel==='email'?'emailOtp':'smsOtp']) {
@@ -403,7 +414,7 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
       )}
 
       {tab === 'register' && (
-        <form onSubmit={handleRegister} noValidate>
+        <form onSubmit={handleRegister} noValidate className="auth-reference-register-form">
           <div className="form-group">
             <label>Full Name</label>
             <input className="form-control" required placeholder="John Doe" value={regName} onChange={e => setRegName(e.target.value)} />
@@ -488,12 +499,14 @@ export default function LoginRegisterView({ onSuccess, onBack, toast = () => {},
                 onClick={() => setRegOtpChannel('sms')}>📱 SMS code</button>}
               {authCapabilities.emailOtp && <button type="button" className={`customer-auth-method ${regOtpChannel==='email'?'selected':''}`}
                 onClick={() => setRegOtpChannel('email')}>✉️ Email code</button>}
-              {!authCapabilities.smsOtp && !authCapabilities.emailOtp &&
-                <p role="status" className="customer-auth-unavailable">Registration is unavailable: no verification provider has been configured.</p>}
+              {capabilityStatus === 'loading' && <p role="status" className="customer-auth-unavailable">Checking secure verification service…</p>}
+              {capabilityStatus === 'unconfigured' && <p role="alert" className="customer-auth-unavailable">Email and SMS verification are not enabled on this server. Contact GastroFlow support.</p>}
+              {capabilityStatus === 'unreachable' && <p role="alert" className="customer-auth-unavailable">Could not reach the verification service. Check internet access and retry. Your details are still here.</p>}
+              {(capabilityStatus === 'unreachable' || capabilityStatus === 'unconfigured') && <button type="button" className="customer-auth-retry" onClick={refreshAuthCapabilities}>Retry connection</button>}
             </div>
           </div>
           <div style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || !validRegistrationPassword(regPassword) || regPassword !== regConfirm || (!authCapabilities.emailOtp && !authCapabilities.smsOtp)} style={{ width: '100%', padding: 12 }}>
+            <button type="submit" className="btn btn-brand" disabled={loading || otpBusy || !validRegistrationPassword(regPassword) || regPassword !== regConfirm || capabilityStatus !== 'ready'} style={{ width: '100%', padding: 12 }}>
               {loading || otpBusy ? '⏳ Processing…' : `🎉 ${dict.createAccount || 'Create Account'} (${regOtpChannel === 'email' ? 'Email OTP' : 'SMS OTP'})`}
             </button>
           </div>
