@@ -13,6 +13,9 @@ export function isPlatformWorkspace(currentUser, activeTab) {
 export function visibleWorkspaceDestinations(currentUser, activeTab, restaurantDestinations, platformDestination) {
   if (isPlatformWorkspace(currentUser, activeTab)) return [platformDestination];
   return restaurantDestinations.filter(item =>
-    !item.management || ['owner', 'manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin === true
+    // Platform ownership alone does not confer a restaurant manager's access
+    // to sensitive rider evidence. The API applies the same boundary.
+    (item.id !== 'rider-verification' || ['owner','manager'].includes(currentUser?.role)) &&
+    (!item.management || ['owner','manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin === true)
   );
 }
