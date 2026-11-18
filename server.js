@@ -4305,6 +4305,17 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
   }
 });
 
+// Diagnostic capability only: no secrets, no provider-account validation claim.
+app.get('/api/public/driver/verification-capabilities', publicApiLimiter, (_req, res) => {
+  res.set('Cache-Control', 'no-store').json({
+    emailCodeConfigured: isEmailConfigured(),
+    identityProviderConfigured: veriffConfigured(),
+    licenceDocumentFlowConfigured: drivingLicenceProviderEnabled(),
+    officialDmtStandingLookupConfigured: false,
+    providerEndToEndVerified: false
+  });
+});
+
 // Only explicitly selected, existing restaurants may receive driver applications.
 async function resolveDriverRegistrationTenant(req) {
   const selector = driverTenantSelector(req);
@@ -4486,7 +4497,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
     }
     if(status==='available' && veriffConfigured()){
       const check=await dbGet(
-        'SELECT state FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? ORDER BY created_at DESC LIMIT 1',
+        "SELECT state FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? AND COALESCE(check_type,'identity')='identity' ORDER BY created_at DESC LIMIT 1",
         [req.tenantId,id]);
       if(check?.state!=='verified') return res.status(409).json({
         error:'The identity provider has not confirmed a verified identity for this applicant.'
