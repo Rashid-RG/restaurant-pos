@@ -93,8 +93,9 @@ export default function App() {
 
   // Registration modal
   const [showRegModal, setShowRegModal] = useState(false);
-  const [reg, setReg] = useState({ name: '', phone: '', email: '', verificationCode: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false });
+  const [reg, setReg] = useState({ name: '', phone: '', email: '', verificationCode: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false, identityConsent: false });
   const [regSubmitting, setRegSubmitting] = useState(false);
+  const [identityVerificationLink,setIdentityVerificationLink] = useState('');
   const [sendingRegCode, setSendingRegCode] = useState(false);
   const [regCodeSentTo, setRegCodeSentTo] = useState('');
 
@@ -372,10 +373,11 @@ export default function App() {
       setRegSubmitting(true);
       const res = await apiFetch('/public/drivers/register', { method: 'POST', body: JSON.stringify(reg) });
       showToast(res.message || 'Application submitted for restaurant review.', 'success');
+      if(res.identityVerificationUrl) setIdentityVerificationLink(res.identityVerificationUrl);
       setShowRegModal(false);
       setRegCodeSentTo('');
       setLoginPhone(reg.phone);
-      setReg({ name: '', phone: '', email: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false });
+      setReg({ name: '', phone: '', email: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false, identityConsent: false });
     } catch (err) {
       showToast(err.message || 'Registration failed', 'error');
     } finally {
@@ -439,6 +441,7 @@ export default function App() {
               </button>
             </form>
 
+            {identityVerificationLink && <div className="card" role="status" style={{marginTop:12}}><strong>Identity verification is ready</strong><p style={{fontSize:12}}>Continue on Veriff's secure document and selfie verification page. This does not automatically grant delivery access.</p><a className="btn-emerald" href={identityVerificationLink} target="_blank" rel="noopener noreferrer">Continue identity verification</a></div>}
             <button className="btn-outline" onClick={() => setShowRegModal(true)}
               style={{ width: '100%', padding: 14, marginTop: 16, fontSize: '0.92rem' }}>
               ➕ New rider? Self-register
@@ -641,6 +644,7 @@ export default function App() {
                 </select>
                 <input className="input-field" type="text" value={reg.plateNumber} onChange={e => setReg({ ...reg, plateNumber: e.target.value })} placeholder="Plate number (e.g. WP BZ-9988)" />
                 <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.78rem', lineHeight: 1.5, color: 'var(--text-muted)' }}><input type="checkbox" checked={reg.privacyAccepted} onChange={e => setReg({ ...reg, privacyAccepted: e.target.checked })} required style={{ marginTop: 4, width: 18, height: 18, flexShrink: 0 }} /><span>I understand my details will be shared with the selected restaurant for review. Email verification proves email control only; phone, identity, licence and vehicle eligibility still require checks.</span></label>
+                <label style={{display:'flex',gap:10,alignItems:'flex-start',fontSize:'0.78rem',lineHeight:1.5}}><input type="checkbox" checked={reg.identityConsent===true} onChange={e=>setReg({...reg,identityConsent:e.target.checked})} style={{marginTop:4,width:18,height:18}}/><span>I consent to optional third-party identity verification, which may process my NIC/passport image, selfie and biometric information under that provider's notice. If the provider is unavailable, the restaurant must arrange a separate secure review.</span></label>
                 <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
                   <button type="button" className="btn-outline" onClick={() => setShowRegModal(false)} style={{ flex: 1 }}>Cancel</button>
                   <button type="submit" className="btn-emerald" disabled={regSubmitting} style={{ flex: 2 }}>
