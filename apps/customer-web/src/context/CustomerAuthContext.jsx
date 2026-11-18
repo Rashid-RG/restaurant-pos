@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { apiFetch } from '../utils/api.js';
 import { getActiveTenant } from '../utils/tenant.js';
 import { shouldForgetCustomerSession } from '../utils/auth-recovery.js';
-import { customerSessionKey, isCurrentCustomerAuthAttempt } from '../utils/customer-auth-scope.js';
+import { isCurrentCustomerAuthAttempt } from '../utils/customer-auth-scope.js';
+import { readCustomerSessionToken, saveCustomerSessionToken, clearCustomerSessionToken, clearCustomerSessionTokenIfMatch } from '../utils/customer-session-store.js';
 import { shouldRevalidateNativeCustomerSession, isCurrentNativeSessionCheck } from '../utils/native-session-revalidation.js';
 
 const CustomerAuthContext = createContext(null);
@@ -14,7 +15,8 @@ export function CustomerAuthProvider({ children }) {
   const [customer, setCustomer] = useState(null);
   const [loading, setLoading] = useState(true);
   const sessionCheckRef = useRef({lastCheckedAt:Date.now(),inFlight:false});
-  const sessionKey = customerSessionKey(scopeRef.current.tenant);
+  const sessionTenant = scopeRef.current.tenant;
+  const sessionKey = sessionTenant; // Stable tenant identifier for effect dependencies.
   const isCurrent = (epoch) => isCurrentCustomerAuthAttempt({
     scope: scopeRef.current, activeTenant: getActiveTenant(), epoch
   });
@@ -23,17 +25,17 @@ export function CustomerAuthProvider({ children }) {
   useEffect(() => {
     scopeRef.current.mounted = true;
     const epoch = scopeRef.current.epoch;
-    const token = localStorage.getItem(sessionKey);
+    const token = readCustomerSessionToken(sessionTenant);
     if (!token) { setLoading(false); return () => { scopeRef.current.mounted = false; }; }
     apiFetch('/customer/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then(data => {
         if (!isCurrent(epoch)) return;
         if (data) setCustomer(data);
-        else if (localStorage.getItem(sessionKey) === token) localStorage.removeItem(sessionKey);
+        else clearCustomerSessionTokenIfMatch(sessionTenant, token);
       })
       .catch(error => {
         if (isCurrent(epoch) && shouldForgetCustomerSession(error) &&
-            localStorage.getItem(sessionKey) === token) localStorage.removeItem(sessionKey);
+            readCustomerSessionToken(sessionTenant) === token) clearCustomerSessionTokenIfMatch(sessionTenant,token);
       })
       .finally(() => { if (isCurrent(epoch)) setLoading(false); });
     return () => { scopeRef.current.mounted = false; scopeRef.current.epoch++; };
@@ -46,7 +48,7 @@ export function CustomerAuthProvider({ children }) {
     if (import.meta.env.MODE !== 'native') return;
     let disposed=false;
     const check=async()=>{
-      const token=localStorage.getItem(sessionKey);
+      const token=readCustomerSessionToken(sessionTenant);
       const now=Date.now();
       const state=sessionCheckRef.current;
       if(!shouldRevalidateNativeCustomerSession({
@@ -64,7 +66,7 @@ export function CustomerAuthProvider({ children }) {
         });
         if(disposed || !isCurrentNativeSessionCheck({
           activeTenant:getActiveTenant(),tenant:scopeRef.current.tenant,
-          token,savedToken:localStorage.getItem(sessionKey),epoch,
+          token,savedToken:readCustomerSessionToken(sessionTenant),epoch,
           currentEpoch:scopeRef.current.epoch,mounted:scopeRef.current.mounted
         }))return;
         if(data)setCustomer(data);
@@ -75,10 +77,10 @@ export function CustomerAuthProvider({ children }) {
             // apiFetch may already have removed this exact token on a verified
             // revoked-session response. Epoch still prevents a prior logout or
             // login from being overwritten, and a newer token never matches.
-            token,savedToken:localStorage.getItem(sessionKey) ?? token,epoch,
+            token,savedToken:readCustomerSessionToken(sessionTenant) ?? token,epoch,
             currentEpoch:scopeRef.current.epoch,mounted:scopeRef.current.mounted
           }))return;
-        localStorage.removeItem(sessionKey);
+        if(!clearCustomerSessionTokenIfMatch(sessionTenant,token) && readCustomerSessionToken(sessionTenant)!==null)return;
         setCustomer(null);
       }finally{state.inFlight=false;}
     };
@@ -100,7 +102,7 @@ export function CustomerAuthProvider({ children }) {
     if (!data?.token || !data?.customer) throw new Error('Customer login response was incomplete.');
     // Explicit login supersedes an earlier auto-restore or profile refresh.
     scopeRef.current.epoch++;
-    localStorage.setItem(sessionKey, data.token);
+    saveCustomerSessionToken(sessionTenant, data.token);
     setCustomer(data.customer);
     return data.customer;
   };
@@ -133,23 +135,23 @@ export function CustomerAuthProvider({ children }) {
 
   const logout = useCallback(() => {
     scopeRef.current.epoch++;
-    localStorage.removeItem(sessionKey);
+    clearCustomerSessionToken(sessionTenant);
     setCustomer(null);
   }, [sessionKey]);
 
   const refreshProfile = useCallback(async () => {
     const epoch = scopeRef.current.epoch;
-    const token = localStorage.getItem(sessionKey);
+    const token = readCustomerSessionToken(sessionTenant);
     if (!token) return;
     try {
       const data = await apiFetch('/customer/profile', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (isCurrent(epoch) && localStorage.getItem(sessionKey) === token) setCustomer(data);
+      if (isCurrent(epoch) && readCustomerSessionToken(sessionTenant) === token) setCustomer(data);
     } catch {}
   }, [sessionKey]);
 
-  const getToken = () => localStorage.getItem(sessionKey);
+  const getToken = () => readCustomerSessionToken(sessionTenant);
 
   return (
     <CustomerAuthContext.Provider value={{ customer, loading, login, loginWithOtp, register, logout, refreshProfile, getToken }}>
