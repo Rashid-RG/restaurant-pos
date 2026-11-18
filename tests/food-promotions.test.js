@@ -2,6 +2,7 @@ import {describe,it,expect} from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import {initPromotions,createPromotionsRouter} from '../routes/food-promotions.js';
+import {evaluateCampaignCoupon,loadCampaignCoupon} from '../lib/campaign-discounts.js';
 
 function fixture(){
   const rows=[];const tenants=[{id:'store-a',status:'active'},{id:'store-b',status:'active'}];
@@ -51,7 +52,7 @@ const item={title:'Real BBQ Friday Deal',subtitle:'10% discount on selected dish
 describe('GastroFlow restaurant advertisement and offer security',()=>{
   it('initializes only additive promotion tables and indexes',async()=>{
     const sql=[];await initPromotions(async statement=>sql.push(statement));
-    expect(sql.length).toBe(4);expect(sql.join(' ')).not.toMatch(/DROP TABLE|DELETE FROM|ALTER TABLE/i);
+    expect(sql.length).toBe(7);expect(sql.join(' ')).not.toMatch(/DROP TABLE|DELETE FROM|ALTER TABLE/i);
   });
   it('requires a staff session and prevents any cross-tenant update',async()=>{
     const {app}=fixture();
@@ -90,4 +91,31 @@ describe('GastroFlow restaurant advertisement and offer security',()=>{
     const global=await request(app).post('/api/platform/food-promotions').set('Authorization','Bearer platform').send({...item,tenantId:null,title:'GastroFlow Weekend'});
     expect(global.status).toBe(201);expect(global.body.campaign.tenantId).toBeNull();
   });
+});
+
+
+describe('Server-authoritative campaign coupon rules',()=>{
+ const base={campaign_id:'campaign-1',tenant_id:'store-a',code:'BBQ20',
+   status:'active',tenant_status:'active',starts_at:null,ends_at:null,
+   type:'percent',value:20,min_spend:1000,used_count:0,max_uses:5,
+   per_customer_limit:2,order_type:'delivery'};
+ it('prices percent and fixed discounts using server subtotal and caps at cart value',()=>{
+   expect(evaluateCampaignCoupon({...base,per_customer_limit:0},{subtotal:1800,orderType:'delivery'}).discount).toBe(360);
+   expect(evaluateCampaignCoupon({...base,per_customer_limit:0,type:'flat',value:9000},{subtotal:1800,orderType:'delivery'}).discount).toBe(1800);
+ });
+ it('rejects expired, paused, wrong-order-type, below-minimum and exhausted offers',()=>{
+   const args={subtotal:1800,orderType:'delivery',customerAccountId:'acct-1'};
+   expect(()=>evaluateCampaignCoupon({...base,ends_at:Date.now()-1},args)).toThrow(/active/);
+   expect(()=>evaluateCampaignCoupon({...base,status:'paused'},args)).toThrow(/active/);
+   expect(()=>evaluateCampaignCoupon(base,{...args,orderType:'takeaway'})).toThrow(/order type/);
+   expect(()=>evaluateCampaignCoupon(base,{...args,subtotal:800})).toThrow(/Spend at least/);
+   expect(()=>evaluateCampaignCoupon({...base,used_count:5},args)).toThrow(/limit/);
+   expect(()=>evaluateCampaignCoupon(base,{...args,previousRedemptions:2})).toThrow(/limit/);
+   expect(()=>evaluateCampaignCoupon(base,{...args,customerAccountId:null})).toThrow(/Sign in/);
+ });
+ it('looks up coupon using tenant and code together',async()=>{
+   const seen=[];
+   await loadCampaignCoupon(async(sql,params)=>{seen.push(params);return base;},'store-a','bbq20');
+   expect(seen).toEqual([['store-a','BBQ20']]);
+ });
 });
