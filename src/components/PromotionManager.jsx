@@ -14,6 +14,8 @@ export default function PromotionManager({platform=false,restaurants=[]}) {
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
+  const [creativeBusy,setCreativeBusy]=useState(false);
+  const [creativeIdea,setCreativeIdea]=useState(null);
   const endpoint=platform?'/api/platform/food-promotions':'/api/food-promotions/manage';
   const request=useCallback(async(url,options={})=>{
     const token=localStorage.getItem('gastroflow_token');
@@ -35,7 +37,18 @@ export default function PromotionManager({platform=false,restaurants=[]}) {
       showPopup:!!c.showPopup,autoCreative:c.autoCreative!==false,coupon:c.coupon||null});
     setError('');setNotice('');
   };
-  const reset=()=>{setForm(blank());setEditing(null);setTenant('');};
+  const reset=()=>{setForm(blank());setEditing(null);setTenant('');setCreativeIdea(null);};
+  const suggestCreative=async()=>{
+    if(!form.title.trim()){setError('Enter the real promotion headline first.');return;}
+    setCreativeBusy(true);setError('');setCreativeIdea(null);
+    try {
+      const url=platform?'/api/platform/food-promotions/creative-draft':'/api/food-promotions/creative-draft';
+      const result=await request(url,{method:'POST',body:JSON.stringify({
+        title:form.title,subtitle:form.subtitle,offerLabel:form.offerLabel
+      })});
+      setCreativeIdea(result);
+    }catch(err){setError(err.message)}finally{setCreativeBusy(false)}
+  };
   const save=async(e)=>{
     e.preventDefault();if(busy)return;
     setBusy(true);setError('');setNotice('');
@@ -83,6 +96,11 @@ export default function PromotionManager({platform=false,restaurants=[]}) {
           {entry('Button label','cta',{required:true,maxLength:40})}
         </div>
         {entry('Campaign image URL (optional)','imageUrl',{maxLength:1000,placeholder:'https://... or /uploads/...'})}
+        <section className="gf-campaign-creative" aria-label="Automatic advertisement creative">
+          <div><strong>Auto Creative Studio</strong><p>Generates a GastroFlow-branded visual using your actual campaign information and published food imagery. Optional AI helps suggest a short tagline, without inventing prices or discounts.</p></div>
+          <button type="button" disabled={creativeBusy} onClick={suggestCreative}>{creativeBusy?'Generating…':'✨ Suggest creative copy'}</button>
+          {creativeIdea&&<div className="gf-campaign-creative-draft" role="status"><strong>{creativeIdea.headline}</strong><p>{creativeIdea.tagline}</p><small>{creativeIdea.engine==='ai-assisted-copy'?'AI-assisted tagline':'Branded template suggestion (AI not configured)'}. Review every claim before publishing.</small></div>}
+        </section>
         <div className="gf-campaign-two">
           <label className="gf-campaign-field"><span>Starts (optional)</span><input type="datetime-local" value={datetime(form.startsAt)} onChange={e=>update('startsAt',parseDate(e.target.value))}/></label>
           <label className="gf-campaign-field"><span>Ends (optional)</span><input type="datetime-local" value={datetime(form.endsAt)} onChange={e=>update('endsAt',parseDate(e.target.value))}/></label>
