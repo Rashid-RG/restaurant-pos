@@ -11,6 +11,14 @@ Scope: **only** the existing repository branch `codex/production-readiness` and 
 - Every signed staging build uses **the same keystore**, injected through protected GitHub Actions secrets and never committed to Git.
 - Staging versionCode is `10000 + GitHub workflow run_number` (strictly increasing for new runs). Retrying an earlier run does not advance that number; initiate a **new** workflow run to update an already installed version.
 
+## 2026-11-18: Native release-boundary checks
+
+The signing workflow now refuses to build outside `codex/production-readiness`, records and verifies the original POS root lockfile checksum, and executes `node scripts/check-food-native-release-boundary.mjs` before packaging. This read-only guard checks: distinct Android staging package identity, persistent signing requirements, exact staging HTTPS origin, manual branch-restricted Android and iOS workflows, unsigned-only iOS simulator identity, foreground Android location declarations and isolated customer Capacitor identity. A regression suite in `tests/customer-native-release-boundary.test.js` makes these checks enforceable in normal CI.
+
+**Important:** This does NOT produce a new signed APK or iPhone IPA. The Android signed workflow requires repository secrets and a manual run; the iOS simulator workflow requires a manual macOS run. Real iPhone installation requires a separately implemented signing/TestFlight workflow and Apple Developer Program access. Generated native build assets in `apps/customer-web/android/app/src/main/assets/public/` remain tracked; clean them only as a separately reviewed reproducibility migration to avoid breaking existing builds.
+
+Do not run the Android signed APK workflow until the private signing key is securely provisioned. Do not upload signing keys or password material to the repository, issues or chat. The POS and deployed Turso data are not affected by these source checks.
+
 ## One-time signing key creation (on a trusted Windows computer)
 
 1. Install a trusted Java 21 JDK (which includes `keytool`).
