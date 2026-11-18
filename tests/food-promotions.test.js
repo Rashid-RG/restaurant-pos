@@ -77,7 +77,7 @@ describe('GastroFlow restaurant advertisement and offer security',()=>{
     const created=await request(app).post('/api/food-promotions/manage').set('Authorization','Bearer owner-a').send(item);
     const id=created.body.campaign.id;
     const allowed=await request(app).post('/api/public/food-promotions/'+id+'/events').send({event:'impression'});
-    expect(allowed.status).toBe(204);
+    expect(allowed.status).toBe(200);expect(allowed.body.ok).toBe(true);
     expect((await request(app).post('/api/public/food-promotions/'+id+'/events').send({event:'purchase'})).status).toBe(400);
     expect((await request(app).post('/api/public/food-promotions/invalid/events').send({event:'click'})).status).toBe(400);
   });
