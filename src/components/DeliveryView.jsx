@@ -144,7 +144,7 @@ export default function DeliveryView() {
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({
           identityKind:review.identityKind||'nic',
-          decision,dmtStandingStatus:review.dmtStandingStatus||'not_checked',
+          decision,selfieMatched:review.selfieMatched===true,documentAuthenticityConfirmed:review.documentAuthenticityConfirmed===true,dmtStandingStatus:review.dmtStandingStatus||'not_checked',
           licenceClass:licence.licenceClass,licenceExpiry:licence.expiry
         })
       });
@@ -251,10 +251,18 @@ export default function DeliveryView() {
                     </select>
                     <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
                       {[
-                        ['identity_front','Identity front'],['identity_back','Identity back'],
+                        ['identity_front','Identity front'],['identity_back','Identity back'],['selfie','Selfie photo'],
                         ...(d.vehicleType==='Bicycle'?[]:[['licence_front','Licence front'],['licence_back','Licence back']])
                       ].map(([kind,label])=><button type="button" key={kind} className="btn btn-outline" style={{fontSize:11,padding:5}} onClick={()=>inspectManualDocument(d.id,kind)}>{label}</button>)}
                     </div>
+                    <label style={{display:'flex',gap:8,alignItems:'flex-start',fontSize:12}}>
+                      <input type="checkbox" checked={manualReviews[d.id]?.selfieMatched===true} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],selfieMatched:e.target.checked}}))}/>
+                      I opened the selfie and identity document, visually compared the face, and am satisfied they appear to match.
+                    </label>
+                    <label style={{display:'flex',gap:8,alignItems:'flex-start',fontSize:12}}>
+                      <input type="checkbox" checked={manualReviews[d.id]?.documentAuthenticityConfirmed===true} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],documentAuthenticityConfirmed:e.target.checked}}))}/>
+                      I examined the document images and original evidence or performed an attended identity check. An image upload alone is not proof of authenticity.
+                    </label>
                     <label style={{fontSize:12}}>DMT standing review
                       <select className="form-input" value={manualReviews[d.id]?.dmtStandingStatus||'not_checked'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],dmtStandingStatus:e.target.value}}))}>
                         <option value="not_checked">Not officially checked</option>
@@ -263,7 +271,7 @@ export default function DeliveryView() {
                     </label>
                     <p style={{fontSize:11,color:'var(--text-muted)',margin:0}}>Confirm image quality, original identity, licence class, expiry and any external DMT standing independently. Files are deleted after final approval.</p>
                     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                      <button type="button" className="btn btn-success" disabled={loading} onClick={()=>decideManualReview(d,'approve')}>Record manual pass</button>
+                      <button type="button" className="btn btn-success" disabled={loading || manualReviews[d.id]?.selfieMatched!==true || manualReviews[d.id]?.documentAuthenticityConfirmed!==true} onClick={()=>decideManualReview(d,'approve')}>Record manual pass</button>
                       <button type="button" className="btn btn-outline" disabled={loading} onClick={()=>decideManualReview(d,'resubmit')}>Request resubmission</button>
                       <button type="button" className="btn btn-danger" disabled={loading} onClick={()=>decideManualReview(d,'reject')}>Reject evidence</button>
                     </div>
