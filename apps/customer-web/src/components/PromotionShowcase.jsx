@@ -16,7 +16,7 @@ const imageUrl = raw => {
 const isValid = item => item && typeof item.id==='string' &&
   typeof item.title==='string' && (item.status==='active' || !item.status);
 
-export default function PromotionShowcase({stores=[],onChooseStore,onCampaignCount}) {
+export default function PromotionShowcase({stores=[],itemImages={},onChooseStore,onCampaignCount}) {
   const [campaigns,setCampaigns]=useState([]);
   const [active,setActive]=useState(0);
   const [offersOpen,setOffersOpen]=useState(false);
@@ -89,7 +89,7 @@ export default function PromotionShowcase({stores=[],onChooseStore,onCampaignCou
             <button type="button" onClick={()=>go(c)}>{c.cta||'View offer'} <ArrowRight size={18}/></button>
           </div>
           <div className="gf-promo-photo">
-            {imageUrl(c.imageUrl)?<img src={imageUrl(c.imageUrl)} alt="" loading={index===0?'eager':'lazy'}/>:<span role="img" aria-label="">🍽️</span>}
+            {imageUrl(c.imageUrl||itemImages[c.tenantId])?<img src={imageUrl(c.imageUrl||itemImages[c.tenantId])} alt="" loading={index===0?'eager':'lazy'}/>:<span role="img" aria-label="">🍽️</span>}
           </div>
         </article>)}
         {campaigns.length>1&&<>
