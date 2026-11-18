@@ -260,14 +260,24 @@ export default function DeliveryView({verificationOnly=false}) {
           </section>
         </>}
         {verificationOnly && !canReview && <p role="alert">Only restaurant owners and managers may review rider verification evidence.</p>}
+        {verificationOnly && canReview && ['Approved','Rejected'].includes(verificationTab) && visibleVerificationDrivers.some(d=>d.status!=='pending_approval') && (
+          <section aria-label="Completed rider application history" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(245px,1fr))',gap:12}}>
+            {visibleVerificationDrivers.filter(d=>d.status!=='pending_approval').map(d=><article key={d.id} style={{padding:18,borderRadius:14,background:'var(--bg-card)',border:'1px solid var(--border-color)'}}>
+              <strong style={{fontSize:16}}>👤 {d.name}</strong>
+              <p style={{fontSize:12,color:'var(--text-muted)'}}> {d.vehicleType||'Rider'} · {d.plateNumber||'No plate'} </p>
+              <span className={verificationTab==='Approved'?'badge badge-success':'badge badge-warning'}>{verificationTab==='Approved'?'Operational account':'Application rejected'}</span>
+              <p style={{fontSize:12,color:'var(--text-muted)'}}>Completed applications are read-only here. Protected evidence is purged after the restaurant's final review.</p>
+            </article>)}
+          </section>
+        )}
         {/* 0. Pending Driver Registrations Queue */}
-        {verificationOnly && canReview && visibleVerificationDrivers.length>0 && (
+        {verificationOnly && canReview && visibleVerificationDrivers.some(d=>d.status==='pending_approval') && (
           <div style={{ background: 'rgba(234, 179, 8, 0.08)', border: '2px dashed #eab308', borderRadius: '12px', padding: '20px' }}>
             <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800, color: '#eab308', display: 'flex', alignItems: 'center', gap: '8px' }}>
               ⏳ {verificationTab} Rider Applications ({visibleVerificationDrivers.length})
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-              {visibleVerificationDrivers.map(d => (
+              {visibleVerificationDrivers.filter(d=>d.status==='pending_approval').map(d => (
                 <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: '1rem' }}>👤 {d.name}</div>
