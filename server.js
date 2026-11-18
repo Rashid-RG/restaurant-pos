@@ -33,6 +33,7 @@ import { initWorkday, createWorkdayRouter } from './routes/workday.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
 import { initPromotions, createPromotionsRouter } from './routes/food-promotions.js';
+import { loadCampaignCoupon, evaluateCampaignCoupon } from './lib/campaign-discounts.js';
 import { configuredNativeOrigins, invalidNativeOriginEntries } from './lib/customer-native-origins.js';
 import { resolveCustomerCorsOrigins, customerCorsOriginHandler } from './lib/customer-cors-policy.js';
 import express from 'express';
@@ -4733,7 +4734,7 @@ app.post('/api/public/promotions/preview', publicApiLimiter, async(req,res) => {
     const items = req.body?.items;
     if(!/^[A-Z0-9_-]{2,40}$/.test(code) || !Array.isArray(items) || items.length < 1 || items.length > 100)
       return res.status(400).json({error:'Choose a valid promotion code and cart items.'});
-    const bill = await resolveAndCalculateBill(items, null, 0, 0, 0, code, 0, tenantId);
+    const bill = await resolveAndCalculateBill(items, null, 0, 0, 0, code, 0, tenantId,{orderType:['delivery','takeaway','dine-in'].includes(req.body?.orderType)?req.body.orderType:'takeaway'});
     return res.json({code, promoDiscount:bill.promoDiscount, subtotal:bill.subtotal, note:'Final payment amount is always calculated by the server at checkout.'});
   } catch(err) {
     return res.status(400).json({error:err.message || 'Promotion not available.'});
@@ -4878,7 +4879,7 @@ const createPublicOrder = async (req, res) => {
     const minimumOrder = parseFloat((await getSetting(tenantId, 'minimumOrder')) || 0);
 
     // Calculate billing totals securely on the server (passing delivery fee + tip)
-    const bill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, deliveryFee, tenantId);
+    const bill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, deliveryFee, tenantId,{orderType:type,customerAccountId});
 
     // Re-check delivery fee with actual subtotal for free-delivery threshold
     if (type === 'delivery' && typeof deliveryLat === 'number' && typeof deliveryLng === 'number') {
@@ -4886,7 +4887,7 @@ const createPublicOrder = async (req, res) => {
       if (finalFeeResult.isFreeDelivery) {
         deliveryFee = 0; // Free delivery for high-value orders!
         // Recalculate bill with zero delivery fee
-        const freeBill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, 0, tenantId);
+        const freeBill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, 0, tenantId,{orderType:type,customerAccountId});
         Object.assign(bill, freeBill);
       }
     }
@@ -4981,6 +4982,24 @@ const createPublicOrder = async (req, res) => {
           tenantId
         ]
       );
+
+      // Recheck availability and atomically reserve a coupon use in the SAME
+      // transaction as the order. Rollback restores the counter on any failure.
+      if(bill.campaignCouponId){
+        const rule=await loadCampaignCoupon(dbGet,tenantId,bill.appliedPromoCode);
+        if(!rule || rule.campaign_id!==bill.campaignCouponId)
+          throw Object.assign(Error('Offer changed. Review the cart and try again.'),{status:409});
+        const used=Number(rule.per_customer_limit||0)>0 && customerAccountId
+          ? await dbGet('SELECT COUNT(*) AS count FROM food_promotion_redemptions WHERE campaign_id=? AND tenant_id=? AND customer_account_id=?',
+            [rule.campaign_id,tenantId,customerAccountId]) : null;
+        evaluateCampaignCoupon(rule,{subtotal:bill.subtotal,orderType:type,customerAccountId,
+          previousRedemptions:Number(used?.count||0)});
+        const claimed=await dbRun('UPDATE food_promotion_coupon_rules SET used_count=used_count+1 WHERE campaign_id=? AND tenant_id=? AND (max_uses=0 OR used_count<max_uses)',
+          [rule.campaign_id,tenantId]);
+        if(claimed.changes!==1)throw Object.assign(Error('Offer redemption limit reached.'),{status:409});
+        await dbRun('INSERT INTO food_promotion_redemptions (order_id,campaign_id,tenant_id,customer_account_id,redeemed_at) VALUES (?,?,?,?,?)',
+          [orderId,rule.campaign_id,tenantId,customerAccountId,Date.now()]);
+      }
 
       for (const item of bill.resolvedItems) {
         const itemId = `oi_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
