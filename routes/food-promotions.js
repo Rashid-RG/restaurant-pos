@@ -102,7 +102,7 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
         clicks=food_promotion_metrics.clicks+excluded.clicks,
         updated_at=excluded.updated_at`,
         [req.params.id,Number(event==='impression'),Number(event==='click'),now]);
-      res.status(204).end();
+      res.json({ok:true});
     }catch(err){next(err);}
   });
 
