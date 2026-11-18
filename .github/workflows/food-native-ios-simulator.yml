@@ -59,6 +59,16 @@ jobs:
         run: |
           npm run native:sync:ios
           npm run native:permissions:ios
+      - name: Install reviewed Xcode project editor
+        run: gem install xcodeproj -v 1.27.0 --no-document
+      - name: Install customer-only Keychain plugin into generated Xcode project
+        run: |
+          ruby scripts/setup-food-ios-secure-session.rb
+          test -s apps/customer-web/ios/App/App/GastroFoodSecureSessionPlugin.swift
+          test -s apps/customer-web/ios/App/App/GastroFoodViewController.swift
+          grep -q 'customClass="GastroFoodViewController"' apps/customer-web/ios/App/App/Base.lproj/Main.storyboard
+          grep -q 'kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly' apps/customer-web/ios/App/App/GastroFoodSecureSessionPlugin.swift
+          shasum -a 256 -c "$RUNNER_TEMP/pos-lock.sha256"
       - name: Install iPhone branding image processor
         run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
       - name: Test iPhone asset generation and POS project isolation
