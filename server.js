@@ -4356,12 +4356,18 @@ app.post('/api/webhooks/driver-identity/veriff', async (req, res) => {
   if(typeof sessionId!=='string' || !sessionId) return res.status(400).json({error:'Invalid verification session.'});
   try {
     const saved=await dbGet(
-      'SELECT session_id,check_type FROM driver_identity_checks WHERE session_id=? AND provider=?',
+      'SELECT session_id,check_type,driver_id,tenant_id FROM driver_identity_checks WHERE session_id=? AND provider=?',
       [sessionId,'veriff']
     );
     if(!saved) return res.status(404).json({error:'Unknown identity session.'});
     const checkType=saved.check_type==='driving_licence'?'driving_licence':'identity';
-    const decision=interpretVeriffDecision(req.body,checkType);
+    const registeredDriver=checkType==='driving_licence' ? await dbGet(
+      'SELECT vehicleType FROM drivers WHERE id=? AND tenant_id=?',
+      [saved.driver_id,saved.tenant_id]
+    ) : null;
+    if(checkType==='driving_licence' && !registeredDriver)
+      return res.status(409).json({error:'Identity verification is not linked to an active application.'});
+    const decision=interpretVeriffDecision(req.body,checkType,Date.now(),registeredDriver?.vehicleType);
     if(!decision) return res.status(400).json({error:'Invalid identity decision.'});
     // Do not allow out-of-order notifications to overwrite final results.
     // Store only a minimal state, not document images or personal fields.
