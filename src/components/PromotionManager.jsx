@@ -41,7 +41,7 @@ export default function PromotionManager({platform=false,restaurants=[]}) {
     setBusy(true);setError('');setNotice('');
     try{
       if(form.endsAt&&form.startsAt&&form.endsAt<=form.startsAt)throw new Error('End date must be after start date.');
-      const body={...form,...platform&&!editing?{tenantId:tenant||null}:{}};
+      const body={...form,...(platform&&!editing?{tenantId:tenant||null}:{})};
       const url=editing?endpoint+'/'+encodeURIComponent(editing):endpoint;
       await request(url,{method:editing?'PATCH':'POST',body:JSON.stringify(body)});
       setNotice('Campaign saved. Active promotions appear automatically when their dates are valid.');
