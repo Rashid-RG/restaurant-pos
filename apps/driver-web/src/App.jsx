@@ -97,6 +97,11 @@ export default function App() {
   const [regSubmitting, setRegSubmitting] = useState(false);
   const [identityVerificationLink,setIdentityVerificationLink] = useState('');
   const [licenceVerificationLink,setLicenceVerificationLink] = useState('');
+  const [manualApplicationToken,setManualApplicationToken]=useState(sessionStorage.getItem('gastrodriver_manual_application')||'');
+  const [manualEvidence,setManualEvidence]=useState({});
+  const [manualUploading,setManualUploading]=useState('');
+  const [manualConsent,setManualConsent]=useState(false);
+  const [manualVehicleType,setManualVehicleType]=useState('Motorbike');
   const [sendingRegCode, setSendingRegCode] = useState(false);
   const [regCodeSentTo, setRegCodeSentTo] = useState('');
 
@@ -364,6 +369,31 @@ export default function App() {
     finally { setSendingRegCode(false); }
   };
 
+  const submitManualEvidence = async (kind,file) => {
+    if(!file || !manualApplicationToken)return;
+    if(!manualConsent) { showToast('Please accept sensitive-document storage consent first.','warning');return; }
+    if(file.size>2*1024*1024 || !['image/jpeg','image/png','image/webp'].includes(file.type)){
+      showToast('Choose a JPEG, PNG or WebP photo no larger than 2 MB.','warning');return;
+    }
+    setManualUploading(kind);
+    try {
+      const data=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onerror=()=>reject(new Error('Unable to read selected image.'));
+        reader.onload=()=>resolve(String(reader.result).split(',')[1]);
+        reader.readAsDataURL(file);
+      });
+      const uploaded=await apiFetch('/public/drivers/manual-document', {
+        method:'POST',
+        headers:{Authorization:'Bearer '+manualApplicationToken},
+        body:JSON.stringify({kind,contentType:file.type,data,consent:true})
+      });
+      setManualEvidence(previous=>({...previous,[kind]:true}));
+      showToast(uploaded.message||'Encrypted evidence submitted.','success');
+    }catch(error){showToast(error.message||'Evidence upload failed.','error');}
+    finally{setManualUploading('');}
+  };
+
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     if (!reg.name || !reg.phone || !reg.email || !reg.password || !reg.verificationCode) { showToast('Enter your details and the emailed verification code.', 'warning'); return; }
@@ -374,6 +404,13 @@ export default function App() {
       setRegSubmitting(true);
       const res = await apiFetch('/public/drivers/register', { method: 'POST', body: JSON.stringify(reg) });
       showToast(res.message || 'Application submitted for restaurant review.', 'success');
+      if(res.applicationToken) {
+        sessionStorage.setItem('gastrodriver_manual_application',res.applicationToken);
+        setManualApplicationToken(res.applicationToken);
+        setManualVehicleType(reg.vehicleType);
+        setManualEvidence({});
+        setManualConsent(false);
+      }
       if(res.identityVerificationUrl) setIdentityVerificationLink(res.identityVerificationUrl);
       if(res.licenceVerificationUrl) setLicenceVerificationLink(res.licenceVerificationUrl);
       setShowRegModal(false);
@@ -443,6 +480,29 @@ export default function App() {
               </button>
             </form>
 
+            {manualApplicationToken && <section className="card" aria-label="Secure manual identity document submission" style={{marginTop:12,display:'flex',flexDirection:'column',gap:12}}>
+              <strong>Secure manual NIC / passport and licence submission</strong>
+              <p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>
+                Use this when automated verification is not available. Photos are encrypted in the restaurant database, visible only to managers during review, and deleted after the final approval decision. Uploading photos is not identity verification or official DMT clearance.
+              </p>
+              <label style={{fontSize:13,display:'flex',gap:8,alignItems:'start'}}>
+                <input type="checkbox" checked={manualConsent} onChange={e=>setManualConsent(e.target.checked)}/>
+                I consent to securely storing my NIC/passport and, if applicable, driving-licence photos for this restaurant's identity review.
+              </label>
+              {[
+                ['identity_front','NIC front / passport photo page'],
+                ['identity_back','NIC back / passport supporting page'],
+                ...(manualVehicleType==='Bicycle'?[]:[
+                  ['licence_front','Driving-licence front'],
+                  ['licence_back','Driving-licence back']
+                ])
+              ].map(([kind,label])=><label key={kind} style={{display:'flex',flexDirection:'column',gap:5,fontSize:12}}>
+                <strong>{label} {manualEvidence[kind]?'✓ Submitted':''}</strong>
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={!manualConsent||Boolean(manualUploading)} onChange={e=>{const file=e.target.files?.[0];if(file) void submitManualEvidence(kind,file);e.target.value='';}}/>
+                {manualUploading===kind && <span role="status">Encrypting and submitting…</span>}
+              </label>)}
+              <small style={{color:'var(--text-muted)'}}>Maximum 2 MB per photo. Use secure HTTPS on your own device. Never send documents through chat or email.</small>
+            </section>}
             {licenceVerificationLink && <div className="card" role="status" style={{marginTop:12}}>
               <strong>Sri Lankan driving-licence check</strong>
               <p style={{fontSize:12}}>Continue secure document authenticity verification on Veriff. The restaurant still needs to confirm your vehicle category, expiry and legal driving eligibility before approval.</p>
