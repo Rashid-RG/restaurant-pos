@@ -127,7 +127,7 @@ export default function DeliveryView() {
       const res = await fetch(`/api/delivery/drivers/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected', verificationConfirmed: action === 'approve' && verifiedApplications[id] === true, licenceConfirmed: action === 'approve' && licenceReviews[id]?.checked === true, licenceExpiry: action === 'approve' ? licenceReviews[id]?.expiry : undefined })
+        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected', verificationConfirmed: action === 'approve' && verifiedApplications[id] === true, licenceConfirmed: action === 'approve' && licenceReviews[id]?.checked === true, licenceExpiry: action === 'approve' ? licenceReviews[id]?.expiry : undefined, licenceClass: action === 'approve' ? licenceReviews[id]?.licenceClass : undefined })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -206,13 +206,22 @@ export default function DeliveryView() {
                     <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Driving-licence document: <strong>{d.licenceDocumentStatus === 'verified' ? 'Document authenticity verified; class and standing still need review' : d.licenceDocumentStatus === 'rejected' ? 'Provider rejected' : d.licenceDocumentStatus === 'resubmit' ? 'Resubmission needed' : d.licenceDocumentStatus === 'review' ? 'Manual review needed' : d.licenceDocumentStatus === 'created' ? 'Waiting for provider' : 'No provider check recorded'}</strong></div>
                   </div>
                   <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
-                  <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Driving licence expiry (verified from the original licence)<input type="date" className="form-input" value={licenceReviews[d.id]?.expiry || ''} min={new Date().toISOString().slice(0,10)} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],expiry:e.target.value}}))}/></label>
-                  <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,lineHeight:1.5}}><input type="checkbox" checked={licenceReviews[d.id]?.checked===true} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],checked:e.target.checked}}))} style={{marginTop:3}}/>I checked the genuine driving licence, correct vehicle category and expiry.</label>
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Verified driving licence class
+                    <select className="form-input" value={licenceReviews[d.id]?.licenceClass || ''} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],licenceClass:e.target.value}}))}>
+                      <option value="">Select class from original licence</option>
+                      <option value="A">A — motorbike</option>
+                      <option value="A1">A1 — restricted small motorbike (not approved without engine check)</option>
+                      <option value="B1">B1 — tuk-tuk</option>
+                      <option value="B">B — car / light vehicle</option>
+                    </select>
+                  </label>}
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Driving licence expiry (verified from the original licence)<input type="date" className="form-input" value={licenceReviews[d.id]?.expiry || ''} min={new Date().toISOString().slice(0,10)} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],expiry:e.target.value}}))}/></label>}
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,lineHeight:1.5}}><input type="checkbox" checked={licenceReviews[d.id]?.checked===true} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],checked:e.target.checked}}))} style={{marginTop:3}}/>I checked the original licence, the permitted vehicle class, and its validity.</label>}
                   <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
                     <button
                       className="btn btn-success"
                       onClick={() => handleApproveDriver(d.id, d.name, 'approve')}
-                      disabled={loading || verifiedApplications[d.id] !== true || licenceReviews[d.id]?.checked!==true || !licenceReviews[d.id]?.expiry}
+                      disabled={loading || verifiedApplications[d.id] !== true || (d.vehicleType !== 'Bicycle' && (licenceReviews[d.id]?.checked!==true || !licenceReviews[d.id]?.expiry || licenceReviews[d.id]?.licenceClass !== (d.vehicleType === 'Motorbike' ? 'A' : d.vehicleType === 'TukTuk' ? 'B1' : d.vehicleType === 'Car' ? 'B' : '')))}
                       style={{ flex: 1, padding: '8px', fontSize: '0.82rem', fontWeight: 700, background: '#10b981', color: '#fff', border: 'none' }}
                     >
                       ✓ Approve Driver
