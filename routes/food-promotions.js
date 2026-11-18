@@ -1,3 +1,4 @@
+import { rateLimit } from 'express-rate-limit';
 import express from 'express';
 import crypto from 'node:crypto';
 import { z } from 'zod';
@@ -96,6 +97,54 @@ const present = row => ({
 
 export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requireRole,requirePlatformAdmin,publicApiLimiter}) {
   const router=express.Router();
+
+  // Optional AI copy enhancement. No customer personal data is sent to AI.
+  // Without a configured key, a deterministic branded draft remains available.
+  const draftLimiter=rateLimit({windowMs:60*60*1000,limit:20,standardHeaders:'draft-7',legacyHeaders:false});
+  const creativeSchema=z.object({
+    title:z.string().trim().min(3).max(90),
+    subtitle:z.string().trim().max(180).default(''),
+    offerLabel:z.string().trim().max(55).default('')
+  }).strict();
+  const creativeDraft=async(req,res)=>{
+    const parsed=creativeSchema.safeParse(req.body);
+    if(!parsed.success)return res.status(400).json({error:'Provide a valid offer headline and its real terms.'});
+    const source=parsed.data;
+    let tagline=source.subtitle||'Discover something delicious from a local restaurant.';
+    let engine='branded-template';
+    if(process.env.OPENAI_API_KEY){
+      try{
+        const response=await fetch('https://api.openai.com/v1/responses',{
+          method:'POST',signal:AbortSignal.timeout(6500),
+          headers:{Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json'},
+          body:JSON.stringify({
+            model:process.env.GASTROFOOD_CREATIVE_TEXT_MODEL||'gpt-4.1-mini',
+            max_output_tokens:90,
+            input:[
+              {role:'system',content:'You write ONE short food advertisement tagline of at most 85 characters. Never add discounts, percentages, prices, free delivery, time limits or product claims not explicitly supplied. Do not include personal data, markdown or quotes.'},
+              {role:'user',content:JSON.stringify(source)}
+            ]
+          })
+        });
+        if(response.ok){
+          const data=await response.json();
+          const candidate=data.output?.flatMap(x=>x.content||[]).find(x=>x.type==='output_text')?.text?.trim();
+          // AI only suggests styling copy; authoritative offer terms remain untouched.
+          if(candidate&&candidate.length<=85&&!/\\d|%|\\bfree\\b|\\bguarantee\\b/i.test(candidate)){
+            tagline=candidate;engine='ai-assisted-copy';
+          }
+        }
+      }catch{ /* Keep a safe template if AI is unavailable. */ }
+    }
+    res.set('Cache-Control','no-store').json({
+      engine,headline:source.title,tagline,offerLabel:source.offerLabel,
+      note:'The store must verify every advertisement. Discount rules are enforced only by the server.'
+    });
+  };
+  router.post('/food-promotions/creative-draft',authenticateToken,requireRole(['owner','manager']),draftLimiter,creativeDraft);
+  router.post('/platform/food-promotions/creative-draft',authenticateToken,requirePlatformAdmin,draftLimiter,creativeDraft);
+
+
   const couponJoin=` LEFT JOIN food_promotion_coupon_rules r ON r.campaign_id=c.id `;
   const couponFields=`,r.code AS coupon_code,r.type AS coupon_type,r.value AS coupon_value,
     r.min_spend AS coupon_min_spend,r.max_uses AS coupon_max_uses,
@@ -128,6 +177,7 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
         WHERE c.status='active' AND (c.starts_at IS NULL OR c.starts_at<=?)
           AND (c.ends_at IS NULL OR c.ends_at>?)
           AND (c.tenant_id IS NULL OR t.status='active')
+          AND (r.campaign_id IS NULL OR r.max_uses=0 OR r.used_count<r.max_uses)
         ORDER BY c.updated_at DESC LIMIT 40`,[now,now]);
       res.set('Cache-Control','no-store');
       res.json({campaigns:rows.map(present)});
