@@ -578,3 +578,16 @@
   .customer-auth-route .auth-hero-brand {height:63px!important;min-height:63px!important;}
   .customer-auth-route .auth-hero-intro {padding-top:8px!important;}
 }
+
+/* When campaigns are active, the carousel replaces the illustration hero.
+   Keep the search box in a compact card directly beneath the advertising area. */
+@media(max-width:640px) {
+  .customer-premium .marketplace-hero.has-live-promotions {
+    padding:11px!important;margin-top:2px!important;
+    border-radius:18px!important;background:#fff!important;
+    border:1px solid #e1eae2!important;
+  }
+  .customer-premium .marketplace-hero.has-live-promotions>.marketplace-eyebrow {display:none!important;}
+  .customer-premium .marketplace-hero.has-live-promotions .marketplace-search {margin-top:0!important;}
+  .customer-premium .marketplace-hero.has-live-promotions .marketplace-stats {margin:10px 2px 1px!important;}
+}
