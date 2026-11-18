@@ -1214,6 +1214,7 @@ async function initTables() {
       updated_at BIGINT NOT NULL
     )`);
     await safeAddColumn('driver_identity_checks','check_type',"TEXT DEFAULT 'identity'");
+    await safeAddColumn('driver_identity_checks','document_expiry','TEXT');
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_identity_checks_driver ON driver_identity_checks(tenant_id,driver_id)');
     // Additive licence review metadata: existing active drivers remain unaffected.
     // Newly self-registered applicants must have manager-confirmed valid licences.
@@ -4364,8 +4365,8 @@ app.post('/api/webhooks/driver-identity/veriff', async (req, res) => {
     // Do not allow out-of-order notifications to overwrite final results.
     // Store only a minimal state, not document images or personal fields.
     await dbRun(
-      "UPDATE driver_identity_checks SET state=?,updated_at=? WHERE session_id=? AND provider='veriff' AND state NOT IN ('verified','rejected','expired')",
-      [decision.state,Date.now(),decision.sessionId]
+      "UPDATE driver_identity_checks SET state=?,document_expiry=?,updated_at=? WHERE session_id=? AND provider='veriff' AND state NOT IN ('verified','rejected','expired')",
+      [decision.state,decision.documentExpiry||null,Date.now(),decision.sessionId]
     );
     return res.status(200).json({ok:true});
   } catch (_) { return res.status(500).json({error:'Could not record identity decision.'}); }
@@ -4377,7 +4378,7 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
   try {
     const tenantId = await resolveDriverRegistrationTenant(req);
     if (!tenantId) return res.status(400).json({ error: 'Open the driver application from your restaurant registration link.' });
-    const cleanPhone = String(phone).replace(/[\\s-]/g, '');
+    const cleanPhone = String(phone).replace(/[\s-]/g, '');
     const cleanEmail = normalizeDriverEmail(email);
     const existing = await dbGet('SELECT id FROM drivers WHERE tenant_id=? AND (phone=? OR LOWER(email)=?)',
       [tenantId,cleanPhone,cleanEmail]);
@@ -4480,11 +4481,16 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
     }
     if(status==='available' && drivingLicenceProviderEnabled()){
       const licenceCheck=await dbGet(
-        "SELECT state FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? AND check_type='driving_licence' ORDER BY created_at DESC LIMIT 1",
+        "SELECT state,document_expiry FROM driver_identity_checks WHERE tenant_id=? AND driver_id=? AND check_type='driving_licence' ORDER BY created_at DESC LIMIT 1",
         [req.tenantId,id]
       );
       if(licenceCheck?.state!=='verified') return res.status(409).json({
         error:'Sri Lankan driving-licence document authenticity has not been verified by the configured provider.'
+      });
+      // Manager may shorten validity, but never extend past the provider-read document expiry.
+      const confirmedExpiry=verifiedLicenceExpiry(licenceCheck.document_expiry);
+      if(confirmedExpiry===null || licenceVerifiedUntil>confirmedExpiry) return res.status(409).json({
+        error:'The entered licence expiry must not exceed the authenticity provider expiry date.'
       });
     }
     const updated = await dbRun(
