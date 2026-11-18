@@ -153,9 +153,10 @@ export default function DeliveryView() {
     const drv = drivers.find(d => d.id === batchDriverId);
     try {
       setLoading(true);
+      const token = localStorage.getItem('gastroflow_token');
       const res = await fetch('/api/public/driver/assign-batch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ driverId: batchDriverId, orderIds: selectedBatchOrders })
       });
       const data = await res.json();
