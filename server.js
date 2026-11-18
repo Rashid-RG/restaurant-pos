@@ -4344,7 +4344,8 @@ app.get('/api/delivery/drivers', authenticateToken, async (req, res) => {
       (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND COALESCE(c.check_type,'identity')='identity' ORDER BY c.created_at DESC LIMIT 1) AS identityStatus,
       (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND c.check_type='driving_licence' ORDER BY c.created_at DESC LIMIT 1) AS licenceDocumentStatus,
       (SELECT m.review_state FROM driver_manual_reviews m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id) AS manualReviewStatus,
-      (SELECT m.dmt_standing_status FROM driver_manual_reviews m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id) AS dmtReviewStatus
+      (SELECT m.dmt_standing_status FROM driver_manual_reviews m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id) AS dmtReviewStatus,
+      (SELECT m.reviewed_at FROM driver_manual_reviews m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id) AS manualReviewedAt
       FROM drivers d WHERE d.tenant_id=?`,[req.tenantId]);
     res.json(drivers);
   } catch (err) {
@@ -4381,6 +4382,20 @@ async function notifyRiderApplication({tenantId,driverId,event,recipient}){
     if(!result?.success)console.warn('[Driver notifications] Email provider rejected an onboarding update');
   }catch(_){console.warn('[Driver notifications] Could not send onboarding status notification');}
 }
+
+// Restaurant owners/managers only: current and historic review state overview.
+// No images, full identity numbers, or cross-tenant records in the response.
+app.get('/api/delivery/driver-verification/audit',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const rows=await dbAll(`SELECT m.driver_id AS driverId,d.name AS driverName,
+      m.review_state AS state,m.identity_kind AS identityType,
+      m.dmt_standing_status AS standingCheck,m.reviewer_id AS reviewedBy,
+      m.reviewed_at AS reviewedAt,m.created_at AS submittedAt
+      FROM driver_manual_reviews m JOIN drivers d ON d.id=m.driver_id AND d.tenant_id=m.tenant_id
+      WHERE m.tenant_id=? ORDER BY m.reviewed_at DESC LIMIT 100`,[req.tenantId]);
+    res.set('Cache-Control','no-store').json({reviews:rows});
+  }catch(_){res.status(500).json({error:'Could not load tenant-specific verification history.'});}
+});
 
 // Restaurant hiring controls are separate from platform verification oversight.
 app.get('/api/delivery/driver-recruitment',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
@@ -4462,9 +4477,7 @@ app.get('/api/public/drivers/restaurant',publicApiLimiter,async(req,res)=>{
       const selected=driverTenantSelector(req);
       if(!selected)return res.status(400).json({error:'Select a restaurant or enter an invitation code.'});
       const resolved=await resolvePublicTenant(req);
-      tenant=await dbGet(`SELECT t.id,t.name,t.subdomain FROM tenants t
-        JOIN driver_recruitment_settings r ON r.tenant_id=t.id
-        WHERE t.id=? AND t.status IN ('active','trial') AND r.discoverable=1`,[resolved]);
+      tenant=await dbGet("SELECT id,name,subdomain FROM tenants WHERE id=? AND status IN ('active','trial')",[resolved]);
     }
     if(!tenant)return res.status(404).json({error:'Restaurant or invitation not found.'});
     res.set('Cache-Control','no-store').json({restaurant:tenant});
