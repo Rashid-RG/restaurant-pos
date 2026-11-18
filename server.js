@@ -4473,8 +4473,10 @@ app.get('/api/public/drivers/restaurant',publicApiLimiter,async(req,res)=>{
     const code=req.query.invite || req.headers['x-driver-invitation'];
     let tenant;
     if(code){
+      // A valid invitation is self-identifying, even when this device previously
+      // selected a different restaurant. The signed-up OTP/register write still
+      // enforces an exact match with the selected tenant.
       tenant=await resolveDriverInvitation(code);
-      if(tenant && driverTenantSelector(req) && await resolvePublicTenant(req)!==tenant.id)tenant=null;
     }else {
       const selected=driverTenantSelector(req);
       if(!selected)return res.status(400).json({error:'Select a restaurant or enter an invitation code.'});
