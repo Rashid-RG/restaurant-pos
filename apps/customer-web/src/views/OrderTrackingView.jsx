@@ -310,19 +310,24 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         online:navigator.onLine!==false,now,lastResumeAt:lastNativeResumeAt
       }))return;
       lastNativeResumeAt=now;
+      // The previous request may still be stalled from the suspended WebView.
+      // Invalidate its tracking gate before forcing a fresh authorized snapshot.
+      trackingGateRef.current.invalidate();
       fetchOrder(current.id,{silent:true});
     };
     if(isPackagedNative){
       document.addEventListener('visibilitychange',refreshOnNativeResume);
       window.addEventListener('focus',refreshOnNativeResume);
       window.addEventListener('online',refreshOnNativeResume);
+      // BFCache/pageshow also covers restored WebViews that emit no focus event.
+      window.addEventListener('pageshow',refreshOnNativeResume);
     }
 
     // Use 5-second polling only while SSE is unavailable. With a connected
     // stream, reconcile a snapshot after 35 seconds without order events.
     // This bounds server load while still recovering from missed updates.
     const interval = setInterval(() => {
-      if (orderRef.current?.id && shouldPollTrackingSnapshot({streamConnected:streamHealthyRef.current,lastSnapshotAt:lastSnapshotRef.current,now:Date.now(),visible:document.visibilityState!=='hidden'})) {
+      if (orderRef.current?.id && shouldPollTrackingSnapshot({streamConnected:streamHealthyRef.current,lastSnapshotAt:lastSnapshotRef.current,now:Date.now(),visible:document.visibilityState!=='hidden',online:navigator.onLine!==false})) {
         fetchOrder(orderRef.current.id,{silent:true});
       }
     }, 5000);
@@ -334,6 +339,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
         document.removeEventListener('visibilitychange',refreshOnNativeResume);
         window.removeEventListener('focus',refreshOnNativeResume);
         window.removeEventListener('online',refreshOnNativeResume);
+        window.removeEventListener('pageshow',refreshOnNativeResume);
       }
       if (es) es.close();
       streamHealthyRef.current=false;
