@@ -2,6 +2,7 @@ import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOr
 import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview, requiredLicenceClass, managerLicenceClassMatches } from './lib/driver-onboarding.js';
+import { DRIVER_DOCUMENT_KINDS, manualDocumentKey, manualDocumentsConfigured, decodeManualDocument, encryptManualDocument, decryptManualDocument, documentKindsForVehicle } from './lib/driver-manual-documents.js';
 import { veriffConfigured, drivingLicenceProviderEnabled, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
@@ -1216,6 +1217,22 @@ async function initTables() {
     await safeAddColumn('driver_identity_checks','check_type',"TEXT DEFAULT 'identity'");
     await safeAddColumn('driver_identity_checks','document_expiry','TEXT');
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_identity_checks_driver ON driver_identity_checks(tenant_id,driver_id)');
+    // Non-destructive manual onboarding evidence. Encrypted AES-GCM payloads only;
+    // plaintext is never stored and evidence is removed after review.
+    await dbRun(`CREATE TABLE IF NOT EXISTS driver_manual_documents (
+      tenant_id TEXT NOT NULL, driver_id TEXT NOT NULL, kind TEXT NOT NULL,
+      content_type TEXT NOT NULL, ciphertext TEXT, iv TEXT, tag TEXT,
+      digest TEXT NOT NULL, created_at BIGINT NOT NULL,
+      PRIMARY KEY(tenant_id,driver_id,kind)
+    )`);
+    await dbRun(`CREATE TABLE IF NOT EXISTS driver_manual_reviews (
+      tenant_id TEXT NOT NULL, driver_id TEXT NOT NULL, review_state TEXT NOT NULL,
+      identity_kind TEXT NOT NULL, evidence_digest TEXT NOT NULL,
+      dmt_standing_status TEXT NOT NULL, licence_expiry TEXT,
+      licence_class TEXT, reviewer_id TEXT, reviewed_at BIGINT,
+      created_at BIGINT NOT NULL, PRIMARY KEY(tenant_id,driver_id)
+    )`);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_manual_reviews_tenant ON driver_manual_reviews(tenant_id,review_state)');
     // Additive licence review metadata: existing active drivers remain unaffected.
     // Newly self-registered applicants must have manager-confirmed valid licences.
     await safeAddColumn('drivers', 'licenseReviewRequired', 'INTEGER DEFAULT 0');
@@ -4282,7 +4299,9 @@ app.get('/api/delivery/drivers', authenticateToken, async (req, res) => {
   try {
     const drivers = await dbAll(`SELECT d.id,d.name,d.phone,d.status,d.vehicleType,d.plateNumber,d.email,
       (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND COALESCE(c.check_type,'identity')='identity' ORDER BY c.created_at DESC LIMIT 1) AS identityStatus,
-      (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND c.check_type='driving_licence' ORDER BY c.created_at DESC LIMIT 1) AS licenceDocumentStatus
+      (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND c.check_type='driving_licence' ORDER BY c.created_at DESC LIMIT 1) AS licenceDocumentStatus,
+      (SELECT m.review_state FROM driver_manual_reviews m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id) AS manualReviewStatus,
+      (SELECT m.dmt_standing_status FROM driver_manual_reviews m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id) AS dmtReviewStatus
       FROM drivers d WHERE d.tenant_id=?`,[req.tenantId]);
     res.json(drivers);
   } catch (err) {
@@ -4311,6 +4330,7 @@ app.get('/api/public/driver/verification-capabilities', publicApiLimiter, (_req,
     emailCodeConfigured: isEmailConfigured(),
     identityProviderConfigured: veriffConfigured(),
     licenceDocumentFlowConfigured: drivingLicenceProviderEnabled(),
+    manualDocumentUploadConfigured: manualDocumentsConfigured(),
     officialDmtStandingLookupConfigured: false,
     providerEndToEndVerified: false
   });
@@ -4390,6 +4410,96 @@ app.post('/api/webhooks/driver-identity/veriff', async (req, res) => {
   } catch (_) { return res.status(500).json({error:'Could not record identity decision.'}); }
 });
 
+// Staging/manual application authorization is limited to one pending rider,
+// by signed application token issued only after email OTP registration succeeds.
+async function authenticatePendingDriverApplication(req,res,next){
+  try{
+    const token=req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+    if(!token)return res.status(401).json({error:'Application token required.'});
+    const claim=jwt.verify(token,process.env.JWT_SECRET||JWT_SECRET,{algorithms:['HS256']});
+    if(claim.purpose!=='driver_manual_application' || typeof claim.driverId!=='string' ||
+       typeof claim.tenant_id!=='string')return res.status(403).json({error:'Invalid application access.'});
+    const rider=await dbGet("SELECT id,vehicleType FROM drivers WHERE id=? AND tenant_id=? AND status='pending_approval'",
+      [claim.driverId,claim.tenant_id]);
+    if(!rider)return res.status(403).json({error:'Application is not pending.'});
+    req.manualApplicant={tenantId:claim.tenant_id,driverId:rider.id,vehicleType:rider.vehicleType};
+    next();
+  }catch(_){return res.status(401).json({error:'Application session expired or invalid.'});}
+}
+
+// Sensitive data is encrypted with DRIVER_DOCUMENT_ENCRYPTION_KEY; refuse rather
+// than silently saving plaintext if there is no application-specific key.
+app.post('/api/public/drivers/manual-document', driverApplicationLimiter, authenticatePendingDriverApplication, async(req,res)=>{
+  const key=manualDocumentKey();
+  if(!key)return res.status(503).json({error:'Secure manual document storage has not been enabled.'});
+  if(req.body?.consent!==true)return res.status(400).json({error:'Explicit sensitive-document handling consent is required.'});
+  let doc;
+  try{doc=decodeManualDocument(req.body);}catch(error){return res.status(400).json({error:error.message});}
+  const a=req.manualApplicant;
+  if(!documentKindsForVehicle(a.vehicleType).includes(doc.kind))return res.status(400).json({error:'Document kind not allowed for vehicle.'});
+  try{
+    const encrypted=encryptManualDocument(doc.bytes,{tenantId:a.tenantId,driverId:a.driverId,kind:doc.kind},key);
+    const result=await dbRun(
+      "INSERT INTO driver_manual_documents (tenant_id,driver_id,kind,content_type,ciphertext,iv,tag,digest,created_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,driver_id,kind) DO UPDATE SET content_type=excluded.content_type,ciphertext=excluded.ciphertext,iv=excluded.iv,tag=excluded.tag,digest=excluded.digest,created_at=excluded.created_at",
+      [a.tenantId,a.driverId,doc.kind,doc.contentType,encrypted.ciphertext,encrypted.iv,encrypted.tag,encrypted.digest,Date.now()]);
+    await dbRun("DELETE FROM driver_manual_reviews WHERE tenant_id=? AND driver_id=? AND review_state!='approved'",[a.tenantId,a.driverId]);
+    res.set('Cache-Control','no-store').status(201).json({success:true,kind:doc.kind,message:'Encrypted document received for restaurant review. Not yet verified.'});
+  }catch(_){res.status(500).json({error:'Could not securely save the document.'});}
+});
+app.get('/api/public/drivers/manual-application',driverApplicationLimiter,authenticatePendingDriverApplication,async(req,res)=>{
+  const a=req.manualApplicant;
+  try{
+    const rows=await dbAll("SELECT kind,created_at FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[a.tenantId,a.driverId]);
+    res.set('Cache-Control','no-store').json({documents:rows,requiredKinds:documentKindsForVehicle(a.vehicleType)});
+  }catch(_){res.status(500).json({error:'Cannot load application evidence.'});}
+});
+// Only owner/manager may read decrypted images, and every read is audited.
+app.get('/api/delivery/drivers/:id/manual-document/:kind',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  if(!DRIVER_DOCUMENT_KINDS.includes(req.params.kind))return res.status(400).json({error:'Invalid evidence type.'});
+  const key=manualDocumentKey();
+  if(!key)return res.status(503).json({error:'Secure document access unavailable.'});
+  try{
+    const row=await dbGet(
+      'SELECT d.*,r.status FROM driver_manual_documents d JOIN drivers r ON r.id=d.driver_id AND r.tenant_id=d.tenant_id WHERE d.tenant_id=? AND d.driver_id=? AND d.kind=? AND r.status=?',
+      [req.tenantId,req.params.id,req.params.kind,'pending_approval']);
+    if(!row||!row.ciphertext)return res.status(404).json({error:'Evidence is unavailable or has been purged.'});
+    const bytes=decryptManualDocument(row,{tenantId:req.tenantId,driverId:req.params.id,kind:req.params.kind},key);
+    await writeAuditLog(req.user.id,req.user.username,'view_driver_document',`Reviewed protected driver evidence ${req.params.kind} for ${req.params.id}`);
+    res.set('Cache-Control','no-store, private').set('X-Content-Type-Options','nosniff').json({
+      kind:req.params.kind,contentType:row.content_type,data:bytes.toString('base64')
+    });
+  }catch(_){res.status(500).json({error:'Unable to open document evidence.'});}
+});
+
+// Manager review of submitted documents is separate from Veriff automation and
+// never claims an official DMT status without direct external confirmation.
+app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  const {identityKind,decision,dmtStandingStatus='not_checked',licenceClass,licenceExpiry}=req.body||{};
+  if(!['nic','passport'].includes(identityKind) || !['approve','reject','resubmit'].includes(decision) ||
+     !['not_checked','manager_checked_external'].includes(dmtStandingStatus))
+    return res.status(400).json({error:'Invalid review decision or identity type.'});
+  try{
+    const rider=await dbGet("SELECT vehicleType FROM drivers WHERE id=? AND tenant_id=? AND status='pending_approval'",[req.params.id,req.tenantId]);
+    if(!rider)return res.status(409).json({error:'No pending application for this restaurant.'});
+    const kinds=documentKindsForVehicle(rider.vehicleType);
+    const rows=await dbAll("SELECT kind,digest FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[req.tenantId,req.params.id]);
+    if(decision==='approve' && kinds.some(k=>!rows.some(r=>r.kind===k)))
+      return res.status(409).json({error:'Required identity and licence images must all be submitted.'});
+    if(decision==='approve' && rider.vehicleType!=='Bicycle' &&
+       (!managerLicenceClassMatches(rider.vehicleType,licenceClass)||verifiedLicenceExpiry(licenceExpiry)===null))
+      return res.status(400).json({error:'Enter the verified licence category and a valid future expiry.'});
+    const digest=crypto.createHash('sha256').update(rows.sort((a,b)=>a.kind.localeCompare(b.kind)).map(r=>r.kind+':'+r.digest).join('|')).digest('hex');
+    await dbRun(
+      'INSERT INTO driver_manual_reviews (tenant_id,driver_id,review_state,identity_kind,evidence_digest,dmt_standing_status,licence_expiry,licence_class,reviewer_id,reviewed_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,driver_id) DO UPDATE SET review_state=excluded.review_state,identity_kind=excluded.identity_kind,evidence_digest=excluded.evidence_digest,dmt_standing_status=excluded.dmt_standing_status,licence_expiry=excluded.licence_expiry,licence_class=excluded.licence_class,reviewer_id=excluded.reviewer_id,reviewed_at=excluded.reviewed_at',
+      [req.tenantId,req.params.id,decision==='approve'?'approved':decision==='reject'?'rejected':'resubmit',
+       identityKind,digest,dmtStandingStatus,rider.vehicleType==='Bicycle'?null:licenceExpiry||null,
+       rider.vehicleType==='Bicycle'?null:licenceClass||null,req.user.id,Date.now(),Date.now()]);
+    await writeAuditLog(req.user.id,req.user.username,'review_driver_manual_evidence',
+      `Manual rider evidence ${req.params.id}: ${decision}; DMT standing: ${dmtStandingStatus}`);
+    res.set('Cache-Control','no-store').json({success:true,status:decision,message:'Evidence review recorded. Rider account is still awaiting a separate approval.'});
+  }catch(_){res.status(500).json({error:'Unable to record the evidence review.'});}
+});
+
 // Public Driver Self-Registration Endpoint (Phase 2: password + tenant-bound)
 app.post('/api/public/drivers/register', driverApplicationLimiter, validateRequest(driverRegisterSchema), async (req, res) => {
   const { name, phone, password, email, verificationCode, vehicleType, plateNumber } = req.body;
@@ -4432,8 +4542,10 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
       }
     }
     broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType },tenantId);
+    const applicationToken=jwt.sign({purpose:'driver_manual_application',driverId:id,tenant_id:tenantId},
+      process.env.JWT_SECRET||JWT_SECRET,{algorithm:'HS256',expiresIn:'14d'});
     return res.status(202).json({
-      success:true,id,status:'pending_approval',identityVerificationUrl,licenceVerificationUrl,
+      success:true,id,status:'pending_approval',identityVerificationUrl,licenceVerificationUrl,applicationToken,manualDocumentsEnabled:manualDocumentsConfigured(),
       identityStatus:identityVerificationUrl?'created':'not_started',
       message:'Email verified and application submitted. Identity and vehicle eligibility must be reviewed before driver activation.'
     });
