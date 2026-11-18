@@ -4275,7 +4275,7 @@ app.post('/api/public/drivers/register', publicApiLimiter, validateRequest(drive
   const { name, phone, password, email, vehicleType, plateNumber } = req.body;
   try {
     const tenantId = await resolvePublicTenant(req);
-    const cleanPhone = String(phone).replace(/[\\s-]/g, '');
+    const cleanPhone = String(phone).replace(/[\s-]/g, '');
     const existing = await dbGet('SELECT id FROM drivers WHERE phone = ? AND tenant_id = ?', [cleanPhone, tenantId]);
     if (existing) return res.status(409).json({ error: 'This phone already has a driver application for this restaurant. Contact the restaurant for assistance.' });
     const id = 'drv_' + crypto.randomUUID();
