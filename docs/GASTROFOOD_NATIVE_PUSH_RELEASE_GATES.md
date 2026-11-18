@@ -21,6 +21,12 @@ This is an engineering release gate, not proof that iOS/Android push is already 
 7. **Reliability.** Deduplicate by tenant + order + recipient-device + committed status; handle provider retries, out-of-order events and revoked orders without fabricating milestones.
 8. **Observability.** Monitor send/receipt failure rates without logging raw device tokens or customer secrets. Separate staging/production credentials, bundle IDs and app IDs.
 
+## Secure storage bridge self-test — no customer tokens
+
+The `verifyNativeSecureSessionBridge` helper in `apps/customer-web/src/utils/native-secure-session-diagnostic.js` performs an explicitly requested `get → set → get → remove → get` round trip with a fresh random disposable token under a unique `gastroflow_customer_token:__native_probe_<uuid>` key. It never accesses real customer sessions, returns only `{ready,reason}` without token values or provider exception details, and retries cleanup after an interrupted test. Tests cover missing bridges, key collisions, failed reads, failed writes and deletion. The Android variant CI includes the diagnostic's regression suite.
+
+This self-test is **not automatically invoked** on launch and does not activate the migration module or secure customer login. On a physical device, the tester must first instantiate the approved platform-specific plugin adapter, run this self-test with a test account, verify the disposable item is removed, then independently test persistence after app restart, OS upgrade and device lock/unlock. Never use real merchant/customer access tokens as diagnostics. A passing self-test alone does not establish secure migration readiness or a signed-release approval.
+
 ## Native release execution sequence
 
 - [x] Android customer project with isolated staging ID, native source and branding
