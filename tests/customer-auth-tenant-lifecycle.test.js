@@ -19,6 +19,17 @@ describe('GastroFlow Food tenant-scoped customer auth lifecycle',()=>{
     expect(isCurrentCustomerAuthAttempt({scope,activeTenant:'restaurant-a',epoch:4})).toBe(false);
     expect(isCurrentCustomerAuthAttempt({scope,activeTenant:'restaurant-a',epoch:5})).toBe(true);
   });
+  it('finishes bootstrap on a newer login or logout during pending restore',()=>{
+    const code=readFileSync('apps/customer-web/src/context/CustomerAuthContext.jsx','utf8');
+    const commit=code.slice(code.indexOf('const commitCustomerSession ='),code.indexOf('const login ='));
+    const logout=code.slice(code.indexOf('const logout ='),code.indexOf('const refreshProfile ='));
+    expect(commit).toContain('scopeRef.current.epoch++');
+    expect(commit).toContain('setCustomer(data.customer)');
+    expect(commit).toContain('setLoading(false)');
+    expect(logout).toContain('scopeRef.current.epoch++');
+    expect(logout).toContain('setCustomer(null)');
+    expect(logout).toContain('setLoading(false)');
+  });
   it('guards the actual React provider restore, login, register, OTP and profile flows',()=>{
     const code=readFileSync('apps/customer-web/src/context/CustomerAuthContext.jsx','utf8');
     expect(code).toContain('scopeRef.current.mounted = false');
