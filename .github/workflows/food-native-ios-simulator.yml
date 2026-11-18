@@ -6,6 +6,7 @@ name: GastroFlow Food iOS simulator candidate
 # exclusively on codex/production-readiness and trigger a single unsigned
 # simulator validation when this workflow file is changed on that branch.
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches: [codex/production-readiness]
