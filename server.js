@@ -32,6 +32,7 @@ import { initStaffPayroll, createStaffPayrollRouter } from './routes/staff-payro
 import { initWorkday, createWorkdayRouter } from './routes/workday.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
+import { initPromotions, createPromotionsRouter } from './routes/food-promotions.js';
 import { configuredNativeOrigins, invalidNativeOriginEntries } from './lib/customer-native-origins.js';
 import { resolveCustomerCorsOrigins, customerCorsOriginHandler } from './lib/customer-cors-policy.js';
 import express from 'express';
@@ -1313,6 +1314,7 @@ async function initTables() {
     await initInventoryOperations(dbRun);
     await initCheckoutRecovery(dbRun);
     await initPlatformOperations(dbRun);
+    await initPromotions(dbRun);
     await initSaasBilling(dbRun);
     await initExpensesTable(dbRun);
     await initStaffPayroll(dbRun);
@@ -1886,6 +1888,7 @@ app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],(
 app.post(['/api/payments/payhere/checkout','/api/public/payment/payhere/hash'],async(req,res,next)=>{try{if(await dbGet('SELECT id FROM manual_payments WHERE orderId=? AND tenant_id=?',[req.body?.orderId,req.trackingTenant]))return res.status(409).json({error:'This order has recorded manual payments. Contact the restaurant to settle its remaining balance.'});next();}catch(e){next(e);}});
 app.use('/api', createSaasBillingRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
 app.use('/api', createPlatformOperations({dbGet,dbAll,dbRun,authenticateToken,requirePlatformAdmin}));
+app.use('/api', createPromotionsRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,requirePlatformAdmin,publicApiLimiter}));
 app.use('/api', createSupportRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolvePublicTenant,notifyPOS,rateLimiter:publicApiLimiter}));
 app.use('/api', createExpensesRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,broadcastEvent}));
 app.use('/api', createStaffPayrollRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole}));
