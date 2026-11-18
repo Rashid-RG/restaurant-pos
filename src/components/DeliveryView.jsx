@@ -200,6 +200,7 @@ export default function DeliveryView() {
                     <span className="badge badge-warning" style={{ marginTop: '6px', textTransform: 'uppercase', fontSize: '10px' }}>
                       Awaiting Admin Approval
                     </span>
+                    <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Automated ID verification: <strong>{d.identityStatus === 'verified' ? 'Provider verified' : d.identityStatus === 'rejected' ? 'Provider rejected — review required' : d.identityStatus === 'resubmit' ? 'Resubmission requested' : d.identityStatus === 'created' || d.identityStatus === 'review' ? 'Verification in progress' : 'Not verified'}</strong></div>
                   </div>
                   <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
                   <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
