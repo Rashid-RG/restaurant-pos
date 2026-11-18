@@ -4329,17 +4329,23 @@ app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchem
   }
 });
 
-// Admin Driver Approval & Status Endpoint
+// Managers may review pending applications only. No implicit activation or cross-tenant approval.
 app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['owner', 'manager']), async (req, res) => {
   const { id } = req.params;
-  const { status } = req.body; // 'available' or 'rejected'
-  const newStatus = status === 'rejected' ? 'rejected' : 'available';
-
+  const { status, verificationConfirmed } = req.body || {};
+  if (!['available', 'rejected'].includes(status)) return res.status(400).json({ error: 'Choose approve or reject.' });
+  if (status === 'available' && verificationConfirmed !== true) {
+    return res.status(400).json({ error: 'Confirm that applicant identity and vehicle eligibility have been reviewed before approval.' });
+  }
   try {
-    await dbRun('UPDATE drivers SET status = ? WHERE id = ? AND tenant_id = ?', [newStatus, id, req.tenantId]);
-    await writeAuditLog(req.user.id, req.user.username, 'approve_driver', `Updated driver ${id} status to ${newStatus}`);
-    broadcastEvent('driver_updated', { id, status: newStatus });
-    res.json({ success: true, message: `Driver status updated to ${newStatus}` });
+    const updated = await dbRun(
+      'UPDATE drivers SET status = ? WHERE id = ? AND tenant_id = ? AND status = ?',
+      [status, id, req.tenantId, 'pending_approval']
+    );
+    if (updated.changes !== 1) return res.status(409).json({ error: 'Application is no longer pending or does not belong to your restaurant.' });
+    await writeAuditLog(req.user.id, req.user.username, 'review_driver', `Reviewed driver ${id} as ${status}; eligibility attested: ${verificationConfirmed === true}`);
+    broadcastEvent('driver_updated', { id, status });
+    res.json({ success: true, message: `Driver application ${status === 'available' ? 'approved' : 'rejected'}.` });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
