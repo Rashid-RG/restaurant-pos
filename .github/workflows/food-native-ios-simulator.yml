@@ -151,6 +151,18 @@ jobs:
           path: gastrofood-ios-simulator.zip
           if-no-files-found: error
           retention-days: 7
+      - name: Summarize simulator validation for the release checklist
+        if: always()
+        run: |
+          {
+            echo '## GastroFlow Food iOS simulator validation'
+            echo ''
+            echo '- Branch: \`codex/production-readiness\`'
+            echo '- Commit: \`${GITHUB_SHA}\`'
+            echo '- Scope: customer iPhone app only; no signing, TestFlight, deployment or database operations'
+            echo '- Result: inspect the Xcode compilation step and generated artifacts above'
+            echo '- Next gate: signed physical-iPhone build and staging authentication/order testing'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload isolated iPhone project source for review
         uses: actions/upload-artifact@v4
         with:
