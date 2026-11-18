@@ -59,3 +59,20 @@ References:
 - https://cheatsheetseries.owasp.org/cheatsheets/Mobile_Application_Security_Cheat_Sheet.html
 - https://developer.android.com/develop/sensors-and-location/location/background
 - https://developer.apple.com/documentation/CoreLocation/requesting-authorization-to-use-location-services
+
+## Sri Lankan driving-licence authenticity (provider-gated pilot, 2026-11-18)
+
+**Evidence:** Veriff publishes Sri Lanka as supported for driving licences; it recognizes `DRIVERS_LICENSE` in its API. Its decision webhook exposes `verification.document.type`, `country`, and optionally `validUntil`; **expiry extraction requires Veriff Solutions Engineer enablement**. A positive identity result is not an official DMT licence status lookup.
+
+- Provision a Veriff business integration and a verification flow that explicitly accepts **Sri Lankan driving licences** with document + selfie, authenticating both sides where required. Confirm sample Sri Lankan licences and required scripts with Veriff support before enabling merchants.
+- Configure `VERIFF_API_KEY`, `VERIFF_SHARED_SECRET`, and the Veriff-controlled `VERIFF_BASE_URL=https://stationapi.veriff.com` **only in authorized staging secrets**, never in GitHub.
+- Configure the provider **Decision webhook** to `https://gastroflow-staging.onrender.com/api/webhooks/driver-identity/veriff`. Verify callbacks use signature and API key headers; test real signed responses.
+- **Feature flag:** only set `VERIFF_DRIVER_LICENCE_ENABLED=true` after document coverage and valid-until extraction are confirmed. With this switch off, managers must use the existing supervised licence review; the UI never claims document authenticity was machine-verified.
+- A fresh rider with explicit third-party consent receives separate provider-hosted **identity** and **driving licence** verification URLs. No images, identity numbers or biometric templates are returned to the POS or stored in application tables.
+- A signed licence webhook passes the authenticity gate only if provider outcome is approved, the document is `DRIVERS_LICENSE`, issuing country is `LK`, no known suspicious/temporary specimen flags are set, and `validUntil` is a legitimate future date. Missing evidence -> review, not auto-approve.
+- Restaurant staff still separately verify vehicle class, legal eligibility, any suspension/revocation via appropriate authorized channels, and original licence evidence. The manager-entered expiry cannot exceed the provider-read expiry when automated checks are enabled.
+- Neither document-verification result automatically activates the driver. New approval remains manager-only, tenant-bound and auditable.
+
+**Important limitations:** This is an integration foundation, **not a successful real-provider end-to-end verification**. No provider account/keys, DMT record-lookup API, real Sri Lankan licence, or real callback were independently tested. It cannot prove licence revocation/suspension or lawful vehicle entitlement. Confirm production privacy and cross-border biometric-processing obligations before collecting real documents.
+
+Sources: https://www.veriff.com/supported-countries ; https://devdocs.veriff.com/apidocs/v1sessions ; https://devdocs.veriff.com/docs/decision-webhook
