@@ -65,7 +65,7 @@ References:
 **Evidence:** Veriff publishes Sri Lanka as supported for driving licences; it recognizes `DRIVERS_LICENSE` in its API. Its decision webhook exposes `verification.document.type`, `country`, and optionally `validUntil`; **expiry extraction requires Veriff Solutions Engineer enablement**. A positive identity result is not an official DMT licence status lookup.
 
 - Provision a Veriff business integration and a verification flow that explicitly accepts **Sri Lankan driving licences** with document + selfie, authenticating both sides where required. Confirm sample Sri Lankan licences and required scripts with Veriff support before enabling merchants.
-- Configure `VERIFF_API_KEY`, `VERIFF_SHARED_SECRET`, and the Veriff-controlled `VERIFF_BASE_URL=https://stationapi.veriff.com` **only in authorized staging secrets**, never in GitHub.
+- Configure `VERIFF_API_KEY`, `VERIFF_SHARED_SECRET`, and the Veriff-controlled `VERIFF_BASE_URL=https://api-saas.veriff.com` **only in authorized staging secrets**, never in GitHub.
 - Configure the provider **Decision webhook** to `https://gastroflow-staging.onrender.com/api/webhooks/driver-identity/veriff`. Verify callbacks use signature and API key headers; test real signed responses.
 - **Feature flag:** only set `VERIFF_DRIVER_LICENCE_ENABLED=true` after document coverage and valid-until extraction are confirmed. With this switch off, managers must use the existing supervised licence review; the UI never claims document authenticity was machine-verified.
 - A fresh rider with explicit third-party consent receives separate provider-hosted **identity** and **driving licence** verification URLs. No images, identity numbers or biometric templates are returned to the POS or stored in application tables.
@@ -74,6 +74,10 @@ References:
 - DMT vehicle-class review: unknown-capacity motorbike registrations require a manager-confirmed full **A** class; a restricted **A1** licence cannot be assumed sufficient without an engine-capacity workflow. Tuk-tuk requires **B1**; car/light van requires **B**. Bicycle couriers do not require a motor-vehicle licence but still undergo identity and restaurant review. Existing active drivers are not suddenly blocked by this additive change.
 - If Veriff provides an extracted class or class-specific validity dates, a contradictory or expired entitlement triggers manual review; absent category extraction does not count as automated class verification.
 - Neither document-verification result automatically activates the driver. New approval remains manager-only, tenant-bound and auditable.
+
+**Required provider-host migration:** Veriff will retire legacy `stationapi.veriff.com` on 9 December 2026. Select your account's current API origin: self-serve `https://api-saas.veriff.com`, EU enterprise `https://api-eu.veriff.com`, or US enterprise `https://api-us.veriff.com`. The application rejects other API origins and untrusted session hosts. Source: https://status.veriff.com/incidents/mnh76bnp2dfl
+
+**Pre-deployment read-only checks:** Confirm green GitHub Actions and that Render staging targets `codex/production-readiness`, with automatic deployments disabled. Staging rollout uses only the existing staging service after explicit approval. Check `/api/public/driver/verification-capabilities` after deploy; the endpoint reports configured capabilities, **not that a real Veriff decision has been tested**. With credentials absent, identity/license features remain off, and real-identity testing cannot start.
 
 **Important limitations:** This is an integration foundation, **not a successful real-provider end-to-end verification**. No provider account/keys, DMT record-lookup API, real Sri Lankan licence, or real callback were independently tested. It cannot prove licence revocation/suspension or lawful vehicle entitlement. Confirm production privacy and cross-border biometric-processing obligations before collecting real documents.
 
