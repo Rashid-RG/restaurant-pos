@@ -28,3 +28,14 @@
 @media(max-width:860px){.gf-campaign-layout{grid-template-columns:1fr}}@media(max-width:480px){.gf-campaign-manager{padding:12px}.gf-campaign-form,.gf-campaign-list{padding:13px}.gf-campaign-two{grid-template-columns:1fr}}
 
 .gf-campaign-metrics{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 2px}.gf-campaign-metrics span{font-size:11px;color:#3b6a50;background:#e9f7eb;padding:6px 8px;border-radius:8px}.gf-campaign-metrics b{color:#13563a;font-size:13px}
+
+.gf-campaign-coupon-setup{padding:15px;margin:11px 0;border:1px solid #cce6d3;border-radius:17px;background:#f3faf2}
+.gf-campaign-coupon-fields{margin:9px 0 2px}
+.gf-campaign-creative{padding:15px;background:linear-gradient(130deg,#e7f8e8,#fbf6e8);border:1px solid #cfe6d2;border-radius:17px;margin:8px 0 15px}
+.gf-campaign-creative strong{color:#155339;font-size:15px}
+.gf-campaign-creative p{font-size:12px;color:#557360;line-height:1.55;margin:6px 0 12px}
+.gf-campaign-creative>button{border:0;border-radius:12px;background:#0b694b;color:#fff;font-size:13px;font-weight:800;min-height:43px;padding:9px 15px;cursor:pointer}
+.gf-campaign-creative>button:disabled{opacity:.6}
+.gf-campaign-creative-draft{margin-top:13px;border-radius:14px;background:white;border:1px solid #d7e7d8;padding:13px}
+.gf-campaign-creative-draft p{color:#365f49;margin:7px 0;font-size:14px}
+.gf-campaign-creative-draft small{color:#648071;font-size:11px}
