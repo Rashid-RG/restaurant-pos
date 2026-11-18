@@ -154,9 +154,25 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
     `SELECT c.* ${couponFields} FROM food_promotion_campaigns c ${couponJoin}
      WHERE c.id=?${tenantId?' AND c.tenant_id=?':''}`,
      tenantId?[id,tenantId]:[id]);
+  const transact=async(action)=>{
+    await dbRun('BEGIN TRANSACTION');
+    try{
+      const result=await action();
+      await dbRun('COMMIT');
+      return result;
+    }catch(err){
+      await dbRun('ROLLBACK');
+      throw err;
+    }
+  };
   const saveCoupon=async(campaignId,tenantId,coupon)=>{
     if(!coupon)return;
     if(!tenantId)throw Error('An offer coupon must belong to a restaurant.');
+    const legacy=await dbGet('SELECT code FROM promotions WHERE tenant_id=? AND code=?',[tenantId,coupon.code]);
+    if(legacy)throw Object.assign(Error('This coupon code is already used by an older promotion.'),{status:409});
+    const existing=await dbGet('SELECT campaign_id FROM food_promotion_coupon_rules WHERE tenant_id=? AND code=?',[tenantId,coupon.code]);
+    if(existing&&existing.campaign_id!==campaignId)
+      throw Object.assign(Error('Coupon code already belongs to another campaign.'),{status:409});
     await dbRun(`INSERT INTO food_promotion_coupon_rules
       (campaign_id,tenant_id,code,type,value,min_spend,max_uses,per_customer_limit,order_type)
       VALUES (?,?,?,?,?,?,?,?,?)
@@ -224,12 +240,14 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
       const parsed=campaignSchema.safeParse(req.body);
       if(!parsed.success)return res.status(400).json({error:'Invalid promotion details.',details:parsed.error.issues.map(i=>i.message)});
       const v=parsed.data;const now=Date.now();const id=crypto.randomUUID();
-      await dbRun(`INSERT INTO food_promotion_campaigns
-        (id,tenant_id,title,subtitle,offer_label,image_url,call_to_action,status,starts_at,ends_at,show_popup,auto_creative,created_by,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [id,req.tenantId,v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,
-         Number(v.showPopup),Number(v.autoCreative),req.user.id,now,now]);
-      await saveCoupon(id,req.tenantId,v.coupon);
+      await transact(async()=>{
+        await dbRun(`INSERT INTO food_promotion_campaigns
+          (id,tenant_id,title,subtitle,offer_label,image_url,call_to_action,status,starts_at,ends_at,show_popup,auto_creative,created_by,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [id,req.tenantId,v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,
+           Number(v.showPopup),Number(v.autoCreative),req.user.id,now,now]);
+        await saveCoupon(id,req.tenantId,v.coupon);
+      });
       const row=await getCampaign(id,req.tenantId);
       res.status(201).json({campaign:present(row)});
     } catch(err){next(err);}
@@ -241,11 +259,13 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
       const parsed=campaignSchema.safeParse(req.body);
       if(!parsed.success)return res.status(400).json({error:'Invalid promotion details.',details:parsed.error.issues.map(i=>i.message)});
       const v=parsed.data;
-      await dbRun(`UPDATE food_promotion_campaigns SET title=?,subtitle=?,offer_label=?,image_url=?,call_to_action=?,
-        status=?,starts_at=?,ends_at=?,show_popup=?,auto_creative=?,updated_at=? WHERE id=? AND tenant_id=?`,
-        [v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,Number(v.showPopup),
-         Number(v.autoCreative),Date.now(),req.params.id,req.tenantId]);
-      await saveCoupon(req.params.id,req.tenantId,v.coupon);
+      await transact(async()=>{
+        await dbRun(`UPDATE food_promotion_campaigns SET title=?,subtitle=?,offer_label=?,image_url=?,call_to_action=?,
+          status=?,starts_at=?,ends_at=?,show_popup=?,auto_creative=?,updated_at=? WHERE id=? AND tenant_id=?`,
+          [v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,Number(v.showPopup),
+           Number(v.autoCreative),Date.now(),req.params.id,req.tenantId]);
+        await saveCoupon(req.params.id,req.tenantId,v.coupon);
+      });
       res.json({campaign:present(await getCampaign(req.params.id,req.tenantId))});
     } catch(err){next(err);}
   });
@@ -266,12 +286,14 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
       if(v.tenantId && !(await dbGet('SELECT id FROM tenants WHERE id=?',[v.tenantId])))
         return res.status(404).json({error:'Restaurant not found.'});
       const id=crypto.randomUUID(),now=Date.now();
-      await dbRun(`INSERT INTO food_promotion_campaigns
-        (id,tenant_id,title,subtitle,offer_label,image_url,call_to_action,status,starts_at,ends_at,show_popup,auto_creative,created_by,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [id,v.tenantId,v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,
-         Number(v.showPopup),Number(v.autoCreative),req.user.id,now,now]);
-      await saveCoupon(id,v.tenantId,v.coupon);
+      await transact(async()=>{
+        await dbRun(`INSERT INTO food_promotion_campaigns
+          (id,tenant_id,title,subtitle,offer_label,image_url,call_to_action,status,starts_at,ends_at,show_popup,auto_creative,created_by,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [id,v.tenantId,v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,
+           Number(v.showPopup),Number(v.autoCreative),req.user.id,now,now]);
+        await saveCoupon(id,v.tenantId,v.coupon);
+      });
       res.status(201).json({campaign:present(await getCampaign(id))});
     }catch(err){next(err);}
   });
@@ -282,11 +304,13 @@ export function createPromotionsRouter({dbAll,dbGet,dbRun,authenticateToken,requ
       const parsed=campaignSchema.safeParse(req.body);
       if(!parsed.success)return res.status(400).json({error:'Invalid promotion details.'});
       const v=parsed.data;
-      await dbRun(`UPDATE food_promotion_campaigns SET title=?,subtitle=?,offer_label=?,image_url=?,call_to_action=?,
-        status=?,starts_at=?,ends_at=?,show_popup=?,auto_creative=?,updated_at=? WHERE id=?`,
-        [v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,Number(v.showPopup),
-         Number(v.autoCreative),Date.now(),req.params.id]);
-      await saveCoupon(req.params.id,old.tenant_id,v.coupon);
+      await transact(async()=>{
+        await dbRun(`UPDATE food_promotion_campaigns SET title=?,subtitle=?,offer_label=?,image_url=?,call_to_action=?,
+          status=?,starts_at=?,ends_at=?,show_popup=?,auto_creative=?,updated_at=? WHERE id=?`,
+          [v.title,v.subtitle,v.offerLabel,v.imageUrl,v.cta,v.status,v.startsAt,v.endsAt,Number(v.showPopup),
+           Number(v.autoCreative),Date.now(),req.params.id]);
+        await saveCoupon(req.params.id,old.tenant_id,v.coupon);
+      });
       res.json({campaign:present(await getCampaign(req.params.id))});
     }catch(err){next(err);}
   });
