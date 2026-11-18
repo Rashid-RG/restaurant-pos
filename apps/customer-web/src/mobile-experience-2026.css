@@ -419,3 +419,68 @@
     font-weight:850!important;color:#19372b!important;
   }
 }
+
+
+/* Consistent premium surfaces across checkout, order tracking, account. */
+@media(max-width:640px) {
+  .customer-premium .checkout-view,
+  .customer-premium .tracking-page,
+  .customer-premium .profile-page {
+    width:100%;min-width:0;box-sizing:border-box;
+    padding-inline:15px!important;
+    color:#1c3c30;
+  }
+  .customer-premium .checkout-view .form-section,
+  .customer-premium .tracking-page .form-section,
+  .customer-premium .tracking-card,
+  .customer-premium .profile-card {
+    background:#fff!important;
+    border:1px solid #e1eae1!important;
+    border-radius:21px!important;
+    box-shadow:0 6px 23px rgba(13,66,42,.055)!important;
+  }
+  .customer-premium .checkout-view .form-section {
+    padding:17px!important;margin-bottom:13px!important;
+  }
+  .customer-premium .checkout-view .form-control,
+  .customer-premium .tracking-page .form-control,
+  .customer-premium .profile-page .form-control {
+    box-sizing:border-box;min-height:51px!important;
+    font-size:16px!important;border-radius:13px!important;
+    border:1.5px solid #d5e4d8!important;
+    background:#fff!important;color:#173b2b!important;
+  }
+  .customer-premium .checkout-view .form-control:focus,
+  .customer-premium .tracking-page .form-control:focus,
+  .customer-premium .profile-page .form-control:focus {
+    outline:3px solid #b7e5c5!important;outline-offset:0!important;
+    border-color:#27855a!important;
+  }
+  .customer-premium .checkout-view .gastrofood-checkout-heading {
+    color:#173c2b!important;letter-spacing:-.04em!important;
+  }
+  .customer-premium .tracking-page .uber-hero-card,
+  .customer-premium .tracking-page .gf-tracking-journey-sheet,
+  .customer-premium .tracking-page .gf-tracking-contact-card {
+    border-radius:22px!important;
+    box-shadow:0 8px 24px rgba(18,64,39,.075)!important;
+  }
+  .customer-premium .profile-page .profile-avatar {
+    box-shadow:0 8px 22px rgba(13,87,50,.15)!important;
+  }
+  .customer-premium .profile-page .profile-card {
+    margin-bottom:13px!important;
+  }
+  .customer-premium .checkout-view .btn-brand,
+  .customer-premium .profile-page .btn-brand,
+  .customer-premium .tracking-page .btn-brand {
+    background:#0d684b!important;border-color:#0d684b!important;
+    color:#fff!important;min-height:49px!important;
+    border-radius:15px!important;font-weight:800!important;
+  }
+  .customer-premium .checkout-view .sticky-bar {
+    box-sizing:border-box;
+    background:#fffffffa!important;
+    box-shadow:0 -9px 27px rgba(11,66,38,.085)!important;
+  }
+}
