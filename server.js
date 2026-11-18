@@ -1225,6 +1225,8 @@ async function initTables() {
       digest TEXT NOT NULL, created_at BIGINT NOT NULL,
       PRIMARY KEY(tenant_id,driver_id,kind)
     )`);
+    await safeAddColumn('driver_manual_documents','viewed_at','BIGINT');
+    await safeAddColumn('driver_manual_documents','viewed_by','TEXT');
     await dbRun(`CREATE TABLE IF NOT EXISTS driver_manual_reviews (
       tenant_id TEXT NOT NULL, driver_id TEXT NOT NULL, review_state TEXT NOT NULL,
       identity_kind TEXT NOT NULL, evidence_digest TEXT NOT NULL,
@@ -4440,7 +4442,7 @@ app.post('/api/public/drivers/manual-document', publicApiLimiter, authenticatePe
   try{
     const encrypted=encryptManualDocument(doc.bytes,{tenantId:a.tenantId,driverId:a.driverId,kind:doc.kind},key);
     const result=await dbRun(
-      "INSERT INTO driver_manual_documents (tenant_id,driver_id,kind,content_type,ciphertext,iv,tag,digest,created_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,driver_id,kind) DO UPDATE SET content_type=excluded.content_type,ciphertext=excluded.ciphertext,iv=excluded.iv,tag=excluded.tag,digest=excluded.digest,created_at=excluded.created_at",
+      "INSERT INTO driver_manual_documents (tenant_id,driver_id,kind,content_type,ciphertext,iv,tag,digest,created_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,driver_id,kind) DO UPDATE SET content_type=excluded.content_type,ciphertext=excluded.ciphertext,iv=excluded.iv,tag=excluded.tag,digest=excluded.digest,created_at=excluded.created_at,viewed_at=NULL,viewed_by=NULL",
       [a.tenantId,a.driverId,doc.kind,doc.contentType,encrypted.ciphertext,encrypted.iv,encrypted.tag,encrypted.digest,Date.now()]);
     await dbRun("DELETE FROM driver_manual_reviews WHERE tenant_id=? AND driver_id=? AND review_state!='approved'",[a.tenantId,a.driverId]);
     res.set('Cache-Control','no-store').status(201).json({success:true,kind:doc.kind,message:'Encrypted document received for restaurant review. Not yet verified.'});
@@ -4464,6 +4466,8 @@ app.get('/api/delivery/drivers/:id/manual-document/:kind',authenticateToken,requ
       [req.tenantId,req.params.id,req.params.kind,'pending_approval']);
     if(!row||!row.ciphertext)return res.status(404).json({error:'Evidence is unavailable or has been purged.'});
     const bytes=decryptManualDocument(row,{tenantId:req.tenantId,driverId:req.params.id,kind:req.params.kind},key);
+    await dbRun('UPDATE driver_manual_documents SET viewed_at=?,viewed_by=? WHERE tenant_id=? AND driver_id=? AND kind=? AND digest=?',
+      [Date.now(),req.user.id,req.tenantId,req.params.id,req.params.kind,row.digest]);
     await writeAuditLog(req.user.id,req.user.username,'view_driver_document',`Reviewed protected driver evidence ${req.params.kind} for ${req.params.id}`);
     res.set('Cache-Control','no-store, private').set('X-Content-Type-Options','nosniff').json({
       kind:req.params.kind,contentType:row.content_type,data:bytes.toString('base64')
@@ -4482,9 +4486,11 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
     const rider=await dbGet("SELECT vehicleType FROM drivers WHERE id=? AND tenant_id=? AND status='pending_approval'",[req.params.id,req.tenantId]);
     if(!rider)return res.status(409).json({error:'No pending application for this restaurant.'});
     const kinds=documentKindsForVehicle(rider.vehicleType);
-    const rows=await dbAll("SELECT kind,digest FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[req.tenantId,req.params.id]);
+    const rows=await dbAll("SELECT kind,digest,viewed_at,viewed_by FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[req.tenantId,req.params.id]);
     if(decision==='approve' && kinds.some(k=>!rows.some(r=>r.kind===k)))
       return res.status(409).json({error:'Required identity and licence images must all be submitted.'});
+    if(decision==='approve' && kinds.some(k=>!rows.some(r=>r.kind===k && r.viewed_by===req.user.id && r.viewed_at)))
+      return res.status(409).json({error:'The reviewing manager must open every required identity, selfie and licence image before passing the manual review.'});
     if(decision==='approve' && rider.vehicleType!=='Bicycle' &&
        (!managerLicenceClassMatches(rider.vehicleType,licenceClass)||verifiedLicenceExpiry(licenceExpiry)===null))
       return res.status(400).json({error:'Enter the verified licence category and a valid future expiry.'});
