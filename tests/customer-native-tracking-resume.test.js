@@ -27,10 +27,13 @@ describe('GastroFlow Food native order tracking resume',()=>{
  it('binds native listeners and removes them during view cleanup',()=>{
    const src=readFileSync('apps/customer-web/src/views/OrderTrackingView.jsx','utf8');
    expect(src).toContain('shouldRefreshNativeTrackingOnResume({');
-   for(const event of ['visibilitychange','focus','online']){
+   for(const event of ['visibilitychange','focus','online','pageshow']){
      expect(src).toContain("addEventListener('"+event+"',refreshOnNativeResume)");
      expect(src).toContain("removeEventListener('"+event+"',refreshOnNativeResume)");
    }
+   expect(src).toContain('trackingGateRef.current.invalidate();');
    expect(src).toContain('fetchOrder(current.id,{silent:true})');
+   expect(src).toContain("online:navigator.onLine!==false");
+   expect(src).toContain("window.addEventListener('pageshow',refreshOnNativeResume)");
  });
 });
