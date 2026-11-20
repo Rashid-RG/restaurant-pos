@@ -6,6 +6,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { z } from 'zod';
+import { enqueueSandboxOwnerEmails, sandboxEmailConfig } from '../lib/communications/platform-email-queue.js';
 
 const audienceSchema=z.object({
   scope:z.enum(['all','specific']).default('all'),
@@ -53,6 +54,14 @@ export async function initPlatformCommunications(dbRun) {
     PRIMARY KEY (announcementId,tenant_id,userId))`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_announcements_inbox
     ON platform_owner_announcement_recipients (tenant_id,userId,deliveredAt)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_email_queue (
+    announcementId TEXT NOT NULL, tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
+    email TEXT NOT NULL,status TEXT NOT NULL,attemptCount INTEGER NOT NULL DEFAULT 0,
+    nextAttemptAt BIGINT NOT NULL,lastAttemptAt BIGINT,deliveredAt BIGINT,
+    lastErrorCode TEXT,createdAt BIGINT NOT NULL,updatedAt BIGINT NOT NULL,
+    PRIMARY KEY (announcementId,tenant_id,userId))`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_email_pending
+    ON platform_owner_communication_email_queue (status,nextAttemptAt)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_deliveries (
     announcementId TEXT NOT NULL, tenant_id TEXT NOT NULL, userId TEXT NOT NULL,
     channel TEXT NOT NULL, status TEXT NOT NULL, attemptCount INTEGER NOT NULL DEFAULT 0,
@@ -175,6 +184,22 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   const audit=async (req,id,action)=>dbRun(
     'INSERT INTO platform_owner_announcement_audit (id,announcementId,actorId,action,createdAt) VALUES (?,?,?,?,?)',
     [crypto.randomUUID(),id,req.user.id,action,Date.now()]);
+  // Explicit queueing only: never sends emails from an HTTP request.
+  // Requires isolated staging + separate sandbox email opt-in + exact allowlist.
+  router.post('/platform/communications/:id/email-queue',...platform,async(req,res,next)=>{try{
+    if(!sandboxEmailConfig(env).enabled)return res.status(403).json({error:'Sandbox email queue is disabled.'});
+    const m=await dbGet('SELECT id,status FROM platform_owner_announcements WHERE id=?',[req.params.id]);
+    if(!m)return res.status(404).json({error:'Announcement not found.'});
+    if(m.status!=='published')return res.status(409).json({error:'Only published notices can be queued.'});
+    const result=await enqueueSandboxOwnerEmails({dbAll,dbRun,announcementId:m.id,env});
+    res.set('Cache-Control','no-store').json(result);
+  }catch(e){next(e)}});
+  router.get('/platform/communications/:id/email-queue',...platform,async(req,res,next)=>{try{
+    const rows=await dbAll(`SELECT status,COUNT(*) AS count
+      FROM platform_owner_communication_email_queue WHERE announcementId=?
+      GROUP BY status ORDER BY status`,[req.params.id]);
+    res.set('Cache-Control','no-store').json({statuses:rows});
+  }catch(e){next(e)}});
   router.post('/platform/communications/:id/schedule',...platform,async(req,res,next)=>{try{
     const parsed=z.object({scheduledAt:z.number().int().positive()}).strict().safeParse(req.body);
     if(!parsed.success)return res.status(400).json({error:'A valid UTC schedule timestamp is required.'});
