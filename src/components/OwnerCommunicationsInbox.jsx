@@ -53,12 +53,12 @@ export default function OwnerCommunicationsInbox({currentUser}) {
           <strong>{m.title}</strong>
           {!m.readAt&&<small style={{marginLeft:'auto'}}>NEW</small>}
         </div>
-        <small style={{display:'block',marginTop:6}}>{m.category} · {new Date(m.publishedAt).toLocaleString()}</small>
+        <small style={{display:'block',marginTop:6}}>{m.category}{m.policyVersion?' · Version '+m.policyVersion:''} · {new Date(m.publishedAt).toLocaleString()}</small>
         <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{m.body}</p>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           {!m.readAt&&<button disabled={busy} className="btn btn-outline" type="button" onClick={()=>act(m.id,'read')}>Mark read</button>}
           {Boolean(m.requiresAcknowledgment)&&!m.acknowledgedAt&&<button disabled={busy} className="btn btn-primary" type="button"
-            onClick={()=>act(m.id,'acknowledge')}><CheckCheck size={16}/> I acknowledge this notice</button>}
+            onClick={()=>act(m.id,'acknowledge')}><CheckCheck size={16}/> I have read and acknowledge this notice</button>}
           {m.acknowledgedAt&&<small>Acknowledged {new Date(m.acknowledgedAt).toLocaleString()}</small>}
         </div>
       </article>)}
