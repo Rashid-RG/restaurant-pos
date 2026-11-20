@@ -139,6 +139,10 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
             <span>Daily sandbox cap: {emailReadiness.configuredDailyMax||'Not configured'}</span>
             <span>Automatic sending: Off — no scheduler connected</span>
             <span>Actual test mailbox delivery: Not verified</span>
+            <span>Firebase FCM adapter: {emailReadiness.firebaseFcmAdapterConfigured?'Credentials configured (unverified)':'Not configured'}</span>
+            <span>FCM staging authorization: {emailReadiness.firebaseFcmStagingGatesReady?'Configured, inactive':'Disabled'}</span>
+            <span>FCM emergency stop: {emailReadiness.firebaseFcmEmergencyStopArmed?'Armed':'Released in configuration'}</span>
+            <span>FCM dispatch: Not connected to device tokens or scheduler</span>
             <span>Native push: Not operational</span>
             <span>Commercial release: Not approved</span>
             <small>{emailReadiness.note}</small>
