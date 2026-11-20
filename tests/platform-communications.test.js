@@ -173,6 +173,18 @@ describe('Platform owner announcement targeting',()=>{
     expect((await request(f.app).post('/api/owner/communications/push-preference').send({optedIn:true})).status).toBe(403);
     expect(f.dbRun).not.toHaveBeenCalled();
   });
+  it('keeps device registration unavailable until specifically enabled',async()=>{
+    const f=fixture();
+    const response=await request(f.app).post('/api/owner/communications/devices')
+      .send({installationId:'1530ac0b-02f0-4ae5-a132-2056ab4bd660',platform:'android'});
+    expect(response.status).toBe(404);
+    expect(f.dbRun).not.toHaveBeenCalled();
+  });
+  it('denies manager device registration and device listing',async()=>{
+    const f=fixture({actor:{id:'manager',role:'manager',tenant_id:'tenant_a'}});
+    expect((await request(f.app).get('/api/owner/communications/devices')).status).toBe(403);
+    expect((await request(f.app).post('/api/owner/communications/devices').send({})).status).toBe(403);
+  });
   it('rejects a manager inbox request',async()=>{
     const f=fixture({actor:{id:'mgr',role:'manager',tenant_id:'tenant_a'}});
     expect((await request(f.app).get('/api/owner/communications')).status).toBe(403);
