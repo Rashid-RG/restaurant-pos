@@ -103,6 +103,7 @@ import {
   driverLoginSchema,
   driverRegisterSchema,
   driverOtpRequestSchema,
+  driverOtpVerifySchema,
   tenantCreateSchema
 } from './lib/validation.js';
 import { getPlan, checkLimit, planList } from './lib/plans.js';
@@ -4642,6 +4643,20 @@ app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(d
     const tenantId = await resolveDriverRegistrationTenant(req);
     if (!tenantId) return res.status(400).json({ error: 'Open the driver application from your restaurant registration link.' });
     const email = normalizeDriverEmail(req.body.email);
+    // Registration is platform-wide unique. Recovery is available only to an
+    // already pending rider at this exact restaurant.
+    const registered = await dbGet('SELECT id,tenant_id,status FROM drivers WHERE LOWER(TRIM(email))=? LIMIT 1',[email]);
+    if(req.body.flow==='recover'){
+      if(!registered || registered.tenant_id!==tenantId || registered.status!=='pending_approval')
+        return res.status(409).json({error:'No pending rider application matches this email at the selected restaurant.'});
+    }else if(registered){
+      return res.status(409).json({
+        code:'DRIVER_EMAIL_ALREADY_REGISTERED',
+        error: registered.tenant_id===tenantId && registered.status==='pending_approval'
+          ? 'This email already has a pending rider application. Use “Already applied? Resume” instead.'
+          : 'This email is already registered with GastroDriver. Sign in or contact the restaurant instead of creating a new account.'
+      });
+    }
     const code = String(crypto.randomInt(100000, 1000000));
     const id = 'driver_otp_' + crypto.randomUUID();
     await dbRun('DELETE FROM otp_codes WHERE tenant_id=? AND destination=? AND purpose=?', [tenantId, email, DRIVER_SIGNUP_PURPOSE]);
@@ -4663,6 +4678,23 @@ app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(d
       success: true, message: 'Verification code sent. Check your email inbox.'
     });
   } catch (_) { return res.status(500).json({ error: 'Could not request email verification.' }); }
+});
+
+// Verify email before moving to personal details. OTP is single-use; the
+// returned short-lived token is scoped to this restaurant and email only.
+app.post('/api/public/drivers/verify-email-code',driverApplicationLimiter,validateRequest(driverOtpVerifySchema),async(req,res)=>{
+  try{
+    const tenantId=await resolveDriverRegistrationTenant(req);
+    if(!tenantId)return res.status(400).json({error:'Choose a restaurant before verifying your email.'});
+    const email=normalizeDriverEmail(req.body.email);
+    if(await dbGet('SELECT id FROM drivers WHERE LOWER(TRIM(email))=? LIMIT 1',[email]))
+      return res.status(409).json({code:'DRIVER_EMAIL_ALREADY_REGISTERED',error:'This email is already registered with GastroDriver. Use sign-in or application recovery.'});
+    if(!(await verifyOTPAsync(email,req.body.verificationCode,DRIVER_SIGNUP_PURPOSE,tenantId)))
+      return res.status(400).json({error:'Incorrect or expired verification code. Request a new code if needed.'});
+    const verificationToken=jwt.sign({purpose:'driver_signup_email_verified',tenant_id:tenantId,email},
+      process.env.JWT_SECRET||JWT_SECRET,{algorithm:'HS256',expiresIn:'20m'});
+    return res.set('Cache-Control','no-store').json({success:true,verificationToken,message:'Email verified. Continue your registration.'});
+  }catch(_){return res.status(500).json({error:'Email verification is temporarily unavailable.'});}
 });
 
 // A pending rider may recover a document-submission session only after a new,
@@ -4833,17 +4865,36 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
     if (!tenantId) return res.status(400).json({ error: 'Open the driver application from your restaurant registration link.' });
     const cleanPhone = String(phone).replace(/[\s-]/g, '');
     const cleanEmail = normalizeDriverEmail(email);
-    const existing = await dbGet('SELECT id FROM drivers WHERE tenant_id=? AND (phone=? OR LOWER(email)=?)',
-      [tenantId,cleanPhone,cleanEmail]);
-    if (existing) return res.status(409).json({ error: 'An application already exists for these details at this restaurant. Contact the restaurant for assistance.' });
-    if (!(await verifyOTPAsync(cleanEmail,verificationCode,DRIVER_SIGNUP_PURPOSE,tenantId))) {
-      return res.status(400).json({ error: 'Invalid or expired email verification code.' });
+    const existingEmail = await dbGet('SELECT id,tenant_id,status FROM drivers WHERE LOWER(TRIM(email))=? LIMIT 1',[cleanEmail]);
+    if (existingEmail) return res.status(409).json({code:'DRIVER_EMAIL_ALREADY_REGISTERED',error:
+      existingEmail.tenant_id===tenantId && existingEmail.status==='pending_approval'
+        ? 'This email already has a pending rider application. Recover your existing application.'
+        : 'This email is already registered with GastroDriver. A second rider account cannot be created.'});
+    const existingPhone = await dbGet('SELECT id FROM drivers WHERE tenant_id=? AND phone=? LIMIT 1',[tenantId,cleanPhone]);
+    if(existingPhone)return res.status(409).json({error:'This phone number is already registered at the selected restaurant.'});
+    let verified=false;
+    if(typeof req.body.verificationToken==='string'){
+      try{
+        const proof=jwt.verify(req.body.verificationToken,process.env.JWT_SECRET||JWT_SECRET,{algorithms:['HS256']});
+        verified=proof.purpose==='driver_signup_email_verified' && proof.tenant_id===tenantId && proof.email===cleanEmail;
+      }catch(_){}
+    }else if(verificationCode){
+      // Compatibility with existing driver clients: no unverified registration.
+      verified=await verifyOTPAsync(cleanEmail,verificationCode,DRIVER_SIGNUP_PURPOSE,tenantId);
     }
+    if(!verified)return res.status(400).json({error:'Verify this email before submitting the rider application.'});
     const id = 'drv_' + crypto.randomUUID();
     const passwordHash = await bcrypt.hash(password, 12);
-    await dbRun('INSERT INTO drivers (id, name, phone, status, vehicleType, plateNumber, passwordHash, email, tenant_id, licenseReviewRequired) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId, vehicleType==='Bicycle'?0:1
+    // Atomic guard prevents two parallel requests from inserting the same email
+    // even where legacy rider rows prevent a new unique database index.
+    const inserted=await dbRun(`INSERT INTO drivers (id,name,phone,status,vehicleType,plateNumber,passwordHash,email,tenant_id,licenseReviewRequired)
+      SELECT ?,?,?,?,?,?,?,?,?,?
+      WHERE NOT EXISTS (SELECT 1 FROM drivers WHERE LOWER(TRIM(email))=?)
+        AND NOT EXISTS (SELECT 1 FROM drivers WHERE tenant_id=? AND phone=?)`, [
+      id, name.trim(), cleanPhone, 'pending_approval', vehicleType, plateNumber?.trim() || 'Unassigned', passwordHash, cleanEmail, tenantId, vehicleType==='Bicycle'?0:1,
+      cleanEmail,tenantId,cleanPhone
     ]);
+    if(inserted?.changes===0)return res.status(409).json({code:'DRIVER_ALREADY_REGISTERED',error:'This email or phone number is already registered. Use sign-in or recover the existing application.'});
     let identityVerificationUrl = null;
     let licenceVerificationUrl = null;
     if(veriffConfigured() && req.body.identityConsent === true) {
