@@ -1783,10 +1783,10 @@ export default function POSView() {
                   src={settings?.logoUrl || settings?.logo || settings?.restaurantLogo}
                   alt="Logo"
                   className="receipt-logo"
-                  style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block', objectFit: 'contain' }}
+                  style={{ maxWidth: '46px', maxHeight: '46px', margin: '0 auto 2px', display: 'block', objectFit: 'contain' }}
                 />
               ) : (
-                <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍽️</div>
+                null
               )}
               <h3 className="receipt-business-name" style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
                 {settings?.restaurantName || settings?.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
@@ -1800,7 +1800,7 @@ export default function POSView() {
             {printReceiptOrder.invoiceNumber != null && (
               <p><strong style={{ fontSize: '13px' }}>INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</strong></p>
             )}
-            <p>Order ID: #{printReceiptOrder.id?.slice(-6).toUpperCase()}</p>
+            {printReceiptOrder.invoiceNumber == null && <p>Order ID: #{printReceiptOrder.id?.slice(-6).toUpperCase()}</p>}
             <p>Type: {(printReceiptOrder.orderType || printReceiptOrder.diningType || 'POS')?.toUpperCase()}</p>
             {printReceiptOrder.tableId && <p>Table: {tables?.find(t => t.id === printReceiptOrder.tableId)?.number || printReceiptOrder.tableId}</p>}
             {printReceiptOrder.customerName && <p>Customer: {printReceiptOrder.customerName}</p>}
@@ -1818,16 +1818,16 @@ export default function POSView() {
                     <span>{quantity} × {item.name}</span>
                     <span>{currencySymbol}{(price*quantity).toFixed(2)}</span>
                   </div>
-                  <div className="receipt-item-detail">{currencySymbol}{price.toFixed(2)} each{item.customUnitPrice != null ? ' · Special price' : ''}</div>
+                  {(quantity > 1 || item.customUnitPrice != null) && <div className="receipt-item-detail">{currencySymbol}{price.toFixed(2)} each{item.customUnitPrice != null ? ' · Special price' : ''}</div>}
                 </div>
               );
             })}
 
             <div className="receipt-divider"></div>
-            <div className="receipt-row">
+            {(Math.abs(Number(printReceiptOrder.subtotal || 0) - Number(printReceiptOrder.total || 0)) >= 0.005) && <div className="receipt-row">
               <span>Subtotal:</span>
-              <span>{currencySymbol}{(printReceiptOrder.subtotal || 0).toFixed(2)}</span>
-            </div>
+              <span>{currencySymbol}{Number(printReceiptOrder.subtotal || 0).toFixed(2)}</span>
+            </div>}
             {(printReceiptOrder.discount || 0) > 0 && (
               <div className="receipt-row">
                 <span>Discount ({printReceiptOrder.discountValue || 0}{printReceiptOrder.discountType === 'percent' ? '%' : ''}):</span>
@@ -1846,10 +1846,10 @@ export default function POSView() {
                 <span>{currencySymbol}{(printReceiptOrder.deliveryFee || 0).toFixed(2)}</span>
               </div>
             )}
-            <div className="receipt-row">
+            {Number(printReceiptOrder.tax || 0) > 0 && <div className="receipt-row">
               <span>Tax ({settings?.taxRate || 0}%):</span>
-              <span>{currencySymbol}{(printReceiptOrder.tax || 0).toFixed(2)}</span>
-            </div>
+              <span>{currencySymbol}{Number(printReceiptOrder.tax || 0).toFixed(2)}</span>
+            </div>}
             {(printReceiptOrder.tip || 0) > 0 && (
               <div className="receipt-row">
                 <span>Tip:</span>
@@ -1877,7 +1877,7 @@ export default function POSView() {
                   const splits = typeof printReceiptOrder.paymentSplit === 'string'
                     ? JSON.parse(printReceiptOrder.paymentSplit)
                     : printReceiptOrder.paymentSplit;
-                  if (!Array.isArray(splits)) return null;
+                  if (!Array.isArray(splits) || splits.length <= 1) return null;
                   return (
                     <div style={{ fontSize: '11px', color: '#666' }}>
                       {splits.map((p, i) => (
@@ -1889,14 +1889,8 @@ export default function POSView() {
                   return null;
                 }
               })()}
-              <div className="receipt-gratitude">
-                <div className="receipt-thank-you">Thank You!</div>
-                <div className="receipt-visit-again">— Visit Again —</div>
-              </div>
-              <div className="receipt-platform-credit">
-                <div>Powered by <strong>GastroFlow</strong></div>
-                <div className="receipt-developed-by">Developed by {platformPublisher}</div>
-              </div>
+              <div className="receipt-gratitude">Thank you! Visit again.</div>
+              <div className="receipt-platform-credit">GastroFlow · {platformPublisher}</div>
             </div>
           </div>
         );
