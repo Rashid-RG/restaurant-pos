@@ -74,6 +74,10 @@ describe('Platform owner announcement targeting',()=>{
     expect((await request(f.app).get('/api/owner/communications')).status).toBe(404);
     expect(f.dbAll).not.toHaveBeenCalled();
   });
+  it('denies owners access to platform email readiness',async()=>{
+    const f=fixture();
+    expect((await request(f.app).get('/api/platform/communications/email/status')).status).toBe(403);
+  });
   it('denies owner access to platform templates',async()=>{
     const f=fixture();
     expect((await request(f.app).get('/api/platform/communications/templates')).status).toBe(403);
