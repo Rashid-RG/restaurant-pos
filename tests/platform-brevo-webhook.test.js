@@ -8,6 +8,7 @@ import {createPlatformCommunicationsRouter} from '../routes/platform-communicati
 
 const env={
  PLATFORM_COMMUNICATIONS_ENABLED:'true',PLATFORM_COMMUNICATIONS_STAGE:'staging',
+ PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED:'true',
  PLATFORM_COMMUNICATIONS_EMAIL_MODE:'sandbox',PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_ENABLED:'true',
  PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_TOKEN:'test-staging-only-webhook-bearer-secret-1234567890'
 };
