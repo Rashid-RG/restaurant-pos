@@ -26,6 +26,7 @@ describe('Platform Communication Center read-only readiness',()=>{
     expect(result).toMatchObject({
       firebaseFcmAdapterConfigured:false,firebaseFcmStagingGatesReady:false,
       firebaseFcmEmergencyStopArmed:true,firebaseFcmDispatchConnected:false,
+      firebaseFcmTokenEnrollmentReady:false,firebaseFcmTokenRegistrationVerified:false,
       stagingFeatureEnabled:false,stagingDatabaseIsolationAttested:false,
       sandboxEmailQueueEnabled:false,sandboxTransportReady:false,
       webhookAuthenticationConfigured:false,workerConfigurationReady:false,
