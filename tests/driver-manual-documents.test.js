@@ -2,7 +2,7 @@ import {describe,it,expect} from 'vitest';
 import crypto from 'node:crypto';
 import {
   manualDocumentKey,manualDocumentsConfigured,decodeManualDocument,
-  encryptManualDocument,decryptManualDocument,documentKindsForVehicle
+  encryptManualDocument,decryptManualDocument,documentKindsForVehicle,documentKindsForIdentity
 } from '../lib/driver-manual-documents.js';
 
 const key=crypto.randomBytes(32);
@@ -43,5 +43,9 @@ describe('Encrypted manual rider document evidence',()=>{
     expect(documentKindsForVehicle('Bicycle')).toEqual(['identity_front','identity_back','selfie']);
     expect(documentKindsForVehicle('Car')).toEqual(['identity_front','identity_back','selfie','licence_front','licence_back']);
     expect(documentKindsForVehicle('Unknown')).toEqual([]);
+    expect(documentKindsForIdentity('Motorbike','passport')).toEqual(['identity_front','selfie','licence_front','licence_back']);
+    expect(documentKindsForIdentity('Bicycle','passport')).toEqual(['identity_front','selfie']);
+    expect(documentKindsForIdentity('Motorbike','nic')).toEqual(documentKindsForVehicle('Motorbike'));
+    expect(documentKindsForIdentity('Motorbike','invalid')).toEqual([]);
   });
 });
