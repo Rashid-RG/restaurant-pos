@@ -22,6 +22,7 @@ import CashDrawer from './components/CashDrawer';
 import MyAttendance from './components/MyAttendance';
 import Login from './components/Login';
 import StoreStatusScreen from './components/StoreStatusScreen';
+import StagingPushSetup from './components/StagingPushSetup';
 
 function AppContent() {
   const { activeTab, loading, sessionChecking, currentUser, tenantLock, setTenantLock, logout, platformBroadcast, setPlatformBroadcast } = usePOS();
@@ -122,6 +123,7 @@ function AppContent() {
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       <div className={`workspace ${isMasterOwner && activeTab === 'platform' ? 'platform-owner-workspace' : ''}`}>
         <WorkspaceTools/>
+        <StagingPushSetup/>
         <ConnectionStatus/>
         {platformBroadcast && (
           <div style={{
