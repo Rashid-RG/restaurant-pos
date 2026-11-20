@@ -475,6 +475,21 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     res.set('Cache-Control','no-store').json({announcement:m,stats,channels,providerEvents});
   }catch(e){next(e)}});
   // Push-preference foundation only. No tokens, device identifiers or external push.
+  // Read-only staging gate: clients MUST check this before writing push consent.
+  // Flags are not proof of physical database isolation; operator verification
+  // of separate Turso URLs remains mandatory before enabling these controls.
+  router.get('/owner/communications/push-enrollment-readiness',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).set('Cache-Control','no-store')
+      .json({enabled:false});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    const enabled=tenant?.status==='active'&&
+      env.PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED==='true'&&
+      pushEnrollmentEnabled(env)&&fcmTokenEnrollmentEnabled(env);
+    res.set('Cache-Control','no-store').json({
+      enabled:Boolean(enabled),sendingEnabled:false,deviceDeliveryVerified:false
+    });
+  }catch(e){next(e)}});
   router.get('/owner/communications/push-preference',authenticateToken,async(req,res,next)=>{try{
     const uid=req.user?.id,tid=req.user?.tenant_id;
     if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
