@@ -9,6 +9,8 @@ import { z } from 'zod';
 import { enqueueSandboxOwnerEmails, sandboxEmailConfig, reconcileStaleSandboxEmailClaims, closeSandboxEmailReview } from '../lib/communications/platform-email-queue.js';
 import { previewSandboxOwnerEmailDispatch } from '../lib/communications/platform-email-preview.js';
 import { sandboxBrevoReady } from '../lib/communications/platform-brevo-sandbox.js';
+import {brevoWebhookEnabled,authenticateBrevoWebhook,normalizeBrevoTransactionalPayload} from '../lib/communications/platform-brevo-webhook.js';
+import {recordVerifiedBrevoEvent} from '../lib/communications/platform-brevo-receipts.js';
 import { pushEnrollmentEnabled, enrollOwnerInstallation, revokeOwnerInstallation } from '../lib/communications/platform-push-enrollment.js';
 
 const audienceSchema=z.object({
@@ -223,6 +225,20 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   const audit=async (req,id,action)=>dbRun(
     'INSERT INTO platform_owner_announcement_audit (id,announcementId,actorId,action,createdAt) VALUES (?,?,?,?,?)',
     [crypto.randomUUID(),id,req.user.id,action,Date.now()]);
+  // Separate provider-to-server credential. No platform user token is accepted here.
+  // The webhook is disabled by default and must only be configured on isolated staging.
+  router.post('/platform/communications/brevo/webhook',async(req,res,next)=>{try{
+    if(!brevoWebhookEnabled(env))return res.status(404).json({error:'Unavailable.'});
+    if(!authenticateBrevoWebhook(req.get('authorization'),env))
+      return res.status(401).set('Cache-Control','no-store').json({error:'Unauthorized.'});
+    if(Array.isArray(req.body)||!req.body||typeof req.body!=='object')
+      return res.status(400).json({error:'Invalid event.'});
+    const event=normalizeBrevoTransactionalPayload(req.body);
+    if(!event)return res.status(400).json({error:'Unsupported event.'});
+    const result=await recordVerifiedBrevoEvent({dbGet,dbRun,event,verified:true,env});
+    // No recipient, provider ID, secrets or tenant identifiers in the response.
+    res.set('Cache-Control','no-store').json({accepted:true,recorded:result.recorded});
+  }catch(e){next(e)}});
   // Explicit queueing only: never sends emails from an HTTP request.
   // Requires isolated staging + separate sandbox email opt-in + exact allowlist.
   router.get('/platform/communications/email/status',...platform,(req,res)=>{
