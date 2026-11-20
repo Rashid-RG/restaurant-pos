@@ -73,6 +73,13 @@ export async function initPlatformCommunications(dbRun) {
     PRIMARY KEY (announcementId,tenant_id,userId))`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_email_pending
     ON platform_owner_communication_email_queue (status,nextAttemptAt)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_email_receipts (
+    provider TEXT NOT NULL,providerMessageId TEXT NOT NULL,
+    announcementId TEXT NOT NULL,tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
+    eventStatus TEXT NOT NULL,acceptedAt BIGINT NOT NULL,eventAt BIGINT,
+    updatedAt BIGINT NOT NULL,PRIMARY KEY(provider,providerMessageId))`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_email_receipts_notice
+    ON platform_owner_communication_email_receipts (announcementId,eventStatus)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_deliveries (
     announcementId TEXT NOT NULL, tenant_id TEXT NOT NULL, userId TEXT NOT NULL,
     channel TEXT NOT NULL, status TEXT NOT NULL, attemptCount INTEGER NOT NULL DEFAULT 0,
@@ -437,7 +444,10 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     const channels=await dbAll(`SELECT channel,status,COUNT(*) AS count
       FROM platform_owner_communication_deliveries WHERE announcementId=?
       GROUP BY channel,status ORDER BY channel,status`,[m.id]);
-    res.set('Cache-Control','no-store').json({announcement:m,stats,channels});
+    const providerEvents=await dbAll(`SELECT eventStatus,COUNT(*) AS count
+      FROM platform_owner_communication_email_receipts
+      WHERE announcementId=? GROUP BY eventStatus ORDER BY eventStatus`,[m.id]);
+    res.set('Cache-Control','no-store').json({announcement:m,stats,channels,providerEvents});
   }catch(e){next(e)}});
   // Push-preference foundation only. No tokens, device identifiers or external push.
   router.get('/owner/communications/push-preference',authenticateToken,async(req,res,next)=>{try{
