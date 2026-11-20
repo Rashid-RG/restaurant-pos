@@ -1243,6 +1243,7 @@ async function initTables() {
       licence_class TEXT, reviewer_id TEXT, reviewed_at BIGINT,
       created_at BIGINT NOT NULL, PRIMARY KEY(tenant_id,driver_id)
     )`);
+    await safeAddColumn('driver_manual_reviews','resubmit_reason','TEXT');
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_manual_reviews_tenant ON driver_manual_reviews(tenant_id,review_state)');
     // Store only the chosen document type, not document images or identity numbers.
     await dbRun(`CREATE TABLE IF NOT EXISTS driver_application_document_types (
@@ -4486,7 +4487,7 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
 });
 
 // Notification failures do not roll back completed identity-review decisions.
-async function notifyRiderApplication({tenantId,driverId,event,recipient}){
+async function notifyRiderApplication({tenantId,driverId,event,recipient,reason}){
   if(!isEmailConfigured())return;
   try{
     const tenant=await dbGet('SELECT name,ownerEmail FROM tenants WHERE id=?',[tenantId]);
@@ -4494,7 +4495,7 @@ async function notifyRiderApplication({tenantId,driverId,event,recipient}){
     if(!tenant||!rider)return;
     const to=recipient==='owner'?tenant.ownerEmail:rider.email;
     if(typeof to!=='string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))return;
-    const msg=riderEmailTemplate({event,restaurant:tenant.name,rider:recipient==='owner'?'Restaurant manager':rider.name});
+    const msg=riderEmailTemplate({event,restaurant:tenant.name,rider:recipient==='owner'?'Restaurant manager':rider.name,reason});
     const result=await sendEmail({to,...msg});
     if(!result?.success)console.warn('[Driver notifications] Email provider rejected an onboarding update');
   }catch(_){console.warn('[Driver notifications] Could not send onboarding status notification');}
@@ -4507,7 +4508,7 @@ app.get('/api/delivery/driver-verification/audit',authenticateToken,requireRole(
     const rows=await dbAll(`SELECT m.driver_id AS driverId,d.name AS driverName,
       m.review_state AS state,m.identity_kind AS identityType,
       m.dmt_standing_status AS standingCheck,m.reviewer_id AS reviewedBy,
-      m.reviewed_at AS reviewedAt,m.created_at AS submittedAt
+      m.reviewed_at AS reviewedAt,m.created_at AS submittedAt,m.resubmit_reason AS resubmitReason
       FROM driver_manual_reviews m JOIN drivers d ON d.id=m.driver_id AND d.tenant_id=m.tenant_id
       WHERE m.tenant_id=? ORDER BY m.reviewed_at DESC LIMIT 100`,[req.tenantId]);
     res.set('Cache-Control','no-store').json({reviews:rows});
@@ -4848,7 +4849,10 @@ app.get('/api/delivery/drivers/:id/manual-document/:kind',authenticateToken,requ
 // Manager review of submitted documents is separate from Veriff automation and
 // never claims an official DMT status without direct external confirmation.
 app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
-  const {identityKind,decision,selfieMatched,documentAuthenticityConfirmed,dmtStandingStatus='not_checked',licenceClass,licenceExpiry}=req.body||{};
+  const {identityKind,decision,selfieMatched,documentAuthenticityConfirmed,dmtStandingStatus='not_checked',licenceClass,licenceExpiry,resubmitReason}=req.body||{};
+  const allowedResubmitReasons=['unclear_identity','unclear_selfie','selfie_mismatch','unclear_licence','licence_expired','missing_evidence'];
+  if(decision==='resubmit'&&!allowedResubmitReasons.includes(resubmitReason))
+    return res.status(400).json({error:'Select a reason for requesting new documents.'});
   if(!['nic','passport'].includes(identityKind) || !['approve','reject','resubmit'].includes(decision) ||
      !['not_checked','manager_checked_external'].includes(dmtStandingStatus))
     return res.status(400).json({error:'Invalid review decision or identity type.'});
@@ -4871,12 +4875,12 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
       return res.status(400).json({error:'Enter the verified licence category and a valid future expiry.'});
     const digest=crypto.createHash('sha256').update(rows.sort((a,b)=>a.kind.localeCompare(b.kind)).map(r=>r.kind+':'+r.digest).join('|')).digest('hex');
     await dbRun(
-      'INSERT INTO driver_manual_reviews (tenant_id,driver_id,review_state,identity_kind,evidence_digest,dmt_standing_status,licence_expiry,licence_class,reviewer_id,reviewed_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,driver_id) DO UPDATE SET review_state=excluded.review_state,identity_kind=excluded.identity_kind,evidence_digest=excluded.evidence_digest,dmt_standing_status=excluded.dmt_standing_status,licence_expiry=excluded.licence_expiry,licence_class=excluded.licence_class,reviewer_id=excluded.reviewer_id,reviewed_at=excluded.reviewed_at',
+      'INSERT INTO driver_manual_reviews (tenant_id,driver_id,review_state,identity_kind,evidence_digest,dmt_standing_status,licence_expiry,licence_class,reviewer_id,reviewed_at,created_at,resubmit_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,driver_id) DO UPDATE SET review_state=excluded.review_state,identity_kind=excluded.identity_kind,evidence_digest=excluded.evidence_digest,dmt_standing_status=excluded.dmt_standing_status,licence_expiry=excluded.licence_expiry,licence_class=excluded.licence_class,reviewer_id=excluded.reviewer_id,reviewed_at=excluded.reviewed_at,resubmit_reason=excluded.resubmit_reason',
       [req.tenantId,req.params.id,decision==='approve'?'approved':decision==='reject'?'rejected':'resubmit',
        identityKind,digest,dmtStandingStatus,rider.vehicleType==='Bicycle'?null:licenceExpiry||null,
-       rider.vehicleType==='Bicycle'?null:licenceClass||null,req.user.id,Date.now(),Date.now()]);
+       rider.vehicleType==='Bicycle'?null:licenceClass||null,req.user.id,Date.now(),Date.now(),decision==='resubmit'?resubmitReason:null]);
     void notifyRiderApplication({tenantId:req.tenantId,driverId:req.params.id,
-      event:decision==='approve'?'manual_approved':decision==='reject'?'manual_rejected':'resubmit'});
+      event:decision==='approve'?'manual_approved':decision==='reject'?'manual_rejected':'resubmit',reason:resubmitReason});
     // The review decision remains manual (not an automated face-match or official DMT check).
     await writeAuditLog(req.user.id,req.user.username,'review_driver_manual_evidence',
       `Manual rider evidence ${req.params.id}: ${decision}; DMT standing: ${dmtStandingStatus}`);
