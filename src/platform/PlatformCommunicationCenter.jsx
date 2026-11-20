@@ -144,7 +144,8 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
                 act(async()=>{
                   const result=await api('/'+encodeURIComponent(x.id)+'/email-queue',{method:'POST'});
                   setNotice(`Sandbox email queue: ${result.queued} added, ${result.blocked} excluded. No messages sent.`);
-                  setEmailQueues(old=>({...old,[x.id]:(await api('/'+encodeURIComponent(x.id)+'/email-queue')).statuses}));
+                  const queueStatus=await api('/'+encodeURIComponent(x.id)+'/email-queue');
+                  setEmailQueues(old=>({...old,[x.id]:queueStatus.statuses}));
                 })}}>Queue allowed sandbox emails (no send)</button>
           </div>}
           {x.status==='published'&&<button type="button" className="btn btn-outline" disabled={busy}
