@@ -8,6 +8,7 @@ export default function OwnerCommunicationsInbox({currentUser}) {
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   const [pushPreference,setPushPreference]=useState(null);
+  const [installations,setInstallations]=useState(null);
   const [receipts,setReceipts]=useState({});
   const [language,setLanguage]=useState(()=>{try{const v=localStorage.getItem('gastroflow_owner_notice_lang');return ['en','si','ta'].includes(v)?v:'en'}catch{return 'en'}});
   const isOwner=currentUser?.role==='owner'&&currentUser?.isPlatformAdmin!==true;
@@ -55,6 +56,24 @@ export default function OwnerCommunicationsInbox({currentUser}) {
           if(!response.ok)throw new Error('Could not load push preference.');setPushPreference(await response.json());setError('')}
         catch(e){setError(e.message)}
       }}>View future push preference</button>
+      {pushPreference&&<div style={{display:'grid',gap:6}}>
+        <button className="btn btn-outline" type="button" disabled={busy} onClick={async()=>{
+          setBusy(true);try{
+            const response=await fetch('/api/owner/communications/devices',{
+              headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`},cache:'no-store'
+            });
+            if(response.status===404){setInstallations({unavailable:true,devices:[]});return}
+            if(!response.ok)throw new Error('Could not load enrolled installations.');
+            setInstallations(await response.json());setError('');
+          }catch(e){setError(e.message)}finally{setBusy(false)}
+        }}>View registered installations (no notifications active)</button>
+        {installations&&<div role="status" style={{fontSize:12}}>
+          {installations.unavailable?'Installation enrollment is disabled on this environment.'
+            :installations.devices?.length?
+              installations.devices.map(d=><p key={d.deviceId}>{d.platform.toUpperCase()} · {d.revokedAt?'Revoked':'Enrolled'} · {d.deviceId}</p>)
+              :'No installations enrolled.'}
+        </div>}
+      </div>}
       {pushPreference&&<label style={{display:'flex',gap:8,alignItems:'center'}}><input type="checkbox" disabled={busy}
         checked={pushPreference.optedIn} onChange={async e=>{setBusy(true);try{
           const response=await fetch('/api/owner/communications/push-preference',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`},body:JSON.stringify({optedIn:e.target.checked})});
