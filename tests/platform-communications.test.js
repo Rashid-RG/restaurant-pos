@@ -3,7 +3,7 @@ import request from 'supertest';
 import express from 'express';
 import {
   createPlatformCommunicationsRouter,validateOwnerAudience,
-  ownerRecipientEligible,safeOwnerScope,dispatchDueOwnerAnnouncements,recordOwnerInboxDelivery
+  ownerRecipientEligible,safeOwnerScope,dispatchDueOwnerAnnouncements,recordOwnerInboxDelivery,announcementLanguage
 } from '../routes/platform-communications.js';
 
 describe('Platform owner announcement targeting',()=>{
@@ -16,6 +16,13 @@ describe('Platform owner announcement targeting',()=>{
     expect(sql).toMatch(/'in_app','delivered'/);
     expect(args.slice(0,3)).toEqual(['a1','tenant_a','owner_a']);
     expect(args).not.toContain('tenant_b');
+  });
+  it('allows only explicitly supported translation languages',()=>{
+    expect(announcementLanguage('en')).toBe('en');
+    expect(announcementLanguage('si')).toBe('si');
+    expect(announcementLanguage('ta')).toBe('ta');
+    expect(announcementLanguage('fr')).toBe('en');
+    expect(announcementLanguage('si;DROP TABLE users')).toBe('en');
   });
   it('rejects unspecified restaurant selection',()=>{
     expect(validateOwnerAudience({scope:'specific',tenantIds:[]}).success).toBe(false);
@@ -89,11 +96,20 @@ describe('Platform owner announcement targeting',()=>{
     const f=fixture();
     expect((await request(f.app).post('/api/platform/communications').send({})).status).toBe(403);
   });
+  it('loads localized text but never changes tenant and user scope',async()=>{
+    const f=fixture();
+    const response=await request(f.app).get('/api/owner/communications?lang=ta');
+    expect(response.status).toBe(200);
+    const [sql,args]=f.dbAll.mock.calls[0];
+    expect(sql).toContain('platform_owner_announcement_translations');
+    expect(sql).toContain('COALESCE(tr.title,a.title)');
+    expect(args).toEqual(['ta','tenant_a','u_a',expect.any(Number)]);
+  });
   it('scopes the owner inbox query to signed-in user and tenant',async()=>{
     const f=fixture();
     const response=await request(f.app).get('/api/owner/communications');
     expect(response.status).toBe(200);
-    expect(f.dbAll.mock.calls[0][1]).toEqual(['tenant_a','u_a',expect.any(Number)]);
+    expect(f.dbAll.mock.calls[0][1]).toEqual(['en','tenant_a','u_a',expect.any(Number)]);
   });
   it('never accepts a tenant ID from a request body for acknowledgment',async()=>{
     const f=fixture();
