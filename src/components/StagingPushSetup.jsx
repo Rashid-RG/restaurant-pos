@@ -24,7 +24,8 @@ export default function StagingPushSetup() {
     setStatus('');
     try{
       const result=await enrollStagingOwnerPush({
-        user:currentUser,capacitor,storage:window.localStorage,fetcher:window.fetch.bind(window)
+        user:currentUser,capacitor,origin:window.location.origin,
+        storage:window.localStorage,fetcher:window.fetch.bind(window)
       });
       setRegistered(Boolean(result.registered));
       setStatus(result.registered
