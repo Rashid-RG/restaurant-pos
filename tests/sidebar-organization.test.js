@@ -33,7 +33,7 @@ describe('GastroFlow organized sidebar safety', () => {
     expect(sidebar).toContain("const inPlatform = platformOwner && activeTab === 'platform'");
   });
   it('preserves the first four original mobile navigation shortcuts', () => {
-    expect(sidebar).toContain('const mobilePrimary = items.filter(item => item.id !== 'menu').slice(0, 4)');
+    expect(sidebar).toContain("const mobilePrimary = items.filter(item => item.id !== 'menu').slice(0, 4)");
     expect(sidebar).toContain('mobilePrimary.map(item =>');
     expect(sidebar).toContain("select('my-attendance')");
   });
