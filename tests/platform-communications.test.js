@@ -3,10 +3,20 @@ import request from 'supertest';
 import express from 'express';
 import {
   createPlatformCommunicationsRouter,validateOwnerAudience,
-  ownerRecipientEligible,safeOwnerScope,dispatchDueOwnerAnnouncements
+  ownerRecipientEligible,safeOwnerScope,dispatchDueOwnerAnnouncements,recordOwnerInboxDelivery
 } from '../routes/platform-communications.js';
 
 describe('Platform owner announcement targeting',()=>{
+  it('creates idempotent tenant-specific in-app delivery records',async()=>{
+    const dbRun=vi.fn(async()=>({changes:1}));
+    const event={announcementId:'a1',tenantId:'tenant_a',userId:'owner_a',at:1234567};
+    await recordOwnerInboxDelivery(dbRun,event);
+    const [sql,args]=dbRun.mock.calls[0];
+    expect(sql).toMatch(/INSERT OR IGNORE INTO platform_owner_communication_deliveries/);
+    expect(sql).toMatch(/'in_app','delivered'/);
+    expect(args.slice(0,3)).toEqual(['a1','tenant_a','owner_a']);
+    expect(args).not.toContain('tenant_b');
+  });
   it('rejects unspecified restaurant selection',()=>{
     expect(validateOwnerAudience({scope:'specific',tenantIds:[]}).success).toBe(false);
     expect(validateOwnerAudience({scope:'specific',tenantIds:['tenant_a']}).success).toBe(true);
