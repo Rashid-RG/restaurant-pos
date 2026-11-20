@@ -4,7 +4,9 @@
  * The server independently checks accuracy, timestamps, assignments and jumps.
  */
 export const DRIVER_MOVING_INTERVAL_MS = 4000;
-export const DRIVER_STATIONARY_INTERVAL_MS = 12000;
+export const DRIVER_STATIONARY_INTERVAL_MS = 30000;
+export const DRIVER_MAX_FIX_AGE_MS = 30000;
+export const DRIVER_MAX_ACCURACY_METERS = 150;
 export const DRIVER_MOVEMENT_METERS = 12;
 
 export function geoDistanceMeters(a,b) {
@@ -16,9 +18,19 @@ export function geoDistanceMeters(a,b) {
   return 6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));
 }
 
+export function validDriverFix(fix, now = Date.now()) {
+  if (!fix || !Number.isFinite(now)) return false;
+  const {lat,lng,accuracyMeters,recordedAt}=fix;
+  return [lat,lng,accuracyMeters,recordedAt].every(Number.isFinite)
+    && Math.abs(lat)<=90 && Math.abs(lng)<=180
+    && accuracyMeters>0 && accuracyMeters<=DRIVER_MAX_ACCURACY_METERS
+    && recordedAt<=now+10000 && now-recordedAt<=DRIVER_MAX_FIX_AGE_MS;
+}
+
 export function shouldSendDriverFix(fix, lastSent, now = Date.now()) {
-  if (!fix || !Number.isFinite(Number(fix.recordedAt))) return false;
+  if (!validDriverFix(fix, now)) return false;
   if (!lastSent) return true;
+  if (!Number.isFinite(lastSent.recordedAt) || !Number.isFinite(lastSent.sentAt)) return false;
   if (fix.recordedAt <= lastSent.recordedAt) return false;
   const elapsed=now-lastSent.sentAt;
   if (elapsed<0) return false;
