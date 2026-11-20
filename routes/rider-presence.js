@@ -12,7 +12,7 @@ export function createRiderPresenceRouter({
     res.set('Cache-Control','no-store');
     const tenantId=req.driver.tenant_id,driverId=req.driver.driverId;
     if(req.body?.consent===false){
-      presence.revoke(tenantId,driverId);
+      await presence.revoke(tenantId,driverId);
       return res.json({success:true,sharing:false});
     }
     if(req.body?.consent!==true)return res.status(400).json({error:'Explicit on-duty location consent required.'});
@@ -27,16 +27,16 @@ export function createRiderPresenceRouter({
       (Number(d.licenseReviewRequired)===0 && Number(d.licenseVerifiedUntil)>clock())
     );
     if(!d||!['available','active'].includes(d.status)||!verified){
-      presence.revoke(tenantId,driverId);
+      await presence.revoke(tenantId,driverId);
       return res.status(403).json({error:'Verified on-duty availability is required.'});
     }
     const {lat,lng,accuracyMeters,recordedAt}=req.body;
-    const result=presence.record({tenantId,driverId,lat,lng,accuracyMeters,recordedAt,consent:true});
+    const result=await presence.record({tenantId,driverId,lat,lng,accuracyMeters,recordedAt,consent:true});
     if(!result.accepted)return res.status(422).json({error:'Location fix rejected.',code:result.reason});
     return res.json({success:true,sharing:true,expiresInSeconds:90});
   });
-  router.post('/public/driver/off-duty-location',gate,authenticateDriver,(req,res)=>{
-    presence.revoke(req.driver.tenant_id,req.driver.driverId);
+  router.post('/public/driver/off-duty-location',gate,authenticateDriver,async(req,res)=>{
+    await presence.revoke(req.driver.tenant_id,req.driver.driverId);
     res.set('Cache-Control','no-store').json({success:true,sharing:false});
   });
   router.get('/delivery/nearby-riders',gate,authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
@@ -46,7 +46,7 @@ export function createRiderPresenceRouter({
       !Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)
       return res.status(400).json({error:'A valid dispatch origin is required.'});
     const tenantId=req.tenantId;
-    const rows=presence.list(tenantId);
+    const rows=await presence.list(tenantId);
     // A dispatch or status update can make an earlier GPS heartbeat obsolete.
     // Always verify current availability against the authoritative tenant DB.
     const available=await dbAll("SELECT id FROM drivers WHERE tenant_id=? AND status IN ('available','active')",[tenantId]);
