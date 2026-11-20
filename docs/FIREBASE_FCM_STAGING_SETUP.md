@@ -33,6 +33,15 @@
 - The dispatched notification contains only the short announcement ID and minimal title/body. The app must fetch full detail through the authenticated tenant-scoped inbox; do not place sensitive billing, OTP or customer data in the notification payload.
 - Provider HTTP acceptance is **not proof of handset display or human acknowledgment**. Maintain durable claim/manual-review semantics; never automatically resend ambiguous outcomes.
 
+## 3a. Native POS staging enrollment flow (now coded; remains inactive)
+- The existing Codex staging wrapper at `mobile-staging/` is registered as `com.gastroflow.app.staging`. The POS `StagingPushSetup` UI is now restricted to **native Android/iOS and signed-in restaurant owners** at the exact staging HTTPS origin. Cashiers, managers, platform administrators, non-native browsers, and other origins never see the control.
+- `src/utils/staging-fcm-enrollment.js` sends an authenticated, **read-only** `GET /api/owner/communications/push-enrollment-readiness` before any consent or device write. The server requires active tenant, the authenticated owner role, verified-by-operator database isolation attestation, enabled installation enrollment, and enabled encrypted FCM token storage.
+- A single **user-initiated** opt-in saves owner push preference, registers a UUID v4 installation (localStorage scoped to the tenant and owner), requests native permissions, gets the FCM token, and sends it once over same-origin HTTPS to the authenticated `/fcm-token` endpoint. The screen displays only a success/denied/error message, **never the token**.
+- The Disable Notifications control withdraws server-side consent and revokes all previously recorded installations and FCM tokens for that owner. Registration only verifies token storage; it does not send a notification or claim delivery.
+- The screen intentionally provides no automatic background token refresh yet. Until a signed native Android/iOS test verifies Firebase token refresh and logout/account-switch revocation on real hardware, this stage is a **manual staging test control only**.
+- Before enabling staging, confirm that `PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED=true` reflects an actually **separate Turso staging database**; a configuration value alone is not proof.
+- No Render deployment is authorized or performed as part of these changes.
+
 ## 4. Test matrix and release gates
 - Automated mocked transport: OAuth assertion signature, one-token targeting, no topics, rejected disabled or invalid parameters, provider errors.
 - Database tests: owner A/restaurant A cannot enroll owner B's token; inactive/suspended or non-owner accounts cannot register; device and token revocation blocks dispatch; stale or duplicate claim cannot send twice; suppressed or opted-out devices never send.
