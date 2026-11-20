@@ -96,10 +96,10 @@ jobs:
       - name: Compile unsigned iPhone simulator staging app
         working-directory: mobile-staging
         run: |
-          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \\
-            -configuration Debug -sdk iphonesimulator \\
-            -destination 'generic/platform=iOS Simulator' \\
-            -derivedDataPath "$RUNNER_TEMP/gastroflow-staging-ios-derived" \\
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/gastroflow-staging-ios-derived" \
             CODE_SIGNING_ALLOWED=NO build
       - name: Verify compiled native app has staging identity
         run: |
