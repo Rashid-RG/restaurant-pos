@@ -37,6 +37,13 @@ describe('GastroDriver automatic recruitment and verification email privacy',()=
   expect(msg.html).toContain('&lt;script&gt;');
   expect(msg.html).toContain('&lt;img');
  });
+ it('uses safe actionable resubmission reasons without inserting private free text',()=>{
+  const msg=riderEmailTemplate({event:'resubmit',restaurant:'Example Cafe',rider:'Test Rider',reason:'unclear_selfie'});
+  expect(msg.text).toContain('Retake it');
+  expect(msg.html).toContain('Your selfie is unclear');
+  const unknown=riderEmailTemplate({event:'resubmit',restaurant:'Example Cafe',reason:'<script>private data</script>'});
+  expect(unknown.html).not.toContain('<script>');
+ });
  it('cannot be used for arbitrary email content injection',()=>{
   expect(()=>riderEmailTemplate({event:'arbitrary',restaurant:'test'})).toThrow();
  });
