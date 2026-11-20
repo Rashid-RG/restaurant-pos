@@ -59,3 +59,30 @@ The existing driver UI is a PWA. Browsers cannot guarantee continuous GPS when l
 - **Native code integrated:** Native GastroDriver builds select `@capacitor-community/background-geolocation` with CapacitorHttp uploads, a separate application identifier, and an explicit staging API origin. Unsigned Android/iOS project generation, native permissions, signing, real-device background tests, and production-ready retry guarantees are **not completed**.
 - **Deployment remains blocked:** Staging auto-deploy was observed disabled in Render. No service, environment, database, or production deployment was changed during this work. Obtain explicit staging approval and provide a reachable OSRM host, plus device-signing access, before activating.
 - **Scaling:** The rider-presence pilot uses process memory, and thus is not production-ready for multiple instances. Replace it with a secure tenant-scoped shared presence store with TTL and revocation before multi-instance rollout.
+
+## Shared Redis staging presence wiring
+
+The staging resource `gastroflow-rider-presence-staging` is provisioned, but its
+private connection URL must be provided securely through the Render dashboard.
+Never paste it in GitHub issues, commit history, customer app bundles, or chat.
+
+- `GASTROFLOW_RIDER_PRESENCE_PILOT=true` keeps the already authorized rider
+  consent, authentication and tenant-scoped H3 endpoints enabled.
+- `GASTROFLOW_RIDER_PRESENCE_REDIS_URL` is optional: when absent, the existing
+  single-instance in-memory pilot remains active. When present, it selects the
+  Redis TTL adapter and rejects connection errors rather than falling back.
+- Configure only in the **gastroflow-staging** service. Use a private Render
+  `redis://red-.../` URL or external `rediss://...` endpoint with TLS.
+- The Redis adapter stores each rider's recent GPS under hashed tenant/driver
+  keys with a maximum 90-second expiration and atomic timestamp ordering.
+  This is volatile location state only, not sales/customer/Turso data.
+- Test on two authorized rider accounts within one restaurant and a second
+  isolated restaurant. Confirm consent-off revocation, TTL expiry, busy/offline
+  exclusion, manager-only discovery, restart behavior and no cross-tenant leaks.
+- This dedicated short-lived connection is intended for the staging pilot;
+  replace with a pooled, monitored client and enforce memory/throughput quotas
+  before high-volume production rollout.
+
+**As of this checkpoint:** the URL has not been supplied by the connected
+Render tools and has not been configured. The presence resource's existence
+must not be represented as a working shared-storage connection.
