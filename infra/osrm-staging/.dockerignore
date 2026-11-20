@@ -1,0 +1,5 @@
+data
+*.osrm*
+*.osm.pbf
+node_modules
+.git
