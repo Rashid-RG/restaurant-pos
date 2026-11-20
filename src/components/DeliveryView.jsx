@@ -3,6 +3,7 @@ import { usePOS } from '../context/POSContext';
 import { restaurantTimeZone } from '../utils/restaurant-time';
 import RiderRecruitmentPanel from './RiderRecruitmentPanel';
 import './RiderVerificationCenter.css';
+import ProtectedRiderEvidenceViewer from './ProtectedRiderEvidenceViewer';
 
 export default function DeliveryView({verificationOnly=false}) {
   const { orders, showToast, settings,currentUser } = usePOS();
@@ -707,11 +708,7 @@ export default function DeliveryView({verificationOnly=false}) {
         </div>
 
         </>}
-        {manualPreview && <div role="dialog" aria-modal="true" aria-label="Protected driver document" style={{position:'fixed',inset:0,zIndex:20000,background:'rgba(0,0,0,0.87)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,padding:20}}>
-          <p style={{color:'#fff',fontSize:13}}>Protected evidence for {manualPreview.driverId} · {manualPreview.kind}. Do not download or forward.</p>
-          <img src={manualPreview.src} alt="Sensitive applicant evidence" style={{maxWidth:'95vw',maxHeight:'75vh',objectFit:'contain',borderRadius:8}}/>
-          <button className="btn btn-secondary" onClick={()=>setManualPreview(null)}>Close protected evidence</button>
-        </div>}
+        {manualPreview && <ProtectedRiderEvidenceViewer preview={manualPreview} onClose={()=>setManualPreview(null)}/>}
       </div>
     </div>
   );
