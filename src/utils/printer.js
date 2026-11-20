@@ -190,11 +190,11 @@ export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
   // 96 CSS pixels = 1 inch = 25.4mm  =>  1mm = 3.7795px
   // Allow room for delayed fonts and thermal-printer blade. Never truncate the preview.
   let totalHeightMm = measuredPx > 0
-    ? Math.ceil(measuredPx / 3.7795) + 15
-    : (is58mm ? 150 : 180);
+    ? Math.ceil(measuredPx / 3.7795) + 5
+    : (is58mm ? 85 : 110);
 
   // Safety clamps: never less than 35mm, never more than 1500mm
-  if (totalHeightMm < 85) totalHeightMm = 85;
+  if (totalHeightMm < 35) totalHeightMm = 35;
   if (totalHeightMm > 1500) totalHeightMm = 1500;
 
   let styleEl = document.getElementById('dynamic-thermal-page-style');
@@ -258,25 +258,26 @@ export function buildStandaloneReceiptDocument(receiptMarkup, paperSetting='80mm
     '@page{size:'+(a4?'A4 portrait':roll+' 180mm')+';margin:0}',
     '*{box-sizing:border-box}',
     'html,body{margin:0!important;padding:0!important;background:white!important;color:black!important;font-family:Arial,Helvetica,sans-serif!important;height:auto!important;overflow:visible!important}',
-    '.receipt-print-area{display:block!important;visibility:visible!important;opacity:1!important;position:static!important;transform:none!important;float:none!important;width:'+width+'!important;max-width:'+width+'!important;margin:0 auto!important;padding:'+(a4?'10mm':'2mm 1mm 8mm')+'!important;color:black!important;background:white!important;font-size:'+font+'px!important;line-height:1.35!important;overflow:visible!important}',
+    '.receipt-print-area{display:block!important;visibility:visible!important;opacity:1!important;position:static!important;transform:none!important;float:none!important;width:'+width+'!important;max-width:'+width+'!important;margin:0 auto!important;padding:'+(a4?'10mm':'1mm 1mm 1mm')+'!important;color:black!important;background:white!important;font-size:'+font+'px!important;line-height:1.35!important;overflow:visible!important}',
     '.receipt-print-area *{visibility:visible!important;opacity:1!important;color:black!important;-webkit-text-fill-color:black!important;text-shadow:none!important;box-shadow:none!important}',
     '.receipt-print-area button,.receipt-print-area [data-print-exclude]{display:none!important}',
-    '.receipt-center{text-align:center}.receipt-divider{border-top:1px dashed #000;margin:8px 0}',
+    '.receipt-center{text-align:center}.receipt-divider{border-top:1px dashed #000;margin:3px 0}',
     '.receipt-business-name{font-size:'+(paper==='58mm'?'14':'17')+'px!important;letter-spacing:.25px;line-height:1.15!important;margin:4px 0 5px!important}',
     '.receipt-document-heading{padding:5px 0 4px;font-size:'+(paper==='58mm'?'12':'14')+'px;font-weight:800;letter-spacing:1.3px}',
-    '.receipt-items-heading{display:flex;justify-content:space-between;gap:7px;font-size:10px;font-weight:800;letter-spacing:.6px;padding:6px 0 5px;border-bottom:1px solid #111;margin-bottom:3px}',
+    '.receipt-items-heading{display:flex;justify-content:space-between;gap:7px;font-size:10px;font-weight:800;letter-spacing:.6px;padding:3px 0 3px;border-bottom:1px solid #111;margin-bottom:3px}',
     '.receipt-items-heading span:last-child{text-align:right}',
-    '.receipt-item-block{padding:5px 0;border-bottom:1px dotted #bbb;break-inside:avoid}',
+    '.receipt-item-block{padding:2px 0;break-inside:avoid}',
     '.receipt-item-detail{font-size:10px;padding:1px 0 0 4px;color:#333!important}',
-    '.receipt-payment-method{font-weight:800;font-size:12px;margin:7px 0!important}',
-    '.receipt-totals{border-top:2px solid #000;border-bottom:2px solid #000;padding:7px 0!important;margin:7px 0!important;font-weight:800!important}',
+    '.receipt-payment-method{font-weight:800;font-size:12px;margin:2px 0!important}',
+    '.receipt-totals{border-top:2px solid #000;border-bottom:2px solid #000;padding:4px 0!important;margin:3px 0!important;font-weight:800!important}',
     '.receipt-print-area p{overflow-wrap:anywhere}',
 
     '.receipt-row{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 0;break-inside:avoid}',
     '.receipt-row span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}.receipt-row span:last-child{text-align:right;white-space:nowrap}',
     '.receipt-totals{font-size:1.15em;font-weight:800}',
-    '.receipt-logo{display:block;max-width:70px;max-height:70px;object-fit:contain;margin:0 auto 6px}',
-    'p{margin:3px 0!important}h3{margin:3px 0!important}img{max-width:100%;height:auto}',
+    '.receipt-logo{display:block;max-width:46px;max-height:46px;object-fit:contain;margin:0 auto 2px}',
+    'p{margin:1px 0!important}h3{margin:1px 0!important}img{max-width:100%;height:auto}',
+    '.receipt-gratitude{font-size:10px!important;font-weight:600!important;line-height:1.1!important;margin:2px 0 0!important;padding:0!important;border:0!important}.receipt-platform-credit{font-size:9px!important;line-height:1.1!important;margin:0!important;padding:0!important;border:0!important;white-space:normal!important}',
     '@media print{html,body{overflow:visible!important}.receipt-print-area{break-inside:auto!important}}'
   ].join('');
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>GastroFlow POS Bill</title><style>'+css+'</style></head><body>'+receiptMarkup+'</body></html>';
@@ -297,7 +298,7 @@ export function fitStandaloneReceiptPage(doc, paperSetting = '80mm') {
   const rectHeight = typeof receipt.getBoundingClientRect === 'function' ? receipt.getBoundingClientRect().height : 0;
   const px = Math.max(receipt.scrollHeight || 0, rectHeight || 0);
   if (!Number.isFinite(px) || px <= 0) return false;
-  const mm = Math.max(35, Math.ceil(px * 25.4 / 96) + 5);
+  const mm = Math.max(35, Math.ceil(px * 25.4 / 96) + 3);
   let style = doc.getElementById('receipt-content-page-size');
   if (!style) {
     style = doc.createElement('style');
