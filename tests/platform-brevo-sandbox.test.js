@@ -4,6 +4,7 @@ import {createSandboxBrevoSender,sandboxBrevoReady} from '../lib/communications/
 const env={
  PLATFORM_COMMUNICATIONS_ENABLED:'true',
  PLATFORM_COMMUNICATIONS_STAGE:'staging',
+ PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED:'true',
  PLATFORM_COMMUNICATIONS_EMAIL_ENABLED:'true',
  PLATFORM_COMMUNICATIONS_EMAIL_MODE:'sandbox',
  PLATFORM_COMMUNICATIONS_TEST_EMAILS:'test@example.test',
