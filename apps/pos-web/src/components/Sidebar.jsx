@@ -13,7 +13,7 @@ export const SIDEBAR_GROUPS = [
 ];
 
 export function organizeSidebarDestinations(items) {
-  const pinned = ['dashboard', 'pos'].map(id => items.find(item => item.id === id)).filter(Boolean);
+  const pinned = ['dashboard', 'pos', 'menu'].map(id => items.find(item => item.id === id)).filter(Boolean);
   const groups = SIDEBAR_GROUPS.map(group => ({
     ...group, items: group.ids.map(id => items.find(item => item.id === id)).filter(Boolean)
   })).filter(group => group.items.length);
