@@ -180,6 +180,12 @@ Authenticated restaurant owner (only own user+tenant):
 - The same suite verifies that a mismatched recipient email and an unknown provider message ID cannot alter the recorded receipt state.
 - These tests provide stronger module-to-module evidence but **are not actual Brevo sandbox delivery or webhook acceptance tests**; those require verified isolated Render staging, approved credentials, a test mailbox, and explicit operator authorization.
 
+### Crash and ambiguous-send local database verification
+- Added isolated libSQL regression tests for an injected Brevo timeout: the claimed job becomes `manual_review` with an attempt count, and a subsequent tick must not contact the provider again.
+- A separate simulated worker-crash case creates a stale `sending` claim; the non-sending reconciliation function transitions it into `manual_review` without triggering a retry.
+- These cases deliberately prioritize prevention of duplicate emails over automatic recovery of uncertain outcomes. A human reviewer must reconcile external provider evidence before deciding whether a failed or ambiguous message can ever be resent.
+- The local tests use only ephemeral database files and mock provider functions. Real Brevo delivery, Render/Turso isolation, remote multi-instance contention, push-provider integration, and actual Android/iPhone device tests are still outstanding.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
