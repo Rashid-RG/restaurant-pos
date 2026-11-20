@@ -8,6 +8,17 @@ import './receipt-workspace.css';
 import { getNativePrinterConfig, saveNativePrinterConfig, listNativePrinters, nativePrintTestSlip } from '../utils/native-printer';
 import { restaurantTimeZone, validTimeZone } from '../utils/restaurant-time';
 
+const SETTINGS_SECTIONS = [
+  { id: 'business', icon: '🏢', label: 'Business Info', detail: 'Restaurant identity, contact information, branding, taxes and timezone.', group: 'Restaurant' },
+  { id: 'printer', icon: '🧾', label: 'Printer & Receipts', detail: 'Paper Saver, customer bill design, printer settings and cash drawer.', group: 'Operations' },
+  { id: 'menu', icon: '🍽️', label: 'Menu & Categories', detail: 'Organize categories, dish images, pricing and availability.', group: 'Operations' },
+  { id: 'users', icon: '👥', label: 'Staff & Users', detail: 'Manage accounts, roles, access and POS PINs.', group: 'People' },
+  { id: 'online', icon: '🛍️', label: 'Online Store', detail: 'Store availability, delivery settings and customer ordering.', group: 'Operations' },
+  { id: 'database', icon: '🛡️', label: 'Database & Backup', detail: 'Database administration, backup and recovery controls.', group: 'Administration' },
+  { id: 'billing', icon: '💳', label: 'Plan and Billing', detail: 'Subscription plan and restaurant billing.', group: 'Administration', ownerOnly: true },
+  { id: 'saas', icon: '🗂️', label: 'Platform Administration', detail: 'Platform-wide administration for authorized operators.', group: 'Administration', platformOnly: true }
+];
+
 const COMMON_TIME_ZONES = ['Asia/Colombo', 'Asia/Qatar', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'America/New_York'];
 const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedValuesOf?.('timeZone') || [])])].sort();
 
@@ -33,6 +44,10 @@ export default function Settings() {
   } = usePOS();
 
   const isMasterSuperAdmin = currentUser?.isPlatformAdmin === true;
+  const availableSettingsSections = SETTINGS_SECTIONS.filter(section =>
+    (!section.ownerOnly || currentUser?.role === 'owner') &&
+    (!section.platformOnly || isMasterSuperAdmin)
+  );
 
   // Direct printing is deliberately opt-in and stored per computer + tenant,
   // not in the restaurant-wide settings or in Turso.
@@ -96,7 +111,7 @@ export default function Settings() {
   const [subTab, setSubTab] = useState(()=>{
     const requested=sessionStorage.getItem('gastroflow_settings_tab');
     sessionStorage.removeItem('gastroflow_settings_tab');
-    return ['online','business','printer','menu','database','users'].includes(requested)?requested:'business';
+    return ['online','business','printer','menu','database','users','billing','saas'].includes(requested)?requested:'home';
   });
 
   // Business config states
@@ -685,61 +700,52 @@ export default function Settings() {
       </div>
 
       <div className="view-body">
-        <div className="settings-layout">
-          
-          {/* Inner Left Nav */}
-          <nav className="settings-nav" aria-label="System settings sections">
-            <div className="settings-nav-kicker">WORKSPACE SETTINGS</div>
-            <button
-              className={`settings-nav-btn ${subTab === 'business' ? 'active' : ''}`}
-              onClick={() => setSubTab('business')}
-            >
-              🏢 Business Info
-            </button>
-            <button
-              className={`settings-nav-btn ${subTab === 'printer' ? 'active' : ''}`}
-              onClick={() => setSubTab('printer')}
-              type="button"
-            >
-              🖨️ Printer & Hardware
-            </button>
-            <button
-              className={`settings-nav-btn ${subTab === 'menu' ? 'active' : ''}`}
-              onClick={() => setSubTab('menu')}
-            >
-              🍕 Menu & Categories
-            </button>
-            <button
-              className={`settings-nav-btn ${subTab === 'database' ? 'active' : ''}`}
-              onClick={() => setSubTab('database')}
-            >
-              💾 Database & Backup
-            </button>
-            <button
-              className={`settings-nav-btn ${subTab === 'users' ? 'active' : ''}`}
-              onClick={() => setSubTab('users')}
-            >
-              👥 Staff & Users
-            </button>
-            <button
-              className="settings-nav-btn"
-              onClick={() => setActiveTab('online-store')}
-            >
-              🌐 Online Store
-            </button>
-            {currentUser?.role === 'owner' && <button className={`settings-nav-btn ${subTab === 'billing' ? 'active' : ''}`} onClick={() => setSubTab('billing')}>Plan and billing</button>}
-            {isMasterSuperAdmin && (
-              <button
-                className={`settings-nav-btn ${subTab === 'saas' ? 'active' : ''}`}
-                onClick={() => setSubTab('saas')}
-              >
-                Platform administration
-              </button>
-            )}
-          </nav>
-
-          {/* Inner Panel */}
-          <div className="settings-panel">
+        <div className="settings-full-layout">
+          {subTab === 'home' ? (
+            <section className="settings-home" aria-label="Settings Home">
+              <div className="settings-home-hero">
+                <span className="settings-home-kicker">YOUR RESTAURANT · ONE CONTROL CENTER</span>
+                <h2>What would you like to configure?</h2>
+                <p>Select a category below. Each section opens in its own full-width workspace, without a second sidebar taking up screen space.</p>
+              </div>
+              {['Restaurant', 'Operations', 'People', 'Administration'].map(group => {
+                const groupSections = availableSettingsSections.filter(section => section.group === group);
+                return groupSections.length > 0 && (
+                  <section key={group} className="settings-home-group" aria-label={group + ' settings'}>
+                    <div className="settings-home-group-heading"><h3>{group}</h3><span>{groupSections.length} {groupSections.length === 1 ? 'section' : 'sections'}</span></div>
+                    <div className="settings-home-grid">
+                      {groupSections.map(section => (
+                        <button key={section.id} type="button" className="settings-home-card"
+                          onClick={() => setSubTab(section.id)} aria-label={'Open ' + section.label}>
+                          <span className="settings-home-card-icon" aria-hidden="true">{section.icon}</span>
+                          <span className="settings-home-card-copy">
+                            <strong>{section.label}</strong><small>{section.detail}</small>
+                          </span>
+                          <span className="settings-home-card-arrow" aria-hidden="true">↗</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+            </section>
+          ) : (
+            <>
+              <nav className="settings-page-toolbar" aria-label="Settings breadcrumb">
+                <div className="settings-page-breadcrumb">
+                  <button type="button" className="settings-back-link" onClick={() => setSubTab('home')}>← Settings Home</button>
+                  <span aria-hidden="true">/</span>
+                  <span aria-current="page">{availableSettingsSections.find(section => section.id === subTab)?.label || 'Settings'}</span>
+                </div>
+                <label className="settings-jump-label" htmlFor="settings-page-jump">
+                  Switch section
+                  <select id="settings-page-jump" className="form-select" value={subTab}
+                    onChange={event => setSubTab(event.target.value)}>
+                    {availableSettingsSections.map(section => <option key={section.id} value={section.id}>{section.label}</option>)}
+                  </select>
+                </label>
+              </nav>
+              <div className="settings-panel settings-full-panel">
             
             {/* 1. Business Info Settings */}
             {subTab === 'business' && (
@@ -1654,7 +1660,9 @@ export default function Settings() {
             {subTab === 'billing' && currentUser?.role === 'owner' && <SubscriptionBilling />}
             {subTab === 'saas' && isMasterSuperAdmin && <PlatformAdmin embedded />}
 
-          </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
