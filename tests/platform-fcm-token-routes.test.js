@@ -85,6 +85,17 @@ describe('session-bound owner FCM routes',()=>{
   expect((await request(app).post(endpoint).send({installationId,token})).status).toBe(404);
   expect(f.dbRun).not.toHaveBeenCalled();
  });
+ it('withdrawing push consent revokes devices and FCM tokens even when registration is disabled',async()=>{
+  const f=make();
+  const result=await request(f.app)
+    .post('/api/owner/communications/push-preference').send({optedIn:false});
+  expect(result.status).toBe(200);
+  expect(result.body).toMatchObject({optedIn:false,pushOperational:false});
+  expect(f.dbRun.mock.calls.some(([sql])=>
+    sql.includes('UPDATE platform_owner_communication_fcm_tokens'))).toBe(true);
+  expect(f.dbRun.mock.calls.some(([sql])=>
+    sql.includes('UPDATE platform_owner_communication_devices'))).toBe(true);
+ });
  it('revoking a device also revokes its stored FCM registration',async()=>{
   const f=make();
   const result=await request(f.app)
