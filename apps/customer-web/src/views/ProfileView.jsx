@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
-import { useCart } from '../context/CartContext.jsx';
 import LoginRegisterView from './LoginRegisterView.jsx';
 import { apiFetch } from '../utils/api.js';
 import { dateAtRestaurant } from '../../../../src/utils/restaurant-time.js';
 
-export default function ProfileView({ toast, resetToken, onResetHandled, onBack }) {
+export default function ProfileView({ toast, resetToken, onResetHandled, onBack, onReviewDish }) {
   const { customer, logout, refreshProfile, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
-  const { addItem, setCartOpen } = useCart();
   const [orders, setOrders] = useState([]);
   const [restaurantZone, setRestaurantZone] = useState('Asia/Colombo');
   useEffect(() => { apiFetch('/public/store-info').then(info => setRestaurantZone(info?.timeZone || 'Asia/Colombo')).catch(() => {}); }, []);
@@ -104,20 +102,6 @@ export default function ProfileView({ toast, resetToken, onResetHandled, onBack 
     } catch (err) {
       toast(err.message, 'error');
     }
-  };
-
-  const handleReorder = (order) => {
-    if (!order.items || order.items.length === 0) return;
-    order.items.forEach(item => {
-      addItem({
-        id: item.menuItemId || item.id,
-        name: item.name,
-        price: item.price,
-        emoji: item.emoji || '🍽️'
-      }, item.quantity, [], ''); // Default empty modifiers/notes for clean reorder
-    });
-    toast('Items added to cart! Reorder prefilled. 🛒', 'success');
-    setCartOpen(true);
   };
 
   const handleCancelOrder = async (orderId) => {
@@ -318,9 +302,17 @@ export default function ProfileView({ toast, resetToken, onResetHandled, onBack 
                 {order.items?.map(i => `${i.name} ×${i.quantity}`).join(', ')}
               </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '0.72rem', width: 'auto' }} onClick={() => handleReorder(order)}>
-                  🔄 Reorder
-                </button>
+                {order.items?.length > 0 && <details>
+                  <summary style={{cursor:'pointer', padding:'10px 0', fontWeight:700}}>Order again</summary>
+                  <p>Review today’s price and choose your options for each dish.</p>
+                  {order.items.map((item, index) => <div key={index} style={{marginBottom:8}}>
+                    <button type="button" className="btn btn-ghost" disabled={!item.menuItemId} onClick={() => onReviewDish(item)}>
+                      {item.name} ×{item.quantity} · {item.menuItemId ? 'Review dish' : 'Unavailable'}
+                    </button>
+                    {Number.isFinite(item.price) && <small style={{display:'block'}}>Previously Rs. {item.price.toLocaleString('en-LK')} each</small>}
+                    {item.notes && <small>Previous note · {item.notes}</small>}
+                  </div>)}
+                </details>}
                 {order.status === 'pending' && (
                   <button
                     className="btn btn-danger"

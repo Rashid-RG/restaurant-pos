@@ -171,7 +171,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
             <h3>{item.name}</h3>
             <p>{item.description || store.cuisine || 'Freshly prepared'}</p>
             <div className="marketplace-item-footer"><strong>Rs. {toPrice(item.price)}</strong>
-              <button type="button" onClick={() => onChooseStore(store)} aria-label={`View ${item.name} at ${store.name}`}>View menu <ArrowUpRight size={16}/></button>
+              <button type="button" onClick={() => onChooseStore(store, item)} aria-label={`View ${item.name} at ${store.name}`}>View dish <ArrowUpRight size={16}/></button>
             </div>
           </div>
         </article>)}

@@ -42,3 +42,12 @@
   .gastrofood-discovery .restaurants-result-grid { grid-template-columns:minmax(0,1fr) !important; }
   .gastrofood-discovery .gastrofood-result-count { flex-shrink:0; margin-left:8px; }
 }
+
+.discovery-heading { margin: 12px 0; }
+.discovery-heading h1 { color: var(--text-1); font-size: clamp(1.55rem, 4vw, 2rem); line-height: 1.15; margin: 0; }
+.discovery-heading p { color: var(--text-muted); margin: 5px 0 0; }
+.discovery-filters { border-block-end: 1px solid var(--border-color); margin-bottom: 18px; }
+.discovery-filters summary { display: flex; align-items: center; gap: 8px; min-height: 46px; color: var(--text-1); cursor: pointer; font-weight: 700; }
+.discovery-filters summary::after { content: '▾'; margin-inline-start: auto; }
+.discovery-filters[open] summary::after { transform: rotate(180deg); }
+.discovery-filters summary small { color: var(--brand); }

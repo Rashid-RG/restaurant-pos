@@ -50,7 +50,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-function CartSheet({ onCheckout, store, canOrder }) {
+function CartSheet({ onEdit, onCheckout, store, canOrder }) {
   const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems, rates } = useCart();
   // Use the same formula as CartCheckoutView so the cart sidebar and checkout
   // page show a consistent total. Previously CartSheet used subtotal * 1.10
@@ -106,6 +106,7 @@ function CartSheet({ onCheckout, store, canOrder }) {
                   <span className="qty" aria-live="polite">{item.qty}</span>
                   <button type="button" className="inc" aria-label={'Add one ' + item.name} disabled={!canOrder || item.isAvailable === false || item.isAvailable === 0 || (item.stock!=null && items.filter(i=>i.id===item.id).reduce((n,i)=>n+Number(i.qty),0)>=Number(item.stock))} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
                 </div>
+                <button type="button" className="gf-modern-cart-remove" disabled={!canOrder} onClick={() => onEdit(item)}>Edit</button>
                 <button type="button" className="gf-modern-cart-remove" aria-label={'Remove ' + item.name + ' from cart'} onClick={()=>deleteItem(item.cartId)}>Remove</button>
               </div>
             </div>
@@ -278,6 +279,8 @@ function InnerApp({ switchRestaurant }) {
 
     const handlePopState = () => {
       const p = new URLSearchParams(window.location.search);
+      setAiCustomize(null);
+      if (p.get('tenant') && p.get('tenant') !== getActiveTenant()) switchRestaurant(p.get('tenant'));
       const v = p.get('view') || p.get('page') || 'menu';
       setView(v === 'menu' && p.get('tenant') ? 'store-menu' : v);
       setTrackingOrderId(v === 'track' ? p.get('track') : null);
@@ -291,6 +294,7 @@ function InnerApp({ switchRestaurant }) {
     // Clearing a tracking selection should display the manual/private-link form
     // rather than leaking the previous customer's order.
     if (v === 'track') setTrackingOrderId(extraParams.track ? String(extraParams.track) : null);
+    setAiCustomize(null);
     if (v === 'store-menu' && extraParams.customize) {
       setAiCustomize({ itemId: String(extraParams.customize), quantity: Number(extraParams.qty) || 1, tenantId: String(extraParams.tenant || ''), requestId: Date.now() });
     }
@@ -304,7 +308,7 @@ function InnerApp({ switchRestaurant }) {
       const url = new URL(window.location.href);
       url.searchParams.set('view', v);
       // Once the customer navigates away, refresh must open the current screen.
-      for (const param of ['legal','policies','page']) url.searchParams.delete(param);
+      for (const param of ['legal','policies','page','customize','qty']) url.searchParams.delete(param);
       if (v !== 'track') url.searchParams.delete('track');
       if (v !== 'account') url.searchParams.delete('reset');
       Object.entries(extraParams).forEach(([k, val]) => {
@@ -315,6 +319,21 @@ function InnerApp({ switchRestaurant }) {
     } catch (_) {}
   };
 
+
+  function openRestaurant(restaurant, dish) {
+    if (!restaurant?.id) return;
+    if (totalItems && restaurant.id !== getActiveTenant() &&
+        !window.confirm(`Open ${restaurant.name}? Your current cart will stay with its restaurant.`)) return;
+    navigate('store-menu', {tenant: restaurant.id, group: null, track: null, customize: dish?.id, qty: dish ? 1 : null});
+    switchRestaurant(restaurant.id);
+  }
+
+  function reviewPastDish(item, cartLine = null) {
+    const tenant = getActiveTenant();
+    navigate('store-menu', {tenant, group: null, customize: item.menuItemId, qty: 1});
+    setAiCustomize({itemId: String(item.menuItemId), tenantId: tenant, quantity: item.quantity,
+      previousNotes: item.notes || '', cartLine, reorder: true, requestId: Date.now()});
+  }
 
   // Redirect to the standalone GastroDriver PWA. Dev: customer runs on :3001, driver on :3002.
   // Production: set VITE_DRIVER_URL to the driver app's host.
@@ -415,23 +434,15 @@ function InnerApp({ switchRestaurant }) {
       <main className="main-content" id="customer-main">
         {view === 'restaurants' && (
           <RestaurantsView
-            onSelectRestaurant={(rest) => {
-              if (rest && rest.id) {
-                navigate('store-menu', {tenant:rest.id, group:null, track:null});
-                switchRestaurant(rest.id);
-              }
-            }}
+            onSelectRestaurant={openRestaurant}
             toast={toast}
           />
         )}
-        {view === 'menu' && <MarketplaceMenu onChooseStore={rest => {
-          navigate('store-menu', {tenant: rest.id, group: null, track: null});
-          switchRestaurant(rest.id);
-        }} />}
+        {view === 'menu' && <MarketplaceMenu onChooseStore={openRestaurant} />}
         {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} aiCustomize={aiCustomize} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
-        {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
-        {view === 'account' && <ProfileView toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
+        {view === 'track' && <OrderTrackingView onSelectOrder={track => navigate('track', {track})} orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
+        {view === 'account' && <ProfileView onReviewDish={reviewPastDish} toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
         {view === 'support' && <SupportView store={store} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView store={store} onSupport={() => navigate('support')} onBack={() => navigate('menu')} />}
 
@@ -461,17 +472,20 @@ function InnerApp({ switchRestaurant }) {
       )}
 
       {/* Cart Sheet */}
-      <CartSheet onCheckout={() => navigate('checkout')} store={store} canOrder={canOrder} />
+      <CartSheet onEdit={line => {
+        setCartOpen(false);
+        reviewPastDish({menuItemId: line.id, quantity: line.qty, notes: line.notes}, line);
+      }} onCheckout={() => navigate('checkout')} store={store} canOrder={canOrder} />
 
       {/* Bottom Navigation */}
       <nav className="bottom-nav" aria-label="Customer app navigation">
         <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} aria-current={view==='restaurants'?'page':undefined} onClick={() => navigate('restaurants')}>
           <span className="nav-icon"><Store size={21}/></span>
-          Stores
+          {t('navStores')}
         </button>
         <button className={`nav-item ${view === 'menu' || view === 'store-menu' ? 'active' : ''}`} aria-current={view==='menu'||view==='store-menu'?'page':undefined} onClick={() => navigate('menu', {tenant: null, group: null})}>
           <span className="nav-icon"><Utensils size={21}/></span>
-          {t('navMenu')}
+          {t('navDishes')}
         </button>
         <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} aria-current={view==='checkout'?'page':undefined} onClick={() => navigate('checkout')}>
           <span className="nav-icon"><ShoppingBag size={21}/></span>
@@ -480,7 +494,7 @@ function InnerApp({ switchRestaurant }) {
         </button>
         <button className={`nav-item ${view === 'track' ? 'active' : ''}`} aria-current={view==='track'?'page':undefined} onClick={() => navigate('track')}>
           <span className="nav-icon"><Package size={21}/></span>
-          {t('navTrack')}
+          {t('navOrders')}
         </button>
         <button className={`nav-item ${view === 'account' ? 'active' : ''}`} aria-current={view==='account'?'page':undefined} onClick={() => navigate('account')}>
           <span className="nav-icon"><UserRound size={21}/></span>

@@ -4,6 +4,8 @@ import { AnimatedFeatureIcon } from '../../../../shared/ui/AnimatedFeatureIcon.j
 import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
+import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
+import { selectTrackableOrders } from '../utils/gastromate-tracking.js';
 import TrackingMap from '../components/TrackingMap.jsx';
 import {contactLinks} from '../utils/contact-actions.js';
 import { canUseHostedOrderStream, canUseHostedWebPush } from '../utils/native-tracking-policy.js';
@@ -11,9 +13,22 @@ import { shouldRefreshNativeTrackingOnResume } from '../utils/native-tracking-re
 import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS,createTrackingSnapshotGate} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
-export default function OrderTrackingView({ orderId, onBack, toast = () => {} }) {
+export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toast = () => {} }) {
   const { t, dict: tr } = useLang();
   const isPackagedNative = import.meta.env.MODE === 'native';
+  const {customer, getToken} = useCustomerAuth();
+  const token = getToken();
+  const [recent, setRecent] = useState(null);
+  useEffect(() => {
+    if (!customer || !token || orderId) return;
+    const controller = new AbortController();
+    apiFetch('/customer/orders', {headers:{Authorization:`Bearer ${token}`}, signal:controller.signal, cache:'no-store'})
+      .then(data => {
+        if (!controller.signal.aborted) setRecent({customer, choices:selectTrackableOrders(data)});
+      })
+      .catch(() => { if (!controller.signal.aborted) setRecent(null); });
+    return () => controller.abort();
+  }, [customer, token, orderId]);
   const [trackId, setTrackId] = useState(orderId || '');
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -446,11 +461,16 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
       {!order ? (
 
         <div className="form-section gf-tracking-lookup" style={{ marginTop: 24 }}>
+          {customer && recent?.customer === customer && recent.choices.length > 0 && <section>
+            <h2>Your restaurant orders</h2>
+            {recent.choices.map(choice => <button className="btn btn-ghost" type="button" key={choice.id}
+              onClick={() => onSelectOrder(choice.id)}>#{choice.label} · {choice.statusLabel} · {choice.dateLabel}</button>)}
+          </section>}
           <h2>📦 {t('trackOrderTitle')}</h2>
           <p className="text-muted" style={{ marginBottom: 16 }}>{t('trackOrderHelp')}</p>
           <div className="form-group">
-            <label>{t('orderId')}</label>
-            <input className="form-control" placeholder="e.g. ord_online_…"
+            <label htmlFor="tracking-order-id">{t('orderId')}</label>
+            <input id="tracking-order-id" className="form-control" placeholder="e.g. ord_online_…"
               value={trackId} onChange={e => setTrackId(e.target.value)} />
           </div>
           <button className="btn btn-brand mt-8" onClick={() => fetchOrder(trackId)} disabled={loading || !trackId}>
@@ -513,10 +533,10 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
                 <div>
                   <div className="uber-status-badge live">{streamConnected && hasRecentUpdates ? '● Live updates' : '○ Checking updates'} · {isDineIn ? 'Dine-in' : isTakeaway ? 'Pickup' : 'Delivery'}</div>
                   <h1 className="uber-hero-title">
-                    {etaDisplay !== null ? `Approx. ${etaDisplay} min` : 'Awaiting estimate'}
+                    {heroMessage}
                   </h1>
-                  {etaDisplay !== null && <p className="gf-tracking-eta-note">Approximate only · depends on kitchen and road conditions</p>}
-                  <p className="uber-hero-subtitle">{heroMessage}</p>
+                  {etaDisplay !== null && <p className="gf-tracking-eta-note">Approx. {etaDisplay} min · {isDelivery ? 'Delivery estimate' : 'Restaurant estimate'}</p>}
+
                 </div>
               )}
             </div>

@@ -29,19 +29,22 @@ export function CartProvider({ children, tenantId }) {
     }
   }, [items, storageKey]);
 
-  const addItem = useCallback((menuItem, qty = 1, selectedModifiers = [], notes = '') => {
+  const addItem = useCallback((menuItem, qty = 1, selectedModifiers = [], notes = '', replaceCartId = null) => {
     if (!isMenuItemAvailable(menuItem) || menuItemTotal(menuItem, qty, selectedModifiers) === null) return;
     setItems(prev => {
+      const original = replaceCartId && prev.find(line => line.cartId === replaceCartId);
+      if (replaceCartId && original?.id !== menuItem.id) return prev;
+      const lines = original ? prev.filter(line => line !== original) : prev;
       const sortedMods = [...(selectedModifiers || [])].sort((a,b) => String(a.id).localeCompare(String(b.id)));
       const uniqueId = `${menuItem.id}_${sortedMods.map(m => m.id).join('_')}_${String(notes || '').trim()}`;
-      const alreadyInCart = prev.filter(i => i.id === menuItem.id).reduce((sum,i)=>sum+(Number(i.qty)||0),0);
+      const alreadyInCart = lines.filter(i => i.id === menuItem.id).reduce((sum,i)=>sum+(Number(i.qty)||0),0);
       const allowed = Math.min(qty, Math.max(0,maxMenuItemQuantity(menuItem) - alreadyInCart));
-      if (allowed === 0) return prev;
+      if (allowed === 0 || (original && allowed !== qty)) return prev;
       const currentUnitPrice = menuItemTotal(menuItem, 1, sortedMods);
       if (currentUnitPrice === null) return prev;
-      const existing = prev.find(i => i.cartId === uniqueId);
-      if (existing) return prev.map(i => i.cartId === uniqueId ? {...i,qty:Number(i.qty)+allowed,unitPrice:currentUnitPrice} : i);
-      return [...prev, {
+      const existing = lines.find(i => i.cartId === uniqueId);
+      if (existing) return lines.map(i => i.cartId === uniqueId ? {...i,qty:Number(i.qty)+allowed,unitPrice:currentUnitPrice} : i);
+      return [...lines, {
         ...menuItem,cartId:uniqueId,qty:allowed,
         selectedModifiers:sortedMods,notes:String(notes || '').trim(),
         unitPrice:currentUnitPrice

@@ -45,6 +45,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
   const [personalRecs, setPersonalRecs] = useState([]);
 
   // Modifiers Dialog State
+  const [editingLine, setEditingLine] = useState(null);
   const [customizerItem, setCustomizerItem] = useState(null);
   const [customizerQty, setCustomizerQty] = useState(1);
   const [customizerNotes, setCustomizerNotes] = useState('');
@@ -321,14 +322,14 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
   // From GastroMate: deep-link only to a live menu item and reuse the existing
   // modifier-selection modal. Never auto-add or bypass required options.
   useEffect(() => {
-    if (loading || !menu.items.length) return;
+    if (loading) return;
     const params = new URLSearchParams(window.location.search);
     const requestedId = aiCustomize?.itemId || params.get('customize');
     if (!requestedId) return;
     if (aiCustomize && lastAiRequestRef.current === aiCustomize.requestId) return;
     if (aiCustomize) lastAiRequestRef.current = aiCustomize.requestId;
     const requestedTenant = aiCustomize?.tenantId || params.get('tenant');
-    const requestedQty = Number(aiCustomize?.quantity ?? params.get('qty') ?? 1);
+    let requestedQty = Number(aiCustomize?.quantity ?? params.get('qty') ?? 1);
     const cleanedUrl = new URL(window.location.href);
     cleanedUrl.searchParams.delete('customize');
     cleanedUrl.searchParams.delete('qty');
@@ -337,7 +338,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
       toast('Restaurant changed. Please select this item from its own menu.', 'warning');
       return;
     }
-    if (menu.offlineSnapshot || menu.storeOpen !== true) {
+    if (menu.tenantId !== getActiveTenant() || menu.offlineSnapshot || menu.storeOpen !== true) {
       toast('This restaurant is not accepting online orders.', 'warning');
       return;
     }
@@ -346,16 +347,27 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
       toast('That item is no longer available. Please select another.', 'warning');
       return;
     }
+    if (aiCustomize?.reorder) requestedQty = Math.min(Math.max(1, requestedQty || 1), maxMenuItemQuantity(item));
     if (!Number.isInteger(requestedQty) || requestedQty < 1 || !validMenuQuantity(requestedQty, item)) {
       toast('The requested quantity is unavailable. Please choose a new quantity.', 'warning');
       return;
     }
     // The GastroMate deep-link only opens customization. The customer makes the
     // final modifier selection and explicitly confirms adding to the cart.
+    const line = aiCustomize?.cartLine;
+    if (line && groupId) {
+      toast('Leave the group order to edit your personal cart.', 'warning');
+      return;
+    }
+    setEditingLine(line || null);
     setCustomizerItem(item);
     setCustomizerQty(requestedQty);
-    setCustomizerNotes('');
-    setSelectedModifiers([]);
+    setCustomizerNotes(aiCustomize?.previousNotes || '');
+    const choices = (item.modifiers || []).filter(option => line?.selectedModifiers?.some(previous =>
+      String(previous.id) === String(option.id) && previous.groupName === option.groupName));
+    setSelectedModifiers(choices);
+    if (line && choices.length < (line.selectedModifiers || []).length)
+      toast('Some previous options are unavailable. Review the current choices.', 'warning');
     setShowCustomizerModal(true);
   }, [loading, menu.items, menu.storeOpen, menu.offlineSnapshot, aiCustomize]);
 
@@ -365,6 +377,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
     if (menu.storeOpen !== true || menu.offlineSnapshot) {
       toast('This restaurant is not accepting online orders.', 'warning'); return;
     }
+    setEditingLine(null);
     if (item.modifiers && item.modifiers.length > 0) {
       setCustomizerItem(item);
       setCustomizerQty(1);
@@ -382,17 +395,17 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
   };
 
   // Add customized item to cart (local or group)
-  const handleAddToCart = async (item, qty, modifiers, notes) => {
+  const handleAddToCart = async (item, qty, modifiers, notes, original = null) => {
     if (!validateMenuModifiers(item, modifiers)) {
       toast('Choose valid menu options before adding this item.', 'warning'); return;
     }
-    if (!validMenuQuantity(qty,item) || (!groupId && qty > remainingMenuQuantity(item, getQty(item.id))) || menuItemTotal(item,qty,modifiers) === null) {
+    if (!validMenuQuantity(qty,item) || (!groupId && qty > remainingMenuQuantity(item, getQty(item.id) - Number(original?.qty || 0))) || menuItemTotal(item,qty,modifiers) === null) {
       toast('This selection is unavailable or exceeds remaining stock.', 'warning'); return;
     }
     if (menu.storeOpen !== true || menu.offlineSnapshot) {
       toast('This restaurant is not accepting online orders.', 'warning'); return;
     }
-    if(!groupId)addItem(item, qty, modifiers, notes);
+    if(!groupId)addItem(item, qty, modifiers, notes, original?.cartId);
     
     if (groupId && participantName) {
       try {
@@ -412,7 +425,8 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
         toast('Failed to update group cart: ' + err.message, 'error');
       }
     } else {
-      toast(`${item.name} added to cart!`, 'success');
+      if (original) setCartOpen(true);
+      toast(original ? 'Cart updated' : `${item.name} added to cart!`, 'success');
     }
     setShowCustomizerModal(false);
   };
@@ -517,7 +531,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
 
   // Modifiers grouped by groupName
   const groupedModifiers = customizerItem
-    ? customizerItem.modifiers.reduce((acc, curr) => {
+    ? (customizerItem.modifiers || []).reduce((acc, curr) => {
         if (!acc[curr.groupName]) acc[curr.groupName] = [];
         acc[curr.groupName].push(curr);
         return acc;
@@ -526,7 +540,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
 
   // Compute live price delta in customizer
   const availableCustomizerQty = customizerItem
-    ? (groupId ? maxMenuItemQuantity(customizerItem) : remainingMenuQuantity(customizerItem, getQty(customizerItem.id)))
+    ? (groupId ? maxMenuItemQuantity(customizerItem) : remainingMenuQuantity(customizerItem, getQty(customizerItem.id) - Number(editingLine?.qty || 0)))
     : 0;
   const totalCustomizerPrice = customizerItem ? menuItemTotal(customizerItem,customizerQty,selectedModifiers) : null;
   const requiredMissing = customizerItem ? isRequiredModifierMissing(groupedModifiers,selectedModifiers) : false;
@@ -973,9 +987,9 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
               className="btn btn-brand" 
               style={{ width: '100%', padding: '12px' }}
               disabled={invalidOptions || totalCustomizerPrice === null || customizerQty > availableCustomizerQty || menu.storeOpen!==true || menu.offlineSnapshot}
-              onClick={() => handleAddToCart(customizerItem, customizerQty, selectedModifiers, customizerNotes)}
+              onClick={() => handleAddToCart(customizerItem, customizerQty, selectedModifiers, customizerNotes, editingLine)}
             >
-              {requiredMissing ? 'Choose required options' : invalidOptions ? 'Check selected options' : customizerQty > availableCustomizerQty ? 'Stock limit reached' : t.addToCart} · Rs. {totalCustomizerPrice === null ? '—' : totalCustomizerPrice.toFixed(0)}
+              {requiredMissing ? 'Choose required options' : invalidOptions ? 'Check selected options' : customizerQty > availableCustomizerQty ? 'Stock limit reached' : editingLine ? 'Save changes' : t.addToCart} · Rs. {totalCustomizerPrice === null ? '—' : totalCustomizerPrice.toFixed(0)}
             </button>
           </div>
         </div>

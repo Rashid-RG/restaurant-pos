@@ -63,7 +63,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   // Delivery & prep time settings from DB
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [minimumOrder, setMinimumOrder] = useState(0);
-  const [storePrepTime, setStorePrepTime] = useState({ dineIn: 15, takeaway: 20, delivery: 35 });
+  const [storePrepTime, setStorePrepTime] = useState({});
   const [tipPercent, setTipPercent] = useState(0);   // 0 | 5 | 10 | 15 | 'custom'
   const [customTip, setCustomTip] = useState('');
   // Dynamic delivery zone fee breakdown from server
@@ -427,6 +427,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     e.preventDefault();
     return otpGuard.current.run(async () => {
     if(typeof navigator!=='undefined' && navigator.onLine===false){toast('You are offline. Your cart is saved on this device; reconnect before placing an order. No order was submitted.','warning');return;}
+    if (pendingCheckout) { toast('Recover your previous checkout or start a separate order first.', 'warning'); return; }
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
     if (!canOrder) { toast('Restaurant availability cannot be confirmed. Your cart is saved.', 'warning'); return; }
     if (!deliveryQuoteConfirmed) { toast('Delivery is not yet confirmed for this pinned address. Check the delivery fee before placing an order.', 'warning'); return; }
@@ -757,10 +758,19 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
       )}
 
-      <div className="gastrofood-checkout-heading"><span className="gastrofood-checkout-eyebrow">FINAL STEP · SECURE ORDER</span><h2>Checkout</h2><p>Review your details and place your order with confidence.</p></div>
+      <div className="checkout-review-summary">
+        <div><h2>Checkout</h2><span>{ORDER_TYPES.find(type => type.id === orderType)?.label}</span></div>
+        <div><small>{orderType === 'delivery' && !deliveryQuoteConfirmed ? 'Before delivery fee' : 'Order total'}</small><strong>Rs. {total.toLocaleString('en-LK')}</strong></div>
+      </div>
 
 
-      <form onSubmit={handlePlaceOrder}>
+      {items.length > 0 && <button type="button" className="btn btn-ghost" onClick={() => setCartOpen(true)}>
+        Review and edit cart items
+      </button>}
+      {items.length === 0 ? <section className="form-section">
+        <h3>Your cart is empty</h3>
+        <button type="button" className="btn btn-brand" onClick={() => onNavigate('restaurants')}>Browse restaurants</button>
+      </section> : <form onSubmit={handlePlaceOrder}>
         
         {/* Order Type Choice */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
@@ -790,11 +800,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(0,0,0,0.03)', borderRadius: 8, fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>⏱️</span>
             <span>
-              Estimated Prep / Delivery Time: <strong>~{
-                orderType === 'dine-in' ? (storePrepTime.dineIn || 15) :
-                orderType === 'takeaway' ? (storePrepTime.takeaway || 20) :
-                (storePrepTime.delivery || 35)
-              } mins</strong>
+              Estimated preparation time: <strong>{
+                (orderType === 'dine-in' ? storePrepTime.dineIn : storePrepTime[orderType]) > 0
+                  ? `about ${orderType === 'dine-in' ? storePrepTime.dineIn : storePrepTime[orderType]} min` : 'Awaiting restaurant estimate'
+              }</strong>
             </span>
           </div>
         </div>
@@ -948,8 +957,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
 
         {/* Promo Codes & Loyalty Points */}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Offers & Loyalty</h3>
+        <details className="form-section checkout-options" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
+          <summary>Offers & loyalty</summary>
           
           {/* Promo Input */}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -992,7 +1001,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               </label>
             </div>
           )}
-        </div>
+        </details>
 
         {/* Payment Methods */}
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
@@ -1020,8 +1029,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
 
         {/* Special Instructions Notes */}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Special Instructions</h3>
+        <details className="form-section checkout-options" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
+          <summary>Special instructions</summary>
           <textarea 
             className="form-control" 
             rows={2} 
@@ -1030,11 +1039,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             onChange={e => setNotes(e.target.value)}
             style={{ resize: 'none', marginTop: 8 }}
           />
-        </div>
+        </details>
 
         {/* Tip the team */}
-        <div className="form-section">
-          <h3>💛 {t.addTip}</h3>
+        <details className="form-section checkout-options">
+          <summary>{t.addTip}</summary>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: -4, marginBottom: 12 }}>{t.tipNote}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
             {[0, 5, 10, 15].map(pct => (
@@ -1067,50 +1076,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               style={{ marginTop: 10 }}
             />
           )}
-        </div>
-
-        {/* ── Loyalty Rewards Toggle ── */}
-        {customer && (customer.loyaltyPoints || 0) > 0 && (
-          <div style={{ background: 'linear-gradient(135deg,#1a1a2e,#16213e)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid #6366f140' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: '1.4rem' }}>🎖️</span>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#f8fafc' }}>
-                    Use Loyalty Points
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: 2 }}>
-                    {customer.loyaltyPoints} pts available · LKR {Math.floor(customer.loyaltyPoints / 100)} discount
-                  </div>
-                </div>
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: 8 }}>
-                <div style={{
-                  width: 44, height: 24, borderRadius: 12,
-                  background: redeemPoints ? '#6366f1' : '#374151',
-                  position: 'relative', transition: 'background 0.3s ease',
-                  boxShadow: redeemPoints ? '0 0 10px #6366f180' : 'none'
-                }}
-                  onClick={() => setRedeemPoints(v => !v)}>
-                  <div style={{
-                    width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                    position: 'absolute', top: 3, transition: 'left 0.2s ease',
-                    left: redeemPoints ? 22 : 4,
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.3)'
-                  }} />
-                </div>
-                <span style={{ fontSize: '0.75rem', color: redeemPoints ? '#a78bfa' : '#9ca3af', fontWeight: 700 }}>
-                  {redeemPoints ? 'ON' : 'OFF'}
-                </span>
-              </label>
-            </div>
-            {redeemPoints && loyaltyDiscount > 0 && (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: '#6366f120', borderRadius: 8, fontSize: '0.75rem', color: '#a78bfa', fontWeight: 700 }}>
-                ✅ {loyaltyPointsToRedeem} pts redeemed · Saving LKR {loyaltyDiscount.toFixed(0)}
-              </div>
-            )}
-          </div>
-        )}
+        </details>
 
         {/* Earned Points Preview */}
         {customer && (
@@ -1232,13 +1198,13 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           <button
             type="submit"
             className="btn btn-brand"
-            disabled={loading || !canOrder || !deliveryQuoteConfirmed || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
+            disabled={loading || !!pendingCheckout || !canOrder || !deliveryQuoteConfirmed || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
             {loading ? `⏳ ${t.processing}` : orderType==='delivery' && !deliveryQuoteConfirmed ? 'Confirm delivery location and fee' : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}
           </button>
         </div>
-      </form>
+      </form>}
     </div>
   );
 }

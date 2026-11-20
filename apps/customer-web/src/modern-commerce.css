@@ -549,3 +549,11 @@
 .ordering-help h2 { font-size: 1.1rem; margin: 0 0 .35rem; }
 .ordering-help p { line-height: 1.55; }
 .ordering-help footer { margin-top: 1rem; color: var(--text-muted); }
+
+.checkout-review-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0 16px; }
+.checkout-review-summary h2 { margin:0; font-size:1.55rem; }
+.checkout-review-summary strong { display:block; font-size:1.25rem; color:var(--brand); }
+.checkout-review-summary div:last-child { text-align:end; }
+
+.checkout-options summary { font-size:1rem; font-weight:700; cursor:pointer; }
+.checkout-options[open] summary { margin-bottom:12px; }

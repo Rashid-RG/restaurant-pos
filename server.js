@@ -3397,7 +3397,7 @@ app.get('/api/customer/orders', authenticateCustomer, async (req, res) => {
       [req.customer.id, req.customer.tenant_id]
     );
     const result = await Promise.all(orders.map(async (o) => {
-      const items = await dbAll('SELECT name, quantity, price FROM order_items WHERE orderId = ?', [o.id]);
+      const items = await dbAll('SELECT menuItemId, name, quantity, price, notes FROM order_items WHERE orderId = ?', [o.id]);
       return { ...o, items };
     }));
     res.json(result);

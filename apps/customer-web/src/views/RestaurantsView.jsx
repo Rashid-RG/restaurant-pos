@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './restaurants-mobile.css';
 import { createPortal } from 'react-dom';
-import { MapPin, Search, SlidersHorizontal, Store, ArrowUpRight, RefreshCw, Star, Clock3, Bike, CheckCircle2, AlertCircle, Navigation, ShoppingBag, MapPinned, Sparkles } from 'lucide-react';
+import { MapPin, Search, SlidersHorizontal, ArrowUpRight, RefreshCw, Star, Clock3, Bike, CheckCircle2, AlertCircle, ShoppingBag } from 'lucide-react';
 import L from 'leaflet';
 import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -516,10 +516,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             <MapPin size={17}/> {isDetectingGps ? (t('detectingGps') || 'Detecting GPS Location...') : deliveryLocation} <span style={{ fontSize: '0.8rem', color: 'var(--brand)' }}>▼</span>
           </div>
         </button>
-        <button type="button" className="gf-discovery-use-gps" onClick={() => detectRealGpsLocation()} disabled={isDetectingGps} aria-label="Detect my current location">
-          <Navigation size={16} aria-hidden="true"/>
-          {isDetectingGps ? 'Locating…' : 'Use my location'}
-        </button>
+
       </div>
 
       {/* Location Picker Modal */}
@@ -686,22 +683,10 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         document.body
       )}
 
-      <section className="stores-modern-hero" aria-label="Browse restaurants">
-        <div className="stores-hero-copy">
-          <span className="stores-eyebrow"><Sparkles size={14}/> GASTROFLOW MARKETPLACE</span>
-          <h1>Good food, made nearby.</h1>
-          <p>Find something delicious from restaurants on GastroFlow. Explore menus, pickup options and delivery availability.</p>
-          <div className="stores-hero-kpis" aria-label="Restaurant overview">
-            <span><Store size={15}/> {restaurants.length} restaurants</span>
-            <span><CheckCircle2 size={15}/> {openCount} accepting orders</span>
-            {hasPreciseLocation && <span><Bike size={15}/> {deliverableCount} in delivery range</span>}
-          </div>
-        </div>
-        <div className="stores-hero-visual" aria-hidden="true">
-          <div className="stores-hero-food">🍛</div>
-          <span className="stores-hero-pin"><MapPin size={20}/></span>
-        </div>
-      </section>
+      <header className="discovery-heading">
+        <h1>Nearby restaurants</h1>
+        {!loading && !loadError && <p>{openCount} accepting orders{hasPreciseLocation && ` · ${deliverableCount} in delivery range`}</p>}
+      </header>
 
       {loadError && <div className="stores-error" role="alert"><AlertCircle size={18}/>{loadError}<button type="button" onClick={()=>fetchRestaurants()}><RefreshCw size={15}/> Retry</button></div>}
 
@@ -719,11 +704,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         <input type="search" enterKeyHint="search" autoComplete="off" aria-label="Search restaurants, cuisines or areas" placeholder="Search restaurants, cuisines or areas…" value={search} onChange={e=>setSearch(e.target.value)}/>
         {search && <button type="button" aria-label="Clear search" onClick={()=>setSearch('')}>×</button>}
       </div>
+      <details className="discovery-filters">
+        <summary><SlidersHorizontal size={17}/> Filters and sort
+          {(openOnly || deliveryOnly || activeCuisine !== 'all' || sortBy !== 'recommendation') && <small>Applied</small>}
+        </summary>
       <div className="stores-quick-filters" role="group" aria-label="Availability filters">
         <button type="button" aria-pressed={openOnly} className={openOnly?'active':''} onClick={()=>setOpenOnly(v=>!v)}><CheckCircle2 size={17}/> Open now</button>
         <button type="button" aria-pressed={deliveryOnly} className={deliveryOnly?'active':''} disabled={!hasPreciseLocation} title={!hasPreciseLocation?'Select your location first':'Only stores that can deliver to your location'} onClick={()=>setDeliveryOnly(v=>!v)}><Bike size={17}/> Delivers here</button>
-        <button type="button" onClick={()=>setShowLocationModal(true)}><MapPinned size={17}/> Change location</button>
-        {hasActiveFilters && <button type="button" className="gastrofood-clear-filters" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);}} aria-label="Clear all restaurant filters">Clear all</button>}
+        {(hasActiveFilters || sortBy !== 'recommendation') && <button type="button" className="gastrofood-clear-filters" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);setSortBy('recommendation');}} aria-label="Clear all restaurant filters">Clear all</button>}
       </div>
 
       {/* Discovery sorting — available restaurants always appear first. */}
@@ -787,6 +775,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           </button>
         ))}
       </div>
+
+      </details>
 
       {/* Restaurants confirmed open and deliverable at the selected location. */}
       {sortBy === 'recommendation' && !loading && recommendedOpenStores(filtered, hasPreciseLocation).length > 0 && (
@@ -863,7 +853,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏪</div>
           <h4>{emptyState.title}</h4>
           <p>{emptyState.description}</p>
-          {hasActiveFilters && <button type="button" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);}}>Clear filters</button>}
+          {(hasActiveFilters || sortBy !== 'recommendation') && <button type="button" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);}}>Clear filters</button>}
           {!hasActiveFilters && <button type="button" onClick={()=>fetchRestaurants()}>Try again</button>}
         </div>
       ) : (
