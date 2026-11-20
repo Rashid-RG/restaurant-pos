@@ -8036,11 +8036,15 @@ if (!process.env.VITEST) {
       finally { deliveringEmails = false; }
     };
     if(process.env.PLATFORM_COMMUNICATIONS_ENABLED==='true' && process.env.PLATFORM_COMMUNICATIONS_STAGE==='staging'){
+      let communicationsSchemaReady=false;
       const processCommunications=async()=>{
         if(platformCommunicationsBusy)return;
         platformCommunicationsBusy=true;
         try{
-          await initPlatformCommunications(dbRun);
+          if(!communicationsSchemaReady){
+            await initPlatformCommunications(dbRun);
+            communicationsSchemaReady=true;
+          }
           await dispatchDueOwnerAnnouncements({dbGet,dbAll,dbRun});
         }catch(error){console.error('[Platform communications schedule]',error?.message||'Dispatch failed');}
         finally{platformCommunicationsBusy=false;}
