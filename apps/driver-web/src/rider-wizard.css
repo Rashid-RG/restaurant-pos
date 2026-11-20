@@ -1,0 +1,30 @@
+.rider-wizard-backdrop{position:fixed;inset:0;z-index:9999;background:rgba(10,25,26,.68);display:flex;justify-content:center;align-items:center;padding:env(safe-area-inset-top,12px) 12px env(safe-area-inset-bottom,12px)}
+.rider-wizard{width:min(100%,510px);max-height:calc(100dvh - 24px);overflow:auto;overscroll-behavior:contain;background:#fff;color:#17362d;border-radius:24px;box-shadow:0 25px 90px #0004}
+.rider-wizard-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;background:linear-gradient(125deg,#f0faf5,#f7f8f3);padding:24px 22px 12px}
+.rider-wizard-eyebrow{font-size:11px;color:#32785f;letter-spacing:.06em;text-transform:uppercase;font-weight:800}
+.rider-wizard-header h2{font-size:clamp(20px,5vw,27px);line-height:1.16;margin:9px 0 7px;color:#153b31}
+.rider-wizard-header p{color:#64766f;font-size:13px;margin:0}
+.rider-wizard-close{border:0;border-radius:50%;background:#fff;color:#315449;font-size:18px;min-width:36px;height:36px;cursor:pointer}
+.rider-wizard-progress{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:18px 19px;border-bottom:1px solid #e9eee9}
+.rider-wizard-progress div{display:flex;align-items:center;flex-direction:column;gap:5px;color:#84968d}
+.rider-wizard-progress span{display:grid;place-items:center;width:29px;height:29px;border-radius:50%;background:#e9ede9;font-size:12px;font-weight:800}
+.rider-wizard-progress .active{color:#1e7155}.rider-wizard-progress .active span{color:white;background:#247a5d}
+.rider-wizard-progress small{font-size:10px;font-weight:700}
+.rider-wizard-body{padding:20px 22px 24px}
+.rider-wizard-fields{display:grid;gap:15px}
+.rider-wizard-fields h3{font-size:19px;margin:0;color:#143a30}
+.rider-wizard-fields p{margin:0 0 2px;color:#62746b;font-size:13px;line-height:1.6}
+.rider-wizard-fields>label:not(.rider-wizard-consent){display:grid;gap:7px;font-size:13px;font-weight:700}
+.rider-wizard-fields .input-field{width:100%;min-height:48px;box-sizing:border-box;font-size:16px}
+.rider-wizard-fields button{min-height:44px}
+.rider-wizard-vehicles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.rider-wizard-vehicles button{display:grid;justify-items:center;gap:5px;padding:14px 7px;background:#f8faf8;border:1px solid #d9e5dd;border-radius:14px;font-weight:700;color:#274b3c;cursor:pointer}
+.rider-wizard-vehicles button span{font-size:26px}.rider-wizard-vehicles button.selected{background:#e7f6ee;border:2px solid #248466}
+.rider-wizard-summary{border:1px solid #e2eae3;border-radius:14px;padding:5px 14px;margin:0}
+.rider-wizard-summary div{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid #e9efe9;font-size:12px}
+.rider-wizard-summary div:last-child{border:0}.rider-wizard-summary dt{color:#687e73}.rider-wizard-summary dd{margin:0;font-weight:700;overflow-wrap:anywhere;text-align:right}
+.rider-wizard-consent{display:flex;gap:10px;align-items:flex-start;font-size:12px;line-height:1.6;color:#405b4e}
+.rider-wizard-consent input{width:20px;height:20px;flex:none;accent-color:#247a5d}
+.rider-wizard-actions{display:grid;grid-template-columns:1fr 2fr;gap:9px;margin-top:22px}
+.rider-wizard-actions button{min-height:49px;border-radius:12px;font-weight:800}
+@media(max-width:380px){.rider-wizard-header{padding:18px 15px 9px}.rider-wizard-body{padding:16px}.rider-wizard-progress{padding:12px 10px}.rider-wizard-progress small{font-size:9px}}
