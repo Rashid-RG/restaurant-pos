@@ -2164,7 +2164,7 @@ button {
 /* Organized restaurant sidebar. New Sale is intentionally pinned in slot 2. */
 .desktop-sidebar .sidebar-menu { gap:5px; padding:13px 10px 15px; scrollbar-width:thin; }
 .desktop-sidebar .sidebar-new-sale { font-weight:800; color:var(--color-primary); }
-.desktop-sidebar .sidebar-new-sale:not(.active) { background:var(--color-primary-light); }
+.desktop-sidebar .sidebar-new-sale:not(.active) { background:transparent; color:var(--text-muted); }
 .desktop-sidebar .sidebar-group-separator { height:1px; background:var(--border-color); margin:10px 8px 7px; }
 .desktop-sidebar .sidebar-nav-group { display:flex; flex-direction:column; gap:2px; min-width:0; }
 .desktop-sidebar .sidebar-group-toggle {
