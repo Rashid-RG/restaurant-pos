@@ -1,12 +1,15 @@
 # GastroFlow — Platform Communication Center
 
-## Scope and status (2026-11-20)
+## Scope and status (2026-11-20, continued)
 Owner-targeted in-app communication foundation on `codex/production-readiness`. Not yet approved for commercial launch. No Render deploy in this change.
 
 ### Implemented foundation
 - Dedicated Platform Owner Communication Center tab and composer.
 - Draft creation, recipient preview, active-restaurant owner targeting, publish, cancel, owner-only inbox and acknowledgments.
 - Tenant + user keyed recipient records, bounded inbox queries, audit events and read/acknowledgment counts.
+- Platform template library (create/list/delete) and template selection in the composer.
+- Versioned policy/disclaimer messages with required acknowledgment, SHA-256 content fingerprint, and atomic draft/version/audit writes.
+- Platform owner access enforced by the existing platform_ownership table; both feature gates required for platform and owner routes.
 - Existing basic platform-wide broadcast feature remains separate and unchanged.
 - Explicit gates: `PLATFORM_COMMUNICATIONS_ENABLED=true` AND `PLATFORM_COMMUNICATIONS_STAGE=staging`. Without both, endpoints return 404 and schema initialization is not invoked.
 - No email/push sending or staging customers contacted from this module.
@@ -14,7 +17,9 @@ Owner-targeted in-app communication foundation on `codex/production-readiness`. 
 ### API endpoints
 Authenticated platform owner:
 - POST `/api/platform/communications/preview` with `{ "audience": {"scope":"all","tenantIds":[]} }`
-- POST `/api/platform/communications`: create validated draft.
+- GET/POST `/api/platform/communications/templates`: list/create reusable templates.
+- DELETE `/api/platform/communications/templates/:id`: delete a reusable template.
+- POST `/api/platform/communications`: create validated draft (policy/disclaimer requires `policyVersion` and acknowledgment).
 - GET `/api/platform/communications`: list.
 - POST `/api/platform/communications/:id/publish`: transactional snapshot of currently eligible owners.
 - POST `/api/platform/communications/:id/cancel`.
@@ -26,7 +31,7 @@ Authenticated restaurant owner (only own user+tenant):
 - POST `/api/owner/communications/:id/acknowledge`
 
 ### Remaining commercial acceptance gates
-1. CI verification including all app builds and isolated DB boot; run `npm run check`, `npm test`, `npm run build:all`.
+1. Re-run CI verification for the latest commit, including all app builds and isolated DB boot; run `npm run check`, `npm test`, `npm run build:all`.
 2. Integration tests against actual libSQL schema with active, suspended, deleted, platform, multiple-owner, and multi-tenant cases; cancellation races; duplicate publish retries.
 3. Scheduling with time-zone-aware publication and automatic expiry, channel delivery jobs, retries, idempotency, and dead-letter queue.
 4. Templates, attachments, signed media, multilingual English/Sinhala/Tamil; content sanitization, size/accessibility review.
