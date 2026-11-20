@@ -21,7 +21,10 @@ function setup({enabled=true,status='available',verified=true,estimateRoad=null}
     status,licenseReviewRequired:verified?0:1,licenseVerifiedUntil:verified?now+100000:null,
     manualReview:null,identityReview:null
   });
-  const dbAll=vi.fn(async()=>status==='available'?[{id:'rider-a'}]:[]);
+  const dbAll=vi.fn(async()=>status==='available'?[{
+    id:'rider-a',status:'available',licenseReviewRequired:0,
+    licenseVerifiedUntil:now+100000
+  }]:[]);
   app.use('/api',createRiderPresenceRouter({
     express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,
     presence,enabled,clock:()=>now,estimateRoad
