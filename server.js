@@ -2,7 +2,7 @@ import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOr
 import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview, requiredLicenceClass, managerLicenceClassMatches } from './lib/driver-onboarding.js';
-import { DRIVER_DOCUMENT_KINDS, manualDocumentKey, manualDocumentsConfigured, decodeManualDocument, encryptManualDocument, decryptManualDocument, documentKindsForVehicle } from './lib/driver-manual-documents.js';
+import { DRIVER_DOCUMENT_KINDS, manualDocumentKey, manualDocumentsConfigured, decodeManualDocument, encryptManualDocument, decryptManualDocument, documentKindsForVehicle, documentKindsForIdentity } from './lib/driver-manual-documents.js';
 import { safeDriverVerificationSummary } from './lib/driver-review-access.js';
 import { riderEmailTemplate } from './lib/driver-onboarding-emails.js';
 import { veriffConfigured, drivingLicenceProviderEnabled, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
@@ -4831,7 +4831,7 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
   try{
     const rider=await dbGet("SELECT vehicleType FROM drivers WHERE id=? AND tenant_id=? AND status='pending_approval'",[req.params.id,req.tenantId]);
     if(!rider)return res.status(409).json({error:'No pending application for this restaurant.'});
-    const kinds=documentKindsForVehicle(rider.vehicleType);
+    const kinds=documentKindsForIdentity(rider.vehicleType,identityKind);
     const rows=await dbAll("SELECT kind,digest,viewed_at,viewed_by FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[req.tenantId,req.params.id]);
     if(decision==='approve' && kinds.some(k=>!rows.some(r=>r.kind===k)))
       return res.status(409).json({error:'Required identity and licence images must all be submitted.'});
