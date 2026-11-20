@@ -170,9 +170,10 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
+  const handleLogout = async () => {
+    if(nativeTrackingRef.current)await nativeTrackingRef.current.stop().catch(()=>{});
     nativeTrackingRef.current=null;
+    if(discoveryPilotEnabled)await apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setIsGpsActive(false);
