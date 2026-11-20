@@ -139,6 +139,14 @@ Authenticated restaurant owner (only own user+tenant):
 - Before enabling webhook delivery reporting, validate actual Brevo provider-message-ID matching between API responses and webhook events, replay behavior, IP filtering, alerting, bounced-recipient suppression, and operational procedures on a separate staging database.
 - Official references: https://developers.brevo.com/docs/secured-webhooks and https://developers.brevo.com/docs/transactional-webhooks
 
+### Brevo event integrity and suppression precedence
+- Authenticated webhook events must now include a valid recipient email and must match the address in the exact queued announcement/tenant/owner row linked to the Brevo provider message ID. A provider message-ID match alone is not sufficient to update the lifecycle.
+- Event matching uses no caller-supplied tenant or user IDs, and webhook responses do not expose recipient email addresses.
+- Terminal suppression states (`hard_bounce`, `blocked`, `invalid`, `spam`, `unsubscribed`) cannot be cleared by later delivered/soft-bounce events. A verified, newer suppression event **can override** an earlier delivered receipt, since delivered mail may later be reported as spam or unsubscribed.
+- All updates still use conditional SQL state transitions and monotonically increasing event timestamps to reject duplicate, stale or concurrently racing status changes.
+- An email event receipt is a provider report, not confirmation that a human opened or read the notice. The separate in-app acknowledgment evidence remains authoritative for a recorded owner acknowledgment.
+- Before activation, validate accepted Brevo API message IDs against real webhook IDs, configure a verified test sender and controlled recipient, confirm a separate staging database, and perform a real isolated sandbox delivery test.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
