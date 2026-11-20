@@ -63,6 +63,11 @@ export default function App() {
   const [watchId, setWatchId] = useState(null);
   const [lastCoords, setLastCoords] = useState(null);
   const [gpsQuality, setGpsQuality] = useState('not_started');
+  const [discoveryConsent,setDiscoveryConsent]=useState(false);
+  const discoveryConsentRef=useRef(false);
+  const lastPresenceSentRef=useRef(null);
+  // Never advertise idle-rider location unless both pilot and explicit consent are enabled.
+  const discoveryPilotEnabled=import.meta.env.VITE_RIDER_PRESENCE_PILOT==='true';
   const lastBroadcastRef = useRef(null);
   const lastFixRef = useRef(null);
   const [toastMsg, setToastMsg] = useState(null);
@@ -187,6 +192,11 @@ export default function App() {
         localStorage.setItem(DRIVER_KEY,JSON.stringify(updated));
         return updated;
       });
+      if(next==='offline'){
+        discoveryConsentRef.current=false;setDiscoveryConsent(false);
+        lastPresenceSentRef.current=null;
+        if(discoveryPilotEnabled)void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
+      }
       showToast(next==='online'?'Ready for new deliveries.':'You are offline for new deliveries.', 'success');
       fetchDriverOrders();
     } catch (error) { showToast(error.message || 'Could not update availability.', 'error'); }
@@ -281,6 +291,16 @@ export default function App() {
     }
   }, [driver?.id]);
 
+  // Explicit opt-in, separate from location sharing for assigned deliveries.
+  const toggleDiscoveryConsent = () => {
+    if(!discoveryPilotEnabled)return;
+    const next=!discoveryConsentRef.current;
+    discoveryConsentRef.current=next;setDiscoveryConsent(next);
+    lastPresenceSentRef.current=null;
+    if(!next)void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
+    else if(!isGpsActive){discoveryConsentRef.current=false;setDiscoveryConsent(false);
+      showToast('Enable live location before sharing nearby availability.','warning');}
+  };
   // ── GPS ──
   const toggleGps = () => {
     if (isGpsActive) {
@@ -290,6 +310,10 @@ export default function App() {
       setGpsQuality('off');
       lastBroadcastRef.current = null;
       lastFixRef.current = null;
+      lastPresenceSentRef.current=null;
+      discoveryConsentRef.current=false;
+      setDiscoveryConsent(false);
+      if(discoveryPilotEnabled)void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
       showToast('Location sharing stopped.', 'info');
       return;
     }
@@ -317,6 +341,19 @@ export default function App() {
       lastFixRef.current = coords;
       setLastCoords(coords);
       setGpsQuality('good');
+      if(discoveryPilotEnabled&&discoveryConsentRef.current&&
+         ['available','active'].includes(String(driver?.status||'').toLowerCase())&&
+         shouldSendDriverFix(coords,lastPresenceSentRef.current)){
+        lastPresenceSentRef.current={...coords,sentAt:Date.now()};
+        apiFetch('/public/driver/on-duty-location',{
+          method:'POST',body:JSON.stringify({...coords,consent:true})
+        }).catch(()=>{
+          // Do not show an unverifiable rider as discoverable after failure.
+          discoveryConsentRef.current=false;setDiscoveryConsent(false);
+          void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
+          showToast('Nearby rider sharing stopped. Check your verification or connection.','warning');
+        });
+      }
       // Adaptive movement-based sends with heartbeat while stationary.
       // Never upload GPS unless an active delivery is assigned.
       const assigned=activeOrdersRef.current.filter(order => order?.id && !['delivered','completed','cancelled','rejected'].includes(String(order.status||'').toLowerCase()));
@@ -764,6 +801,11 @@ export default function App() {
                 >
                   🔔
                 </button>
+                {discoveryPilotEnabled&&<label style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>
+                  <input type="checkbox" checked={discoveryConsent} onChange={toggleDiscoveryConsent}
+                    disabled={!isGpsActive||driver?.status==='offline'} />
+                  Visible to restaurant dispatch while on duty
+                </label>}
                 <button onClick={toggleGps} className="btn-emerald"
                   style={{ padding: '8px 14px', borderRadius: 20, fontSize: '0.8rem', background: isGpsActive ? '#10b981' : '#64748b' }}>
                   {isGpsActive ? (gpsQuality === 'good' ? '📍 Location active' : '⌛ Finding location') : '📍 Share location'}
