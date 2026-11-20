@@ -7,6 +7,20 @@
  */
 export const STAGING_ORIGIN='https://gastroflow-staging.onrender.com';
 export const STAGING_PUSH_STORAGE_PREFIX='gastroflow_staging_installation_v1:';
+export const STAGING_DEVICE_OWNER_KEY='gastroflow_staging_push_device_owner_v1';
+function ownerBinding(user){
+  return JSON.stringify([user.tenant_id,user.id]);
+}
+function ensureNoOtherOwnerBound(storage,user){
+  const previous=storage.getItem(STAGING_DEVICE_OWNER_KEY);
+  if(previous&&previous!==ownerBinding(user))
+    throw new Error('This phone has a previous owner push registration. Sign in as that owner and disable notifications before switching accounts.');
+}
+function clearOwnerBinding(storage,user){
+  if(storage?.getItem(STAGING_DEVICE_OWNER_KEY)===ownerBinding(user))
+    storage.removeItem(STAGING_DEVICE_OWNER_KEY);
+}
+
 
 export function eligibleStagingOwner(user,capacitor,origin){
   return origin===STAGING_ORIGIN &&
@@ -54,6 +68,10 @@ export async function enrollStagingOwnerPush({
   user,capacitor,storage,fetcher,makeUUID,origin
 }={}){
   if(!eligibleStagingOwner(user,capacitor,origin))throw new Error('Owner staging device required.');
+  // A single native installation can retain an FCM token across logins.
+  // Refuse re-binding to another owner unless the previous owner completed
+  // server revocation. Do not clear this marker after an offline logout.
+  ensureNoOtherOwnerBound(storage,user);
   const api=(path,body)=>stagingPushApi(path,body,{fetcher,storage});
   // Never mutate consent or device tables unless the separately attested
   // isolated-staging server reports that all enrollment gates are enabled.
@@ -82,6 +100,7 @@ export async function enrollStagingOwnerPush({
     throw new Error('Firebase did not supply a usable device token.');
   const enrolled=await api('fcm-token',{installationId,token:registration.token});
   if(enrolled.status!=='registered')throw new Error('Staging token registration not confirmed.');
+  storage.setItem(STAGING_DEVICE_OWNER_KEY,ownerBinding(user));
   return {status:'registered',registered:true,pushOperational:false};
 }
 export async function revokeStagingOwnerPush({user,storage,fetcher}={}){
@@ -91,6 +110,7 @@ export async function revokeStagingOwnerPush({user,storage,fetcher}={}){
   // bindings for this owner, even if token-registration flags were disabled.
   const result=await stagingPushApi('push-preference',{optedIn:false},{storage,fetcher});
   if(result.optedIn!==false)throw new Error('Push revocation not confirmed.');
+  clearOwnerBinding(storage,user);
   return {status:'disabled'};
 }
 
@@ -114,8 +134,11 @@ export async function revokeStagingInstallationOnLogout({
     const response=await stagingPushApi(
       'devices/revoke',{installationId},{storage,fetcher}
     );
-    return {status:response?.status==='revoked'||response?.status==='not_found'
-      ?'revoked':'unconfirmed'};
+    if(response?.status==='revoked'||response?.status==='not_found'){
+      clearOwnerBinding(storage,user);
+      return {status:'revoked'};
+    }
+    return {status:'unconfirmed'};
   }catch{
     return {status:'unconfirmed'};
   }
