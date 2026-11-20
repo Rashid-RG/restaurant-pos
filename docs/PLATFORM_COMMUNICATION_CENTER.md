@@ -59,6 +59,15 @@ Authenticated restaurant owner (only own user+tenant):
 - Never use actual customers' email addresses in the allowlist during staging.
 - Future steps: dedicated controlled worker, stale sending reconciliation, delivery webhooks, permanent failures and backoff, unsubscribe/transactional-message policy, bounce suppression, quotas, isolation and load tests.
 
+### Read-only email dry run and delivery review (November 20, 2026)
+- Platform Owner action **Dry-run sandbox delivery eligibility** checks the bounded queued batch (up to 100 entries by default). It rechecks live tenant status, owner membership, publication/expiry and exact email allowlist without changing the database or invoking any sender.
+- Results expose aggregated eligible/blocked counts and reason codes only; recipient addresses are not returned.
+- `GET /api/platform/communications/:id/email-queue/preview`: dry-run counts with `dryRun:true,sent:0`.
+- `GET /api/platform/communications/:id/email-queue/reviews`: platform-only list of uncertain sending outcomes, without email addresses.
+- The UI allows explicitly closing a specific review record as failed. It does not retry or send mail.
+- All operations require the preexisting staging module gates; dry-run and review endpoints additionally require the sandbox-email allowlist gate.
+- A dry run is **not** a provider send, deliverability verification, real-time customer delivery, or permission to use real customer addresses.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
