@@ -147,6 +147,27 @@ describe('sandbox worker against isolated local libSQL, no Brevo network',()=>{
    expect((await db.dbGet('SELECT reservedCount FROM platform_owner_email_sandbox_quota WHERE quotaDay=?',[day])).reservedCount).toBe(1);
   }finally{db.close()}
  });
+ it('never accepts a second job that receives an already-used Brevo provider ID',async()=>{
+  const db=await sandboxDb();
+  try{
+   const now=Date.now();
+   await db.addNotice('first_id',now);
+   await db.addNotice('second_id',now);
+   const fetcher=vi.fn(async()=>({ok:true,json:async()=>({messageId:'repeated-provider-id'})}));
+   const twoPermitted={...env,PLATFORM_COMMUNICATIONS_EMAIL_DAILY_CAP:'2'};
+   const first=await runSandboxEmailWorkerTick({...db,env:twoPermitted,announcementId:'first_id',now,fetcher});
+   const second=await runSandboxEmailWorkerTick({...db,env:twoPermitted,announcementId:'second_id',now:now+1000,fetcher});
+   expect(first).toMatchObject({started:true,attempted:1});
+   expect(second).toMatchObject({started:true,attempted:1});
+   expect((await db.dbGet("SELECT status FROM platform_owner_communication_email_queue WHERE announcementId='first_id'")).status).toBe('accepted');
+   expect((await db.dbGet("SELECT status,lastErrorCode FROM platform_owner_communication_email_queue WHERE announcementId='second_id'")))
+     .toMatchObject({status:'manual_review',lastErrorCode:'DELIVERY_UNCONFIRMED'});
+   expect((await db.dbGet("SELECT COUNT(*) AS n FROM platform_owner_communication_email_receipts")).n).toBe(1);
+   const another=await runSandboxEmailWorkerTick({...db,env:twoPermitted,announcementId:'second_id',now:now+2000,fetcher});
+   expect(another).toMatchObject({started:false,reason:'PREVIEW_NOT_SINGLE_ELIGIBLE'});
+   expect(fetcher).toHaveBeenCalledTimes(2);
+  }finally{db.close()}
+ });
  it('retains an ambiguous failure for manual review and never retries the provider',async()=>{
   const db=await sandboxDb();
   try{
