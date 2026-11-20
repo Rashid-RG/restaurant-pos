@@ -20,16 +20,17 @@ function tenantKey(tenantId) {
 
 export function getNativePrinterConfig(tenantId) {
   const key = tenantKey(tenantId);
-  if (!key || typeof window === 'undefined') return { enabled: false, printerName: '', cut: true };
+  if (!key || typeof window === 'undefined') return { enabled: false, printerName: '', cut: true, feedLines: 2 };
   try {
     const value = JSON.parse(window.localStorage?.getItem(key) || '{}');
     return {
       enabled: value.enabled === true && typeof value.printerName === 'string' && value.printerName.length > 0,
       printerName: typeof value.printerName === 'string' ? value.printerName : '',
-      cut: value.cut !== false
+      cut: value.cut !== false,
+      feedLines: Number.isInteger(value.feedLines) && value.feedLines >= 0 && value.feedLines <= 6 ? value.feedLines : 2
     };
   } catch (_) {
-    return { enabled: false, printerName: '', cut: true };
+    return { enabled: false, printerName: '', cut: true, feedLines: 2 };
   }
 }
 
@@ -38,7 +39,9 @@ export function saveNativePrinterConfig(tenantId, config) {
   if (!key || typeof window === 'undefined') throw new Error('A restaurant must be selected to configure a printer.');
   const printerName = String(config.printerName || '').trim();
   if (config.enabled && !printerName) throw new Error('Choose a confirmed Windows printer first.');
-  const next = { enabled: Boolean(config.enabled), printerName, cut: config.cut !== false };
+  const feedLines = Number(config.feedLines ?? 2);
+  if (!Number.isInteger(feedLines) || feedLines < 0 || feedLines > 6) throw new Error('Feed lines must be from 0 to 6.');
+  const next = { enabled: Boolean(config.enabled), printerName, cut: config.cut !== false, feedLines };
   window.localStorage?.setItem(key, JSON.stringify(next));
   return next;
 }
@@ -99,7 +102,8 @@ export async function listNativePrinters() {
  * two-line feed and an optional ESC/POS full-cut command. No fixed paper length.
  * 'Sent to spooler' does NOT mean the printer has physically completed/cut.
  */
-export async function nativePrintReceiptMarkup(markup, { printerName, paperSetting = '80mm', cut = true } = {}) {
+export async function nativePrintReceiptMarkup(markup, { printerName, paperSetting = '80mm', cut = true, feedLines = 2 } = {}) {
+  const feed = Number.isInteger(Number(feedLines)) ? Math.min(6, Math.max(0, Number(feedLines))) : 2;
   if (!printerName || typeof printerName !== 'string') throw new Error('Select a Windows receipt printer in Settings.');
   if (typeof markup !== 'string' || !markup.trim()) throw new Error('Receipt content is missing.');
   const paper = resolvePrinterPaperSize(paperSetting);
@@ -119,7 +123,7 @@ export async function nativePrintReceiptMarkup(markup, { printerName, paperSetti
     { type: 'raw', format: 'html', flavor: 'plain', data: html,
       options: { language: 'ESCPOS', pageWidth: widthInches } },
     // Only two extra feed lines before cutting, not a 210 mm page tail.
-    cut ? '\x1b\x64\x02\x1d\x56\x00' : '\n\n'
+    cut ? `\x1b\x64${String.fromCharCode(feed)}\x1d\x56\x00` : '\n'.repeat(feed)
   ];
   await qz.print(qz.configs.create(printerName), data);
   return true;
@@ -135,11 +139,11 @@ export async function nativePrintReceiptElement(tenantId, paperSetting = '80mm',
     ? el.outerHTML
     : '<div class="receipt-print-area">' + el.outerHTML + '</div>';
   return nativePrintReceiptMarkup(markup, {
-    printerName: config.printerName, paperSetting, cut: config.cut
+    printerName: config.printerName, paperSetting, cut: config.cut, feedLines: config.feedLines
   });
 }
 
-export async function nativePrintTestSlip(printerName, paperSetting = '80mm', cut = true) {
+export async function nativePrintTestSlip(printerName, paperSetting = '80mm', cut = true, feedLines = 2) {
   const markup = '<div class="receipt-print-area"><div class="receipt-center"><h3>GastroFlow</h3><strong>NATIVE PRINT TEST</strong></div><div class="receipt-divider"></div><p>One small test slip</p><p>Paper: ' + (paperSetting === '58mm' ? '58' : '80') + ' mm</p><p>ESC/POS cut test</p></div>';
-  return nativePrintReceiptMarkup(markup, { printerName, paperSetting, cut });
+  return nativePrintReceiptMarkup(markup, { printerName, paperSetting, cut, feedLines });
 }
