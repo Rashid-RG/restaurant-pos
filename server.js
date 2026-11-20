@@ -4459,6 +4459,7 @@ app.get('/api/delivery/drivers', authenticateToken, async (req, res) => {
   try {
     const drivers = await dbAll(`SELECT d.id,d.name,d.phone,d.status,d.vehicleType,d.plateNumber,d.email,
       (SELECT p.identity_kind FROM driver_application_document_types p WHERE p.driver_id=d.id AND p.tenant_id=d.tenant_id) AS applicationIdentityKind,
+      (SELECT GROUP_CONCAT(m.kind, ',') FROM driver_manual_documents m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id AND m.ciphertext IS NOT NULL) AS submittedDocumentKinds,
       (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND COALESCE(c.check_type,'identity')='identity' ORDER BY c.created_at DESC LIMIT 1) AS identityStatus,
       (SELECT c.state FROM driver_identity_checks c WHERE c.driver_id=d.id AND c.tenant_id=d.tenant_id AND c.check_type='driving_licence' ORDER BY c.created_at DESC LIMIT 1) AS licenceDocumentStatus,
       (SELECT m.review_state FROM driver_manual_reviews m WHERE m.driver_id=d.id AND m.tenant_id=d.tenant_id) AS manualReviewStatus,
