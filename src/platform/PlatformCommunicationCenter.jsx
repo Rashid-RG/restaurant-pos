@@ -16,6 +16,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
   const [items,setItems]=useState([]);
   const [templates,setTemplates]=useState([]);
   const [templateName,setTemplateName]=useState('');
+  const [scheduleDates,setScheduleDates]=useState({});
   const [preview,setPreview]=useState(null);
   const [report,setReport]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -114,6 +115,21 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
               act(async()=>{const result=await api('/'+encodeURIComponent(x.id)+'/publish',{method:'POST'});
                 setNotice(`Published to ${result.recipientCount} owners in ${result.restaurantCount} restaurants.`);await refresh();})}}>
             <Send size={15}/> Publish now</button>}
+          {x.status==='draft'&&<div style={{display:'grid',gap:8}}>
+            <label>Schedule publish (your local timezone)
+              <input type="datetime-local" value={scheduleDates[x.id]||''}
+                onChange={e=>setScheduleDates(old=>({...old,[x.id]:e.target.value}))}/>
+            </label>
+            <button type="button" className="btn btn-outline" disabled={busy||!scheduleDates[x.id]}
+              onClick={()=>act(async()=>{
+                const time=new Date(scheduleDates[x.id]).getTime();
+                if(!Number.isFinite(time))throw new Error('Choose a valid publication date and time.');
+                if(!window.confirm('Schedule this announcement for the selected time?'))return;
+                await api('/'+encodeURIComponent(x.id)+'/schedule',{method:'POST',body:JSON.stringify({scheduledAt:time})});
+                setNotice('Announcement scheduled for '+new Date(time).toLocaleString());await refresh();
+              })}>Schedule publication</button>
+          </div>}
+          {x.status==='scheduled'&&<small>Scheduled for publication; cancel to prevent delivery.</small>}
           {x.status==='published'&&<button type="button" className="btn btn-outline" disabled={busy}
             onClick={()=>act(async()=>{setReport(await api('/'+encodeURIComponent(x.id)+'/report'))})}>Delivery and acknowledgment report</button>}
           {x.status!=='cancelled'&&<button type="button" className="btn btn-outline" disabled={busy}
@@ -129,7 +145,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
       </section>
     </div>
     <p style={{fontSize:12,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:7}}>
-      <AlertTriangle size={16}/> Staging foundation. Automated scheduling, native push, email, multilingual translations and formal legal consent workflows remain pending.
+      <AlertTriangle size={16}/> Staging foundation. Automatic schedule processing is implemented; native push, email, multilingual translations and formal legal consent workflows remain pending.
     </p>
   </section>;
 }
