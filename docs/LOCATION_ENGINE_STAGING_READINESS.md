@@ -21,6 +21,8 @@
 5. Verify mobile rendering and rider map accuracy in both low signal and normal connectivity. Routing duration alone is not live-traffic prediction.
 6. Confirm the Render staging service's auto-deploy setting and database isolation before any deployment.
 
+- `lib/delivery/h3-rider-index.js` provides a tenant-separated H3 v4 API adapter with replace/expire/clear behavior. It currently uses an injected H3 implementation in tests and is **not yet connected to a live heartbeat endpoint, a package dependency, or automatic dispatch**.
+
 ## H3 and nearby riders — outstanding work
 
 The current database stores GPS **by active order**. That does not establish reliable GPS for idle, available riders. Before enabling H3 discovery:
