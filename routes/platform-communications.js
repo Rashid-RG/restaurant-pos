@@ -6,7 +6,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { enqueueSandboxOwnerEmails, sandboxEmailConfig } from '../lib/communications/platform-email-queue.js';
+import { enqueueSandboxOwnerEmails, sandboxEmailConfig, reconcileStaleSandboxEmailClaims, closeSandboxEmailReview } from '../lib/communications/platform-email-queue.js';
 
 const audienceSchema=z.object({
   scope:z.enum(['all','specific']).default('all'),
@@ -199,6 +199,17 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       FROM platform_owner_communication_email_queue WHERE announcementId=?
       GROUP BY status ORDER BY status`,[req.params.id]);
     res.set('Cache-Control','no-store').json({statuses:rows});
+  }catch(e){next(e)}});
+  router.post('/platform/communications/email-queue/reconcile',...platform,async(req,res,next)=>{try{
+    if(!sandboxEmailConfig(env).enabled)return res.status(403).json({error:'Sandbox email queue disabled.'});
+    const outcome=await reconcileStaleSandboxEmailClaims({dbRun,env});
+    res.set('Cache-Control','no-store').json(outcome);
+  }catch(e){next(e)}});
+  router.post('/platform/communications/:id/email-queue/:tenantId/:userId/close-review',...platform,async(req,res,next)=>{try{
+    if(!sandboxEmailConfig(env).enabled)return res.status(403).json({error:'Sandbox email queue disabled.'});
+    const closed=await closeSandboxEmailReview({dbRun,announcementId:req.params.id,tenantId:req.params.tenantId,userId:req.params.userId});
+    if(!closed)return res.status(404).json({error:'Reviewable email job not found.'});
+    res.set('Cache-Control','no-store').json({closed:true,resent:false});
   }catch(e){next(e)}});
   router.post('/platform/communications/:id/schedule',...platform,async(req,res,next)=>{try{
     const parsed=z.object({scheduledAt:z.number().int().positive()}).strict().safeParse(req.body);
