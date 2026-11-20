@@ -58,7 +58,7 @@
     "zod": "^4.4.3",
     "h3-js": "^4.5.0",
     "@capacitor/core": "^7.6.8",
-    "@capacitor-community/background-geolocation": "^1.2.27"
+    "@capacitor-community/background-geolocation": "^1.2.26"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
