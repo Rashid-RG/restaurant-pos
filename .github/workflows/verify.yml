@@ -28,3 +28,46 @@ jobs:
     uses: ./.github/workflows/food-native-ios-simulator.yml
     permissions:
       contents: read
+
+  gastrodriver-android-candidate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-driver-native]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install web dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated native dependencies
+        run: npm install --prefix apps/driver-native --no-audit --no-fund
+      - name: Compile native-mode GastroDriver assets
+        env:
+          VITE_DRIVER_NATIVE_API_URL: https://gastroflow-staging.onrender.com
+          VITE_RIDER_PRESENCE_PILOT: "true"
+        run: npx vite build apps/driver-web --mode native
+      - name: Generate Android and configure background-location permissions
+        run: |
+          cd apps/driver-native
+          npx cap add android
+          npx cap sync android
+          cd ../..
+          node scripts/setup-driver-native-android-permissions.mjs
+      - name: Compile Android debug APK
+        working-directory: apps/driver-native/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Upload unsigned-for-release Android debug candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrodriver-android-debug-candidate
+          path: apps/driver-native/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
