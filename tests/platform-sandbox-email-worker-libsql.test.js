@@ -1,6 +1,8 @@
 import {describe,it,expect,vi} from 'vitest';
 import {createLibsqlStore} from '../lib/libsql-store.js';
 import {runSandboxEmailWorkerTick} from '../lib/communications/platform-sandbox-email-worker.js';
+import {recordVerifiedBrevoEvent} from '../lib/communications/platform-brevo-receipts.js';
+import {previewSandboxOwnerEmailDispatch} from '../lib/communications/platform-email-preview.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -78,6 +80,52 @@ describe('sandbox worker against isolated local libSQL, no Brevo network',()=>{
    expect((await db.dbGet("SELECT status,deliveredAt FROM platform_owner_communication_email_queue WHERE announcementId='notice_1'")))
      .toMatchObject({status:'accepted',deliveredAt:null});
    expect((await db.dbGet("SELECT status FROM platform_owner_communication_email_queue WHERE announcementId='notice_2'")).status).toBe('pending');
+  }finally{db.close()}
+ });
+ it('records accepted provider message then a verified bounce and blocks later email',async()=>{
+  const db=await sandboxDb();
+  try{
+   const now=Date.now();
+   await db.addNotice('notice_original',now);
+   await db.addNotice('notice_followup',now);
+   const fetcher=vi.fn(async()=>({ok:true,json:async()=>({messageId:'fake-brevo-accepted-1'})}));
+   const result=await runSandboxEmailWorkerTick({...db,env,announcementId:'notice_original',now,fetcher});
+   expect(result).toMatchObject({started:true,attempted:1});
+   expect((await db.dbGet(`SELECT eventStatus FROM platform_owner_communication_email_receipts
+     WHERE providerMessageId='fake-brevo-accepted-1'`)).eventStatus).toBe('accepted');
+   const event={
+     messageId:'fake-brevo-accepted-1',event:'hard_bounce',
+     email:'tester@example.test',timestamp:now+1000
+   };
+   const recorded=await recordVerifiedBrevoEvent({...db,event,env,verified:true,now:now+1000});
+   expect(recorded).toEqual({recorded:true,reason:'UPDATED'});
+   const preview=await previewSandboxOwnerEmailDispatch({
+     ...db,env,announcementId:'notice_followup',now:now+2000
+   });
+   expect(preview.eligible).toBe(0);
+   expect(preview.reasons).toContainEqual({code:'provider_suppressed',count:1});
+   const second=await runSandboxEmailWorkerTick({
+     ...db,env,announcementId:'notice_followup',now:now+2000,fetcher
+   });
+   expect(second).toMatchObject({started:false,reason:'PREVIEW_NOT_SINGLE_ELIGIBLE'});
+   expect(fetcher).toHaveBeenCalledTimes(1);
+  }finally{db.close()}
+ });
+ it('cannot record a provider event for a different email or unknown message',async()=>{
+  const db=await sandboxDb();
+  try{
+   const now=Date.now();
+   await db.addNotice('notice_1',now);
+   const fetcher=vi.fn(async()=>({ok:true,json:async()=>({messageId:'fake-brevo-accepted-2'})}));
+   await runSandboxEmailWorkerTick({...db,env,announcementId:'notice_1',now,fetcher});
+   const mismatch=await recordVerifiedBrevoEvent({...db,env,verified:true,now:now+500,
+     event:{messageId:'fake-brevo-accepted-2',event:'delivered',email:'other@example.test',timestamp:now+500}});
+   expect(mismatch).toMatchObject({recorded:false,reason:'RECIPIENT_MISMATCH'});
+   const unknown=await recordVerifiedBrevoEvent({...db,env,verified:true,now:now+501,
+     event:{messageId:'missing-message',event:'delivered',email:'tester@example.test',timestamp:now+501}});
+   expect(unknown).toMatchObject({recorded:false,reason:'UNKNOWN_MESSAGE'});
+   expect((await db.dbGet(`SELECT eventStatus FROM platform_owner_communication_email_receipts
+     WHERE providerMessageId='fake-brevo-accepted-2'`)).eventStatus).toBe('accepted');
   }finally{db.close()}
  });
  it('honors verified provider suppression before reserving daily quota',async()=>{
