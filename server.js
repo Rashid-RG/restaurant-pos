@@ -4653,7 +4653,8 @@ app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(d
     // already pending rider at this exact restaurant.
     const registered = await dbGet('SELECT id,tenant_id,status FROM drivers WHERE LOWER(TRIM(email))=? LIMIT 1',[email]);
     if(req.body.flow==='recover'){
-      if(!registered || registered.tenant_id!==tenantId || registered.status!=='pending_approval')
+      const pending=await dbGet("SELECT id FROM drivers WHERE tenant_id=? AND LOWER(TRIM(email))=? AND status='pending_approval' LIMIT 1",[tenantId,email]);
+      if(!pending)
         return res.status(409).json({error:'No pending rider application matches this email at the selected restaurant.'});
     }else if(registered){
       return res.status(409).json({
