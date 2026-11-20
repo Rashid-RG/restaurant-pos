@@ -1,3 +1,4 @@
+import {riderReviewReadiness} from '../utils/rider-review-readiness.js';
 import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
 import { restaurantTimeZone } from '../utils/restaurant-time';
@@ -57,6 +58,12 @@ export default function DeliveryView({verificationOnly=false}) {
       if (res.ok) {
         const data = await res.json();
         setDrivers(data);
+        if (verificationOnly) setLicenceReviews(previous => {
+          const next = {...previous};
+          for (const driver of data) if (driver.manualReviewStatus === 'approved' && !next[driver.id])
+            next[driver.id] = {licenceClass:driver.reviewedLicenceClass, expiry:driver.reviewedLicenceExpiry};
+          return next;
+        });
       }
     } catch (err) {
       console.error('Failed to fetch drivers:', err);
@@ -174,6 +181,8 @@ export default function DeliveryView({verificationOnly=false}) {
       });
       const data=await res.json();
       if(!res.ok)throw new Error(data.error||'Document unavailable.');
+      setDrivers(previous => previous.map(driver => driver.id === driverId ? {...driver,
+        reviewedDocumentKinds:[...new Set([...(driver.reviewedDocumentKinds || '').split(',').filter(Boolean),kind])].join(',')} : driver));
       setManualPreview({driverId,kind,src:`data:${data.contentType};base64,${data.data}`});
     }catch(error){showToast(error.message||'Unable to open protected document.','error');}
   };
@@ -194,7 +203,13 @@ export default function DeliveryView({verificationOnly=false}) {
       });
       const data=await response.json();
       if(!response.ok)throw new Error(data.error||'Manual review failed.');
-      showToast('Manual document review saved. Final rider approval is separate.','success');
+      const state = decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'resubmit';
+      setDrivers(previous => previous.map(row => row.id === driver.id ? {...row, manualReviewStatus:state,
+        reviewedLicenceExpiry:licence.expiry, reviewedLicenceClass:licence.licenceClass} : row));
+      setVerificationTab(decision === 'approve' ? 'Under Review' : decision === 'reject' ? 'Rejected' : 'Resubmit');
+      setReviewStep(decision === 'approve' ? 'eligibility' : 'timeline');
+      void fetchVerificationAudit();
+      showToast(decision === 'approve' ? 'Evidence review saved. Complete the final rider decision.' : 'Review decision saved.', 'success');
       setManualPreview(null);
       await fetchDrivers();
     }catch(error){showToast(error.message||'Manual review failed.','error');}
@@ -392,7 +407,21 @@ export default function DeliveryView({verificationOnly=false}) {
               ⏳ {verificationTab} Rider Applications ({visibleVerificationDrivers.length})
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%,370px), 1fr))', gap: '12px' }}>
-              {visibleVerificationDrivers.filter(d=>d.status==='pending_approval' && d.id===selectedVerificationRider).map(d => (
+              {visibleVerificationDrivers.filter(d=>d.status==='pending_approval' && d.id===selectedVerificationRider).map(d => {
+                const readiness = riderReviewReadiness(d, manualReviews[d.id], licenceReviews[d.id], verifiedApplications[d.id]);
+                const licenceFields = <>
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Verified driving licence class
+                    <select className="form-input" value={licenceReviews[d.id]?.licenceClass || ''} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],licenceClass:e.target.value}}))}>
+                      <option value="">Select class from original licence</option>
+                      <option value="A">A — motorbike</option>
+                      <option value="A1">A1 — restricted small motorbike (not approved without engine check)</option>
+                      <option value="B1">B1 — tuk-tuk</option>
+                      <option value="B">B — car / light vehicle</option>
+                    </select>
+                  </label>}
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Driving licence expiry (verified from the original licence)<input type="date" className="form-input" value={licenceReviews[d.id]?.expiry || ''} min={new Date().toISOString().slice(0,10)} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],expiry:e.target.value}}))}/></label>}
+                </>;
+                return (
                 <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '13px' }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: '1rem' }}>👤 {d.name}</div>
@@ -417,7 +446,7 @@ export default function DeliveryView({verificationOnly=false}) {
                         ...((manualReviews[d.id]?.identityKind||d.applicationIdentityKind)==='passport'?[]:[['identity_back','NIC back']]),
                         ['selfie','Selfie photo'],
                         ...(d.vehicleType==='Bicycle'?[]:[['licence_front','Licence front'],['licence_back','Licence back']])
-                      ].map(([kind,label])=><button type="button" key={kind} className="btn btn-outline" style={{fontSize:11,padding:5}} onClick={()=>inspectManualDocument(d.id,kind)}>{label}</button>)}
+                      ].map(([kind,label])=><button type="button" key={kind} className="btn btn-outline" style={{fontSize:11,padding:5}} disabled={!String(d.submittedDocumentKinds||'').split(',').includes(kind)} onClick={()=>inspectManualDocument(d.id,kind)}>{label} · {String(d.reviewedDocumentKinds||'').split(',').includes(kind)?'Opened':String(d.submittedDocumentKinds||'').split(',').includes(kind)?'Open':'Missing'}</button>)}
                     </div>
                     <label style={{display:'flex',gap:8,alignItems:'flex-start',fontSize:12}}>
                       <input type="checkbox" checked={manualReviews[d.id]?.selfieMatched===true} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],selfieMatched:e.target.checked}}))}/>
@@ -443,8 +472,10 @@ export default function DeliveryView({verificationOnly=false}) {
                         {d.vehicleType!=='Bicycle'&&<><option value="unclear_licence">Driving licence image unreadable</option><option value="licence_expired">Driving licence appears expired / ineligible</option></>}
                       </select>
                     </label>
+                    {licenceFields}
+                    {readiness.manualIssue && <p className="rvc-review-guidance" role="status">{readiness.manualIssue}</p>}
                     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                      <button type="button" className="btn btn-success" disabled={loading || manualReviews[d.id]?.selfieMatched!==true || manualReviews[d.id]?.documentAuthenticityConfirmed!==true} onClick={()=>decideManualReview(d,'approve')}>Record manual pass</button>
+                      <button type="button" className="btn btn-success" disabled={loading || !!readiness.manualIssue} onClick={()=>decideManualReview(d,'approve')}>Record manual pass</button>
                       <button type="button" className="btn btn-outline" disabled={loading} onClick={()=>decideManualReview(d,'resubmit')}>Request resubmission</button>
                       <button type="button" className="btn btn-danger" disabled={loading} onClick={()=>decideManualReview(d,'reject')}>Reject evidence</button>
                     </div>
@@ -452,22 +483,17 @@ export default function DeliveryView({verificationOnly=false}) {
                   </section>}
                   {reviewStep==='eligibility'&&<section className="rvc-eligibility-review">
                   <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
-                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Verified driving licence class
-                    <select className="form-input" value={licenceReviews[d.id]?.licenceClass || ''} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],licenceClass:e.target.value}}))}>
-                      <option value="">Select class from original licence</option>
-                      <option value="A">A — motorbike</option>
-                      <option value="A1">A1 — restricted small motorbike (not approved without engine check)</option>
-                      <option value="B1">B1 — tuk-tuk</option>
-                      <option value="B">B — car / light vehicle</option>
-                    </select>
-                  </label>}
-                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Driving licence expiry (verified from the original licence)<input type="date" className="form-input" value={licenceReviews[d.id]?.expiry || ''} min={new Date().toISOString().slice(0,10)} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],expiry:e.target.value}}))}/></label>}
+                  {licenceFields}
                   {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,lineHeight:1.5}}><input type="checkbox" checked={licenceReviews[d.id]?.checked===true} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],checked:e.target.checked}}))} style={{marginTop:3}}/>I checked the original licence, the permitted vehicle class, and its validity.</label>}
+                  {readiness.approvalIssue && <div className="rvc-review-guidance" role="status">
+                    <strong>Before you approve</strong><p>{readiness.approvalIssue}</p>
+                    {readiness.evidenceIssue && <button type="button" className="btn btn-outline" onClick={()=>setReviewStep('identity')}>Review identity & documents</button>}
+                  </div>}
                   <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
                     <button
                       className="btn btn-success"
                       onClick={() => handleApproveDriver(d.id, d.name, 'approve')}
-                      disabled={loading || verifiedApplications[d.id] !== true || (d.vehicleType !== 'Bicycle' && (licenceReviews[d.id]?.checked!==true || !licenceReviews[d.id]?.expiry || licenceReviews[d.id]?.licenceClass !== (d.vehicleType === 'Motorbike' ? 'A' : d.vehicleType === 'TukTuk' ? 'B1' : d.vehicleType === 'Car' ? 'B' : '')))}
+                      disabled={loading || !!readiness.approvalIssue}
                       style={{ flex: 1, padding: '8px', fontSize: '0.82rem', fontWeight: 700, background: '#10b981', color: '#fff', border: 'none' }}
                     >
                       ✓ Approve Driver
@@ -504,7 +530,7 @@ export default function DeliveryView({verificationOnly=false}) {
                       </div>) : null}
                   </section>}
                 </div>
-              ))}
+              );})}
             </div>
           </div>
         )}
@@ -749,7 +775,7 @@ export default function DeliveryView({verificationOnly=false}) {
         </div>
 
         </>}
-        {manualPreview && <ProtectedRiderEvidenceViewer preview={manualPreview} onClose={()=>setManualPreview(null)}/>}
+        {manualPreview && <ProtectedRiderEvidenceViewer preview={manualPreview} onClose={()=>{setManualPreview(null);void fetchDrivers();}}/>}
       </div>
     </div>
   );
