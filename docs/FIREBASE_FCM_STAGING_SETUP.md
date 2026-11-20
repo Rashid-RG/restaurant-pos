@@ -45,6 +45,16 @@
 - Before enabling staging, confirm that `PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED=true` reflects an actually **separate Turso staging database**; a configuration value alone is not proof.
 - No Render deployment is authorized or performed as part of these changes.
 
+### Staging Android APK build on GitHub Actions (no deployment)
+- A dedicated `gastroflow-staging-android-candidate` job in `.github/workflows/verify.yml` builds the **POS staging wrapper** using Node 24, Java 21, Capacitor Android, and the checked-in staging Firebase client configuration. The GastroDriver Android job is a different app and does not test this wrapper.
+- On the development branch, this extra job runs for pull requests and for explicitly tagged push commit messages containing `[verify-staging-native]`. It builds `assembleDebug` and uploads the unsigned-for-release `gastroflow-staging-android-debug-candidate` artifact for 7 days. It does not require Firebase server credentials, publish the app, deploy Render, or send notifications.
+- Automated build success only confirms the Android native project compiles; the user must still install it on a physical Android handset, verify notification permissions, server isolation, authenticated owner enrollment, account switching, and real push receipt.
+
+### Firebase token refresh safeguards
+- The native staging POS listens for `FirebaseMessaging.addListener('tokenReceived', ...)` only for an authenticated restaurant owner in the staging wrapper. The listener is removed when the owner/account changes or the control unmounts.
+- A rotated token is submitted to the encrypted server token registration endpoint **only** when that same owner already completed explicit opt-in and installation enrollment. The handler verifies the read-only staging readiness gate again; it never writes push consent, enrolls a new installation, or logs/displays the token. A network failure leaves the token unconfirmed instead of pretending successful push delivery.
+- The token-refresh event API is documented at https://capawesome.io/docs/sdks/capacitor/firebase/cloud-messaging/ . Actual Android/iOS refresh delivery must be confirmed on device.
+
 ## 4. Test matrix and release gates
 - Automated mocked transport: OAuth assertion signature, one-token targeting, no topics, rejected disabled or invalid parameters, provider errors.
 - Database tests: owner A/restaurant A cannot enroll owner B's token; inactive/suspended or non-owner accounts cannot register; device and token revocation blocks dispatch; stale or duplicate claim cannot send twice; suppressed or opted-out devices never send.
