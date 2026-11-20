@@ -1,3 +1,4 @@
+import PlatformCommunicationCenter from './PlatformCommunicationCenter';
 import { displayPlatformCompany, platformPublisher } from '../../shared/platform-brand.js';
 import PlatformOperations from './PlatformOperations';
 import PlatformDriverVerification from './PlatformDriverVerification';
@@ -365,6 +366,11 @@ export default function PlatformAdmin({ embedded = false }) {
           style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '10px' }}
         >
           <BarChart3 size={16} /> Global Analytics & GMV
+        </button>
+        <button className={`btn ${activeSubTab === 'communications' ? 'btn-primary' : 'btn-outline'}`}
+          onClick={() => setActiveSubTab('communications')}
+          style={{display:'flex',alignItems:'center',gap:8,borderRadius:10}}>
+          <Megaphone size={16}/> Communication Center
         </button>
         <button
           className={`btn ${activeSubTab === 'broadcasts' ? 'btn-primary' : 'btn-outline'}`}
@@ -855,6 +861,10 @@ export default function PlatformAdmin({ embedded = false }) {
             </>
           )}
         </section>
+      )}
+
+      {activeSubTab === 'communications' && (
+        <PlatformCommunicationCenter restaurants={restaurants} />
       )}
 
       {/* TAB 4: BROADCAST ANNOUNCEMENTS */}
