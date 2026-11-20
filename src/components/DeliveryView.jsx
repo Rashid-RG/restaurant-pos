@@ -11,6 +11,10 @@ export default function DeliveryView({verificationOnly=false}) {
   const [verificationSearch,setVerificationSearch]=useState('');
   const [selectedVerificationRider,setSelectedVerificationRider]=useState(null);
   const [reviewStep,setReviewStep]=useState('identity');
+  const [timelineEvents,setTimelineEvents]=useState([]);
+  const [timelineLoading,setTimelineLoading]=useState(false);
+  const [timelineError,setTimelineError]=useState('');
+  const [timelineReload,setTimelineReload]=useState(0);
   const [auditRows,setAuditRows]=useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -238,6 +242,21 @@ export default function DeliveryView({verificationOnly=false}) {
   useEffect(()=>{
     if(selectedVerificationRider&&!visibleVerificationDrivers.some(d=>d.id===selectedVerificationRider))setSelectedVerificationRider(null);
   },[selectedVerificationRider,visibleVerificationDrivers]);
+  useEffect(()=>{
+    if(!verificationOnly||!selectedVerificationRider||reviewStep!=='timeline')return;
+    const controller=new AbortController();
+    setTimelineLoading(true);setTimelineError('');setTimelineEvents([]);
+    const token=localStorage.getItem('gastroflow_token');
+    fetch('/api/delivery/driver-verification/'+encodeURIComponent(selectedVerificationRider)+'/timeline',{
+      headers:{Authorization:'Bearer '+token},signal:controller.signal,cache:'no-store'
+    }).then(async response=>{
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Could not fetch rider timeline');
+      if(!controller.signal.aborted)setTimelineEvents(data.events||[]);
+    }).catch(err=>{if(!controller.signal.aborted)setTimelineError(err.message||'Timeline unavailable');})
+      .finally(()=>{if(!controller.signal.aborted)setTimelineLoading(false);});
+    return()=>controller.abort();
+  },[verificationOnly,selectedVerificationRider,reviewStep,timelineReload]);
   const canReview=['owner','manager'].includes(currentUser?.role);
   const fetchVerificationAudit=async()=>{
     if(!canReview)return;
@@ -452,15 +471,24 @@ export default function DeliveryView({verificationOnly=false}) {
                   </section>}
                   {reviewStep==='timeline'&&<section className="rvc-timeline">
                     <h4>Recorded application activity</h4>
-                    <p>Only events recorded by the restaurant verification audit are shown. Missing historical events are not inferred.</p>
-                    {auditRows.filter(row=>row.driverId===d.id).length===0?
+                    <p>Restaurant-private events from the secure rider activity log. Older applications may only have a final review entry.</p>
+                    <button type="button" className="btn btn-outline" onClick={()=>setTimelineReload(n=>n+1)}>Refresh activity</button>
+                    {timelineLoading&&<p role="status">Loading activity…</p>}
+                    {timelineError&&<p role="alert">{timelineError}</p>}
+                    {!timelineLoading&&!timelineError&&timelineEvents.map((event,index)=><div className="rvc-event" key={event.occurredAt+'-'+index}>
+                      <div className="rvc-event-marker" aria-hidden="true"/><div>
+                        <strong>{({application_submitted:'Application submitted',document_submitted:'Evidence uploaded',manual_approved:'Manual evidence accepted',manual_rejected:'Manual evidence rejected',resubmit_requested:'Resubmission requested',driver_approved:'Rider approved',driver_rejected:'Rider rejected'})[event.eventType]||'Verification update'}</strong>
+                        {event.detail&&<p>{String(event.detail).replace(/_/g,' ')}</p>}
+                        <small>{event.occurredAt?new Date(event.occurredAt).toLocaleString():'Time unavailable'} · {event.actorRole||'system'}</small>
+                      </div></div>)}
+                    {!timelineLoading&&!timelineError&&timelineEvents.length===0&&auditRows.filter(row=>row.driverId===d.id).length===0?
                       <div className="rvc-empty-state">No manager review recorded for this rider yet.</div>:
-                      auditRows.filter(row=>row.driverId===d.id).map((row,index)=><div className="rvc-event" key={row.driverId+'-'+index}>
+                      timelineEvents.length===0 ? auditRows.filter(row=>row.driverId===d.id).map((row,index)=><div className="rvc-event" key={row.driverId+'-'+index}>
                         <div className="rvc-event-marker" aria-hidden="true"/><div><strong>{String(row.state||'Review').replace(/_/g,' ')}</strong>
                           <p>{row.identityType==='passport'?'Passport':'NIC'} · {row.standingCheck==='manager_checked_external'?'Manager-attested external check':'No official DMT check'}</p>
                           {row.resubmitReason&&<p>Resubmission: {String(row.resubmitReason).replace(/_/g,' ')}</p>}
                           <small>{row.reviewedAt?new Date(row.reviewedAt).toLocaleString():'Time unavailable'}</small></div>
-                      </div>)}
+                      </div>) : null}
                   </section>}
                 </div>
               ))}
