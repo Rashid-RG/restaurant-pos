@@ -1244,6 +1244,11 @@ async function initTables() {
       created_at BIGINT NOT NULL, PRIMARY KEY(tenant_id,driver_id)
     )`);
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_manual_reviews_tenant ON driver_manual_reviews(tenant_id,review_state)');
+    // Store only the chosen document type, not document images or identity numbers.
+    await dbRun(`CREATE TABLE IF NOT EXISTS driver_application_document_types (
+      tenant_id TEXT NOT NULL, driver_id TEXT NOT NULL, identity_kind TEXT NOT NULL,
+      updated_at BIGINT NOT NULL, PRIMARY KEY(tenant_id,driver_id)
+    )`);
     // Recruitment is opt-in for public search. Invitations are random, hashed,
     // revocable and tenant-bound; existing rider accounts remain unchanged.
     await dbRun(`CREATE TABLE IF NOT EXISTS driver_recruitment_settings (
@@ -4775,6 +4780,23 @@ async function authenticatePendingDriverApplication(req,res,next){
   }catch(_){return res.status(401).json({error:'Application session expired or invalid.'});}
 }
 
+// The selected identity type is scoped to the pending restaurant application.
+app.post('/api/public/drivers/identity-type',publicApiLimiter,authenticatePendingDriverApplication,async(req,res)=>{
+  const identityKind=req.body?.identityKind;
+  if(!['nic','passport'].includes(identityKind))return res.status(400).json({error:'Select NIC or passport.'});
+  const a=req.manualApplicant;
+  try{
+    const existing=await dbGet('SELECT identity_kind FROM driver_application_document_types WHERE tenant_id=? AND driver_id=?',[a.tenantId,a.driverId]);
+    if(existing && existing.identity_kind!==identityKind){
+      const submitted=await dbGet("SELECT kind FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND kind IN ('identity_front','identity_back') AND ciphertext IS NOT NULL LIMIT 1",[a.tenantId,a.driverId]);
+      if(submitted)return res.status(409).json({error:'Identity images were already uploaded. Ask the restaurant to arrange a secure correction before switching document type.'});
+    }
+    await dbRun('INSERT INTO driver_application_document_types (tenant_id,driver_id,identity_kind,updated_at) VALUES (?,?,?,?) ON CONFLICT(tenant_id,driver_id) DO UPDATE SET identity_kind=excluded.identity_kind,updated_at=excluded.updated_at',
+      [a.tenantId,a.driverId,identityKind,Date.now()]);
+    return res.set('Cache-Control','no-store').json({success:true,identityKind});
+  }catch(_){return res.status(500).json({error:'Could not save document type.'});}
+});
+
 // Sensitive data is encrypted with DRIVER_DOCUMENT_ENCRYPTION_KEY; refuse rather
 // than silently saving plaintext if there is no application-specific key.
 app.post('/api/public/drivers/manual-document', publicApiLimiter, authenticatePendingDriverApplication, async(req,res)=>{
@@ -4798,7 +4820,10 @@ app.get('/api/public/drivers/manual-application',publicApiLimiter,authenticatePe
   const a=req.manualApplicant;
   try{
     const rows=await dbAll("SELECT kind,created_at FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[a.tenantId,a.driverId]);
-    res.set('Cache-Control','no-store').json({documents:rows,requiredKinds:documentKindsForVehicle(a.vehicleType)});
+    const preference=await dbGet('SELECT identity_kind FROM driver_application_document_types WHERE tenant_id=? AND driver_id=?',[a.tenantId,a.driverId]);
+    res.set('Cache-Control','no-store').json({documents:rows,
+      identityKind:preference?.identity_kind||null,
+      requiredKinds:documentKindsForIdentity(a.vehicleType,preference?.identity_kind||'nic')});
   }catch(_){res.status(500).json({error:'Cannot load application evidence.'});}
 });
 // Only owner/manager may read decrypted images, and every read is audited.
@@ -4831,6 +4856,9 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
   try{
     const rider=await dbGet("SELECT vehicleType FROM drivers WHERE id=? AND tenant_id=? AND status='pending_approval'",[req.params.id,req.tenantId]);
     if(!rider)return res.status(409).json({error:'No pending application for this restaurant.'});
+    const preference=await dbGet('SELECT identity_kind FROM driver_application_document_types WHERE tenant_id=? AND driver_id=?',[req.tenantId,req.params.id]);
+    if(preference && preference.identity_kind!==identityKind)
+      return res.status(409).json({error:'Select the identity type chosen by the rider.'});
     const kinds=documentKindsForIdentity(rider.vehicleType,identityKind);
     const rows=await dbAll("SELECT kind,digest,viewed_at,viewed_by FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",[req.tenantId,req.params.id]);
     if(decision==='approve' && kinds.some(k=>!rows.some(r=>r.kind===k)))
