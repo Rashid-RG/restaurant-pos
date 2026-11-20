@@ -1,5 +1,23 @@
 import {describe,it,expect} from 'vitest';
-import {riderEmailTemplate} from '../lib/driver-onboarding-emails.js';
+import {riderEmailTemplate,riderOtpEmailTemplate} from '../lib/driver-onboarding-emails.js';
+
+describe('GastroDriver distinct one-time-code email',()=>{
+ it('mentions GastroDriver, not GastroFood, and uses private rider wording',()=>{
+  const email=riderOtpEmailTemplate({code:'123456',email:'driver@example.com'});
+  expect(email.subject).toContain('GastroDriver');
+  expect(email.html).toContain('GastroDriver');
+  expect(email.html).not.toContain('GastroFood');
+  expect(email.text).toContain('123456');
+  expect(email.html).toContain('Single use');
+  expect(email.html).not.toContain('customer account');
+ });
+ it('separates recovery wording and rejects unsupported OTP input',()=>{
+  const email=riderOtpEmailTemplate({code:'654321',email:'driver@example.com',purpose:'recover'});
+  expect(email.subject).toContain('Resume');
+  expect(email.text).toContain('resume');
+  expect(()=>riderOtpEmailTemplate({code:'abcd',email:'driver@example.com'})).toThrow();
+ });
+});
 
 describe('GastroDriver automatic recruitment and verification email privacy',()=>{
  it.each(['submitted','manager_pending','resubmit','manual_approved','manual_rejected','approved','rejected'])('provides a privacy-safe %s notification',event=>{
