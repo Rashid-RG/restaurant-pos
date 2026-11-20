@@ -130,6 +130,15 @@ Authenticated restaurant owner (only own user+tenant):
 - **No Brevo webhook endpoint, signature verifier or automatic event receiver exists yet.** Consequently these statuses are only a preparation layer, not evidence that any actual customer or tester received an email. The status processor is not connected to the public application.
 - Remaining release gates include verifying Brevo's actual webhook authenticity mechanism and event format, controlling raw event retention, protecting against replay and ordering errors, mapping provider identifiers safely, and isolated staging tests with a real approved test mailbox.
 
+### Brevo transactional webhook authentication (staging only)
+- Implemented a disabled-by-default authenticated Brevo event endpoint: `POST /api/platform/communications/brevo/webhook`. **No webhook is registered or configured with Brevo as part of this commit**.
+- The endpoint requires all these isolated staging variables: `PLATFORM_COMMUNICATIONS_ENABLED=true`, `PLATFORM_COMMUNICATIONS_STAGE=staging`, `PLATFORM_COMMUNICATIONS_EMAIL_MODE=sandbox`, `PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_ENABLED=true`, and a server-only `PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_TOKEN` of at least 32 characters. Do not set these on production or a staging instance that shares the production database.
+- Brevo documents token-based `auth: {type:'bearer', token:'...'}` for webhook configuration. Configure **only this dedicated token**, never a login JWT or the Brevo API sending key. The endpoint authenticates before any database read or write, compares credentials without direct timing-leaky string equality and rejects malformed/expired/unsupported events.
+- Brevo transactional payload fields `event`, `message-id` and `ts_event` are normalized. Only supported delivery/bounce/suppression events affect a **previously accepted and registered** message ID. Duplicate and outdated events are ignored.
+- The webhook never sends email and never returns customer addresses, notice bodies, recipient identifiers, message IDs or credentials. Application-level payload size is capped in tests; deployment must also configure a strict proxy/body-size limit, request throttling, HTTPS and relevant network protections.
+- Before enabling webhook delivery reporting, validate actual Brevo provider-message-ID matching between API responses and webhook events, replay behavior, IP filtering, alerting, bounced-recipient suppression, and operational procedures on a separate staging database.
+- Official references: https://developers.brevo.com/docs/secured-webhooks and https://developers.brevo.com/docs/transactional-webhooks
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
