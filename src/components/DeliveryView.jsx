@@ -179,7 +179,7 @@ export default function DeliveryView({verificationOnly=false}) {
         method:'POST',
         headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
         body:JSON.stringify({
-          identityKind:review.identityKind||'nic',
+          identityKind:review.identityKind||driver.applicationIdentityKind||'nic',
           decision,selfieMatched:review.selfieMatched===true,documentAuthenticityConfirmed:review.documentAuthenticityConfirmed===true,dmtStandingStatus:review.dmtStandingStatus||'not_checked',
           licenceClass:licence.licenceClass,licenceExpiry:licence.expiry
         })
