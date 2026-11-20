@@ -51,9 +51,9 @@ export async function stagingPushApi(path,body,{fetcher=fetch,storage=localStora
   return result;
 }
 export async function enrollStagingOwnerPush({
-  user,capacitor,storage,fetcher,makeUUID
+  user,capacitor,storage,fetcher,makeUUID,origin
 }={}){
-  if(!eligibleStagingOwner(user,capacitor,STAGING_ORIGIN))throw new Error('Owner staging device required.');
+  if(!eligibleStagingOwner(user,capacitor,origin))throw new Error('Owner staging device required.');
   const api=(path,body)=>stagingPushApi(path,body,{fetcher,storage});
   // Never mutate consent or device tables unless the separately attested
   // isolated-staging server reports that all enrollment gates are enabled.
