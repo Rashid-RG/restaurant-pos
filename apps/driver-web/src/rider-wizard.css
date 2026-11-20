@@ -48,3 +48,6 @@
 .rider-evidence-preview img{width:min(220px,75%);aspect-ratio:3/4;object-fit:cover;border-radius:14px}
 .rider-evidence-preview>div{display:flex;gap:9px;flex-wrap:wrap}
 .rider-evidence-wizard>small{font-size:11px;color:#66786e}
+
+.rider-wizard-selfie-input{display:block;position:relative;text-align:center;padding:15px 10px;border:2px dashed #86b9a1;border-radius:14px;background:#effaf2;color:#216e50;font-size:13px;font-weight:800;cursor:pointer;overflow:hidden}
+.rider-wizard-selfie-input input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
