@@ -2159,3 +2159,31 @@ button {
 .sidebar.collapsed .sidebar-footer div {
   align-items: center;
 }
+
+
+/* Organized restaurant sidebar. New Sale is intentionally pinned in slot 2. */
+.desktop-sidebar .sidebar-menu { gap:5px; padding:13px 10px 15px; scrollbar-width:thin; }
+.desktop-sidebar .sidebar-new-sale { font-weight:800; color:var(--color-primary); }
+.desktop-sidebar .sidebar-new-sale:not(.active) { background:var(--color-primary-light); }
+.desktop-sidebar .sidebar-group-separator { height:1px; background:var(--border-color); margin:10px 8px 7px; }
+.desktop-sidebar .sidebar-nav-group { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.desktop-sidebar .sidebar-group-toggle {
+  width:100%; display:flex; align-items:center; justify-content:space-between;
+  background:transparent; border:0; border-radius:9px; color:var(--text-muted);
+  padding:10px 10px 6px; text-align:left; font-size:10px; font-weight:800;
+  letter-spacing:1.15px; cursor:pointer; min-height:34px;
+}
+.desktop-sidebar .sidebar-group-toggle:hover { color:var(--text-main); background:var(--bg-card-hover); }
+.desktop-sidebar .sidebar-group-toggle:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
+.desktop-sidebar .sidebar-group-toggle svg { transition:transform .15s; }
+.desktop-sidebar .sidebar-group-toggle svg.expanded { transform:rotate(180deg); }
+.desktop-sidebar .sidebar-group-items { display:flex; flex-direction:column; gap:3px; }
+.desktop-sidebar .sidebar-item { padding:10px 12px; gap:12px; font-size:13px; border-radius:10px; min-height:42px; }
+.desktop-sidebar .sidebar-item.active { padding-left:8px; }
+.desktop-sidebar.collapsed .sidebar-menu { padding:10px 6px; gap:4px; }
+.desktop-sidebar.collapsed .sidebar-nav-group { gap:3px; }
+.desktop-sidebar.collapsed .sidebar-group-items { gap:3px; }
+.desktop-sidebar.collapsed .sidebar-item { padding:10px; justify-content:center; }
+.desktop-sidebar .sidebar-footer { padding:12px 11px; gap:9px; }
+.mobile-more-sheet .mobile-nav-group { display:flex; flex-direction:column; gap:2px; padding-top:9px; border-top:1px solid var(--border-color); }
+.mobile-more-sheet .mobile-nav-group-title { margin:0; padding:6px 10px 5px; font-size:10px; font-weight:850; color:var(--text-muted); letter-spacing:1px; }
