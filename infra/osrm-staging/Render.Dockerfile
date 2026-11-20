@@ -19,7 +19,7 @@ RUN osrm-extract --threads 2 -p /opt/car.lua /data/sri-lanka.osm.pbf \
 
 FROM node:24-bookworm-slim AS node-runtime
 FROM ghcr.io/project-osrm/osrm-backend:v5.27.1
-COPY --from=preprocess /data /data
+COPY --chown=65532:65532 --from=preprocess /data /data
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY gateway.mjs /app/gateway.mjs
 COPY render-start.sh /app/render-start.sh
