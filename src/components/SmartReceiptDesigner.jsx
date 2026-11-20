@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { platformPublisher } from '../../shared/platform-brand.js';
 import { DEFAULT_RECEIPT_CONFIG, RECEIPT_CONFIG_KEY, readReceiptConfig, receiptFooterMessage } from '../utils/receipt-settings';
 import { resolvePrinterPaperSize, testPrintReceipt } from '../utils/printer';
 
@@ -54,11 +55,11 @@ export default function SmartReceiptDesigner({ settings, updateSetting, showToas
         </label>
         {check('logo','Show logo','Hidden when the shop has no uploaded logo')}
         {check('showOrderId','Show customer Order ID','A non-sequential support reference')}
-        {check('showInvoiceNumber','Show internal invoice number','Default OFF. Enable only when required for the document type and local tax rules.')}
+        <small style={{fontSize:11,color:'var(--text-muted)'}}>Internal sequential invoice numbers are always kept off customer bills. Use the separate accounting record for official invoice references.</small>
         {check('showUnitPrice','Always show price per unit','For multi-quantity or price-override items the unit price remains visible')}
         {check('showSubtotal','Always show subtotal','When off, still show it if different from the total')}
         {check('hideZeroTax','Hide zero tax lines','Non-zero tax is always printed')}
-        {check('platformCredit','Compact platform branding','One line: GastroFlow · RS Nextward')}
+        {check('platformCredit','Compact platform branding','One line with GastroFlow and the platform publisher')}
         <label style={{fontWeight:700,fontSize:12,display:'grid',gap:5}}>Thank-you footer
           <select className="form-select" value={draft.footer} onChange={e=>patch('footer',e.target.value)}>
             <option value="friendly">Thank you! Visit again! :)</option>
@@ -89,7 +90,7 @@ export default function SmartReceiptDesigner({ settings, updateSetting, showToas
           <div style={{textAlign:'center',fontWeight:800}}>CUSTOMER BILL</div>
           <div style={{marginTop:3}}>20 Nov 2026 · 19:28</div>
           {draft.showOrderId && <div><strong>Order ID: #C0129E</strong></div>}
-          {draft.showInvoiceNumber && <div>INV-000238</div>}
+
           <div>DINE-IN</div>
           <hr style={{margin:'5px 0',border:'0',borderTop:'1px dashed #777'}}/>
           <div style={row}><span>1 × Water Bottle</span><span>{currency}80.00</span></div>
@@ -100,7 +101,7 @@ export default function SmartReceiptDesigner({ settings, updateSetting, showToas
           <div style={{...row,fontWeight:800,fontSize:14}}><span>TOTAL</span><span>{currency}80.00</span></div>
           <div style={{textAlign:'center',marginTop:4}}>Payment: CASH</div>
           {receiptFooterMessage(draft) && <div style={{textAlign:'center',marginTop:3,fontSize:10}}>{receiptFooterMessage(draft)}</div>}
-          {draft.platformCredit && <div style={{textAlign:'center',fontSize:9}}>GastroFlow · RS Nextward</div>}
+          {draft.platformCredit && <div style={{textAlign:'center',fontSize:9}}>GastroFlow · {platformPublisher}</div>}
         </div>
         <p style={{fontSize:11,color:'var(--text-muted)',lineHeight:1.5}}>Sample only, not a real invoice. Browser or printer drivers may add feed space. Do not rely on the preview as a regulatory tax invoice.</p>
         <button type="button" className="btn btn-outline" onClick={()=>testPrintReceipt(settings,currency)}>🖨️ Print printer alignment test</button>
