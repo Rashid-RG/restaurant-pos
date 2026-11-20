@@ -175,6 +175,11 @@ Authenticated restaurant owner (only own user+tenant):
 - It also inserts historical unsubscribe evidence linked to the same authenticated owner/email and proves that the worker declines to reserve quota or invoke an email provider.
 - These tests validate basic local database behavior only; they do not yet test concurrent remote Turso sessions, Render configuration, live Brevo webhook delivery, power-loss recovery or native client behavior. Commercial sign-off remains pending.
 
+### Local acceptance-to-provider-event-to-suppression regression
+- The local libSQL integration suite now sends **only to a fake in-process provider**, records a Brevo-style API acceptance ID, applies a server-verified hard-bounce event to the matching queued owner and email, and checks that a second announcement is rejected before any further provider call.
+- The same suite verifies that a mismatched recipient email and an unknown provider message ID cannot alter the recorded receipt state.
+- These tests provide stronger module-to-module evidence but **are not actual Brevo sandbox delivery or webhook acceptance tests**; those require verified isolated Render staging, approved credentials, a test mailbox, and explicit operator authorization.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
