@@ -91,6 +91,15 @@ export async function initPlatformCommunications(dbRun) {
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_translations (
     announcementId TEXT NOT NULL,locale TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,
     createdAt BIGINT NOT NULL,PRIMARY KEY (announcementId,locale))`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_translation_approvals (
+    announcementId TEXT NOT NULL,locale TEXT NOT NULL,contentHash TEXT NOT NULL,
+    reviewedBy TEXT NOT NULL,reviewedAt BIGINT NOT NULL,
+    PRIMARY KEY (announcementId,locale))`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_acknowledgment_evidence (
+    announcementId TEXT NOT NULL,tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
+    contentLanguage TEXT NOT NULL,contentHash TEXT NOT NULL,
+    policyVersion TEXT,acknowledgedAt BIGINT NOT NULL,
+    PRIMARY KEY (announcementId,tenant_id,userId))`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_versions (
     announcementId TEXT PRIMARY KEY, policyVersion TEXT NOT NULL,
     contentHash TEXT NOT NULL, createdAt BIGINT NOT NULL)`);
@@ -294,6 +303,46 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     await dbRun('DELETE FROM platform_owner_communication_templates WHERE id=?',[req.params.id]);
     res.json({success:true});
   }catch(e){next(e)}});
+  router.get('/platform/communications/:id/translations',...platform,async(req,res,next)=>{try{
+    const notice=await dbGet('SELECT id,title,body,status,category FROM platform_owner_announcements WHERE id=?',[req.params.id]);
+    if(!notice)return res.status(404).json({error:'Notice not found.'});
+    const rows=await dbAll(`SELECT t.locale,t.title,t.body,a.reviewedBy,a.reviewedAt,a.contentHash
+      FROM platform_owner_announcement_translations t
+      LEFT JOIN platform_owner_translation_approvals a ON a.announcementId=t.announcementId AND a.locale=t.locale
+      WHERE t.announcementId=? ORDER BY t.locale`,[req.params.id]);
+    res.set('Cache-Control','no-store').json({notice,translations:rows});
+  }catch(e){next(e)}});
+  router.post('/platform/communications/:id/translations/:locale/approve',...platform,async(req,res,next)=>{try{
+    if(!['si','ta'].includes(req.params.locale))return res.status(400).json({error:'Unsupported translation language.'});
+    const x=await dbGet(`SELECT t.title,t.body,n.status FROM platform_owner_announcement_translations t
+      JOIN platform_owner_announcements n ON n.id=t.announcementId
+      WHERE t.announcementId=? AND t.locale=?`,[req.params.id,req.params.locale]);
+    if(!x)return res.status(404).json({error:'Translation not found.'});
+    if(x.status==='cancelled')return res.status(409).json({error:'Cancelled notice cannot be approved.'});
+    const fingerprint=crypto.createHash('sha256').update(JSON.stringify([x.title,x.body,req.params.locale])).digest('hex');
+    const now=Date.now();
+    await dbRun(`INSERT INTO platform_owner_translation_approvals
+      (announcementId,locale,contentHash,reviewedBy,reviewedAt) VALUES (?,?,?,?,?)
+      ON CONFLICT(announcementId,locale) DO UPDATE SET
+      contentHash=excluded.contentHash,reviewedBy=excluded.reviewedBy,reviewedAt=excluded.reviewedAt`,
+      [req.params.id,req.params.locale,fingerprint,req.user.id,now]);
+    await audit(req,req.params.id,'translation_approved_'+req.params.locale);
+    res.set('Cache-Control','no-store').json({approved:true,locale:req.params.locale,contentHash:fingerprint});
+  }catch(e){next(e)}});
+  router.post('/platform/communications/:id/translations/:locale/revoke',...platform,async(req,res,next)=>{try{
+    if(!['si','ta'].includes(req.params.locale))return res.status(400).json({error:'Unsupported translation language.'});
+    const result=await dbRun('DELETE FROM platform_owner_translation_approvals WHERE announcementId=? AND locale=?',
+      [req.params.id,req.params.locale]);
+    if(!Number(result?.changes))return res.status(404).json({error:'Approved translation not found.'});
+    await audit(req,req.params.id,'translation_revoked_'+req.params.locale);
+    res.json({revoked:true});
+  }catch(e){next(e)}});
+  router.get('/platform/communications/:id/acknowledgments',...platform,async(req,res,next)=>{try{
+    const rows=await dbAll(`SELECT contentLanguage,policyVersion,COUNT(*) AS count
+      FROM platform_owner_acknowledgment_evidence WHERE announcementId=?
+      GROUP BY contentLanguage,policyVersion ORDER BY contentLanguage`,[req.params.id]);
+    res.set('Cache-Control','no-store').json({evidenceSummary:rows});
+  }catch(e){next(e)}});
   router.post('/platform/communications/preview',...platform,async(req,res,next)=>{try{
     const parsed=audienceSchema.safeParse(req.body?.audience);
     if(!parsed.success)return res.status(400).json({error:'Invalid restaurant audience.'});
@@ -392,6 +441,7 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       JOIN platform_owner_announcement_recipients r ON a.id=r.announcementId
       LEFT JOIN platform_owner_announcement_versions v ON v.announcementId=a.id
       LEFT JOIN platform_owner_announcement_translations tr ON tr.announcementId=a.id AND tr.locale=?
+      AND EXISTS (SELECT 1 FROM platform_owner_translation_approvals ap WHERE ap.announcementId=tr.announcementId AND ap.locale=tr.locale)
       WHERE r.tenant_id=? AND r.userId=? AND a.status='published'
       AND (a.expiresAt IS NULL OR a.expiresAt>?)
       ORDER BY a.publishedAt DESC LIMIT 100`,[locale,req.user.tenant_id,req.user.id,Date.now()]);
@@ -403,8 +453,9 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
       const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
       if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
-      const row=await dbGet(`SELECT a.id,a.requiresAcknowledgment FROM platform_owner_announcements a
+      const row=await dbGet(`SELECT a.id,a.title,a.body,a.category,a.requiresAcknowledgment,v.policyVersion,v.contentHash FROM platform_owner_announcements a
         JOIN platform_owner_announcement_recipients r ON r.announcementId=a.id
+        LEFT JOIN platform_owner_announcement_versions v ON v.announcementId=a.id
         WHERE a.id=? AND r.userId=? AND r.tenant_id=? AND a.status='published'
         AND (a.expiresAt IS NULL OR a.expiresAt>?)`,[req.params.id,uid,tid,Date.now()]);
       if(!row)return res.status(404).json({error:'Announcement not available.'});
@@ -412,9 +463,28 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       const now=Date.now();
       if(action==='read')await dbRun(`UPDATE platform_owner_announcement_recipients SET readAt=COALESCE(readAt,?)
         WHERE announcementId=? AND tenant_id=? AND userId=?`,[now,row.id,tid,uid]);
-      else await dbRun(`UPDATE platform_owner_announcement_recipients
-        SET readAt=COALESCE(readAt,?),acknowledgedAt=COALESCE(acknowledgedAt,?)
-        WHERE announcementId=? AND tenant_id=? AND userId=?`,[now,now,row.id,tid,uid]);
+      else {
+        const selected=announcementLanguage(req.body?.language);
+        const tr=selected==='en'?null:await dbGet(`SELECT t.title,t.body,ap.contentHash
+          FROM platform_owner_announcement_translations t
+          JOIN platform_owner_translation_approvals ap
+            ON ap.announcementId=t.announcementId AND ap.locale=t.locale
+          WHERE t.announcementId=? AND t.locale=?`,[row.id,selected]);
+        const locale=tr?selected:'en';
+        const hash=tr?.contentHash||row.contentHash||
+          crypto.createHash('sha256').update(JSON.stringify([row.title,row.body,row.category])).digest('hex');
+        let tx=false;
+        try{
+          await dbRun('BEGIN TRANSACTION');tx=true;
+          await dbRun(`UPDATE platform_owner_announcement_recipients
+            SET readAt=COALESCE(readAt,?),acknowledgedAt=COALESCE(acknowledgedAt,?)
+            WHERE announcementId=? AND tenant_id=? AND userId=?`,[now,now,row.id,tid,uid]);
+          await dbRun(`INSERT OR IGNORE INTO platform_owner_acknowledgment_evidence
+            (announcementId,tenant_id,userId,contentLanguage,contentHash,policyVersion,acknowledgedAt)
+            VALUES (?,?,?,?,?,?,?)`,[row.id,tid,uid,locale,hash,row.policyVersion||null,now]);
+          await dbRun('COMMIT');tx=false;
+        }catch(e){if(tx)await dbRun('ROLLBACK');throw e;}
+      }
       res.json({success:true});
     }catch(e){next(e)}});
   }
