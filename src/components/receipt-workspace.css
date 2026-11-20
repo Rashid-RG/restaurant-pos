@@ -70,3 +70,31 @@
  .receipt-form-row { grid-template-columns:1fr; }
  .receipt-workspace-tab { flex:1 1 120px; padding:11px 7px; }
 }
+
+/* Restaurant-wide Settings shell: scoped so other POS pages remain unchanged. */
+.system-settings-page > .view-header { border-bottom:1px solid var(--border-color); }
+.system-settings-page .view-title { display:grid; gap:4px; }
+.system-settings-page .settings-eyebrow { font-size:10px; letter-spacing:1.8px; font-weight:850; color:#17865f; }
+.system-settings-page .view-title h1 { font-size:clamp(23px,2.4vw,30px); letter-spacing:-.75px; font-weight:850; }
+.system-settings-page .view-title p { font-size:13px; color:var(--text-muted); line-height:1.5; }
+.system-settings-page .settings-layout { grid-template-columns:minmax(195px,240px) minmax(0,1fr); gap:21px; min-width:0; align-items:start; }
+.system-settings-page .settings-nav { border:1px solid var(--border-color); background:var(--bg-card); border-radius:17px; padding:12px; gap:5px; }
+.system-settings-page .settings-nav-kicker { font-size:10px; color:var(--text-muted); letter-spacing:1.3px; font-weight:850; padding:10px 12px 12px; }
+.system-settings-page .settings-nav-btn { border-radius:10px; border:1px solid transparent; padding:12px 13px; font-weight:650; font-size:13px; text-align:left; min-height:43px; transition:background .16s,border-color .16s; }
+.system-settings-page .settings-nav-btn:hover { background:var(--bg-surface); border-color:var(--border-color); }
+.system-settings-page .settings-nav-btn.active { background:rgba(28,151,105,.1); color:var(--color-primary,#17865f); border-color:rgba(28,151,105,.18); font-weight:800; }
+.system-settings-page .settings-nav-btn:focus-visible { outline:2px solid #2ba579; outline-offset:2px; }
+.system-settings-page .settings-panel { min-width:0; border-radius:17px; }
+.system-settings-page .settings-section-title { font-size:19px; letter-spacing:-.3px; }
+@media(max-width:900px) {
+  .system-settings-page .settings-layout { grid-template-columns:minmax(0,1fr); gap:13px; }
+  .system-settings-page .settings-nav { display:flex; flex-direction:row; overflow-x:auto; flex-wrap:nowrap; padding:7px; gap:6px; scrollbar-width:thin; }
+  .system-settings-page .settings-nav-kicker { display:none; }
+  .system-settings-page .settings-nav-btn { white-space:nowrap; flex-shrink:0; padding:10px 13px; }
+  .system-settings-page .settings-panel { padding:17px; }
+}
+@media(max-width:550px) {
+ .system-settings-page .view-body { padding:11px; }
+ .system-settings-page .settings-panel { padding:12px; }
+ .system-settings-page .settings-nav { border-radius:11px; }
+}
