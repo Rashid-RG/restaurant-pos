@@ -5,7 +5,7 @@ import {createRiderPresenceRouter} from './rider-presence.js';
 import {createRiderPresence} from '../lib/delivery/rider-presence.js';
 
 const now=1800000000000;
-function setup({enabled=true,status='available',verified=true}={}){
+function setup({enabled=true,status='available',verified=true,estimateRoad=null}={}){
   const presence=createRiderPresence({clock:()=>now});
   const app=express();app.use(express.json());
   const authenticateDriver=(req,res,next)=>{
@@ -24,7 +24,7 @@ function setup({enabled=true,status='available',verified=true}={}){
   const dbAll=vi.fn(async()=>status==='available'?[{id:'rider-a'}]:[]);
   app.use('/api',createRiderPresenceRouter({
     express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,
-    presence,enabled,clock:()=>now
+    presence,enabled,clock:()=>now,estimateRoad
   }));
   return {app,presence,dbGet,dbAll};
 }
@@ -40,6 +40,18 @@ describe('rider-presence API security',()=>{
     expect((await request(app).post('/api/public/driver/on-duty-location').send(ping)).status).toBe(401);
     expect((await request(app).post('/api/public/driver/on-duty-location')
       .set('Authorization','Bearer rider-a').send({...ping,consent:false})).body.sharing).toBe(false);
+  });
+  it('exposes road estimates only from the trusted injected routing adapter',async()=>{
+    const estimateRoad=vi.fn(async()=>8);
+    const {app}=setup({estimateRoad});
+    await request(app).post('/api/public/driver/on-duty-location')
+      .set('Authorization','Bearer rider-a').send(ping);
+    const response=await request(app).get('/api/delivery/nearby-riders?lat=6.9271&lng=79.8612')
+      .set('Authorization','Bearer manager-a');
+    expect(response.body.candidates[0].roadTravelMinutes).toBe(8);
+    expect(response.body.estimatedRoadTimesAvailable).toBe(true);
+    expect(response.body.candidates[0].lat).toBeUndefined();
+    expect(estimateRoad).toHaveBeenCalledTimes(1);
   });
   it('does not track offline or unverified riders',async()=>{
     for(const config of [{status:'offline'},{verified:false}]){
