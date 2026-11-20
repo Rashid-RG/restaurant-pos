@@ -4,6 +4,7 @@ import {Bell,CheckCheck,ShieldAlert,X} from 'lucide-react';
 /** Restaurant-owner in-app inbox. No delivery to cashiers/managers. */
 export default function OwnerCommunicationsInbox({currentUser}) {
   const [messages,setMessages]=useState([]);
+  const [moduleAvailable,setModuleAvailable]=useState(false);
   const [open,setOpen]=useState(false);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
@@ -19,9 +20,9 @@ export default function OwnerCommunicationsInbox({currentUser}) {
         headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`},
         cache:'no-store'
       });
-      if(response.status===404)return; // module not enabled for this deployment
+      if(response.status===404){setModuleAvailable(false);setMessages([]);return;} // module not enabled
       if(!response.ok)throw new Error('Could not load platform notices.');
-      setMessages(await response.json());setError('');
+      setMessages(await response.json());setModuleAvailable(true);setError('');
     }catch(e){setError(e.message)}
   },[isOwner,language]);
   useEffect(()=>{
@@ -30,7 +31,7 @@ export default function OwnerCommunicationsInbox({currentUser}) {
     const timer=setInterval(load,60000);
     return ()=>clearInterval(timer);
   },[isOwner,load]);
-  if(!isOwner||(!messages.length&&!error))return null;
+  if(!isOwner||(!moduleAvailable&&!error))return null;
   const act=async(id,action)=>{
     setBusy(true);
     try{
