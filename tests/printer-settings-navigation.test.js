@@ -5,10 +5,12 @@ const code = readFileSync(new URL('../src/components/Settings.jsx', import.meta.
 
 describe('POS Printer & Hardware settings navigation', () => {
   it('provides a dedicated visible navigation destination', () => {
-    expect(code).toContain("subTab === 'printer' ? 'active' : ''");
-    expect(code).toContain("setSubTab('printer')");
-    expect(code).toContain('🖨️ Printer & Hardware');
-    expect(code).toContain("['online','business','printer','menu','database','users']");
+    expect(code).toContain("subTab === 'home'");
+    expect(code).toContain("setSubTab('home')");
+    expect(code).toContain("id: 'printer'");
+    expect(code).toContain('Printer & Receipts');
+    expect(code).toContain("['online','business','printer','menu','database','users','billing','saas']");
+    expect(code).toContain('settings-page-breadcrumb');
   });
 
   it('renders QZ and paper size inside the printer section rather than online store', () => {
