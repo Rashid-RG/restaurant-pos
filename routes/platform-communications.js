@@ -69,6 +69,64 @@ export async function initPlatformCommunications(dbRun) {
     action TEXT NOT NULL, createdAt BIGINT NOT NULL)`);
 }
 
+/**
+ * Scheduled notices are claimed from durable DB state, not in-memory timers.
+ * Intended to run from the staging server after database readiness.
+ * No email or external push side effects are performed here.
+ */
+export async function dispatchDueOwnerAnnouncements({dbGet,dbAll,dbRun,now=Date.now(),limit=10}){
+  const bounded=Math.min(25,Math.max(1,Number(limit)||10));
+  const due=await dbAll(`SELECT a.id,a.audienceJson,a.expiresAt,a.status,s.scheduledAt
+    FROM platform_owner_announcements a
+    JOIN platform_owner_announcement_schedule s ON s.announcementId=a.id
+    WHERE a.status='scheduled' AND s.scheduledAt<=?
+    ORDER BY s.scheduledAt LIMIT ${bounded}`,[now]);
+  const results=[];
+  for(const candidate of due){
+    let tx=false;
+    try{
+      await dbRun('BEGIN TRANSACTION');tx=true;
+      const a=await dbGet('SELECT status,audienceJson,expiresAt FROM platform_owner_announcements WHERE id=?',[candidate.id]);
+      if(a?.status!=='scheduled'){await dbRun('ROLLBACK');tx=false;continue}
+      if(a.expiresAt!==null && a.expiresAt<=now){
+        await dbRun("UPDATE platform_owner_announcements SET status='cancelled',cancelledAt=? WHERE id=? AND status='scheduled'",[now,candidate.id]);
+        await dbRun('DELETE FROM platform_owner_announcement_schedule WHERE announcementId=?',[candidate.id]);
+        await dbRun('COMMIT');tx=false;
+        results.push({id:candidate.id,status:'expired'});continue;
+      }
+      const target=JSON.parse(a.audienceJson);
+      const ids=[...new Set(target.tenantIds||[])];
+      if(target.scope==='specific'&&!ids.length)throw new Error('Scheduled notice has no selected restaurants.');
+      const sql=`SELECT u.id AS userId,u.tenant_id AS tenantId,u.role,t.status,
+        CASE WHEN p.userId IS NOT NULL THEN 1 ELSE 0 END AS isPlatformAdmin
+        FROM users u JOIN tenants t ON t.id=u.tenant_id
+        LEFT JOIN platform_ownership p ON p.userId=u.id
+        WHERE u.role='owner' AND t.status='active' AND t.id!='default_tenant'
+        ${target.scope==='specific'?`AND t.id IN (${ids.map(()=>'?').join(',')})`:''}`;
+      const rows=(await dbAll(sql,target.scope==='specific'?ids:[])).filter(ownerRecipientEligible);
+      if(!rows.length){
+        // Keep it queued; the owner may reactivate a restaurant or fix targeting.
+        await dbRun('ROLLBACK');tx=false;
+        results.push({id:candidate.id,status:'no_eligible_owners'});continue;
+      }
+      const at=Date.now();
+      for(const row of rows)await dbRun(`INSERT OR IGNORE INTO platform_owner_announcement_recipients
+        (announcementId,tenant_id,userId,deliveredAt) VALUES (?,?,?,?)`,[candidate.id,row.tenantId,row.userId,at]);
+      await dbRun("UPDATE platform_owner_announcements SET status='published',publishedAt=? WHERE id=? AND status='scheduled'",[at,candidate.id]);
+      await dbRun('DELETE FROM platform_owner_announcement_schedule WHERE announcementId=?',[candidate.id]);
+      await dbRun(`INSERT INTO platform_owner_announcement_audit
+        (id,announcementId,actorId,action,createdAt) VALUES (?,?,?,?,?)`,
+        [crypto.randomUUID(),candidate.id,'system_scheduler','scheduled_published',at]);
+      await dbRun('COMMIT');tx=false;
+      results.push({id:candidate.id,status:'published',recipients:rows.length});
+    }catch(e){
+      if(tx)await dbRun('ROLLBACK');
+      throw e;
+    }
+  }
+  return results;
+}
+
 export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authenticateToken,requirePlatformAdmin,env=process.env}) {
   const router=express.Router();
   // Opt-in explicitly on staging. Disabled elsewhere, including unconfigured production.
