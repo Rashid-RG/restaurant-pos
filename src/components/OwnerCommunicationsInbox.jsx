@@ -7,6 +7,8 @@ export default function OwnerCommunicationsInbox({currentUser}) {
   const [open,setOpen]=useState(false);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
+  const [pushPreference,setPushPreference]=useState(null);
+  const [receipts,setReceipts]=useState({});
   const [language,setLanguage]=useState(()=>{try{const v=localStorage.getItem('gastroflow_owner_notice_lang');return ['en','si','ta'].includes(v)?v:'en'}catch{return 'en'}});
   const isOwner=currentUser?.role==='owner'&&currentUser?.isPlatformAdmin!==true;
   const load=useCallback(async()=>{
@@ -48,6 +50,16 @@ export default function OwnerCommunicationsInbox({currentUser}) {
       <strong>{unread?unread+' unread':messages.length+' notices'}</strong>
     </button>
     {open&&<div style={{display:'grid',gap:12,marginTop:12}}>
+      <button type="button" className="btn btn-outline" disabled={busy} onClick={async()=>{
+        try{const response=await fetch('/api/owner/communications/push-preference',{headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`}});
+          if(!response.ok)throw new Error('Could not load push preference.');setPushPreference(await response.json());setError('')}
+        catch(e){setError(e.message)}
+      }}>View future push preference</button>
+      {pushPreference&&<label style={{display:'flex',gap:8,alignItems:'center'}}><input type="checkbox" disabled={busy}
+        checked={pushPreference.optedIn} onChange={async e=>{setBusy(true);try{
+          const response=await fetch('/api/owner/communications/push-preference',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`},body:JSON.stringify({optedIn:e.target.checked})});
+          if(!response.ok)throw new Error('Could not update push preference.');setPushPreference(await response.json());setError('')
+        }catch(err){setError(err.message)}finally{setBusy(false)}}}/>Opt in to future platform push notices (push delivery is not active)</label>}
       <label style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
         Notice language
         <select aria-label="Preferred platform notice language" value={language} onChange={e=>{
@@ -74,6 +86,22 @@ export default function OwnerCommunicationsInbox({currentUser}) {
           {Boolean(m.requiresAcknowledgment)&&!m.acknowledgedAt&&<button disabled={busy} className="btn btn-primary" type="button"
             onClick={()=>act(m.id,'acknowledge')}><CheckCheck size={16}/> I have read and acknowledge this notice</button>}
           {m.acknowledgedAt&&<small>Acknowledged {new Date(m.acknowledgedAt).toLocaleString()}</small>}
+          {m.acknowledgedAt&&<button className="btn btn-outline" type="button" disabled={busy} onClick={async()=>{
+            setBusy(true);try{
+              const response=await fetch('/api/owner/communications/'+encodeURIComponent(m.id)+'/receipt',{
+                headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`}
+              });
+              if(!response.ok)throw new Error('Could not load acknowledgment receipt.');
+              const receipt=await response.json();
+              setReceipts(old=>({...old,[m.id]:receipt}));setError('');
+            }catch(e){setError(e.message)}finally{setBusy(false)}
+          }}>View acknowledgment receipt</button>}
+          {receipts[m.id]&&<div style={{fontSize:12,overflowWrap:'anywhere',marginTop:8}}>
+            <strong>Recorded acknowledgment</strong>
+            <p>Language: {receipts[m.id].contentLanguage.toUpperCase()} · Version: {receipts[m.id].policyVersion||'—'}</p>
+            <p>Content SHA-256: <code>{receipts[m.id].contentHash}</code></p>
+            <p>Recorded: {new Date(receipts[m.id].acknowledgedAt).toLocaleString()}</p>
+          </div>}
         </div>
       </article>)}
     </div>}
