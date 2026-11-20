@@ -126,6 +126,13 @@ export async function initPlatformCommunications(dbRun) {
     revokedAt BIGINT,PRIMARY KEY(tenant_id,userId,deviceHash))`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_fcm_tokens_active
     ON platform_owner_communication_fcm_tokens (tenant_id,userId,revokedAt)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_fcm_dispatch (
+    announcementId TEXT NOT NULL,tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
+    deviceHash TEXT NOT NULL,status TEXT NOT NULL,claimedAt BIGINT NOT NULL,
+    updatedAt BIGINT NOT NULL,
+    PRIMARY KEY(announcementId,tenant_id,userId,deviceHash))`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_fcm_dispatch_status
+    ON platform_owner_communication_fcm_dispatch (status,updatedAt)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_acknowledgment_evidence (
     announcementId TEXT NOT NULL,tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
     contentLanguage TEXT NOT NULL,contentHash TEXT NOT NULL,
