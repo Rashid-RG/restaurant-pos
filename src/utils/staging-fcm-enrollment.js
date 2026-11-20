@@ -93,3 +93,30 @@ export async function revokeStagingOwnerPush({user,storage,fetcher}={}){
   if(result.optedIn!==false)throw new Error('Push revocation not confirmed.');
   return {status:'disabled'};
 }
+
+/**
+ * Best-effort device-only revocation when this staging native app signs out.
+ * Never revokes all of an owner's other installations. The auth JWT must still
+ * be valid; server-enforced tenancy remains authoritative. A failed network
+ * request leaves the server-side token gated to the previous owner (not shared
+ * with the new session), and should be corrected from the Devices UI.
+ */
+export async function revokeStagingInstallationOnLogout({
+  user,capacitor,origin,storage,fetcher
+}={}){
+  if(!eligibleStagingOwner(user,capacitor,origin))
+    return {status:'not_applicable'};
+  const key=STAGING_PUSH_STORAGE_PREFIX+
+    encodeURIComponent(user.tenant_id)+':'+encodeURIComponent(user.id);
+  const installationId=storage?.getItem(key);
+  if(!installationId)return {status:'not_enrolled'};
+  try{
+    const response=await stagingPushApi(
+      'devices/revoke',{installationId},{storage,fetcher}
+    );
+    return {status:response?.status==='revoked'||response?.status==='not_found'
+      ?'revoked':'unconfirmed'};
+  }catch{
+    return {status:'unconfirmed'};
+  }
+}
