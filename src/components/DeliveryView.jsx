@@ -321,13 +321,13 @@ export default function DeliveryView({verificationOnly=false}) {
         )}
         {/* 0. Pending Driver Registrations Queue */}
         {verificationOnly && canReview && visibleVerificationDrivers.some(d=>d.status==='pending_approval') && (
-          <div style={{ background: 'rgba(234, 179, 8, 0.08)', border: '2px dashed #eab308', borderRadius: '12px', padding: '20px' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800, color: '#eab308', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '18px', padding: 'clamp(14px,2vw,22px)' }}>
+            <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               ⏳ {verificationTab} Rider Applications ({visibleVerificationDrivers.length})
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%,370px), 1fr))', gap: '12px' }}>
               {visibleVerificationDrivers.filter(d=>d.status==='pending_approval').map(d => (
-                <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '13px' }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: '1rem' }}>👤 {d.name}</div>
                     <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>📞 {d.phone} • {d.vehicleType || 'Motorbike'} ({d.plateNumber || 'N/A'})</div>
@@ -339,14 +339,17 @@ export default function DeliveryView({verificationOnly=false}) {
                     <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Manual review: <strong>{d.manualReviewStatus||'Not reviewed'}</strong> · DMT standing: {d.dmtReviewStatus==='manager_checked_external'?'Manager recorded external check':'Not officially checked'}</div>
                   </div>
                   <section style={{border:'1px solid var(--border-color)',borderRadius:9,padding:10,display:'flex',flexDirection:'column',gap:8}}>
-                    <strong style={{fontSize:13}}>Manual NIC/passport & licence review</strong>
-                    <select className="form-input" value={manualReviews[d.id]?.identityKind||'nic'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],identityKind:e.target.value}}))}>
-                      <option value="nic">Sri Lankan NIC</option>
-                      <option value="passport">Passport</option>
+                    <strong style={{fontSize:13}}>Identity & licence review</strong>
+                    {d.applicationIdentityKind&&<p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>Applicant selected: <strong>{d.applicationIdentityKind==='passport'?'Passport':'National Identity Card'}</strong></p>}
+                    <select className="form-input" value={manualReviews[d.id]?.identityKind||d.applicationIdentityKind||'nic'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],identityKind:e.target.value}}))}>
+                      <option value="nic" disabled={d.applicationIdentityKind==='passport'}>Sri Lankan NIC</option>
+                      <option value="passport" disabled={d.applicationIdentityKind==='nic'}>Passport</option>
                     </select>
                     <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
                       {[
-                        ['identity_front','Identity front'],['identity_back','Identity back'],['selfie','Selfie photo'],
+                        ['identity_front',(manualReviews[d.id]?.identityKind||d.applicationIdentityKind)==='passport'?'Passport information page':'NIC front'],
+                        ...((manualReviews[d.id]?.identityKind||d.applicationIdentityKind)==='passport'?[]:[['identity_back','NIC back']]),
+                        ['selfie','Selfie photo'],
                         ...(d.vehicleType==='Bicycle'?[]:[['licence_front','Licence front'],['licence_back','Licence back']])
                       ].map(([kind,label])=><button type="button" key={kind} className="btn btn-outline" style={{fontSize:11,padding:5}} onClick={()=>inspectManualDocument(d.id,kind)}>{label}</button>)}
                     </div>
