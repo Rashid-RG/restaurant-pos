@@ -71,6 +71,8 @@ Authenticated restaurant owner (only own user+tenant):
 ### Explicit Brevo sandbox provider adapter
 - `lib/communications/platform-brevo-sandbox.js` provides an injected sandbox-only Brevo transport interface. It does not register a server timer, REST send endpoint, or automatic worker and therefore does **not** send mail on deployment.
 - In addition to every existing communications and email sandbox gate, require `PLATFORM_COMMUNICATIONS_BREVO_SEND_ENABLED=true` and `PLATFORM_COMMUNICATIONS_EMAIL_TRANSPORT=brevo_sandbox`. The adapter also requires Brevo credentials and a configured sender.
+- Read-only platform-owner endpoint `GET /api/platform/communications/email/status` and UI readiness indicator summarize configured gates and test-recipient count without disclosing recipient addresses or secrets. It never triggers delivery.
+- The adapter is **not mounted to an automatic job or manual-send route**; only a future separately approved test runner should inject it into the queue worker. Provider HTTP acceptance and actual mailbox delivery remain separate statuses.
 - Every destination is checked against `PLATFORM_COMMUNICATIONS_TEST_EMAILS` again immediately before the provider call. A mismatched recipient cannot invoke the provider.
 - Unit tests inject a fake HTTP fetcher. They must never contact the external Brevo API or send customer email.
 - Brevo HTTP success represents **provider acceptance**, not delivery to a mailbox or human reading. Do not describe `accepted` as verified mailbox delivery.
