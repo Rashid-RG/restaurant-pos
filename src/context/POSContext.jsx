@@ -71,6 +71,7 @@ export const POSProvider = ({ children }) => {
     const controller=new AbortController();
     const timeout=setTimeout(()=>controller.abort(),15000);
     const originalToken=localStorage.getItem('gastroflow_token');
+    const explicitlySignedOut=localStorage.getItem('gastroflow_signed_out')==='1';
     const params=new URLSearchParams(window.location.search);
     const selectedTenant=params.get('tenant')||params.get('tenantId');
     const tenantHeaders=selectedTenant?{'X-Expected-Tenant-Id':selectedTenant}:{};
@@ -109,7 +110,7 @@ export const POSProvider = ({ children }) => {
       // or unrelated 403 responses.
     };
     const check=async()=>{
-      if(!originalToken){await renew();return;}
+      if(!originalToken){if(!explicitlySignedOut)await renew();return;}
       const response=await fetch('/api/auth/me',{
         headers:{Authorization:`Bearer ${originalToken}`,...tenantHeaders},
         signal:controller.signal,cache:'no-store'
@@ -581,6 +582,7 @@ export const POSProvider = ({ children }) => {
       throw new Error(err.error || 'Login failed');
     }
     const data = await response.json();
+    localStorage.removeItem('gastroflow_signed_out');
     localStorage.setItem('gastroflow_token', data.token);
     localStorage.setItem('gastroflow_user', JSON.stringify(data.user));
 
@@ -599,6 +601,7 @@ export const POSProvider = ({ children }) => {
   };
 
   const logout = () => {
+    localStorage.setItem('gastroflow_signed_out','1');
     // Clear the browser's HttpOnly renewal credential as well as its access
     // token. A network outage cannot stop immediate local sign-out.
     void fetch('/api/auth/logout',{method:'POST',credentials:'same-origin',keepalive:true}).catch(()=>{});
