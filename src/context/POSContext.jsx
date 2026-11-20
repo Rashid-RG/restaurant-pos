@@ -32,7 +32,7 @@ export const POSProvider = ({ children }) => {
   }, []);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gastroflow_theme') === 'dark');
   const [currentUser, setCurrentUser] = useState(() => restoreStaffSession(localStorage));
-  const [sessionChecking, setSessionChecking] = useState(() => Boolean(localStorage.getItem('gastroflow_token')));
+  const [sessionChecking, setSessionChecking] = useState(true);
   // Do not erase a valid session merely because a bookmarked tenant URL is stale:
   // use the server-authenticated user as the authority and update the URL after validation.
   const [activeShift, setActiveShift] = useState(null);
@@ -62,48 +62,70 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('gastroflow_auth_error', handleGlobalAuthError);
   }, [currentUser]);
 
-  // Restore a saved login before starting shift/status fetches. A network outage or
-  // a 403 permission/billing response cannot delete the local employee session.
+  // Recover a cached staff session without treating a normal page reload as
+  // logout. Access tokens last 12 hours; an HttpOnly refresh cookie can renew
+  // them for a limited period without exposing a second token to JavaScript.
+  // Permission errors and temporary network outages must not erase login.
   useEffect(() => {
-    const token = localStorage.getItem('gastroflow_token');
-    if (!token) { setSessionChecking(false); return; }
-    let cancelled = false;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-    const urlParams = new URLSearchParams(window.location.search);
-    const selectedTenant = urlParams.get('tenant') || urlParams.get('tenantId');
-    fetch('/api/auth/me', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(selectedTenant ? { 'X-Expected-Tenant-Id': selectedTenant } : {})
-      },
-      signal: controller.signal
-    })
-      .then(async response => {
-        const data = await response.json().catch(() => ({}));
-        if (cancelled || localStorage.getItem('gastroflow_token') !== token) return;
-        if (response.ok && data.user) {
-          setCurrentUser(data.user);
-          localStorage.setItem('gastroflow_user', JSON.stringify(data.user));
-          // Only canonicalize an unscoped POS URL. Never overwrite the
-          // requested restaurant link to silently admit another store's user.
-          if (!selectedTenant && data.user.tenant_id) {
-            try {
-              const url = new URL(window.location.href);
-              url.searchParams.set('tenant', data.user.tenant_id);
-              window.history.replaceState({}, '', url.toString());
-            } catch (_) {}
-          }
-        } else if (data.code === 'TENANT_URL_MISMATCH' || isExpiredStaffSession(response.status, data)) {
-          // A cached token for Restaurant B must not unlock Restaurant A's URL.
-          localStorage.removeItem('gastroflow_token');
-          localStorage.removeItem('gastroflow_user');
-          setCurrentUser(null);
-        }
-      })
-      .catch(() => { /* Offline/timeout: keep cached session; retry on next request. */ })
-      .finally(() => { clearTimeout(timeout); if (!cancelled) setSessionChecking(false); });
-    return () => { cancelled = true; clearTimeout(timeout); controller.abort(); };
+    let cancelled=false;
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),15000);
+    const originalToken=localStorage.getItem('gastroflow_token');
+    const params=new URLSearchParams(window.location.search);
+    const selectedTenant=params.get('tenant')||params.get('tenantId');
+    const tenantHeaders=selectedTenant?{'X-Expected-Tenant-Id':selectedTenant}:{};
+    const installUser=(user,token)=>{
+      if(cancelled)return;
+      if(token)localStorage.setItem('gastroflow_token',token);
+      localStorage.setItem('gastroflow_user',JSON.stringify(user));
+      setCurrentUser(user);
+      if(!selectedTenant&&user.tenant_id){
+        try{
+          const url=new URL(window.location.href);
+          url.searchParams.set('tenant',user.tenant_id);
+          window.history.replaceState({},'',url.toString());
+        }catch{}
+      }
+    };
+    const clearInvalid=()=>{
+      if(cancelled)return;
+      localStorage.removeItem('gastroflow_token');
+      localStorage.removeItem('gastroflow_user');
+      setCurrentUser(null);
+    };
+    const renew=async()=>{
+      const response=await fetch('/api/auth/refresh',{
+        method:'POST',credentials:'same-origin',
+        headers:tenantHeaders,signal:controller.signal,cache:'no-store'
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(cancelled)return;
+      if(response.ok&&payload.token&&payload.user){
+        installUser(payload.user,payload.token);
+      }else if(response.status===401||payload.code==='TENANT_URL_MISMATCH'){
+        clearInvalid();
+      }
+      // Do not erase a session for server failures, billing restrictions,
+      // or unrelated 403 responses.
+    };
+    const check=async()=>{
+      if(!originalToken){await renew();return;}
+      const response=await fetch('/api/auth/me',{
+        headers:{Authorization:`Bearer ${originalToken}`,...tenantHeaders},
+        signal:controller.signal,cache:'no-store'
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(cancelled||localStorage.getItem('gastroflow_token')!==originalToken)return;
+      if(response.ok&&payload.user){installUser(payload.user);return;}
+      if(payload.code==='TENANT_URL_MISMATCH'){clearInvalid();return;}
+      if(isExpiredStaffSession(response.status,payload))await renew();
+    };
+    check().catch(()=>{/* Offline/waking server: preserve cached identity. */})
+      .finally(()=>{
+        clearTimeout(timeout);
+        if(!cancelled)setSessionChecking(false);
+      });
+    return ()=>{cancelled=true;clearTimeout(timeout);controller.abort();};
   }, []);
 
   // Database lists
@@ -577,6 +599,9 @@ export const POSProvider = ({ children }) => {
   };
 
   const logout = () => {
+    // Clear the browser's HttpOnly renewal credential as well as its access
+    // token. A network outage cannot stop immediate local sign-out.
+    void fetch('/api/auth/logout',{method:'POST',credentials:'same-origin',keepalive:true}).catch(()=>{});
     localStorage.removeItem('gastroflow_token');
     localStorage.removeItem('gastroflow_user');
     setSessionChecking(false);
