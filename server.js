@@ -45,6 +45,7 @@ import { initStaffPayroll, createStaffPayrollRouter } from './routes/staff-payro
 import { initWorkday, createWorkdayRouter } from './routes/workday.js';
 import { createSupportRouter } from './routes/support.js';
 import { createPlatformRouter } from './routes/platform.js';
+import { initPlatformCommunications, dispatchDueOwnerAnnouncements } from './routes/platform-communications.js';
 import { initPromotions, createPromotionsRouter } from './routes/food-promotions.js';
 import { loadCampaignCoupon, evaluateCampaignCoupon } from './lib/campaign-discounts.js';
 import { configuredNativeOrigins, invalidNativeOriginEntries } from './lib/customer-native-origins.js';
@@ -7993,6 +7994,8 @@ let server = null;
 let emailTimer;
 let pushRecoveryTimer = null;
 let databaseProbeTimer=null;
+let platformCommunicationsTimer=null;
+let platformCommunicationsBusy=false;
 let databaseProbeBusy=false;
 let pushRecoveryBusy = false;
 if (!process.env.VITEST) {
@@ -8032,6 +8035,20 @@ if (!process.env.VITEST) {
       catch (error) { console.error('[Order stage email queue]',error.message); }
       finally { deliveringEmails = false; }
     };
+    if(process.env.PLATFORM_COMMUNICATIONS_ENABLED==='true' && process.env.PLATFORM_COMMUNICATIONS_STAGE==='staging'){
+      const processCommunications=async()=>{
+        if(platformCommunicationsBusy)return;
+        platformCommunicationsBusy=true;
+        try{
+          await initPlatformCommunications(dbRun);
+          await dispatchDueOwnerAnnouncements({dbGet,dbAll,dbRun});
+        }catch(error){console.error('[Platform communications schedule]',error?.message||'Dispatch failed');}
+        finally{platformCommunicationsBusy=false;}
+      };
+      void processCommunications();
+      platformCommunicationsTimer=setInterval(()=>void processCommunications(),30000);
+      platformCommunicationsTimer.unref?.();
+    }
     void deliverEmails();
     emailTimer = setInterval(deliverEmails,15000);
     emailTimer.unref();
@@ -8064,6 +8081,7 @@ if (!process.env.VITEST) {
 const handleGracefulShutdown = (signal) => {
   if (!server) return;
   clearInterval(emailTimer);
+  if(platformCommunicationsTimer){clearInterval(platformCommunicationsTimer);platformCommunicationsTimer=null;}
   if(pushRecoveryTimer){clearInterval(pushRecoveryTimer);pushRecoveryTimer=null;}
   if(databaseProbeTimer){clearInterval(databaseProbeTimer);databaseProbeTimer=null;}
   console.log(`\n[Server] ${signal} signal received. Initiating graceful shutdown...`);
