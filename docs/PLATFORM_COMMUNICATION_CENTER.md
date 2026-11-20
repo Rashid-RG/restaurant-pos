@@ -187,6 +187,11 @@ Authenticated restaurant owner (only own user+tenant):
 - An additional local concurrency test runs two worker ticks against the same database with a shared one-email-per-day quota; it must allow only one provider attempt. Remote multi-process Turso concurrency still requires an isolated staging test.
 - The local tests use only ephemeral database files and mock provider functions. Real Brevo delivery, Render/Turso isolation, remote multi-instance contention, push-provider integration, and actual Android/iPhone device tests are still outstanding.
 
+### Duplicate Brevo provider-ID collision safeguard
+- The sandbox queue now requires a **new, uniquely persisted** Brevo provider message ID before changing a claimed email to `accepted`. A conflicting ID (including one associated with a different restaurant or announcement) leaves that email in `manual_review` rather than incorrectly accepting it.
+- The local libSQL integration test processes two different notices with a deliberately duplicated fake Brevo message ID, confirms only one provider receipt exists, the second notice is in manual review, and a later worker tick does not resend it.
+- Manual review requires checking the provider's authoritative activity or delivery evidence. The code does not claim that an actual provider timeout or collision can be automatically reconciled without human involvement.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
