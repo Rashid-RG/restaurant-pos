@@ -5,6 +5,8 @@ import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
 import {shouldSendDriverFix} from './utils/gps-transmission.js';
+import {Capacitor,CapacitorHttp,registerPlugin} from '@capacitor/core';
+import {createNativeTrackingSession} from '../../driver-native/src/background-tracker.js';
 import {createDispatchRequestGate,createDispatchTimeout,latestDispatchTickets} from './utils/dispatch-sync.js';
 
 
@@ -68,6 +70,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [watchId, setWatchId] = useState(null);
+  const nativeTrackingRef=useRef(null);
+  const nativeDriverBuild=import.meta.env.MODE==='native' && Capacitor.isNativePlatform();
   const [lastCoords, setLastCoords] = useState(null);
   const [gpsQuality, setGpsQuality] = useState('not_started');
   const [discoveryConsent,setDiscoveryConsent]=useState(false);
@@ -167,6 +171,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
+    nativeTrackingRef.current=null;
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setIsGpsActive(false);
@@ -200,6 +206,9 @@ export default function App() {
         return updated;
       });
       if(next==='offline'){
+        if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
+        nativeTrackingRef.current=null;
+        setIsGpsActive(false);setGpsQuality('off');
         discoveryConsentRef.current=false;setDiscoveryConsent(false);
         lastPresenceSentRef.current=null;
         if(discoveryPilotEnabled)void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
@@ -303,6 +312,7 @@ export default function App() {
     if(!discoveryPilotEnabled)return;
     const next=!discoveryConsentRef.current;
     discoveryConsentRef.current=next;setDiscoveryConsent(next);
+    nativeTrackingRef.current?.setDiscoveryEnabled(next);
     lastPresenceSentRef.current=null;
     if(!next)void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
     else if(!isGpsActive){discoveryConsentRef.current=false;setDiscoveryConsent(false);
@@ -310,6 +320,41 @@ export default function App() {
   };
   // ── GPS ──
   const toggleGps = () => {
+    if(nativeDriverBuild){
+      if(isGpsActive){
+        if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
+        nativeTrackingRef.current=null;
+        setIsGpsActive(false);setGpsQuality('off');
+        discoveryConsentRef.current=false;setDiscoveryConsent(false);
+        return;
+      }
+      if(driverStatusRef.current==='offline'){
+        showToast('Go online before starting native location tracking.','warning');return;
+      }
+      try{
+        const session=createNativeTrackingSession({
+          plugin:registerPlugin('BackgroundGeolocation'),
+          httpPost:opts=>CapacitorHttp.post(opts),
+          apiOrigin:import.meta.env.VITE_DRIVER_NATIVE_API_URL,
+          getToken,getActiveOrders:()=>activeOrdersRef.current,
+          onFix:fix=>{setLastCoords(fix);setGpsQuality('good');},
+          onStatus:status=>{if(status==='location_error'||status==='upload_error')
+            setGpsQuality('weak');}
+        });
+        nativeTrackingRef.current=session;
+        setGpsQuality('searching');
+        void session.start({onDuty:true,locationConsent:true,
+          discoveryConsent:discoveryPilotEnabled&&discoveryConsentRef.current
+        }).then(()=>setIsGpsActive(true)).catch(error=>{
+          nativeTrackingRef.current=null;setGpsQuality('denied');
+          showToast(error?.message||'Native location permission unavailable.','error');
+        });
+      }catch(error){
+        setGpsQuality('denied');
+        showToast(error?.message||'Native GPS is not configured.','error');
+      }
+      return;
+    }
     if (isGpsActive) {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       setIsGpsActive(false);
