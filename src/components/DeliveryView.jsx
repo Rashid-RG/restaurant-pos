@@ -181,7 +181,7 @@ export default function DeliveryView({verificationOnly=false}) {
         body:JSON.stringify({
           identityKind:review.identityKind||driver.applicationIdentityKind||'nic',
           decision,selfieMatched:review.selfieMatched===true,documentAuthenticityConfirmed:review.documentAuthenticityConfirmed===true,dmtStandingStatus:review.dmtStandingStatus||'not_checked',
-          licenceClass:licence.licenceClass,licenceExpiry:licence.expiry
+          licenceClass:licence.licenceClass,licenceExpiry:licence.expiry,resubmitReason:review.resubmitReason||'missing_evidence'
         })
       });
       const data=await response.json();
@@ -368,6 +368,15 @@ export default function DeliveryView({verificationOnly=false}) {
                       </select>
                     </label>
                     <p style={{fontSize:11,color:'var(--text-muted)',margin:0}}>Confirm image quality, original identity, licence class, expiry and any external DMT standing independently. Files are deleted after final approval.</p>
+                    <label style={{fontSize:12,fontWeight:700,display:'grid',gap:6}}>Reason if resubmission is needed
+                      <select className="form-input" value={manualReviews[d.id]?.resubmitReason||'missing_evidence'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],resubmitReason:e.target.value}}))}>
+                        <option value="missing_evidence">Required document missing</option>
+                        <option value="unclear_identity">NIC / passport is not readable</option>
+                        <option value="unclear_selfie">Selfie is not clear</option>
+                        <option value="selfie_mismatch">Selfie does not match identity document</option>
+                        {d.vehicleType!=='Bicycle'&&<><option value="unclear_licence">Driving licence image unreadable</option><option value="licence_expired">Driving licence appears expired / ineligible</option></>}
+                      </select>
+                    </label>
                     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                       <button type="button" className="btn btn-success" disabled={loading || manualReviews[d.id]?.selfieMatched!==true || manualReviews[d.id]?.documentAuthenticityConfirmed!==true} onClick={()=>decideManualReview(d,'approve')}>Record manual pass</button>
                       <button type="button" className="btn btn-outline" disabled={loading} onClick={()=>decideManualReview(d,'resubmit')}>Request resubmission</button>
@@ -420,8 +429,8 @@ export default function DeliveryView({verificationOnly=false}) {
           <p style={{color:'var(--text-muted)',fontSize:12}}>Tenant-specific manager decisions and standing-check attestations. No identity images are included.</p>
           <button type="button" className="btn btn-outline" onClick={fetchVerificationAudit}>Refresh audit</button>
           <div style={{overflowX:'auto',marginTop:12}}><table style={{width:'100%',fontSize:12}}>
-            <thead><tr><th>Rider</th><th>Review status</th><th>Identity</th><th>DMT standing</th><th>Reviewed at</th></tr></thead>
-            <tbody>{auditRows.map((row,i)=><tr key={row.driverId+'-'+i}><td>{row.driverName}</td><td>{row.state}</td><td>{row.identityType}</td><td>{row.standingCheck==='manager_checked_external'?'Manager-attested':'Not checked'}</td><td>{row.reviewedAt?new Date(row.reviewedAt).toLocaleString():'Not reviewed'}</td></tr>)}</tbody>
+            <thead><tr><th>Rider</th><th>Review status</th><th>Identity</th><th>DMT standing</th><th>Resubmission reason</th><th>Reviewed at</th></tr></thead>
+            <tbody>{auditRows.map((row,i)=><tr key={row.driverId+'-'+i}><td>{row.driverName}</td><td>{row.state}</td><td>{row.identityType}</td><td>{row.standingCheck==='manager_checked_external'?'Manager-attested':'Not checked'}</td><td>{row.resubmitReason?row.resubmitReason.replace(/_/g,' '):'—'}</td><td>{row.reviewedAt?new Date(row.reviewedAt).toLocaleString():'Not reviewed'}</td></tr>)}</tbody>
           </table>{!auditRows.length&&<p style={{fontSize:13,color:'var(--text-muted)'}}>No manual reviews recorded.</p>}</div>
         </section>}
         {!verificationOnly && <>
