@@ -192,6 +192,12 @@ Authenticated restaurant owner (only own user+tenant):
 - The local libSQL integration test processes two different notices with a deliberately duplicated fake Brevo message ID, confirms only one provider receipt exists, the second notice is in manual review, and a later worker tick does not resend it.
 - Manual review requires checking the provider's authoritative activity or delivery evidence. The code does not claim that an actual provider timeout or collision can be automatically reconciled without human involvement.
 
+### Read-only commercial channel readiness visibility
+- Platform Owner `GET /api/platform/communications/email/status` now returns a **configuration-readiness snapshot** for isolated staging attestation, exact allowlist size, sandbox adapter, authenticated webhook configuration, emergency stop, daily quota, and the currently **unmounted** email worker.
+- The Platform Communication Center UI exposes these states without printing secrets, recipient email addresses, token values, or provider IDs.
+- Even if *all* configuration gates are enabled, `automaticProviderDeliveryEnabled`, `verifiedSandboxMailboxDelivery`, `nativePushOperational` and `commercialReleaseReady` remain **false**: configuration cannot substitute for real provider receipts, actual scheduler activation, signed mobile push credentials, or deployment approval.
+- This snapshot is protected by the existing platform administrator authorization; restaurant owners and managers cannot read it. It never contacts Brevo or changes any database record.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
