@@ -300,7 +300,7 @@ export function fitStandaloneReceiptPage(doc, paperSetting = '80mm') {
   const rectHeight = typeof receipt.getBoundingClientRect === 'function' ? receipt.getBoundingClientRect().height : 0;
   const px = Math.max(receipt.scrollHeight || 0, rectHeight || 0);
   if (!Number.isFinite(px) || px <= 0) return false;
-  const mm = Math.max(35, Math.ceil(px * 25.4 / 96) + 3);
+  const mm = Math.max(35, Math.ceil(px * 25.4 / 96) + 5);
   let style = doc.getElementById('receipt-content-page-size');
   if (!style) {
     style = doc.createElement('style');
