@@ -68,6 +68,15 @@ Authenticated restaurant owner (only own user+tenant):
 - All operations require the preexisting staging module gates; dry-run and review endpoints additionally require the sandbox-email allowlist gate.
 - A dry run is **not** a provider send, deliverability verification, real-time customer delivery, or permission to use real customer addresses.
 
+### Explicit Brevo sandbox provider adapter
+- `lib/communications/platform-brevo-sandbox.js` provides an injected sandbox-only Brevo transport interface. It does not register a server timer, REST send endpoint, or automatic worker and therefore does **not** send mail on deployment.
+- In addition to every existing communications and email sandbox gate, require `PLATFORM_COMMUNICATIONS_BREVO_SEND_ENABLED=true` and `PLATFORM_COMMUNICATIONS_EMAIL_TRANSPORT=brevo_sandbox`. The adapter also requires Brevo credentials and a configured sender.
+- Every destination is checked against `PLATFORM_COMMUNICATIONS_TEST_EMAILS` again immediately before the provider call. A mismatched recipient cannot invoke the provider.
+- Unit tests inject a fake HTTP fetcher. They must never contact the external Brevo API or send customer email.
+- Brevo HTTP success represents **provider acceptance**, not delivery to a mailbox or human reading. Do not describe `accepted` as verified mailbox delivery.
+- The existing queue state uses a legacy `deliveredAt` column to represent provider acceptance; that naming should be corrected through an additive schema update and a provider webhook process before commercial release.
+- Before any real sandbox trial: confirm **separate staging database**, test-address ownership, verified sender, sending quota, duplicate prevention and approval to turn on the provider gate. No production/live broadcast is approved.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
