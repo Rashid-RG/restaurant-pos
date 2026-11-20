@@ -6,6 +6,7 @@ import { usePOS } from '../context/POSContext';
 import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt, printSelectedReceipt } from '../utils/printer';
 import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
 import { isNativePrintingEnabled, nativePrintReceiptElement } from '../utils/native-printer';
+import { readReceiptConfig, receiptFooterMessage, shouldPrintSubtotal, shouldPrintTax } from '../utils/receipt-settings';
 import { useExpressBilling } from '../utils/express-billing';
 
 export function getFoodImageForItem(item) {
@@ -216,6 +217,7 @@ export default function POSView() {
   }, [printReceiptOrder]);
 
   const currencySymbol = settings.currencySymbol || 'Rs.';
+  const receiptConfig = readReceiptConfig(settings);
   const openCustomPrice = (lineIndex, line) => {
     if (!['owner', 'manager'].includes(currentUser?.role)) return;
     setCustomPriceLine(lineIndex);
@@ -1776,14 +1778,14 @@ export default function POSView() {
       {printReceiptOrder && (() => {
         const printRoot = typeof document !== 'undefined' ? document.getElementById('receipt-print-root') : null;
         const receiptContent = (
-          <div className={`receipt-print-area paper-${resolvePrinterPaperSize(settings?.printerPaperWidth)}`}>
+          <div className={`receipt-print-area paper-${resolvePrinterPaperSize(settings?.printerPaperWidth)} receipt-layout-${receiptConfig.layout}`}>
             <div className="receipt-center">
-              {settings?.logoUrl || settings?.logo || settings?.restaurantLogo ? (
+              {receiptConfig.logo && (settings?.logoUrl || settings?.logo || settings?.restaurantLogo) ? (
                 <img
                   src={settings?.logoUrl || settings?.logo || settings?.restaurantLogo}
                   alt="Logo"
                   className="receipt-logo"
-                  style={{ maxWidth: '46px', maxHeight: '46px', margin: '0 auto 2px', display: 'block', objectFit: 'contain' }}
+                  style={{ maxWidth: `${receiptConfig.logoSize}px`, maxHeight: `${receiptConfig.logoSize}px`, margin: '0 auto 2px', display: 'block', objectFit: 'contain' }}
                 />
               ) : (
                 null
@@ -1797,8 +1799,11 @@ export default function POSView() {
             <div className="receipt-divider"></div>
             <div className="receipt-center receipt-document-heading"><strong>{printReceiptOrder.paymentStatus === 'paid' || printReceiptOrder.status === 'paid' ? 'PAYMENT RECEIPT' : 'CUSTOMER BILL'}</strong></div>
             <p>Date: {formatRestaurantTime(printReceiptOrder.timestamp || Date.now(), restaurantTimeZone(settings))}</p>
-            {printReceiptOrder.id && (
+            {receiptConfig.showOrderId && printReceiptOrder.id && (
               <p className="receipt-order-reference"><strong>Order ID: #{String(printReceiptOrder.id).slice(-6).toUpperCase()}</strong></p>
+            )}
+            {receiptConfig.showInvoiceNumber && printReceiptOrder.invoiceNumber != null && (
+              <p className="receipt-invoice-reference">INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</p>
             )}
             <p>Type: {(printReceiptOrder.orderType || printReceiptOrder.diningType || 'POS')?.toUpperCase()}</p>
             {printReceiptOrder.tableId && <p>Table: {tables?.find(t => t.id === printReceiptOrder.tableId)?.number || printReceiptOrder.tableId}</p>}
@@ -1817,13 +1822,13 @@ export default function POSView() {
                     <span>{quantity} × {item.name}</span>
                     <span>{currencySymbol}{(price*quantity).toFixed(2)}</span>
                   </div>
-                  {(quantity > 1 || item.customUnitPrice != null) && <div className="receipt-item-detail">{currencySymbol}{price.toFixed(2)} each{item.customUnitPrice != null ? ' · Special price' : ''}</div>}
+                  {(quantity > 1 || item.customUnitPrice != null || receiptConfig.showUnitPrice || receiptConfig.layout === 'detailed') && <div className="receipt-item-detail">{currencySymbol}{price.toFixed(2)} each{item.customUnitPrice != null ? ' · Special price' : ''}</div>}
                 </div>
               );
             })}
 
             <div className="receipt-divider"></div>
-            {(Math.abs(Number(printReceiptOrder.subtotal || 0) - Number(printReceiptOrder.total || 0)) >= 0.005) && <div className="receipt-row">
+            {(shouldPrintSubtotal(printReceiptOrder, receiptConfig) || receiptConfig.layout === 'detailed') && <div className="receipt-row">
               <span>Subtotal:</span>
               <span>{currencySymbol}{Number(printReceiptOrder.subtotal || 0).toFixed(2)}</span>
             </div>}
@@ -1845,7 +1850,7 @@ export default function POSView() {
                 <span>{currencySymbol}{(printReceiptOrder.deliveryFee || 0).toFixed(2)}</span>
               </div>
             )}
-            {Number(printReceiptOrder.tax || 0) > 0 && <div className="receipt-row">
+            {shouldPrintTax(printReceiptOrder, receiptConfig) && <div className="receipt-row">
               <span>Tax ({settings?.taxRate || 0}%):</span>
               <span>{currencySymbol}{Number(printReceiptOrder.tax || 0).toFixed(2)}</span>
             </div>}
@@ -1888,8 +1893,8 @@ export default function POSView() {
                   return null;
                 }
               })()}
-              <div className="receipt-gratitude">Thank you! Visit again! :)</div>
-              <div className="receipt-platform-credit">GastroFlow · {platformPublisher}</div>
+              {receiptFooterMessage(receiptConfig) && <div className="receipt-gratitude">{receiptFooterMessage(receiptConfig)}</div>}
+              {receiptConfig.platformCredit && <div className="receipt-platform-credit">GastroFlow · {platformPublisher}</div>}
             </div>
           </div>
         );
