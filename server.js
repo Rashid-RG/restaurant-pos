@@ -1950,7 +1950,7 @@ const requireRole = (allowedRoles) => {
 // customer location sharing or a multi-instance production presence store.
 const riderPresence=createRiderPresence();
 app.use('/api',createRiderPresenceRouter({
-  express,authenticateDriver,authenticateToken,requireRole,dbGet,
+  express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,
   presence:riderPresence,enabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true'
 }));
 app.use('/api',createServiceExceptions({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolveAndCalculateBill,releaseOrderLoyalty,notifyOrderUpdate}));
