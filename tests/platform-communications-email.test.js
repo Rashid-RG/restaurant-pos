@@ -94,6 +94,28 @@ describe('Sandbox-only platform communication email queue',()=>{
    const accepted=dbRun.mock.calls.find(([sql])=>sql.includes("SET status='accepted'"));
    expect(accepted[0]).toContain('deliveredAt=NULL');
  });
+ it('suppresses a queued job when an earlier verified bounce or unsubscribe exists',async()=>{
+   const dbAll=vi.fn(async()=>[{announcementId:'n2',tenantId:'tenant_a',userId:'u_a',email:'tester@example.test',status:'pending',attemptCount:0}]);
+   const dbGet=vi.fn(async(sql)=>sql.includes('SELECT 1 AS suppressed')?{suppressed:1}:
+     {title:'Hello',body:'Notice',status:'published',tenantStatus:'active',role:'owner',email:'tester@example.test',isPlatformAdmin:0});
+   const dbRun=vi.fn(async()=>({changes:1})),send=vi.fn();
+   const result=await processSandboxOwnerEmailQueue({dbAll,dbGet,dbRun,send,env:active});
+   expect(result).toEqual({processed:0,disabled:false});
+   expect(send).not.toHaveBeenCalled();
+   expect(dbRun.mock.calls.some(([sql,args])=>sql.includes("status='suppressed'")&&args?.[1]==='n2')).toBe(true);
+ });
+ it('checks suppression again in the conditional worker claim to block races',async()=>{
+   const dbAll=vi.fn(async()=>[{announcementId:'n1',tenantId:'tenant_a',userId:'u_a',email:'tester@example.test',status:'pending',attemptCount:0}]);
+   const dbGet=vi.fn(async(sql)=>sql.includes('SELECT 1 AS suppressed')?null:
+     {title:'Hello',body:'Notice',status:'published',tenantStatus:'active',role:'owner',email:'tester@example.test',isPlatformAdmin:0});
+   const dbRun=vi.fn(async(sql)=>({changes:sql.includes("SET status='sending'")?0:1})),send=vi.fn();
+   const result=await processSandboxOwnerEmailQueue({dbAll,dbGet,dbRun,send,env:active});
+   expect(result.processed).toBe(0);
+   expect(send).not.toHaveBeenCalled();
+   const claim=dbRun.mock.calls.find(([sql])=>sql.includes("SET status='sending'"));
+   expect(claim[0]).toContain('AND NOT EXISTS');
+   expect(claim[1].slice(-3)).toEqual(['tenant_a','u_a','tester@example.test']);
+ });
  it('marks ambiguous transport failures for manual review',async()=>{
    const dbAll=vi.fn(async()=>[{announcementId:'a1',tenantId:'tenant_a',userId:'u_a',email:'tester@example.test',status:'pending',attemptCount:0}]);
    const dbGet=vi.fn(async()=>({title:'Hello',body:'Notice',status:'published',tenantStatus:'active',role:'owner',email:'tester@example.test',isPlatformAdmin:0}));
