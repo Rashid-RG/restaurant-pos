@@ -4,6 +4,7 @@ import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, Che
 import { usePOS } from '../context/POSContext';
 import { platformWorkspaceDestination, visibleWorkspaceDestinations, isPlatformWorkspace } from '../platform/workspace-policy.js';
 import { ConnectionStatus } from '../../shared/ui/Resilience.jsx';
+import { useExpressBilling } from '../utils/express-billing';
 
 export const workspaceDestinations = [
   { id: 'dashboard', name: 'Overview', description: 'Sales, activity and performance', icon: LayoutDashboard },
@@ -35,6 +36,7 @@ export function useDestinations() {
 export default function WorkspaceTools() {
   const { activeTab, setActiveTab, settings, currentUser } = usePOS();
   const destinations = useDestinations();
+  const [expressBilling, chooseBillingMode] = useExpressBilling(currentUser);
   const [query, setQuery] = useState('');
   const dialog = useRef(null);
   const search = useRef(null);
@@ -49,7 +51,26 @@ export default function WorkspaceTools() {
   return <>
     <div className="workspace-toolbar">
       <div className="workspace-location"><Store size={16}/>{isPlatformWorkspace(currentUser, activeTab) ? <><span>Platform owner</span><span className="workspace-separator">/</span><strong>Platform administration</strong></> : <><span>{settings.businessName || settings.restaurantName || 'My restaurant'}</span><span className="workspace-separator">/</span><strong>{destinations.find(item => item.id === activeTab)?.name || 'Workspace'}</strong></>}</div>
-      <div className="workspace-toolbar-actions"><ConnectionStatus compact/><button className="workspace-search" aria-label="Go to anything" onClick={open}><Search size={15}/><span>Go to anything</span><kbd>⌘ K</kbd></button><span className="workspace-avatar" title={currentUser?.username}>{currentUser?.username?.slice(0, 2).toUpperCase()}</span></div>
+      <div className="workspace-toolbar-actions">
+        {activeTab === 'pos' && <button
+          type="button"
+          aria-label={expressBilling ? 'Express billing is on. Switch to standard billing' : 'Standard billing is on. Switch to express billing'}
+          aria-pressed={expressBilling}
+          title="Change cashier billing mode for this restaurant"
+          onClick={() => chooseBillingMode(!expressBilling)}
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            gap: 6, border: expressBilling ? '1px solid #168365' : '1px solid var(--border-color)',
+            background: expressBilling ? '#176c55' : 'var(--bg-surface)',
+            color: expressBilling ? '#fff' : 'var(--text-primary)',
+            borderRadius: 10, padding: '8px 11px', fontWeight: 700,
+            fontSize: 12, lineHeight: 1.2, cursor: 'pointer', whiteSpace: 'nowrap',
+            minHeight: 36
+          }}>
+          <span aria-hidden="true">⚡</span>
+          <span>{expressBilling ? 'Express Billing ON' : 'Standard Billing'}</span>
+        </button>}
+        <ConnectionStatus compact/><button className="workspace-search" aria-label="Go to anything" onClick={open}><Search size={15}/><span>Go to anything</span><kbd>⌘ K</kbd></button><span className="workspace-avatar" title={currentUser?.username}>{currentUser?.username?.slice(0, 2).toUpperCase()}</span></div>
     </div>
     <dialog ref={dialog} className="command-dialog" onClick={event => { if (event.target === dialog.current) dialog.current.close(); }} aria-label="Navigate your workspace">
       <div className="command-search"><Search size={20}/><input ref={search} value={query} onChange={event => setQuery(event.target.value)} placeholder="Where would you like to go?" aria-label="Search workspace" onKeyDown={event => { if (event.key === 'Enter' && results[0]) { event.preventDefault(); navigate(results[0].id); } }}/><button onClick={() => dialog.current.close()} aria-label="Close search">Esc</button></div>
