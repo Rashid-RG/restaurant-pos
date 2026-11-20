@@ -1,7 +1,7 @@
 import {describe,it,expect,vi} from 'vitest';
 import {
   STAGING_ORIGIN,eligibleStagingOwner,getStagingInstallationId,
-  enrollStagingOwnerPush,revokeStagingOwnerPush
+  enrollStagingOwnerPush,revokeStagingOwnerPush,revokeStagingInstallationOnLogout
 } from '../src/utils/staging-fcm-enrollment.js';
 
 const user={id:'owner_a',tenant_id:'tenant_a',role:'owner',isPlatformAdmin:false};
@@ -104,6 +104,37 @@ describe('native staging-only owner FCM enrollment',()=>{
     expect(await revokeStagingOwnerPush(f.options)).toEqual({status:'disabled'});
     expect(f.calls).toHaveLength(1);
     expect(JSON.parse(f.calls[0].options.body)).toEqual({optedIn:false});
+  });
+  it('revokes only this native staging installation during logout',async()=>{
+    const f=fixture();
+    getStagingInstallationId(f.storage,user,()=>uuid);
+    f.fetcher.mockImplementation(async(url)=>{
+      expect(url).toBe('/api/owner/communications/devices/revoke');
+      return {ok:true,json:async()=>({status:'revoked'})};
+    });
+    expect(await revokeStagingInstallationOnLogout(f.options)).toEqual({status:'revoked'});
+    expect(f.fetcher).toHaveBeenCalledTimes(1);
+    const [,request]=f.fetcher.mock.calls[0];
+    expect(JSON.parse(request.body)).toEqual({installationId:uuid});
+    expect(request.headers.Authorization).toBe('Bearer signed-in-fake-test-jwt');
+  });
+  it('does not trigger a logout network call for web or other owners',async()=>{
+    const f=fixture();
+    getStagingInstallationId(f.storage,user,()=>uuid);
+    expect(await revokeStagingInstallationOnLogout({
+      ...f.options,origin:'https://unrelated.example'
+    })).toEqual({status:'not_applicable'});
+    expect(await revokeStagingInstallationOnLogout({
+      ...f.options,user:{...user,role:'manager'}
+    })).toEqual({status:'not_applicable'});
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
+  it('does not block local logout if network revocation fails',async()=>{
+    const f=fixture();
+    getStagingInstallationId(f.storage,user,()=>uuid);
+    f.fetcher.mockRejectedValue(new Error('offline'));
+    expect(await revokeStagingInstallationOnLogout(f.options))
+      .toEqual({status:'unconfirmed'});
   });
   it('never sends client-selected tenant or owner identifiers in request bodies',async()=>{
     const f=fixture();
