@@ -17,6 +17,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
   const [templates,setTemplates]=useState([]);
   const [templateName,setTemplateName]=useState('');
   const [scheduleDates,setScheduleDates]=useState({});
+  const [emailQueues,setEmailQueues]=useState({});
   const [preview,setPreview]=useState(null);
   const [report,setReport]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -130,6 +131,22 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
               })}>Schedule publication</button>
           </div>}
           {x.status==='scheduled'&&<small>Scheduled for publication; cancel to prevent delivery.</small>}
+          {x.status==='published'&&<div style={{display:'grid',gap:8}}>
+            <button type="button" className="btn btn-outline" disabled={busy}
+              onClick={()=>act(async()=>{
+                const result=await api('/'+encodeURIComponent(x.id)+'/email-queue');
+                setEmailQueues(old=>({...old,[x.id]:result.statuses}));
+              })}>View sandbox email queue</button>
+            {emailQueues[x.id]&&<small>Sandbox queue: {emailQueues[x.id].length
+              ?emailQueues[x.id].map(y=>`${y.status}: ${y.count}`).join(' · '):'No queued emails'}</small>}
+            <button type="button" className="btn btn-outline" disabled={busy}
+              onClick={()=>{if(!window.confirm('Queue only approved sandbox email addresses? This action does not send messages.'))return;
+                act(async()=>{
+                  const result=await api('/'+encodeURIComponent(x.id)+'/email-queue',{method:'POST'});
+                  setNotice(`Sandbox email queue: ${result.queued} added, ${result.blocked} excluded. No messages sent.`);
+                  setEmailQueues(old=>({...old,[x.id]:(await api('/'+encodeURIComponent(x.id)+'/email-queue')).statuses}));
+                })}}>Queue allowed sandbox emails (no send)</button>
+          </div>}
           {x.status==='published'&&<button type="button" className="btn btn-outline" disabled={busy}
             onClick={()=>act(async()=>{setReport(await api('/'+encodeURIComponent(x.id)+'/report'))})}>Delivery and acknowledgment report</button>}
           {x.status!=='cancelled'&&<button type="button" className="btn btn-outline" disabled={busy}
@@ -152,7 +169,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
       </section>
     </div>
     <p style={{fontSize:12,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:7}}>
-      <AlertTriangle size={16}/> Staging foundation. Automatic schedule processing is implemented; native push, email, multilingual translations and formal legal consent workflows remain pending.
+      <AlertTriangle size={16}/> Staging foundation. Automatic schedule processing is implemented; native push, live email sending, multilingual translations and formal legal consent workflows remain pending.
     </p>
   </section>;
 }
