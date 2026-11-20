@@ -1,6 +1,6 @@
 import { CookingIcon } from '../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useEffect, useRef, useState } from 'react';
-import { Search, ArrowUpRight, Command, Store, ShoppingBag, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined, ContactRound, AlarmClock, Banknote, ClipboardList } from 'lucide-react';
+import { Search, ArrowUpRight, Command, Store, ShoppingBag, UtensilsCrossed, LayoutDashboard, ChefHat, Package, Users, Truck, Settings, LifeBuoy, LayoutGrid, Receipt, ChartNoAxesCombined, ContactRound, AlarmClock, Banknote, ClipboardList } from 'lucide-react';
 import { usePOS } from '../context/POSContext';
 import { platformWorkspaceDestination, visibleWorkspaceDestinations, isPlatformWorkspace } from '../platform/workspace-policy.js';
 import { ConnectionStatus } from '../../shared/ui/Resilience.jsx';
@@ -9,6 +9,7 @@ import { useExpressBilling } from '../utils/express-billing';
 export const workspaceDestinations = [
   { id: 'dashboard', name: 'Overview', description: 'Sales, activity and performance', icon: LayoutDashboard },
   { id: 'pos', name: 'New sale', description: 'Open the point of sale', icon: ShoppingBag },
+  { id: 'menu', name: 'Menu', description: 'Manage dishes, categories and pricing', icon: UtensilsCrossed, management: true },
   { id: 'floor', name: 'Tables', description: 'Manage your dining room', icon: LayoutGrid },
   { id: 'kds', name: 'Kitchen', description: 'Prepare and complete orders', icon: CookingIcon },
   { id: 'online-orders', name: 'Online Orders', description: 'Review, accept and manage customer online orders', icon: ClipboardList },
