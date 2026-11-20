@@ -2,7 +2,7 @@ import {describe,it,expect,vi} from 'vitest';
 import {validRoadPoint,routingOrigin,roadRouteUrl,parseRoadRoute,fetchRoadRoute} from '../lib/road-routing.js';
 
 const a={lat:6.9271,lng:79.8612},b={lat:7.201,lng:79.945};
-const data={code:'Ok',routes:[{distance:16500,duration:1800,geometry:{type:'LineString',coordinates:[[79.8612,6.9271],[79.945,7.201]]}}]};
+const data={code:'Ok',routes:[{distance:33000,duration:3600,geometry:{type:'LineString',coordinates:[[79.8612,6.9271],[79.945,7.201]]}}]};
 describe('GastroFlow opt-in road-based delivery routing',()=>{
  it('never uses public demo or non-HTTPS routing services',()=>{
    expect(routingOrigin(undefined)).toBe(null);
@@ -20,8 +20,8 @@ describe('GastroFlow opt-in road-based delivery routing',()=>{
  });
  it('uses actual route duration, distance, and geometry only when valid',()=>{
    const result=parseRoadRoute(data);
-   expect(result.travelMinutes).toBe(30);
-   expect(result.distanceKm).toBe(16.5);
+   expect(result.travelMinutes).toBe(60);
+   expect(result.distanceKm).toBe(33);
    expect(result.geometry.coordinates).toHaveLength(2);
    expect(parseRoadRoute({code:'NoRoute'})).toBe(null);
    expect(parseRoadRoute({...data,routes:[{...data.routes[0],geometry:{type:'LineString',coordinates:[[500,6],[79,7]]}}]})).toBe(null);
@@ -32,7 +32,7 @@ describe('GastroFlow opt-in road-based delivery routing',()=>{
    expect(fake).not.toHaveBeenCalled();
    expect(await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',routingKey:'short-key',fetchImpl:fake})).toBe(null);
    const key='gastroflow-staging-routing-key-32-chars-long';
-   expect((await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',routingKey:key,fetchImpl:fake})).travelMinutes).toBe(30);
+   expect((await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',routingKey:key,fetchImpl:fake})).travelMinutes).toBe(60);
    expect(fake.mock.calls.at(-1)[1].headers['X-GastroFlow-Routing-Key']).toBe(key);
    expect(await fetchRoadRoute({from:a,to:b,origin:'https://routing.example.com',routingKey:'gastroflow-staging-routing-key-32-chars-long',fetchImpl:()=>Promise.reject(new Error('timeout'))})).toBe(null);
  });
