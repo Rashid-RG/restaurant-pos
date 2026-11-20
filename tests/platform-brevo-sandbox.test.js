@@ -30,6 +30,7 @@ describe('Explicit Brevo sandbox adapter (never auto mounted)',()=>{
   it('requires a valid verified sender configuration',()=>{
     expect(sandboxBrevoReady({...env,BREVO_API_KEY:''})).toBe(false);
     expect(sandboxBrevoReady({...env,PLATFORM_COMMUNICATIONS_STAGE:'production'})).toBe(false);
+    expect(sandboxBrevoReady({...env,PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED:'false'})).toBe(false);
     expect(sandboxBrevoReady(env)).toBe(true);
   });
   it('returns provider acceptance as acceptance, not final mailbox delivery',async()=>{
