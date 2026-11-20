@@ -24,6 +24,8 @@ describe('Platform Communication Center read-only readiness',()=>{
   it('fails closed without any configuration or side effects',()=>{
     const result=platformCommunicationDeliveryReadiness({});
     expect(result).toMatchObject({
+      firebaseFcmAdapterConfigured:false,firebaseFcmStagingGatesReady:false,
+      firebaseFcmEmergencyStopArmed:true,firebaseFcmDispatchConnected:false,
       stagingFeatureEnabled:false,stagingDatabaseIsolationAttested:false,
       sandboxEmailQueueEnabled:false,sandboxTransportReady:false,
       webhookAuthenticationConfigured:false,workerConfigurationReady:false,
@@ -50,6 +52,24 @@ describe('Platform Communication Center read-only readiness',()=>{
     expect(output).not.toContain(readyConfiguration.PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_TOKEN);
     expect(output).not.toContain('first@example.test');
     expect(output).not.toContain('sender@example.test');
+  });
+  it('never reports operational FCM push even when stage credentials appear configured',()=>{
+    const snapshot=platformCommunicationDeliveryReadiness({
+      ...readyConfiguration,
+      PLATFORM_COMMUNICATIONS_FCM_PROJECT_ID:'gastroflow-staging',
+      PLATFORM_COMMUNICATIONS_FCM_CLIENT_EMAIL:'sender@gastroflow-staging.iam.gserviceaccount.com',
+      PLATFORM_COMMUNICATIONS_FCM_PRIVATE_KEY:'-----BEGIN PRIVATE KEY-----TEST-----END PRIVATE KEY-----',
+      PLATFORM_COMMUNICATIONS_FCM_SEND_ENABLED:'true',
+      PLATFORM_COMMUNICATIONS_FCM_STOP:'false',
+      PLATFORM_COMMUNICATIONS_FCM_ACK:'I_APPROVE_STAGING_FCM_SANDBOX'
+    });
+    expect(snapshot.firebaseFcmAdapterConfigured).toBe(true);
+    expect(snapshot.firebaseFcmStagingGatesReady).toBe(true);
+    expect(snapshot.firebaseFcmEmergencyStopArmed).toBe(false);
+    expect(snapshot.firebaseFcmDispatchConnected).toBe(false);
+    expect(snapshot.nativePushOperational).toBe(false);
+    expect(snapshot.commercialReleaseReady).toBe(false);
+    expect(JSON.stringify(snapshot)).not.toContain('PRIVATE KEY');
   });
   it('treats an armed emergency stop and absent database attestation as blocked',()=>{
     const disabled=platformCommunicationDeliveryReadiness({...readyConfiguration,
