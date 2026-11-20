@@ -34,6 +34,7 @@ describe('Authenticated Brevo transactional staging webhook',()=>{
  it('requires independent stage, webhook flag and a strong secret',()=>{
   expect(brevoWebhookEnabled(env)).toBe(true);
   expect(brevoWebhookEnabled({...env,PLATFORM_COMMUNICATIONS_STAGE:'production'})).toBe(false);
+  expect(brevoWebhookEnabled({...env,PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED:'false'})).toBe(false);
   expect(brevoWebhookEnabled({...env,PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_ENABLED:'false'})).toBe(false);
   expect(brevoWebhookEnabled({...env,PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_TOKEN:'short'})).toBe(false);
  });
