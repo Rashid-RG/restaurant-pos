@@ -18,6 +18,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
   const [templateName,setTemplateName]=useState('');
   const [scheduleDates,setScheduleDates]=useState({});
   const [emailQueues,setEmailQueues]=useState({});
+  const [emailReadiness,setEmailReadiness]=useState(null);
   const [deliveryPreviews,setDeliveryPreviews]=useState({});
   const [reviewItems,setReviewItems]=useState({});
   const [preview,setPreview]=useState(null);
@@ -108,6 +109,18 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
       </form>
       <section style={{display:'grid',gap:12,padding:20,border:'1px solid var(--border-color,#ddd)',borderRadius:14,background:'var(--bg-card)'}}>
         <h3 style={{margin:0}}>Announcement history</h3>
+        <div style={{display:'grid',gap:7,border:'1px solid var(--border-color,#ddd)',padding:10,borderRadius:10}}>
+          <strong>External email readiness (staging only)</strong>
+          <button type="button" className="btn btn-outline" disabled={busy}
+            onClick={()=>act(async()=>setEmailReadiness(await api('/email/status')))}>Check email configuration</button>
+          {emailReadiness&&<div role="status" style={{fontSize:12,display:'grid',gap:4}}>
+            <span>Sandbox queue: {emailReadiness.sandboxEmailQueueEnabled?'Configured':'Disabled'}</span>
+            <span>Brevo sandbox adapter: {emailReadiness.sandboxTransportReady?'Configured (manual only)':'Not ready'}</span>
+            <span>Approved test destinations: {emailReadiness.configuredTestRecipientCount}</span>
+            <span>Automatic sending: Off</span>
+            <small>{emailReadiness.note}</small>
+          </div>}
+        </div>
         <p style={{fontSize:12,color:'var(--text-muted)',margin:0}}>Publishing is immediate to the owners' in-app inbox. It does not send emails or push notifications.</p>
         {!items.length&&<p>No announcements yet.</p>}
         {items.map(x=><article key={x.id} style={{padding:14,border:'1px solid var(--border-color,#ddd)',borderRadius:10,display:'grid',gap:9}}>
