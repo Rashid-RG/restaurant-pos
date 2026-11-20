@@ -99,7 +99,7 @@ References: https://pages.nist.gov/800-63-4/sp800-63a/ial-general/ ; https://che
 
 ## Two administrative levels — verification access (2026-11-18)
 
-**Platform owner / RS Orunara:** Open **Platform Owner → Driver Verification Oversight**. This is a distinct read-only page and a platform-admin-protected API (`GET /api/platform/driver-verification-oversight`). It shows aggregate pending driver counts, manual reviews and provider-check counts grouped by restaurant. It never returns applicant identity photos, NIC/passport numbers, rider contact data, document images or applicant-specific review actions. Platform-wide support does **not** silently grant document visibility.
+**Platform owner / RS Nextward:** Open **Platform Owner → Driver Verification Oversight**. This is a distinct read-only page and a platform-admin-protected API (`GET /api/platform/driver-verification-oversight`). It shows aggregate pending driver counts, manual reviews and provider-check counts grouped by restaurant. It never returns applicant identity photos, NIC/passport numbers, rider contact data, document images or applicant-specific review actions. Platform-wide support does **not** silently grant document visibility.
 
 **Restaurant owner or manager:** Open **Restaurant POS → Delivery → Pending Rider Self-Registration Applications**. This is the only place to inspect protected identity and selfie evidence, attest that a selfie matches the document, check licence category/expiry, record manual review and separately approve/reject the applicant. API access requires a valid restaurant staff JWT, role `owner` or `manager`, plus exact tenant-specific document/driver ownership. Another tenant's evidence is not found.
 

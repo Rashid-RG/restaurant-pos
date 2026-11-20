@@ -26,7 +26,7 @@ Do not run the Android signed APK workflow until the private signing key is secu
 3. Run:
 
    ```powershell
-   keytool -genkeypair -v -keystore "$env:USERPROFILE\gastrofood-staging.jks" -storetype PKCS12 -alias gastrofood-staging -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=RS Orunara GastroFlow Food Staging, O=RS Orunara, C=LK"
+   keytool -genkeypair -v -keystore "$env:USERPROFILE\gastrofood-staging.jks" -storetype PKCS12 -alias gastrofood-staging -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=RS Nextward GastroFlow Food Staging, O=RS Nextward, C=LK"
    ```
 
    Enter a long unique keystore password in the prompt. For PKCS12, use the **same** password for keystore and key when prompted.
