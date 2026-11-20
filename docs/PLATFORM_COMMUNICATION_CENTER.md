@@ -9,6 +9,8 @@ Owner-targeted in-app communication foundation on `codex/production-readiness`. 
 - Tenant + user keyed recipient records, bounded inbox queries, audit events and read/acknowledgment counts.
 - Platform template library (create/list/delete) and template selection in the composer.
 - Versioned policy/disclaimer messages with required acknowledgment, SHA-256 content fingerprint, and atomic draft/version/audit writes.
+- UTC scheduled publication in an additive schedule table, 30-second staging dispatcher after database readiness, current eligibility recheck, restart recovery, and cancellation before dispatch.
+- Scheduling UI accepts local date/time, converts to UTC epoch for backend validation, and stores execution times independently of browser state.
 - Platform owner access enforced by the existing platform_ownership table; both feature gates required for platform and owner routes.
 - Existing basic platform-wide broadcast feature remains separate and unchanged.
 - Explicit gates: `PLATFORM_COMMUNICATIONS_ENABLED=true` AND `PLATFORM_COMMUNICATIONS_STAGE=staging`. Without both, endpoints return 404 and schema initialization is not invoked.
@@ -22,6 +24,7 @@ Authenticated platform owner:
 - POST `/api/platform/communications`: create validated draft (policy/disclaimer requires `policyVersion` and acknowledgment).
 - GET `/api/platform/communications`: list.
 - POST `/api/platform/communications/:id/publish`: transactional snapshot of currently eligible owners.
+- POST `/api/platform/communications/:id/schedule`: schedule a draft with `scheduledAt` (UTC epoch milliseconds).
 - POST `/api/platform/communications/:id/cancel`.
 - GET `/api/platform/communications/:id/report`.
 
@@ -33,7 +36,7 @@ Authenticated restaurant owner (only own user+tenant):
 ### Remaining commercial acceptance gates
 1. Re-run CI verification for the latest commit, including all app builds and isolated DB boot; run `npm run check`, `npm test`, `npm run build:all`.
 2. Integration tests against actual libSQL schema with active, suspended, deleted, platform, multiple-owner, and multi-tenant cases; cancellation races; duplicate publish retries.
-3. Scheduling with time-zone-aware publication and automatic expiry, channel delivery jobs, retries, idempotency, and dead-letter queue.
+3. Scheduled in-app publication is implemented, but validate clock drift, concurrent workers, and retry cases; add reliable email/push delivery jobs, idempotency and dead-letter queues.
 4. Templates, attachments, signed media, multilingual English/Sinhala/Tamil; content sanitization, size/accessibility review.
 5. Versioned legal disclaimers and immutable consent evidence; consent vs notice acknowledgment review by counsel.
 6. Email and native push integration using staging-only sandbox recipients, opt-out rules, quotas and provider failure/retry handling.
