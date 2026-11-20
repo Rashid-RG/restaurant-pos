@@ -86,3 +86,14 @@ Never paste it in GitHub issues, commit history, customer app bundles, or chat.
 **As of this checkpoint:** the URL has not been supplied by the connected
 Render tools and has not been configured. The presence resource's existence
 must not be represented as a working shared-storage connection.
+
+## Dedicated Sri Lanka OSRM — verified staging connection (2026-11-20)
+
+- **Render service:** `gastroflow-osrm-staging` (free instance; auto-deploy off).
+- **Source:** `infra/osrm-staging/Render.Dockerfile`, using Geofabrik Sri Lanka OSM extract and pinned OSRM v5.27.1. The image builds an MLD routing graph; map data is a build-time snapshot.
+- **Gateway:** only the Node HTTPS-facing proxy port is publicly exposed through Render. The OSRM engine listens on `127.0.0.1:5000`. Requests must present the routing key in `X-GastroFlow-Routing-Key`; the gateway rejects unauthenticated requests.
+- **Staging application:** `GASTROFLOW_ROUTING_URL=https://gastroflow-osrm-staging.onrender.com/`, secret key configured only in Render Environment, and `GASTROFLOW_ROUTING_STARTUP_SMOKE=true`.
+- **Proven:** router's authenticated startup smoke returned a 2,122 m Colombo driving route in 188 seconds. The staging application's startup log confirms `[OSRM staging integration] Verified authenticated Sri Lanka road routing through HTTPS` on 2026-11-20.
+- **Deployment:** staging backend `dep-dc0319f40ujc73f8perg` and dedicated routing image `dep-dc02vnqjnfac738qvic0` were reported live by Render. The production service's most recent deployment remained unchanged.
+- **Limitations:** free routing service sleeps during inactivity and first requests may time out before wake-up. Road ETA is not live-traffic ETA. No scheduled OSM refresh, SLA, advanced traffic optimization or physical rider test has been validated. Move routing to suitable always-on compute before commercial launch.
+- **Security:** never paste or commit routing API keys. For secret rotation, update the separate routing service first, then staging together; there may be a brief fallback window. Do not change production.
