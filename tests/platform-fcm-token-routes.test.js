@@ -33,6 +33,38 @@ const make=(user={id:'owner_a',role:'owner',tenant_id:'tenant_a'})=>{
 const endpoint='/api/owner/communications/fcm-token';
 
 describe('session-bound owner FCM routes',()=>{
+ it('read-only staging preflight refuses unauthenticated roles and never writes',async()=>{
+  const endpoint='/api/owner/communications/push-enrollment-readiness';
+  for(const user of [
+   {id:'staff',role:'cashier',tenant_id:'tenant_a'},
+   {id:'platform',role:'owner',tenant_id:'tenant_a',isPlatformAdmin:true},
+   null
+  ]){
+   const f=make(user);
+   expect((await request(f.app).get(endpoint)).status).toBe(403);
+   expect(f.dbRun).not.toHaveBeenCalled();
+  }
+  const f=make();
+  expect((await request(f.app).get(endpoint)).body).toEqual({
+   enabled:true,sendingEnabled:false,deviceDeliveryVerified:false
+  });
+  expect(f.dbRun).not.toHaveBeenCalled();
+ });
+ it('refuses non-isolated staging in read-only preflight',async()=>{
+  const f=make();
+  const router=createPlatformCommunicationsRouter({
+   dbGet:f.dbGet,dbRun:f.dbRun,dbAll:vi.fn(async()=>[]),
+   authenticateToken:(req,res,next)=>{req.user={id:'owner_a',role:'owner',tenant_id:'tenant_a'};next();},
+   requirePlatformAdmin:(_req,res)=>res.status(403).end(),
+   env:{...env,PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED:'false'}
+  });
+  const app=express();app.use(express.json());app.use('/api',router);
+  const result=await request(app).get('/api/owner/communications/push-enrollment-readiness');
+  expect(result.status).toBe(200);
+  expect(result.body.enabled).toBe(false);
+  expect(f.dbRun).not.toHaveBeenCalled();
+ });
+
  it('denies staff and unrelated platform roles before token persistence',async()=>{
   for(const user of [
    {id:'manager',role:'manager',tenant_id:'tenant_a'},
