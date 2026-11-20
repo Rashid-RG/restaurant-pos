@@ -25,7 +25,7 @@ export function readReceiptConfig(settings = {}) {
     showOrderId: saved.showOrderId !== false,
     // Invoice numbers are internal by default. Tax invoice requirements must
     // be handled by a separate compliant invoice workflow when needed.
-    showInvoiceNumber: saved.showInvoiceNumber === true,
+    showInvoiceNumber: false, // Customer receipts never expose sequential internal invoice numbers.
     footer: ['friendly', 'simple', 'custom', 'none'].includes(saved.footer) ? saved.footer : 'friendly',
     customMessage: typeof saved.customMessage === 'string' ? saved.customMessage.slice(0, 120) : '',
     platformCredit: saved.platformCredit !== false
