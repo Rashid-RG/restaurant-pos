@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {Megaphone,ShieldCheck,Send,RefreshCw,AlertTriangle,CheckCircle2} from 'lucide-react';
 
-const defaultDraft={title:'',body:'',category:'announcement',requiresAcknowledgment:false,scope:'all',tenantIds:[],expiresInDays:'30'};
+const defaultDraft={title:'',body:'',category:'announcement',requiresAcknowledgment:false,scope:'all',tenantIds:[],expiresInDays:'30',policyVersion:''};
 const token=()=>localStorage.getItem('gastroflow_token');
 async function api(path,options={}){
   const response=await fetch('/api/platform/communications'+path,{
@@ -14,6 +14,8 @@ async function api(path,options={}){
 export default function PlatformCommunicationCenter({restaurants=[]}){
   const [draft,setDraft]=useState(defaultDraft);
   const [items,setItems]=useState([]);
+  const [templates,setTemplates]=useState([]);
+  const [templateName,setTemplateName]=useState('');
   const [preview,setPreview]=useState(null);
   const [report,setReport]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -22,7 +24,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
   const [filter,setFilter]=useState('');
   const update=(key,value)=>{setDraft(x=>({...x,[key]:value}));setPreview(null);};
   const audience=()=>({scope:draft.scope,tenantIds:draft.scope==='specific'?draft.tenantIds:[]});
-  const refresh=async()=>{try{setItems(await api(''));setError('')}catch(e){setError(e.message)}};
+  const refresh=async()=>{try{const [announcements,savedTemplates]=await Promise.all([api(''),api('/templates')]);setItems(announcements);setTemplates(savedTemplates);setError('')}catch(e){setError(e.message)}};
   useEffect(()=>{refresh()},[]);
   const act=async(fn)=>{setBusy(true);setError('');setNotice('');try{await fn()}catch(e){setError(e.message)}finally{setBusy(false)}};
   const eligible=restaurants.filter(x=>x.id!=='default_tenant'&&x.status==='active'
@@ -40,18 +42,31 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
       <form onSubmit={e=>{e.preventDefault();act(async()=>{
         const data=await api('',{method:'POST',body:JSON.stringify({
           title:draft.title,body:draft.body,category:draft.category,
-          requiresAcknowledgment:draft.requiresAcknowledgment,
+          requiresAcknowledgment:draft.requiresAcknowledgment||['policy','disclaimer'].includes(draft.category),
+          policyVersion:['policy','disclaimer'].includes(draft.category)?draft.policyVersion:null,
           expiresAt:draft.expiresInDays?Date.now()+Number(draft.expiresInDays)*86400000:null,
           audience:audience()})});
         setNotice('Draft created. Review it below before publishing. ID: '+data.id);
         setDraft(defaultDraft);setPreview(null);await refresh();
       })}} style={{display:'grid',gap:12,padding:20,border:'1px solid var(--border-color,#ddd)',borderRadius:14,background:'var(--bg-card)'}}>
         <h3 style={{margin:0}}>Compose owner announcement</h3>
+        <label>Use saved template<select value="" onChange={e=>{
+          const selected=templates.find(t=>t.id===e.target.value);
+          if(selected){setDraft(d=>({...d,title:selected.title,body:selected.body,category:selected.category,requiresAcknowledgment:Boolean(selected.requiresAcknowledgment)}));setPreview(null)}
+        }}>
+          <option value="">Start from blank</option>
+          {templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+        </select></label>
         <label>Title<input required maxLength={140} minLength={3} value={draft.title} onChange={e=>update('title',e.target.value)} placeholder="Important update for restaurant owners"/></label>
         <label>Message<textarea required minLength={5} maxLength={10000} rows={6} value={draft.body} onChange={e=>update('body',e.target.value)} placeholder="Explain the change, action required and effective date."/></label>
         <label>Message category<select value={draft.category} onChange={e=>update('category',e.target.value)}>
           {['announcement','urgent','maintenance','policy','disclaimer','feature'].map(x=><option key={x} value={x}>{x[0].toUpperCase()+x.slice(1)}</option>)}
         </select></label>
+        {['policy','disclaimer'].includes(draft.category)&&<label>Policy version (required)
+          <input required maxLength={64} pattern="[A-Za-z0-9][A-Za-z0-9._-]*" value={draft.policyVersion}
+            onChange={e=>update('policyVersion',e.target.value)} placeholder="e.g. 2026-11-v1"/>
+          <small>Version is recorded with a SHA-256 content fingerprint at creation.</small>
+        </label>}
         <label>Recipients<select value={draft.scope} onChange={e=>update('scope',e.target.value)}>
           <option value="all">All active restaurant owners</option>
           <option value="specific">Selected restaurants only</option>
@@ -64,7 +79,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
           {!eligible.length&&<small>No active restaurants match.</small>}
         </div>}
         <label style={{display:'flex',gap:8,alignItems:'center'}}>
-          <input type="checkbox" checked={draft.requiresAcknowledgment} onChange={e=>update('requiresAcknowledgment',e.target.checked)}/>
+          <input type="checkbox" checked={draft.requiresAcknowledgment||['policy','disclaimer'].includes(draft.category)} disabled={['policy','disclaimer'].includes(draft.category)} onChange={e=>update('requiresAcknowledgment',e.target.checked)}/>
           Require owner acknowledgment
         </label>
         <label>Expiry in days<input type="number" min="1" max="365" value={draft.expiresInDays} onChange={e=>update('expiresInDays',e.target.value)}/></label>
@@ -74,6 +89,15 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
           <ShieldCheck size={18}/> <strong>{preview.recipientCount} verified owners</strong> in {preview.restaurantCount} restaurants
           <p style={{fontSize:12}}>Only server-verified active restaurant owners are eligible. This is not a send confirmation.</p>
         </div>}
+        <section style={{display:'grid',gap:8,padding:12,borderRadius:10,border:'1px solid var(--border-color,#ddd)'}}>
+          <strong>Reusable templates</strong>
+          <input value={templateName} maxLength={100} placeholder="Template name" aria-label="New template name" onChange={e=>setTemplateName(e.target.value)}/>
+          <button type="button" className="btn btn-outline" disabled={busy||templateName.trim().length<2||draft.title.trim().length<3||draft.body.trim().length<5}
+            onClick={()=>act(async()=>{
+              await api('/templates',{method:'POST',body:JSON.stringify({name:templateName,title:draft.title,body:draft.body,category:draft.category,requiresAcknowledgment:draft.requiresAcknowledgment||['policy','disclaimer'].includes(draft.category)})});
+              setTemplateName('');await refresh();setNotice('Template saved.');
+            })}>Save current message as template</button>
+        </section>
         <button type="submit" className="btn btn-primary" disabled={busy||(draft.scope==='specific'&&!draft.tenantIds.length)}>
           Save as draft
         </button>
@@ -84,7 +108,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
         {!items.length&&<p>No announcements yet.</p>}
         {items.map(x=><article key={x.id} style={{padding:14,border:'1px solid var(--border-color,#ddd)',borderRadius:10,display:'grid',gap:9}}>
           <div style={{display:'flex',gap:8,justifyContent:'space-between'}}><strong>{x.title}</strong><small>{x.status}</small></div>
-          <small>{x.category} · {new Date(x.createdAt).toLocaleString()}</small>
+          <small>{x.category}{x.policyVersion?' · Version '+x.policyVersion:''} · {new Date(x.createdAt).toLocaleString()}</small>
           {x.status==='draft'&&<button type="button" className="btn btn-primary" disabled={busy}
             onClick={()=>{if(!window.confirm('Publish this announcement to all currently eligible selected owners?'))return;
               act(async()=>{const result=await api('/'+encodeURIComponent(x.id)+'/publish',{method:'POST'});
@@ -105,7 +129,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
       </section>
     </div>
     <p style={{fontSize:12,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:7}}>
-      <AlertTriangle size={16}/> Staging foundation. Scheduled publishing, native push, email, translations and policy versioning require further implementation.
+      <AlertTriangle size={16}/> Staging foundation. Automated scheduling, native push, email, multilingual translations and formal legal consent workflows remain pending.
     </p>
   </section>;
 }
