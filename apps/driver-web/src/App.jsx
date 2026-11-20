@@ -507,15 +507,20 @@ export default function App() {
 
   useEffect(()=>{
     const q=hiringSearch.trim();
-    if(q.length<2){setHiringResults([]);return;}
+    if(q.length<2){setHiringResults([]);setHiringError('');setHiringBusy(false);return;}
     let ignore=false;
     const timer=setTimeout(async()=>{
       setHiringBusy(true);
+      setHiringError('');
       try{
         const response=await apiFetch('/public/drivers/restaurants?q='+encodeURIComponent(q));
-        if(!ignore)setHiringResults(response.restaurants||[]);
-      }catch(_){if(!ignore)setHiringResults([]);}
-      finally{if(!ignore)setHiringBusy(false);}
+        if(!ignore)setHiringResults(Array.isArray(response.restaurants)?response.restaurants:[]);
+      }catch(error){
+        if(!ignore){
+          setHiringResults([]);
+          setHiringError('Restaurant search could not load. '+(error.message||'Check your connection and try again.'));
+        }
+      }finally{if(!ignore)setHiringBusy(false);}
     },320);
     return()=>{ignore=true;clearTimeout(timer);};
   },[hiringSearch]);
@@ -742,7 +747,7 @@ export default function App() {
                       <strong>{restaurant.name}</strong><br/><small>{restaurant.subdomain}</small>
                     </button>)}
                   </div>}
-                  {!hiringBusy&&hiringSearch.trim().length>2&&hiringResults.length===0&&<small style={{color:'var(--text-muted)'}}>No opted-in restaurants found. Ask your restaurant for an invitation code.</small>}
+                  {!hiringBusy&&hiringSearch.trim().length>=2&&hiringResults.length===0&&!hiringError&&<small style={{color:'var(--text-muted)'}}>No restaurants accepting public rider applications match this search. Try another spelling or request an invitation code.</small>}
                 </>:<>
                   <label style={{fontSize:12,fontWeight:700}}>Restaurant invitation code</label>
                   <input className="input-field" value={invitationEntry} onChange={e=>setInvitationEntry(e.target.value)} placeholder="Paste your private hiring code" autoCapitalize="off" autoComplete="off"/>
