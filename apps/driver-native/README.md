@@ -22,10 +22,10 @@ current PWA or existing GastroFlow Food native application.
    **staging** endpoint, via `npx vite build apps/driver-web --mode native`.
 3. Generate actual Android and iOS Capacitor projects with `npx cap add android` /
    `npx cap add ios` from this directory, then `npx cap sync`.
-4. Integrate `createNativeTrackingSession` with Capacitor
-   `registerPlugin('BackgroundGeolocation')` and `CapacitorHttp.post`
-   and with the rider's explicit shift controls. The adapter is not yet wired
-   into the app entrypoint.
+4. The GastroDriver frontend now chooses the native background watcher through
+   `registerPlugin('BackgroundGeolocation')` and `CapacitorHttp.post` when running
+   in a compiled native build. **This is not a tested native binary yet**; validate
+   the callback and permission behavior on Android and iPhone hardware.
 5. Add native permissions: Android fine/coarse/background location, foreground-service
    location and notification permission where required. On iOS, add When-In-Use
    and Always usage descriptions plus `UIBackgroundModes: location` only when justified.
