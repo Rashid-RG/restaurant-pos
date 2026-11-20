@@ -1,7 +1,7 @@
 import {describe,it,expect,vi} from 'vitest';
 import {
  normalizeSandboxAddress,sandboxEmailConfig,sandboxEmailAllowed,
- emailRetryDelayMs,canRetryEmail,enqueueSandboxOwnerEmails,processSandboxOwnerEmailQueue
+ emailRetryDelayMs,canRetryEmail,enqueueSandboxOwnerEmails,processSandboxOwnerEmailQueue,reconcileStaleSandboxEmailClaims,closeSandboxEmailReview
 } from '../lib/communications/platform-email-queue.js';
 const active={
  PLATFORM_COMMUNICATIONS_ENABLED:'true',
@@ -11,6 +11,28 @@ const active={
  PLATFORM_COMMUNICATIONS_TEST_EMAILS:'tester@example.test'
 };
 describe('Sandbox-only platform communication email queue',()=>{
+ it('stale in-flight emails require manual review; never resend',async()=>{
+   const dbRun=vi.fn(async()=>({changes:2}));
+   const send=vi.fn();
+   const result=await reconcileStaleSandboxEmailClaims({dbRun,env:active,now:10000000});
+   expect(result).toEqual({disabled:false,reviewRequired:2});
+   const [sql,args]=dbRun.mock.calls[0];
+   expect(sql).toContain("status='manual_review'");
+   expect(sql).toContain("status='sending'");
+   expect(args).toEqual([10000000,9100000]);
+   expect(send).not.toHaveBeenCalled();
+ });
+ it('reconciliation is disabled outside staging sandbox',async()=>{
+   const dbRun=vi.fn();
+   expect(await reconcileStaleSandboxEmailClaims({dbRun,env:{}})).toEqual({disabled:true,reviewRequired:0});
+   expect(dbRun).not.toHaveBeenCalled();
+ });
+ it('manual close updates only the selected tenant and job',async()=>{
+   const dbRun=vi.fn(async()=>({changes:1}));
+   expect(await closeSandboxEmailReview({dbRun,announcementId:'a1',tenantId:'tenant_a',userId:'owner_a',now:500})).toBe(true);
+   expect(dbRun.mock.calls[0][1]).toEqual([500,'a1','tenant_a','owner_a']);
+   expect(dbRun.mock.calls[0][0]).toContain("status='manual_review'");
+ });
  it('rejects invalid or non-allowlisted destinations',()=>{
    expect(normalizeSandboxAddress(' TESTER@EXAMPLE.TEST ')).toBe('tester@example.test');
    expect(normalizeSandboxAddress('no-email')).toBe(null);
