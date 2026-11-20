@@ -270,6 +270,15 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
             </div>)}
             {!report.channels?.length&&<small>No channel delivery records yet.</small>}
           </div>
+          <div style={{display:'grid',gap:6,marginTop:10}}>
+            <strong>Brevo provider events (sandbox)</strong>
+            {(report.providerEvents||[]).map((row,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',gap:12}}>
+              <span>{row.eventStatus==='accepted'?'Accepted by provider (not delivered)':row.eventStatus.replace(/_/g,' ')}</span>
+              <strong>{row.count}</strong>
+            </div>)}
+            {!report.providerEvents?.length&&<small>No verified provider delivery events recorded.</small>}
+            <small>Provider acceptance is not confirmation of mailbox delivery.</small>
+          </div>
         </div>}
       </section>
     </div>
