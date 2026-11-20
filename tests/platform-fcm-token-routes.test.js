@@ -85,6 +85,17 @@ describe('session-bound owner FCM routes',()=>{
   expect((await request(app).post(endpoint).send({installationId,token})).status).toBe(404);
   expect(f.dbRun).not.toHaveBeenCalled();
  });
+ it('revoking a device also revokes its stored FCM registration',async()=>{
+  const f=make();
+  const result=await request(f.app)
+    .post('/api/owner/communications/devices/revoke').send({installationId});
+  expect(result.status).toBe(200);
+  expect(result.body.status).toBe('revoked');
+  const revoked=f.dbRun.mock.calls.find(([sql])=>
+    sql.includes('UPDATE platform_owner_communication_fcm_tokens'));
+  expect(revoked).toBeTruthy();
+  expect(revoked[1].slice(2,4)).toEqual(['tenant_a','owner_a']);
+ });
  it('revokes only the signed-in owner installation',async()=>{
   const f=make();
   const result=await request(f.app).post(endpoint+'/revoke').send({installationId});
