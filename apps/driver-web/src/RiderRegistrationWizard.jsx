@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 
 /**
- * Guided rider application. Email OTP is verified by the server when the final
- * application is submitted: do not represent entering a code as verified.
+ * Guided rider application. The first step performs real server OTP verification
+ * and receives a short-lived email-bound proof before the application can advance.
  */
 export default function RiderRegistrationWizard({reg,setReg,onSendCode,codeSentTo,sendingCode,onVerifyCode,verifyingCode,verificationToken,onSubmit,submitting,onClose,restaurant}) {
   const [step,setStep]=useState(0);
