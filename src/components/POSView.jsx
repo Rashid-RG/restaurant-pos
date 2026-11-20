@@ -1802,9 +1802,7 @@ export default function POSView() {
             {receiptConfig.showOrderId && printReceiptOrder.id && (
               <p className="receipt-order-reference"><strong>Order ID: #{String(printReceiptOrder.id).slice(-6).toUpperCase()}</strong></p>
             )}
-            {receiptConfig.showInvoiceNumber && printReceiptOrder.invoiceNumber != null && (
-              <p className="receipt-invoice-reference">INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</p>
-            )}
+
             <p>Type: {(printReceiptOrder.orderType || printReceiptOrder.diningType || 'POS')?.toUpperCase()}</p>
             {printReceiptOrder.tableId && <p>Table: {tables?.find(t => t.id === printReceiptOrder.tableId)?.number || printReceiptOrder.tableId}</p>}
             {printReceiptOrder.customerName && <p>Customer: {printReceiptOrder.customerName}</p>}
