@@ -6,7 +6,7 @@
  * user-controlled URL parameters.
  */
 export function createNativeTrackingSession({
-  plugin,httpPost,apiOrigin,getToken,getActiveOrders,clock=Date.now,onStatus=()=>{}
+  plugin,httpPost,apiOrigin,getToken,getActiveOrders,clock=Date.now,onStatus=()=>{},onFix=()=>{}
 }={}) {
   const endpoint=new URL(apiOrigin||'https://invalid.example');
   if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||
@@ -53,6 +53,7 @@ export function createNativeTrackingSession({
         if(![lat,lng,accuracyMeters,recordedAt].every(Number.isFinite)||
           Math.abs(lat)>90||Math.abs(lng)>180||accuracyMeters<=0||
           accuracyMeters>150||recordedAt>now+10000||now-recordedAt>30000)return;
+        onFix({lat,lng,accuracyMeters,recordedAt});
         if(now-lastUpload<4000)return;
         lastUpload=now;
         const fix={lat,lng,accuracyMeters,recordedAt};
@@ -76,5 +77,5 @@ export function createNativeTrackingSession({
       onStatus('location_error');throw error;
     }
   }
-  return {start,stop,isActive:()=>active};
+  return {start,stop,isActive:()=>active,setDiscoveryEnabled:next=>{discovery=active&&next===true;}};
 }
