@@ -123,7 +123,7 @@ function AppContent() {
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       <div className={`workspace ${isMasterOwner && activeTab === 'platform' ? 'platform-owner-workspace' : ''}`}>
         <WorkspaceTools/>
-        <StagingPushSetup/>
+        <StagingPushSetup key={`${currentUser?.tenant_id || 'none'}:${currentUser?.id || 'none'}`}/>
         <ConnectionStatus/>
         {platformBroadcast && (
           <div style={{
