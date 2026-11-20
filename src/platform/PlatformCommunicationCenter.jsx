@@ -132,7 +132,15 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
             <span>Sandbox queue: {emailReadiness.sandboxEmailQueueEnabled?'Configured':'Disabled'}</span>
             <span>Brevo sandbox adapter: {emailReadiness.sandboxTransportReady?'Configured (manual only)':'Not ready'}</span>
             <span>Approved test destinations: {emailReadiness.configuredTestRecipientCount}</span>
-            <span>Automatic sending: Off</span>
+            <span>Staging database separation: {emailReadiness.stagingDatabaseIsolationAttested?'Attestation configured — verify separately':'Not attested'}</span>
+            <span>Brevo event authentication: {emailReadiness.webhookAuthenticationConfigured?'Configured, unverified':'Disabled'}</span>
+            <span>Sandbox worker: {emailReadiness.workerConfigurationReady?'Configured, not scheduled':'Disabled'}</span>
+            <span>Worker emergency stop: {emailReadiness.workerEmergencyStopArmed?'Armed':'Released in configuration'}</span>
+            <span>Daily sandbox cap: {emailReadiness.configuredDailyMax||'Not configured'}</span>
+            <span>Automatic sending: Off — no scheduler connected</span>
+            <span>Actual test mailbox delivery: Not verified</span>
+            <span>Native push: Not operational</span>
+            <span>Commercial release: Not approved</span>
             <small>{emailReadiness.note}</small>
           </div>}
         </div>
