@@ -44,8 +44,8 @@ describe('Platform owner announcement targeting',()=>{
   const fixture=({actor={id:'u_a',role:'owner',tenant_id:'tenant_a',isPlatformAdmin:0},enabled=true}={})=>{
     const dbGet=vi.fn(async(sql,args)=>{
       if(sql.includes('SELECT status FROM tenants')) return {status:'active'};
-      if(sql.includes('SELECT a.id,a.requiresAcknowledgment')){
-        return args?.[1]==='u_a'&&args?.[2]==='tenant_a'?{id:'notice1',requiresAcknowledgment:1}:null;
+      if(sql.includes('SELECT a.id,a.title,a.body,a.category,a.requiresAcknowledgment')){
+        return args?.[1]==='u_a'&&args?.[2]==='tenant_a'?{id:'notice1',title:'Tenant A notice',body:'Message',category:'policy',requiresAcknowledgment:1,policyVersion:'1.0',contentHash:'fixture_hash'}:null;
       }
       return null;
     });
