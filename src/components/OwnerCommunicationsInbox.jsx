@@ -7,11 +7,12 @@ export default function OwnerCommunicationsInbox({currentUser}) {
   const [open,setOpen]=useState(false);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
+  const [language,setLanguage]=useState(()=>{try{const v=localStorage.getItem('gastroflow_owner_notice_lang');return ['en','si','ta'].includes(v)?v:'en'}catch{return 'en'}});
   const isOwner=currentUser?.role==='owner'&&currentUser?.isPlatformAdmin!==true;
   const load=useCallback(async()=>{
     if(!isOwner)return;
     try{
-      const response=await fetch('/api/owner/communications',{
+      const response=await fetch('/api/owner/communications?lang='+encodeURIComponent(language),{
         headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`},
         cache:'no-store'
       });
@@ -19,7 +20,7 @@ export default function OwnerCommunicationsInbox({currentUser}) {
       if(!response.ok)throw new Error('Could not load platform notices.');
       setMessages(await response.json());setError('');
     }catch(e){setError(e.message)}
-  },[isOwner]);
+  },[isOwner,language]);
   useEffect(()=>{
     if(!isOwner)return;
     load();
@@ -46,6 +47,17 @@ export default function OwnerCommunicationsInbox({currentUser}) {
       <strong>{unread?unread+' unread':messages.length+' notices'}</strong>
     </button>
     {open&&<div style={{display:'grid',gap:12,marginTop:12}}>
+      <label style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+        Notice language
+        <select aria-label="Preferred platform notice language" value={language} onChange={e=>{
+          const next=e.target.value;setLanguage(next);
+          try{localStorage.setItem('gastroflow_owner_notice_lang',next)}catch{}
+        }}>
+          <option value="en">English</option>
+          <option value="si">සිංහල</option>
+          <option value="ta">தமிழ்</option>
+        </select>
+      </label>
       {error&&<p role="alert">{error}</p>}
       {messages.map(m=><article key={m.id} style={{border:'1px solid var(--border-color,#ddd)',borderRadius:10,padding:14}}>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -54,6 +66,7 @@ export default function OwnerCommunicationsInbox({currentUser}) {
           {!m.readAt&&<small style={{marginLeft:'auto'}}>NEW</small>}
         </div>
         <small style={{display:'block',marginTop:6}}>{m.category}{m.policyVersion?' · Version '+m.policyVersion:''} · {new Date(m.publishedAt).toLocaleString()}</small>
+        {language!=='en'&&m.contentLanguage==='en'&&<small style={{display:'block',marginTop:5}}>English original · Translation not available</small>}
         <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{m.body}</p>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           {!m.readAt&&<button disabled={busy} className="btn btn-outline" type="button" onClick={()=>act(m.id,'read')}>Mark read</button>}
