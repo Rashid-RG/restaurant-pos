@@ -29,6 +29,45 @@ jobs:
     permissions:
       contents: read
 
+  # Firebase/Capacitor owner POS staging wrapper. This only builds an
+  # unsigned-for-release APK; it never connects to Firebase or deploys.
+  gastroflow-staging-android-candidate:
+    if: (github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness') || (github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-staging-native]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install POS web dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated Firebase mobile wrapper dependencies
+        run: npm ci --prefix mobile-staging --ignore-scripts --no-audit --no-fund
+      - name: Build POS web frontend
+        run: npm run build
+      - name: Generate Android project and copy verified staging Firebase config
+        run: |
+          npm --prefix mobile-staging run setup:android
+          npm --prefix mobile-staging run sync -- android
+      - name: Compile unsigned-for-release Android staging debug APK
+        working-directory: mobile-staging/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Upload isolated staging APK for physical-device testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastroflow-staging-android-debug-candidate
+          path: mobile-staging/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
   gastrodriver-android-candidate:
     if: (github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness') || (github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-driver-native]'))
     runs-on: ubuntu-latest
