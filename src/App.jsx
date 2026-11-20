@@ -106,6 +106,8 @@ function AppContent() {
         return <SupportTicketsView />;
       case 'online-store':
         return ['owner', 'manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <OnlineStoreWorkspace /> : <Dashboard />;
+      case 'menu':
+        return ['owner','manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <Settings initialSubTab="menu" /> : <Dashboard />;
       case 'settings':
         return <Settings />;
       default:
