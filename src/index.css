@@ -1685,10 +1685,14 @@ button {
     overflow-wrap: anywhere;
   }
   .receipt-print-area .receipt-logo {
-    max-width: 46px !important;
-    max-height: 46px !important;
+    max-width: 100%;
+    height: auto;
     margin-bottom: 2px !important;
   }
+  .receipt-print-area.receipt-layout-standard .receipt-divider { margin: 5px 0 !important; }
+  .receipt-print-area.receipt-layout-standard .receipt-item-block { padding: 4px 0 !important; }
+  .receipt-print-area.receipt-layout-detailed .receipt-divider { margin: 7px 0 !important; }
+  .receipt-print-area.receipt-layout-detailed .receipt-item-block { padding: 5px 0 !important; }
   .receipt-print-area .receipt-divider { margin: 2px 0 !important; }
   .receipt-print-area .receipt-item-block { padding: 2px 0 !important; }
   .receipt-print-area .receipt-item-detail { padding: 0 0 0 4px !important; }
