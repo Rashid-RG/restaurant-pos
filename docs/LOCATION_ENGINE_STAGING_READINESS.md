@@ -51,3 +51,11 @@ The existing driver UI is a PWA. Browsers cannot guarantee continuous GPS when l
 - Android and actual iPhone real-device tests prove foreground/background permission and route behavior.
 - Reconnection, stale marker, dispatch and cross-tenant security tests pass.
 - Obtain explicit deployment approval. Only then deploy **gastroflow-staging**.
+
+## Implementation checkpoint — 2026-11-20
+
+- **H3 pilot connected in code:** The official `h3-js` library filters short-lived rider presence records for authenticated restaurant dispatchers. `/api/public/driver/on-duty-location`, `/api/public/driver/off-duty-location`, and `/api/delivery/nearby-riders` are feature-gated by `GASTROFLOW_RIDER_PRESENCE_PILOT=true` and remain **disabled by default**.
+- **OSRM integrated for optional rider ranking:** When `GASTROFLOW_ROUTING_URL` and `GASTROFLOW_ROUTING_KEY` are configured, the H3 shortlist may include `roadTravelMinutes`. Missing routes never become invented ETAs. `infra/osrm-staging` contains a reference Docker stack and authenticated gateway, not a running server.
+- **Native code integrated:** Native GastroDriver builds select `@capacitor-community/background-geolocation` with CapacitorHttp uploads, a separate application identifier, and an explicit staging API origin. Unsigned Android/iOS project generation, native permissions, signing, real-device background tests, and production-ready retry guarantees are **not completed**.
+- **Deployment remains blocked:** Staging auto-deploy was observed disabled in Render. No service, environment, database, or production deployment was changed during this work. Obtain explicit staging approval and provide a reachable OSRM host, plus device-signing access, before activating.
+- **Scaling:** The rider-presence pilot uses process memory, and thus is not production-ready for multiple instances. Replace it with a secure tenant-scoped shared presence store with TTL and revocation before multi-instance rollout.
