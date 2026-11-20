@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { enqueueSandboxOwnerEmails, sandboxEmailConfig, reconcileStaleSandboxEmailClaims, closeSandboxEmailReview } from '../lib/communications/platform-email-queue.js';
 import { previewSandboxOwnerEmailDispatch } from '../lib/communications/platform-email-preview.js';
 import { sandboxBrevoReady } from '../lib/communications/platform-brevo-sandbox.js';
+import {platformCommunicationDeliveryReadiness} from '../lib/communications/platform-delivery-readiness.js';
 import {brevoWebhookEnabled,authenticateBrevoWebhook,normalizeBrevoTransactionalPayload} from '../lib/communications/platform-brevo-webhook.js';
 import {recordVerifiedBrevoEvent} from '../lib/communications/platform-brevo-receipts.js';
 import { pushEnrollmentEnabled, enrollOwnerInstallation, revokeOwnerInstallation } from '../lib/communications/platform-push-enrollment.js';
@@ -245,17 +246,7 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   // Explicit queueing only: never sends emails from an HTTP request.
   // Requires isolated staging + separate sandbox email opt-in + exact allowlist.
   router.get('/platform/communications/email/status',...platform,(req,res)=>{
-    const config=sandboxEmailConfig(env);
-    res.set('Cache-Control','no-store').json({
-      stagingFeatureEnabled:env.PLATFORM_COMMUNICATIONS_ENABLED==='true'&&env.PLATFORM_COMMUNICATIONS_STAGE==='staging',
-      sandboxEmailQueueEnabled:config.enabled,
-      sandboxTransportReady:sandboxBrevoReady(env),
-      automaticProviderDeliveryEnabled:false,
-      configuredTestRecipientCount:config.allowed.size,
-      // Do not reveal credentials, addresses, provider secrets or raw delivery content.
-      sendingMode:'manual_unmounted',
-      note:'Transport readiness is not a test send or confirmation of mailbox delivery.'
-    });
+    res.set('Cache-Control','no-store').json(platformCommunicationDeliveryReadiness(env));
   });
   router.post('/platform/communications/:id/email-queue',...platform,async(req,res,next)=>{try{
     if(!sandboxEmailConfig(env).enabled)return res.status(403).json({error:'Sandbox email queue is disabled.'});
