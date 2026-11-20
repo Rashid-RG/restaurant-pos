@@ -53,6 +53,8 @@ Authenticated restaurant owner (only own user+tenant):
 - The injected-provider worker is not mounted in server startup. No live, automatic or transactional emails are delivered by this change. It must first be connected to an explicit staging sandbox provider and tested.
 - All queued addresses must match the exact allowlist, and the worker rechecks current owner membership, tenant status, announcement publication and expiration before calling the sandbox transport.
 - After a provider timeout or other ambiguous failure, work is marked `manual_review` rather than automatically retried; safe retry policies require provider idempotency contracts.
+- Interrupted `sending` claims can be moved to `manual_review` via platform-only reconciliation, with no automatic resend. A reviewer can close a specific tenant/user/announcement claim as failed without invoking any transport.
+- Recovery endpoints: `POST /api/platform/communications/email-queue/reconcile` and `POST /api/platform/communications/:id/email-queue/:tenantId/:userId/close-review` (both gated by the sandbox allowlist).
 - Queue insertion, HTTP inbox delivery and provider acceptance are separate statuses. Provider acceptance is not evidence of inbox arrival or human reading.
 - Never use actual customers' email addresses in the allowlist during staging.
 - Future steps: dedicated controlled worker, stale sending reconciliation, delivery webhooks, permanent failures and backoff, unsubscribe/transactional-message policy, bounce suppression, quotas, isolation and load tests.
