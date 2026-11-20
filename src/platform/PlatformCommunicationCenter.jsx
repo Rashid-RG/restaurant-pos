@@ -18,6 +18,8 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
   const [templateName,setTemplateName]=useState('');
   const [scheduleDates,setScheduleDates]=useState({});
   const [emailQueues,setEmailQueues]=useState({});
+  const [deliveryPreviews,setDeliveryPreviews]=useState({});
+  const [reviewItems,setReviewItems]=useState({});
   const [preview,setPreview]=useState(null);
   const [report,setReport]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -132,6 +134,42 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
           </div>}
           {x.status==='scheduled'&&<small>Scheduled for publication; cancel to prevent delivery.</small>}
           {x.status==='published'&&<div style={{display:'grid',gap:8}}>
+            <button type="button" className="btn btn-outline" disabled={busy}
+              onClick={()=>act(async()=>{
+                const result=await api('/'+encodeURIComponent(x.id)+'/email-queue/preview');
+                setDeliveryPreviews(old=>({...old,[x.id]:result}));
+                setNotice('Dry run complete. No emails sent.');
+              })}>Dry-run sandbox delivery eligibility</button>
+            {deliveryPreviews[x.id]&&<div role="status" style={{padding:10,border:'1px solid var(--border-color,#ddd)',borderRadius:8}}>
+              <strong>Dry run — no emails sent</strong>
+              <p style={{margin:'6px 0'}}>Eligible: {deliveryPreviews[x.id].eligible} ·
+              Blocked: {deliveryPreviews[x.id].blocked} ·
+              Pending: {deliveryPreviews[x.id].pending}</p>
+              {deliveryPreviews[x.id].truncated&&<small>Preview limited to the first 100 queue records.</small>}
+              {(deliveryPreviews[x.id].reasons||[]).map(reason=><small key={reason.code} style={{display:'block'}}>
+                {reason.code.replace(/_/g,' ')}: {reason.count}</small>)}
+            </div>}
+            <button type="button" className="btn btn-outline" disabled={busy}
+              onClick={()=>act(async()=>{
+                const result=await api('/'+encodeURIComponent(x.id)+'/email-queue/reviews');
+                setReviewItems(old=>({...old,[x.id]:result.reviews}));
+              })}>View uncertain email deliveries</button>
+            {reviewItems[x.id]&&<div style={{display:'grid',gap:7}}>
+              <strong>Manual-review queue ({reviewItems[x.id].length})</strong>
+              {reviewItems[x.id].map(job=><div key={job.tenantId+':'+job.userId}
+                style={{padding:10,border:'1px solid var(--border-color,#ddd)',borderRadius:8}}>
+                <small>Restaurant: {job.tenantId} · Owner: {job.userId}</small>
+                <small style={{display:'block'}}>Attempts: {job.attemptCount} · {job.lastErrorCode||'Unknown status'}</small>
+                <button className="btn btn-outline" type="button" disabled={busy}
+                  onClick={()=>{if(!window.confirm('Close this uncertain delivery as failed? This will NOT send another email.'))return;
+                    act(async()=>{
+                      await api('/'+encodeURIComponent(x.id)+'/email-queue/'+encodeURIComponent(job.tenantId)+'/'+encodeURIComponent(job.userId)+'/close-review',{method:'POST'});
+                      const next=await api('/'+encodeURIComponent(x.id)+'/email-queue/reviews');
+                      setReviewItems(old=>({...old,[x.id]:next.reviews}));
+                      setNotice('Review closed without sending a message.');
+                    })}}>Close as failed (no resend)</button>
+              </div>)}
+            </div>}
             <button type="button" className="btn btn-outline" disabled={busy}
               onClick={()=>act(async()=>{
                 const result=await api('/'+encodeURIComponent(x.id)+'/email-queue');
