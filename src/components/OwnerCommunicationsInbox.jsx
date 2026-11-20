@@ -32,7 +32,8 @@ export default function OwnerCommunicationsInbox({currentUser}) {
     setBusy(true);
     try{
       const response=await fetch(`/api/owner/communications/${encodeURIComponent(id)}/${action}`,{
-        method:'POST',headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`}
+        method:'POST',headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`,'Content-Type':'application/json'},
+        body:JSON.stringify({language})
       });
       if(!response.ok)throw new Error('Could not save acknowledgment.');
       await load();
