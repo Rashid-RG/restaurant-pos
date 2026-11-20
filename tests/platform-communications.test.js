@@ -115,7 +115,7 @@ describe('Platform owner announcement targeting',()=>{
     const f=fixture();
     const r=await request(f.app).post('/api/owner/communications/notice1/acknowledge').send({tenantId:'tenant_b'});
     expect(r.status).toBe(200);
-    expect(f.dbRun.mock.calls[0][1].slice(-3)).toEqual(['notice1','tenant_a','u_a']);
+    expect(f.dbRun.mock.calls.some(([sql,args])=>sql.includes('platform_owner_acknowledgment_evidence')&&args?.[0]==='notice1'&&args?.[1]==='tenant_a'&&args?.[2]==='u_a')).toBe(true);
   });
   it('does not dispatch an announcement that is no longer scheduled',async()=>{
     const dbAll=vi.fn(async()=>[{id:'notice1',status:'scheduled',audienceJson:'{"scope":"all","tenantIds":[]}',expiresAt:null}]);
@@ -132,6 +132,19 @@ describe('Platform owner announcement targeting',()=>{
     const result=await dispatchDueOwnerAnnouncements({dbAll,dbGet,dbRun,now:2000});
     expect(result).toEqual([{id:'notice_expired',status:'expired'}]);
     expect(dbRun.mock.calls.some(x=>x[0].includes('announcement_recipients'))).toBe(false);
+  });
+  it('only shows translations with a matching platform approval record',async()=>{
+    const f=fixture();
+    await request(f.app).get('/api/owner/communications?lang=si');
+    const [sql,params]=f.dbAll.mock.calls[0];
+    expect(sql).toContain('platform_owner_translation_approvals');
+    expect(sql).toContain('EXISTS (SELECT 1');
+    expect(params.slice(0,3)).toEqual(['si','tenant_a','u_a']);
+  });
+  it('restricts translation approval and acknowledgment evidence to platform owners',async()=>{
+    const f=fixture();
+    expect((await request(f.app).post('/api/platform/communications/n1/translations/si/approve')).status).toBe(403);
+    expect((await request(f.app).get('/api/platform/communications/n1/acknowledgments')).status).toBe(403);
   });
   it('rejects a manager inbox request',async()=>{
     const f=fixture({actor:{id:'mgr',role:'manager',tenant_id:'tenant_a'}});
