@@ -1951,7 +1951,12 @@ const requireRole = (allowedRoles) => {
 const riderPresence=createRiderPresence();
 app.use('/api',createRiderPresenceRouter({
   express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,
-  presence:riderPresence,enabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true'
+  presence:riderPresence,enabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true',
+  estimateRoad:async({from,to})=>{
+    if(!routingOrigin())return null;
+    const route=await fetchRoadRoute({from,to});
+    return route?.available?route.travelMinutes:null;
+  }
 }));
 app.use('/api',createServiceExceptions({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolveAndCalculateBill,releaseOrderLoyalty,notifyOrderUpdate}));
 app.use('/api',createManualPayments({dbGet,dbAll,dbRun,authenticateToken,requireRole,settleOrderPaid,notifyOrderUpdate,writeAuditLog:(...args)=>writeAuditLog(...args)}));
