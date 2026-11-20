@@ -2223,9 +2223,9 @@ app.post('/api/auth/refresh',authLimiter,async(req,res)=>{
     'SELECT u.id,u.username,u.role,u.tenant_id,u.passwordHash, CASE WHEN p.userId IS NOT NULL THEN 1 ELSE 0 END AS isPlatformAdmin FROM users u LEFT JOIN platform_ownership p ON p.userId=u.id WHERE u.id=?',
     [claims.id]
   );
-  if(!user||!isStaffClaim({id:user.id,role:user.role})||
+  if(!user||!user.passwordHash||!isStaffClaim({id:user.id,role:user.role})||
      user.tenant_id!==claims.tenant_id||
-     staffRefreshCredentialVersion({passwordHash:user.passwordHash||'',jwtSecret:JWT_SECRET})!==claims.credentialVersion){
+     staffRefreshCredentialVersion({passwordHash:user.passwordHash,jwtSecret:JWT_SECRET})!==claims.credentialVersion){
     res.setHeader('Set-Cookie',staffRefreshCookie('',{secure:process.env.NODE_ENV==='production',clear:true}));
     return res.status(401).json({error:'Please sign in again.',code:'INVALID_TOKEN'});
   }
