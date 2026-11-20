@@ -280,15 +280,25 @@ export default function DeliveryView({verificationOnly=false}) {
         
         {verificationOnly && canReview && <>
           <RiderRecruitmentPanel/>
-          <section style={{padding:20,borderRadius:18,border:'1px solid var(--border-color)',background:'var(--bg-card)',display:'grid',gap:15}}>
-            <div><h3 style={{margin:0}}>Driver application workspace</h3><p style={{fontSize:13,color:'var(--text-muted)',margin:'6px 0 0'}}>Choose a status to review. Only your restaurant's applicants appear here.</p></div>
-            <div role="tablist" aria-label="Rider verification states" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:9}}>
+          <section aria-label="Driver application workspace" style={{padding:'clamp(16px,2vw,24px)',borderRadius:18,border:'1px solid var(--border-color)',background:'var(--bg-card)',display:'grid',gap:18}}>
+            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap'}}>
+              <div>
+                <h3 style={{margin:0,fontSize:'clamp(18px,2vw,21px)'}}>Driver applications</h3>
+                <p style={{fontSize:13,color:'var(--text-muted)',margin:'6px 0 0'}}>Review applications and identity evidence for your restaurant only.</p>
+              </div>
+              <span style={{borderRadius:99,padding:'7px 12px',background:'rgba(16,185,129,.1)',fontSize:12,fontWeight:700}}>{drivers.length} total driver{drivers.length===1?'':'s'}</span>
+            </div>
+            <div role="tablist" aria-label="Rider verification states" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,155px),1fr))',gap:10}}>
               {statusCounts.map(({name,count})=><button key={name} type="button" role="tab" aria-selected={verificationTab===name} onClick={()=>setVerificationTab(name)}
                 className={verificationTab===name?'btn btn-primary':'btn btn-outline'}
-                style={{display:'flex',justifyContent:'space-between',gap:10,alignItems:'center',padding:'12px 14px',borderRadius:12}}>
-                <span>{name}</span><strong>{count}</strong>
+                style={{display:'grid',gap:7,justifyItems:'start',textAlign:'left',minHeight:82,padding:'13px 15px',borderRadius:13}}>
+                <span style={{fontSize:12,fontWeight:650}}>{name}</span><strong style={{fontSize:22,lineHeight:1.15}}>{count}</strong>
               </button>)}
             </div>
+            {visibleVerificationDrivers.length===0&&<div role="status" style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',borderRadius:12,background:'var(--bg-secondary,rgba(148,163,184,.07))'}}>
+              <span aria-hidden="true" style={{fontSize:20}}>📋</span>
+              <div><strong style={{fontSize:13}}>No {verificationTab.toLowerCase()} applications</strong><p style={{fontSize:12,color:'var(--text-muted)',margin:'4px 0 0'}}>Applications will appear here after drivers register or their review status changes.</p></div>
+            </div>}
           </section>
         </>}
         {verificationOnly && !canReview && <p role="alert">Only restaurant owners and managers may review rider verification evidence.</p>}
