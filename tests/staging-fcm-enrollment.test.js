@@ -11,7 +11,8 @@ function fixture(){
   const contents=new Map([['gastroflow_token','signed-in-fake-test-jwt']]);
   const storage={
     getItem:vi.fn(key=>contents.get(key)||null),
-    setItem:vi.fn((key,value)=>contents.set(key,value))
+    setItem:vi.fn((key,value)=>contents.set(key,value)),
+    removeItem:vi.fn(key=>contents.delete(key))
   };
   const messaging={
     requestPermissions:vi.fn(async()=>({receive:'granted'})),
