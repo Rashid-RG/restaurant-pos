@@ -6,6 +6,7 @@ import RiderRecruitmentPanel from './RiderRecruitmentPanel';
 export default function DeliveryView({verificationOnly=false}) {
   const { orders, showToast, settings,currentUser } = usePOS();
   const [verificationTab,setVerificationTab]=useState('Pending');
+  const [verificationSearch,setVerificationSearch]=useState('');
   const [auditRows,setAuditRows]=useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -224,7 +225,7 @@ export default function DeliveryView({verificationOnly=false}) {
   const statusCounts=['Pending','Under Review','Resubmit','Approved','Rejected'].map(name=>({
     name,count:drivers.filter(d=>verificationStatus(d)===name).length
   }));
-  const visibleVerificationDrivers=drivers.filter(d=>verificationStatus(d)===verificationTab);
+  const visibleVerificationDrivers=drivers.filter(d=>verificationStatus(d)===verificationTab && [d.name,d.phone,d.vehicleType,d.plateNumber].some(value=>String(value||'').toLowerCase().includes(verificationSearch.trim().toLowerCase())));
   const canReview=['owner','manager'].includes(currentUser?.role);
   const fetchVerificationAudit=async()=>{
     if(!canReview)return;
@@ -288,6 +289,12 @@ export default function DeliveryView({verificationOnly=false}) {
               </div>
               <span style={{borderRadius:99,padding:'7px 12px',background:'rgba(16,185,129,.1)',fontSize:12,fontWeight:700}}>{drivers.length} total driver{drivers.length===1?'':'s'}</span>
             </div>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <label style={{display:'grid',gap:5,flex:'1 1 220px',fontSize:12,fontWeight:700}}>Find a rider
+                <input className="form-input" type="search" value={verificationSearch} onChange={e=>setVerificationSearch(e.target.value)} placeholder="Search name, phone, vehicle or plate" aria-label="Search rider applications"/>
+              </label>
+              <button type="button" className="btn btn-outline" onClick={()=>{void fetchDrivers();void fetchVerificationAudit();}}>Refresh applications</button>
+            </div>
             <div role="tablist" aria-label="Rider verification states" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,155px),1fr))',gap:10}}>
               {statusCounts.map(({name,count})=><button key={name} type="button" role="tab" aria-selected={verificationTab===name} onClick={()=>setVerificationTab(name)}
                 className={verificationTab===name?'btn btn-primary':'btn btn-outline'}
@@ -297,7 +304,7 @@ export default function DeliveryView({verificationOnly=false}) {
             </div>
             {visibleVerificationDrivers.length===0&&<div role="status" style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',borderRadius:12,background:'var(--bg-secondary,rgba(148,163,184,.07))'}}>
               <span aria-hidden="true" style={{fontSize:20}}>📋</span>
-              <div><strong style={{fontSize:13}}>No {verificationTab.toLowerCase()} applications</strong><p style={{fontSize:12,color:'var(--text-muted)',margin:'4px 0 0'}}>Applications will appear here after drivers register or their review status changes.</p></div>
+              <div><strong style={{fontSize:13}}>No {verificationTab.toLowerCase()} applications</strong><p style={{fontSize:12,color:'var(--text-muted)',margin:'4px 0 0'}}>{verificationSearch?'No riders match this search. Clear the search or choose another status.':'Applications appear here after riders register or their review status changes.'}</p></div>
             </div>}
           </section>
         </>}
