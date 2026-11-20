@@ -147,6 +147,12 @@ Authenticated restaurant owner (only own user+tenant):
 - An email event receipt is a provider report, not confirmation that a human opened or read the notice. The separate in-app acknowledgment evidence remains authoritative for a recorded owner acknowledgment.
 - Before activation, validate accepted Brevo API message IDs against real webhook IDs, configure a verified test sender and controlled recipient, confirm a separate staging database, and perform a real isolated sandbox delivery test.
 
+### Mandatory isolation attestation for Brevo network traffic
+- `PLATFORM_COMMUNICATIONS_DATABASE_ISOLATED=true` is now a **separate fail-closed condition** for Brevo sandbox provider requests and authenticated webhook ingestion. Missing/false prevents those operations even if the other flags are enabled.
+- This is an *operational attestation*, **not** an automatic guarantee. Before setting it, the operator must verify that the connected `TURSO_DATABASE_URL` is a separate staging database and no production customer records are accessible. Never assume isolation from the service name alone.
+- The in-app inbox and non-sending queue/preview functions remain independently staged. This flag does not activate a sender, schedule a test, register a Brevo webhook, or deploy changes.
+- All mocked provider tests set the attestation explicitly; real external traffic remains prohibited until separate approval.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
