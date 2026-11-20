@@ -20,7 +20,8 @@ describe('GastroFlow organized sidebar safety', () => {
     expect(destinations).toContain("id: 'menu', name: 'Menu'");
     expect(destinations).toContain("icon: UtensilsCrossed, management: true");
     expect(app).toContain("case 'menu':");
-    expect(app).toContain('<Settings initialSubTab="menu" />');
+    expect(app).toContain('<Settings key="menu-management" initialSubTab="menu" />');
+    expect(app).toContain('<Settings key="settings-home" />');
     expect(settings).toContain('allowed.includes(initialSubTab)');
   });
   it('shows selection background only for the active page, including pinned New Sale', () => {
@@ -28,6 +29,10 @@ describe('GastroFlow organized sidebar safety', () => {
     expect(css).toContain(".desktop-sidebar .sidebar-new-sale:not(.active) { background:transparent;");
     expect(css).toContain(".sidebar-item.active {");
     expect(css).not.toContain(".sidebar-new-sale:not(.active) { background:var(--color-primary-light);");
+  });
+  it('keeps Menu and Settings as separate page instances on sidebar switching', () => {
+    expect(app).toMatch(/case 'menu':[\s\S]*<Settings key="menu-management" initialSubTab="menu" \/>/);
+    expect(app).toMatch(/case 'settings':[\s\S]*<Settings key="settings-home" \/>/);
   });
   it('never requires opening a group to reach the cashier sale screen', () => {
     expect(sidebar.indexOf('{pinned.map(link)}')).toBeLessThan(sidebar.indexOf('{groups.map(group =>'));
