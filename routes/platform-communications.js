@@ -11,6 +11,7 @@ const audienceSchema=z.object({
   scope:z.enum(['all','specific']).default('all'),
   tenantIds:z.array(z.string().min(1).max(180)).max(500).default([])
 }).strict().refine(x=>x.scope!=='specific'||x.tenantIds.length>0, 'Select restaurants.');
+const policyVersionSchema=z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
 const messageSchema=z.object({
   title:z.string().trim().min(3).max(140),
   body:z.string().trim().min(5).max(10000),
@@ -31,7 +32,6 @@ const templateSchema=z.object({
   category:z.enum(['announcement','urgent','maintenance','policy','disclaimer','feature']).default('announcement'),
   requiresAcknowledgment:z.boolean().default(false)
 }).strict();
-const policyVersionSchema=z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
 
 export function validateOwnerAudience(input){ return audienceSchema.safeParse(input); }
 export function ownerRecipientEligible(row){
