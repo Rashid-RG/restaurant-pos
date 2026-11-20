@@ -114,6 +114,14 @@ Authenticated restaurant owner (only own user+tenant):
 - The registry is a preparation step only. It is **not** a complete native push integration: no token upload, secure encrypted provider token storage, device validation, installation migration, delivery queue or push sender is implemented.
 - HMAC key rotation and race-safe enrollment across multiple workers must be validated before deployment. Never register actual customer devices on shared production databases.
 
+### Manual one-recipient Brevo sandbox runner (not activated)
+- `lib/communications/platform-brevo-manual-runner.js` exports `runOneApprovedSandboxBrevoEmail` for a deliberately **unmounted** test runner. It is not used by any endpoint, startup code or background worker. No emails are sent merely because this code exists.
+- Requires all previously documented sandbox/provider/recipient gates, plus `PLATFORM_COMMUNICATIONS_MANUAL_SEND_ENABLED=true`, an explicit announcement ID, and a per-call `SEND_ONE_APPROVED_SANDBOX_EMAIL` confirmation.
+- A read-only preview must identify **exactly one** eligible queued sandbox recipient and no additional blocked or pending records. It then calls the existing worker with `limit:1` and an announcement filter; the worker independently revalidates the owner and claims the queue record.
+- Approval to perform a real Brevo sandbox test send and proof of a **separate isolated staging Turso database** are still required before operator invocation. Never set these flags on production or a database shared with live customer records.
+- Automated tests inject a fake HTTP provider; they do not send real messages. Provider acceptance cannot be equated with mailbox receipt. Existing ambiguous outcomes are marked for manual review instead of blindly resending.
+- Missing commercial release work: an explicitly controlled operational invocation mechanism, real sandbox delivery smoke test with approved test mailbox, provider event verification, accepted-versus-delivered status, bounce/unsubscribe handling, concurrency protections, quotas, and comprehensive live-device/staging acceptance testing.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
