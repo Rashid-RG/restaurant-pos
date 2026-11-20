@@ -107,9 +107,11 @@ function AppContent() {
       case 'online-store':
         return ['owner', 'manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <OnlineStoreWorkspace /> : <Dashboard />;
       case 'menu':
-        return ['owner','manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <Settings initialSubTab="menu" /> : <Dashboard />;
+        // Menu and System Settings share the same component. Distinct keys force
+        // a fresh section selection when switching via the main sidebar.
+        return ['owner','manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <Settings key="menu-management" initialSubTab="menu" /> : <Dashboard />;
       case 'settings':
-        return <Settings />;
+        return <Settings key="settings-home" />;
       default:
         return <Dashboard />;
     }
