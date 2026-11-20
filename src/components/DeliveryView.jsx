@@ -345,7 +345,7 @@ export default function DeliveryView({verificationOnly=false}) {
                   <div className="rvc-card-progress"><strong>Verification documents</strong><span>{count}/{kinds.length} received</span></div>
                   <progress value={count} max={kinds.length} aria-label={'Document progress for '+d.name}/>
                   <div className="rvc-card-docs">{kinds.map(kind=><span key={kind} className={received.includes(kind)?'received':''}>{received.includes(kind)?'✓ ':'○ '}{kind==='identity_front'?(d.applicationIdentityKind==='passport'?'Passport':'NIC front'):kind==='identity_back'?'NIC back':kind==='selfie'?'Selfie':kind==='licence_front'?'Licence front':'Licence back'}</span>)}</div>
-                  <button type="button" className="btn btn-primary rvc-open-button" onClick={()=>{setSelectedVerificationRider(d.id);setReviewStep('identity');}}>{d.status==='pending_approval'?'Review application':'View rider details'}</button>
+                  <button type="button" className="btn btn-primary rvc-open-button" onClick={()=>{setSelectedVerificationRider(d.id);setReviewStep(d.status==='pending_approval'?'identity':'timeline');}}>{d.status==='pending_approval'?'Review application':'View rider details'}</button>
                 </article>;
               })}
             </div>
@@ -356,14 +356,27 @@ export default function DeliveryView({verificationOnly=false}) {
           </section>
         </>}
         {verificationOnly && !canReview && <p role="alert">Only restaurant owners and managers may review rider verification evidence.</p>}
-        {verificationOnly && canReview && ['Approved','Rejected'].includes(verificationTab) && visibleVerificationDrivers.some(d=>d.status!=='pending_approval') && (
-          <section aria-label="Completed rider application history" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(245px,1fr))',gap:12}}>
-            {visibleVerificationDrivers.filter(d=>d.status!=='pending_approval').map(d=><article key={d.id} style={{padding:18,borderRadius:14,background:'var(--bg-card)',border:'1px solid var(--border-color)'}}>
-              <strong style={{fontSize:16}}>👤 {d.name}</strong>
-              <p style={{fontSize:12,color:'var(--text-muted)'}}> {d.vehicleType||'Rider'} · {d.plateNumber||'No plate'} </p>
-              <span className={verificationTab==='Approved'?'badge badge-success':'badge badge-warning'}>{verificationTab==='Approved'?'Operational account':'Application rejected'}</span>
-              <p style={{fontSize:12,color:'var(--text-muted)'}}>Completed applications are read-only here. Protected evidence is purged after the restaurant's final review.</p>
-            </article>)}
+        {verificationOnly && canReview && ['Approved','Rejected'].includes(verificationTab) && selectedVerificationRider && visibleVerificationDrivers.some(d=>d.id===selectedVerificationRider) && (
+          <section className="rvc-review-panel" aria-label="Read-only completed rider application">
+            {visibleVerificationDrivers.filter(d=>d.id===selectedVerificationRider).map(d=><div key={d.id}>
+              <div className="rvc-review-head">
+                <div><span>COMPLETED APPLICATION</span><h3>{d.name}</h3><p>{d.vehicleType||'Rider'} · {d.plateNumber||'No plate'}</p></div>
+                <button className="btn btn-outline" onClick={()=>setSelectedVerificationRider(null)} type="button">Close ✕</button>
+              </div>
+              <p className="rvc-completed-notice">This application is {verificationStatus(d).toLowerCase()}. Completed decisions are read-only and protected identity images are purged after final approval or rejection.</p>
+              <div className="rvc-timeline"><h4>Recorded application activity</h4>
+                <button type="button" className="btn btn-outline" onClick={()=>{setReviewStep('timeline');setTimelineReload(n=>n+1);}}>Refresh timeline</button>
+                {timelineLoading&&<p role="status">Loading timeline…</p>}
+                {timelineError&&<p role="alert">{timelineError}</p>}
+                {timelineEvents.map((event,i)=><div className="rvc-event" key={event.occurredAt+'-'+i}>
+                  <div className="rvc-event-marker" aria-hidden="true"/><div>
+                    <strong>{({application_submitted:'Application submitted',document_submitted:'Evidence uploaded',manual_approved:'Manual evidence accepted',manual_rejected:'Manual evidence rejected',resubmit_requested:'Resubmission requested',driver_approved:'Rider approved',driver_rejected:'Rider rejected'})[event.eventType]||'Verification event'}</strong>
+                    {event.detail&&<p>{String(event.detail).replace(/_/g,' ')}</p>}
+                    <small>{event.occurredAt?new Date(event.occurredAt).toLocaleString():'Time unavailable'}</small>
+                  </div></div>)}
+                {!timelineLoading&&!timelineError&&timelineEvents.length===0&&<p>There are no captured timeline events for this application. Earlier decisions may predate event tracking.</p>}
+              </div>
+            </div>)}
           </section>
         )}
         {/* 0. Pending Driver Registrations Queue */}
