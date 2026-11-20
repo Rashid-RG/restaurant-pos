@@ -21,22 +21,22 @@
 5. Verify mobile rendering and rider map accuracy in both low signal and normal connectivity. Routing duration alone is not live-traffic prediction.
 6. Confirm the Render staging service's auto-deploy setting and database isolation before any deployment.
 
-- `lib/delivery/h3-rider-index.js` provides a tenant-separated H3 v4 API adapter with replace/expire/clear behavior. It currently uses an injected H3 implementation in tests and is **not yet connected to a live heartbeat endpoint, a package dependency, or automatic dispatch**.
+- `lib/delivery/h3-rider-index.js` provides a tenant-separated H3 v4 API adapter with replace/expire/clear behavior. It is wired to the official `h3-js` dependency inside the opt-in rider-presence HTTP pilot. Automatic dispatch and road-ETA ranking remain unimplemented.
 
 ## H3 and nearby riders — outstanding work
 
-The current database stores GPS **by active order**. That does not establish reliable GPS for idle, available riders. Before enabling H3 discovery:
+The current database stores order GPS separately from the new opt-in, short-lived, **in-process** rider-presence pilot (`GASTROFLOW_RIDER_PRESENCE_PILOT=true`). The pilot is disabled by default. Before production H3 discovery:
 
-- Create a new authenticated, opt-in, on-duty rider heartbeat API and a short-lived presence store. Do not reuse an active order's GPS as a free rider's real-time location.
+- An authenticated consent-based on-duty heartbeat API is present, but its memory store is per server process; replace it with a shared TTL store before deploying across multiple instances. Do not reuse an active order's GPS as a free rider's real-time location.
 - Enforce tenant ownership server-side and restrict read access to restaurant dispatch roles; never return another restaurant's riders.
 - Require an approved identity and appropriate licence verification, a clear online/offline state and explicit location consent.
-- Store H3 cells using a maintained `h3-js` dependency and prefilter candidates by cells. Rank the resulting candidates using real OSRM travel times; H3 proximity is not travel ETA.
+- H3 v4 cell prefilter is integrated in the pilot. Rank candidates using real OSRM travel times before claiming ETA-based auto-dispatch; H3 proximity is not travel ETA.
 - Expire positions promptly when riders go off duty, lose consent or exceed freshness limits, and impose retention limits.
 - Integration-test cross-tenant disclosure, forged driver IDs, cancelled/finished orders, stale pings, reassignment and missing routing service.
 
 ## Native GastroDriver background location — outstanding work
 
-The existing driver UI is a PWA. Browsers cannot guarantee continuous GPS when locked or backgrounded. A separate native GastroDriver application and platform-aware background location plugin are required.
+The existing driver UI is a PWA. Browsers cannot guarantee continuous GPS when locked or backgrounded. `apps/driver-native` now provides a Capacitor target and tested background-tracker controller, but native plugin hookup, generated Android/iOS projects, signing and physical device tests are **not complete**.
 
 - **Android:** use an approved native location component/foreground service with explicit location and notification permission flows, persistent disclosure, battery policy testing and Android device verification. Stop immediately off-duty.
 - **iPhone:** use Core Location background modes with a clear purpose string, permission escalation only when justified and physical iPhone tests for suspended, offline, restarted and force-quit states. Do not promise location updates after a force-quit.
