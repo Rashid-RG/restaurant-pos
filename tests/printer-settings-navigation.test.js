@@ -13,10 +13,12 @@ describe('POS Printer & Hardware settings navigation', () => {
 
   it('renders QZ and paper size inside the printer section rather than online store', () => {
     const printerSection = code.slice(code.indexOf("subTab === 'printer' && ("),code.indexOf("{/* 4. Online Store Admin Settings */}"));
-    expect(printerSection).toContain('Smart Printer & Paper Size');
-    expect(printerSection).toContain('Windows Direct Thermal Print (ESC/POS) — Pilot');
-    expect(printerSection).toContain('Connect QZ Tray / Find printers');
-    expect(printerSection).toContain('Enable native cashier receipt printing on this computer');
+    expect(printerSection).toContain('Receipt & Printer Studio');
+    expect(printerSection).toContain('Receipt Designer');
+    expect(printerSection).toContain('Printer & Hardware');
+    expect(printerSection).toContain('<SmartReceiptDesigner');
+    expect(printerSection).toContain('Find connected printers');
+    expect(printerSection).toContain('Enable direct cashier printing on this computer');
     const onlineSection = code.slice(code.indexOf("subTab === 'online' && ("));
     expect(onlineSection).not.toContain('Smart Printer & Paper Size');
   });
