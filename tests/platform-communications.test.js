@@ -47,10 +47,29 @@ describe('Platform owner announcement targeting',()=>{
     const app=express();app.use(express.json());app.use('/api',router);
     return {app,dbGet,dbAll,dbRun};
   };
+  it('requires staging stage even if enabled',async()=>{
+    const f=fixture();
+    const router=createPlatformCommunicationsRouter({
+      dbGet:f.dbGet,dbAll:f.dbAll,dbRun:f.dbRun,
+      authenticateToken:(req,res,next)=>{req.user={id:'u_a',role:'owner',tenant_id:'tenant_a'};next()},
+      requirePlatformAdmin:(req,res,next)=>res.status(403).end(),
+      env:{PLATFORM_COMMUNICATIONS_ENABLED:'true',PLATFORM_COMMUNICATIONS_STAGE:'production'}
+    });
+    const app=express();app.use(express.json());app.use('/api',router);
+    expect((await request(app).get('/api/owner/communications')).status).toBe(404);
+    expect((await request(app).get('/api/platform/communications')).status).toBe(404);
+  });
   it('fails closed while disabled',async()=>{
     const f=fixture({enabled:false});
     expect((await request(f.app).get('/api/owner/communications')).status).toBe(404);
     expect(f.dbAll).not.toHaveBeenCalled();
+  });
+  it('denies owner access to platform templates',async()=>{
+    const f=fixture();
+    expect((await request(f.app).get('/api/platform/communications/templates')).status).toBe(403);
+    expect((await request(f.app).post('/api/platform/communications/templates').send({
+      name:'Example',title:'Example message',body:'This is an example',category:'announcement'
+    })).status).toBe(403);
   });
   it('never allows restaurant owners to publish',async()=>{
     const f=fixture();
