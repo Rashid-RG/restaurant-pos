@@ -3,6 +3,7 @@ import {createLibsqlStore} from '../lib/libsql-store.js';
 import {runSandboxEmailWorkerTick} from '../lib/communications/platform-sandbox-email-worker.js';
 import {recordVerifiedBrevoEvent} from '../lib/communications/platform-brevo-receipts.js';
 import {previewSandboxOwnerEmailDispatch} from '../lib/communications/platform-email-preview.js';
+import {reconcileStaleSandboxEmailClaims} from '../lib/communications/platform-email-queue.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -126,6 +127,37 @@ describe('sandbox worker against isolated local libSQL, no Brevo network',()=>{
    expect(unknown).toMatchObject({recorded:false,reason:'UNKNOWN_MESSAGE'});
    expect((await db.dbGet(`SELECT eventStatus FROM platform_owner_communication_email_receipts
      WHERE providerMessageId='fake-brevo-accepted-2'`)).eventStatus).toBe('accepted');
+  }finally{db.close()}
+ });
+ it('retains an ambiguous failure for manual review and never retries the provider',async()=>{
+  const db=await sandboxDb();
+  try{
+   const now=Date.now();
+   await db.addNotice('uncertain',now);
+   const fetcher=vi.fn(async()=>{throw new Error('injected provider timeout')});
+   const result=await runSandboxEmailWorkerTick({...db,env,announcementId:'uncertain',now,fetcher});
+   expect(result).toMatchObject({started:true,attempted:1,mailboxDelivered:false});
+   expect(fetcher).toHaveBeenCalledTimes(1);
+   const row=await db.dbGet("SELECT status,lastErrorCode,attemptCount FROM platform_owner_communication_email_queue WHERE announcementId='uncertain'");
+   expect(row).toMatchObject({status:'manual_review',lastErrorCode:'DELIVERY_UNCONFIRMED',attemptCount:1});
+   const retry=await runSandboxEmailWorkerTick({...db,env,announcementId:'uncertain',now:now+2000,fetcher});
+   expect(retry).toMatchObject({started:false,reason:'PREVIEW_NOT_SINGLE_ELIGIBLE'});
+   expect(fetcher).toHaveBeenCalledTimes(1);
+  }finally{db.close()}
+ });
+ it('moves stale sending claims into manual review without resending',async()=>{
+  const db=await sandboxDb();
+  try{
+   const now=Date.now();
+   await db.addNotice('interrupted',now);
+   await db.dbRun("UPDATE platform_owner_communication_email_queue SET status='sending',attemptCount=1,lastAttemptAt=? WHERE announcementId='interrupted'",[now-40*60_000]);
+   const result=await reconcileStaleSandboxEmailClaims({...db,env,now,staleAfterMs:15*60_000});
+   expect(result).toEqual({disabled:false,reviewRequired:1});
+   expect((await db.dbGet("SELECT status,lastErrorCode FROM platform_owner_communication_email_queue WHERE announcementId='interrupted'")))
+     .toMatchObject({status:'manual_review',lastErrorCode:'STALE_SENDING_UNCONFIRMED'});
+   const fetcher=vi.fn();
+   expect((await runSandboxEmailWorkerTick({...db,env,announcementId:'interrupted',now,fetcher})).started).toBe(false);
+   expect(fetcher).not.toHaveBeenCalled();
   }finally{db.close()}
  });
  it('honors verified provider suppression before reserving daily quota',async()=>{
