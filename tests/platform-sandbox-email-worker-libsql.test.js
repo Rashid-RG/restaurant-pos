@@ -129,6 +129,24 @@ describe('sandbox worker against isolated local libSQL, no Brevo network',()=>{
      WHERE providerMessageId='fake-brevo-accepted-2'`)).eventStatus).toBe('accepted');
   }finally{db.close()}
  });
+ it('serializes competing worker quota reservations on the same local database',async()=>{
+  const db=await sandboxDb();
+  try{
+   const now=Date.now();
+   await db.addNotice('parallel_a',now);
+   await db.addNotice('parallel_b',now);
+   const fetcher=vi.fn(async()=>({ok:true,json:async()=>({messageId:'fake-concurrent-accepted'})}));
+   const results=await Promise.all([
+     runSandboxEmailWorkerTick({...db,env,announcementId:'parallel_a',now,fetcher}),
+     runSandboxEmailWorkerTick({...db,env,announcementId:'parallel_b',now,fetcher})
+   ]);
+   expect(results.filter(x=>x.started===true)).toHaveLength(1);
+   expect(results.filter(x=>x.reason==='DAILY_QUOTA_EXHAUSTED')).toHaveLength(1);
+   expect(fetcher).toHaveBeenCalledTimes(1);
+   const day=new Date(now).toISOString().slice(0,10);
+   expect((await db.dbGet('SELECT reservedCount FROM platform_owner_email_sandbox_quota WHERE quotaDay=?',[day])).reservedCount).toBe(1);
+  }finally{db.close()}
+ });
  it('retains an ambiguous failure for manual review and never retries the provider',async()=>{
   const db=await sandboxDb();
   try{
