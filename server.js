@@ -5753,7 +5753,10 @@ app.post('/api/public/driver/availability', authenticateDriver, async (req, res)
   const changed=await dbRun("UPDATE drivers SET status=? WHERE id=? AND tenant_id=? AND status IN ('available','active','busy','offline')",
     [nextStatus,id,t]);
   if(changed.changes!==1)return res.status(409).json({ error:'Driver availability changed. Refresh and retry.' });
-  if(nextStatus!=='available')await riderPresence.revoke(t,id);
+  if(nextStatus!=='available'){
+    try { await riderPresence.revoke(t,id); }
+    catch { console.error('[Driver presence] Could not revoke Redis location immediately; short TTL and current DB availability checks remain enforced.'); }
+  }
   res.set('Cache-Control','no-store').json({ success:true,status:nextStatus,activeDeliveries:Number(active?.total)||0 });
 });
 
