@@ -169,6 +169,12 @@ Authenticated restaurant owner (only own user+tenant):
 - This is **not a deployable automated email service**: operator approval, database isolation confirmation, job scheduling, rate limiting, monitoring, bounce/unsubscribe governance and actual Brevo sandbox end-to-end tests are still missing. The caps reduce but do not eliminate all concurrent-send races during runtime flag changes.
 - Automated tests inject a mock Brevo HTTP response. Do not enable the worker's flags or run it against actual Brevo without a separately authorized isolated-staging smoke test.
 
+### Local database-backed sandbox worker acceptance tests
+- Added `tests/platform-sandbox-email-worker-libsql.test.js`. It creates a temporary **local** libSQL database with the required minimal tables and never reads `TURSO_DATABASE_URL` or actual Brevo credentials.
+- The test performs real SQL queue claims and receipt inserts with a **mock provider**, confirms provider API acceptance does not populate `deliveredAt`, and confirms a second notice cannot exceed the same UTC daily cap.
+- It also inserts historical unsubscribe evidence linked to the same authenticated owner/email and proves that the worker declines to reserve quota or invoke an email provider.
+- These tests validate basic local database behavior only; they do not yet test concurrent remote Turso sessions, Render configuration, live Brevo webhook delivery, power-loss recovery or native client behavior. Commercial sign-off remains pending.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
