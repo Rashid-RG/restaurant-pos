@@ -55,6 +55,17 @@ export async function enrollStagingOwnerPush({
 }={}){
   if(!eligibleStagingOwner(user,capacitor,STAGING_ORIGIN))throw new Error('Owner staging device required.');
   const api=(path,body)=>stagingPushApi(path,body,{fetcher,storage});
+  // Never mutate consent or device tables unless the separately attested
+  // isolated-staging server reports that all enrollment gates are enabled.
+  const jwt=storage.getItem('gastroflow_token');
+  if(!jwt)throw new Error('Sign in to your restaurant account again.');
+  const readinessResponse=await fetcher('/api/owner/communications/push-enrollment-readiness',{
+    method:'GET',credentials:'same-origin',
+    headers:{Authorization:'Bearer '+jwt}
+  });
+  const readiness=await readinessResponse.json().catch(()=>({}));
+  if(!readinessResponse.ok||readiness.enabled!==true)
+    throw new Error('Staging device registration is disabled until database isolation is verified.');
   // Consent is user-initiated, never on app mount or login.
   const result=await api('push-preference',{optedIn:true});
   if(result.optedIn!==true)throw new Error('Push consent was not accepted.');
