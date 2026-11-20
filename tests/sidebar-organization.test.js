@@ -6,6 +6,7 @@ const destinations = readFileSync(new URL('../src/components/WorkspaceTools.jsx'
 const policy = readFileSync(new URL('../src/platform/workspace-policy.js', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
 const settings = readFileSync(new URL('../src/components/Settings.jsx', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8');
 
 describe('GastroFlow organized sidebar safety', () => {
   it('pins Overview then New Sale at the beginning of the main desktop navigation', () => {
@@ -21,6 +22,12 @@ describe('GastroFlow organized sidebar safety', () => {
     expect(app).toContain("case 'menu':");
     expect(app).toContain('<Settings initialSubTab="menu" />');
     expect(settings).toContain('allowed.includes(initialSubTab)');
+  });
+  it('shows selection background only for the active page, including pinned New Sale', () => {
+    expect(sidebar).toContain("activeTab === item.id ? 'active' : ''");
+    expect(css).toContain(".desktop-sidebar .sidebar-new-sale:not(.active) { background:transparent;");
+    expect(css).toContain(".sidebar-item.active {");
+    expect(css).not.toContain(".sidebar-new-sale:not(.active) { background:var(--color-primary-light);");
   });
   it('never requires opening a group to reach the cashier sale screen', () => {
     expect(sidebar.indexOf('{pinned.map(link)}')).toBeLessThan(sidebar.indexOf('{groups.map(group =>'));
