@@ -83,6 +83,17 @@ describe('Sandbox-only platform communication email queue',()=>{
    expect(send).not.toHaveBeenCalled();
    expect(dbRun).not.toHaveBeenCalled();
  });
+ it('records Brevo provider acceptance without claiming mailbox delivery',async()=>{
+   const dbAll=vi.fn(async()=>[{announcementId:'n1',tenantId:'t1',userId:'u1',email:'tester@example.test',status:'pending',attemptCount:0}]);
+   const dbGet=vi.fn(async()=>({title:'Hello',body:'Test message',status:'published',tenantStatus:'active',role:'owner',email:'tester@example.test',isPlatformAdmin:0}));
+   const dbRun=vi.fn(async()=>({changes:1}));
+   const send=vi.fn(async()=>({success:true,provider:'brevo',providerMessageId:'brevo-msg-1'}));
+   const result=await processSandboxOwnerEmailQueue({dbAll,dbGet,dbRun,send,env:active});
+   expect(result.processed).toBe(1);
+   expect(dbRun.mock.calls.some(([sql,args])=>sql.includes('platform_owner_communication_email_receipts')&&args?.[0]==='brevo-msg-1')).toBe(true);
+   const accepted=dbRun.mock.calls.find(([sql])=>sql.includes("SET status='accepted'"));
+   expect(accepted[0]).toContain('deliveredAt=NULL');
+ });
  it('marks ambiguous transport failures for manual review',async()=>{
    const dbAll=vi.fn(async()=>[{announcementId:'a1',tenantId:'tenant_a',userId:'u_a',email:'tester@example.test',status:'pending',attemptCount:0}]);
    const dbGet=vi.fn(async()=>({title:'Hello',body:'Notice',status:'published',tenantStatus:'active',role:'owner',email:'tester@example.test',isPlatformAdmin:0}));
