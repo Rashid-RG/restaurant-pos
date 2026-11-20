@@ -35,7 +35,7 @@ describe('Platform sandbox email dispatch preview',()=>{
   expect(outcome.reasons).toContainEqual({code:'not_pending',count:1});
   expect(JSON.stringify(outcome)).not.toContain('safe@example.test');
   expect(dbRun).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();
-  expect(dbGet).toHaveBeenCalledTimes(1);
+  expect(dbGet).toHaveBeenCalledTimes(2);
  });
  it('rejects suspended owners or changed recipient emails',async()=>{
   const dbAll=vi.fn(async()=>[valid()]);
@@ -45,6 +45,13 @@ describe('Platform sandbox email dispatch preview',()=>{
   dbGet=vi.fn(async()=>identity({email:'changed@example.com'}));
   result=await previewSandboxOwnerEmailDispatch({dbAll,dbGet,announcementId:'notice',env,now:200});
   expect(result.reasons).toContainEqual({code:'email_changed',count:1});
+ });
+ it('identifies verified suppression in a read-only dry-run report',async()=>{
+  const dbAll=vi.fn(async()=>[valid()]);
+  const dbGet=vi.fn(async(sql)=>sql.includes('SELECT 1 AS suppressed')?{suppressed:1}:identity());
+  const outcome=await previewSandboxOwnerEmailDispatch({dbAll,dbGet,announcementId:'notice',env,now:200});
+  expect(outcome).toMatchObject({eligible:0,blocked:1,pending:1});
+  expect(outcome.reasons).toContainEqual({code:'provider_suppressed',count:1});
  });
  it('bounds output size and signals pagination',async()=>{
   const dbAll=vi.fn(async()=>[valid({status:'manual_review'}),valid({status:'manual_review'})]);
