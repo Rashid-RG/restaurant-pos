@@ -25,7 +25,9 @@ export function useStorefront() {
       return open;
     } catch {
       if (getActiveTenant() === requestedTenant) {
-        setState(previous => ({ ...previous, tenantId: requestedTenant, status: 'unavailable' }));
+        setState(previous => previous.tenantId === requestedTenant
+          ? { ...previous, status: 'unavailable' }
+          : { tenantId: requestedTenant, status: 'unavailable', name: '', address: '', phone: '' });
       }
       return false;
     }

@@ -1,3 +1,4 @@
+import { platformPublisher } from '../../../../shared/platform-brand.js';
 import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/checkout-recovery.js';
 import { createSubmissionGuard } from '../utils/submission-guard.js';
 import { recoveryDecision, shouldFinalizeOnlinePayment } from '../utils/order-recovery-status.js';
@@ -1220,7 +1221,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.05rem', borderTop: '1px solid var(--border-color)', paddingTop: 8, marginTop: 4 }}>
               <span>{orderType === 'delivery' && !deliveryQuoteConfirmed ? 'Subtotal estimate · delivery pending' : t.totalPayable}</span><span style={{ color: 'var(--brand)' }}>Rs. {total.toFixed(2)}</span>
             </div>
-            <div className="customer-bill-brand">Powered by <strong>GastroFlow</strong> · Developed by <strong>RS Technologies</strong></div>
+            <div className="customer-bill-brand">Powered by <strong>GastroFlow</strong> · Developed by <strong>{platformPublisher}</strong></div>
           </div>
         </div>
 

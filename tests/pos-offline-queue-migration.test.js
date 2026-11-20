@@ -86,3 +86,21 @@ describe('POS offline sales queue relocation compatibility', () => {
     expect(entries.has('gastroflow_offline_orders:restaurant-A')).toBe(true);
   });
 });
+
+it('syncs neighboring sales after a price dispute without discarding the disputed cash record', async () => {
+  setupStorage();
+  const first = posSave({total:100});
+  const disputed = posSave({total:2000});
+  const last = posSave({total:300});
+  vi.stubGlobal('fetch', vi.fn(async (_, options) => {
+    const ids = JSON.parse(options.body).orders.map(row => row.offlineId);
+    if (ids.includes(disputed.offlineId)) {
+      return {status:409, ok:false, json:async () => ({code:'RECONCILIATION_REQUIRED',error:'Price changed'})};
+    }
+    return {status:200, ok:true, json:async () => ({syncedIds:ids, syncedCount:ids.length})};
+  }));
+  const result = await posFlush();
+  expect(result.syncedIds).toEqual([first.offlineId,last.offlineId]);
+  expect(result.conflicts).toEqual([{offlineId:disputed.offlineId,reason:'Price changed'}]);
+  expect(posGetQueue()).toEqual([disputed]);
+});

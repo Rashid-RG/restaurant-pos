@@ -1,3 +1,4 @@
+import { platformPublisher } from '../../shared/platform-brand.js';
 import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -1700,7 +1701,7 @@ export default function POSView() {
                   </div>
                   <hr style={{ borderStyle: 'dashed' }} />
                   <div style={{ textAlign: 'center', fontSize: '11px', fontWeight: 'bold' }}>
-                    System by RS Technologies
+                    System by {platformPublisher}
                   </div>
                 </div>
 
@@ -1850,7 +1851,7 @@ export default function POSView() {
               </div>
               <div className="receipt-platform-credit">
                 <div>Powered by <strong>GastroFlow</strong></div>
-                <div className="receipt-developed-by">Developed by RS Technologies</div>
+                <div className="receipt-developed-by">Developed by {platformPublisher}</div>
               </div>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { platformPublisher } from '../../shared/platform-brand.js';
 import PlatformOperations from './PlatformOperations';
 import PlatformDriverVerification from './PlatformDriverVerification';
 import PromotionManager from '../components/PromotionManager';
@@ -41,7 +42,7 @@ export default function PlatformAdmin({ embedded = false }) {
   // Branding Settings State
   const [brandingSettings, setBrandingSettings] = useState({
     platformName: 'GastroFlow',
-    platformCompany: 'RS Technologies',
+    platformCompany: platformPublisher,
     platformSlogan: 'Smarter Dining Operations & Cloud POS',
     platformLogoUrl: '/gastroflow-brand.svg?v=1',
     commissionRate: '15',
@@ -996,11 +997,11 @@ export default function PlatformAdmin({ embedded = false }) {
                   required
                   value={brandingSettings.platformCompany || ''}
                   onChange={e => setBrandingSettings({ ...brandingSettings, platformCompany: e.target.value })}
-                  placeholder="e.g. RS Technologies"
+                  placeholder={platformPublisher}
                   style={{ width: '100%', height: '40px' }}
                 />
                 <small style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                  Appears in all audit statement PDF footers, system labels, and Z-Reports (e.g. "Platform Engineered by RS Technologies").
+                  Appears in all audit statement PDF footers, system labels, and Z-Reports (e.g. "Platform Engineered by {platformPublisher}").
                 </small>
               </div>
 

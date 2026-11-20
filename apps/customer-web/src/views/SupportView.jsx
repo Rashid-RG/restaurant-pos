@@ -4,7 +4,7 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 
-export default function SupportView({ onBack, toast = () => {} }) {
+export default function SupportView({ store, onBack, toast = () => {} }) {
   const { t } = useLang();
   const { customer } = useCustomerAuth();
 
@@ -156,22 +156,9 @@ export default function SupportView({ onBack, toast = () => {} }) {
 
  
 
-  const [storeInfo, setStoreInfo] = useState({ name: 'GastroFlow Bistro', phone: '0752237947' });
-
-  useEffect(() => {
-    apiFetch('/public/menu')
-      .then(data => {
-        if (data) {
-          setStoreInfo({
-            name: data.restaurantName || 'GastroFlow Bistro',
-            phone: data.storePhone || '0752237947'
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const cleanPhone = storeInfo.phone.replace(/\D/g, '');
+  const storeInfo = store?.tenantId === getActiveTenant() && store?.name
+    ? store : {name:'Select a restaurant', phone:''};
+  const cleanPhone = String(storeInfo.phone || '').replace(/\D/g, '');
   const waPhone = cleanPhone.startsWith('0') ? '94' + cleanPhone.slice(1) : cleanPhone;
   const waLink = `https://wa.me/${waPhone}?text=${encodeURIComponent(`Hi ${storeInfo.name}, I have an order enquiry.`)}`;
 
@@ -206,7 +193,8 @@ export default function SupportView({ onBack, toast = () => {} }) {
         </div>
       </div>
 
-      {/* Direct Store Hotline Quick Cards */}
+      {/* Direct contact is available only for a configured restaurant number. */}
+      {/^\d{7,15}$/.test(cleanPhone) && (
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
         <a href={waLink} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>
           <div style={{ background: '#25D36615', border: '1px solid #25D36650', borderRadius: 14, padding: 16, textAlign: 'center', color: '#25D366', cursor: 'pointer' }}>
@@ -224,6 +212,8 @@ export default function SupportView({ onBack, toast = () => {} }) {
           </div>
         </a>
       </div>
+
+      )}
 
       {/* New Support Ticket Form */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 20, marginBottom: 24, boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>

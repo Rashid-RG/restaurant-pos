@@ -1,3 +1,6 @@
+import PendingOrderEmails from './PendingOrderEmails.jsx';
+import PendingDeviceSales from './PendingDeviceSales.jsx';
+import { platformPublisher } from '../../shared/platform-brand.js';
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   Calendar, ChevronLeft, ChevronRight, Download, Printer, Filter, 
@@ -13,7 +16,7 @@ export default function Dashboard() {
   const timeZone = restaurantTimeZone(settings);
 
   // Shop details
-  const shopName = settings?.businessName || settings?.restaurantName || 'KB2C';
+  const shopName = settings?.businessName || settings?.restaurantName || 'Restaurant';
   const shopLogo = settings?.logoUrl || settings?.restaurantLogo || settings?.logo || null;
 
   // ─── Date Filter States ──────────────────────────────────────────────────
@@ -770,14 +773,14 @@ export default function Dashboard() {
                 <span>Smarter Dining Operations & Cloud POS</span>
               </div>
               <div style={{ fontSize: '9px', color: '#4b5563', marginTop: '2px' }}>
-                Platform Engineered & Powered by <strong>{settings?.platformCompany || 'RS Technologies'}</strong> • All Rights Reserved
+                Platform Engineered & Powered by <strong>{settings?.platformCompany || platformPublisher}</strong> • All Rights Reserved
               </div>
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div>Official Financial Statement • Store: <strong style={{ color: '#111827' }}>{shopName}</strong></div>
             <div style={{ fontSize: '9px', color: '#6b7280', marginTop: '2px' }}>
-              System by <strong>{settings?.platformCompany || 'RS Technologies'}</strong> • www.gastroflow.lk
+              System by <strong>{settings?.platformCompany || platformPublisher}</strong> • www.gastroflow.lk
             </div>
           </div>
         </div>
@@ -787,6 +790,8 @@ export default function Dashboard() {
 
   return (
     <div className="main-content">
+      <PendingDeviceSales key={currentUser?.tenant_id} />
+      {['manager','owner'].includes(currentUser?.role) && <PendingOrderEmails key={currentUser.tenant_id} />}
       {/* Top Header */}
       <div className="view-header">
         <div className="view-title">

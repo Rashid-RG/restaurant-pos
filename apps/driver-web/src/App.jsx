@@ -7,7 +7,7 @@ import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModa
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import SystemUpdatePrompt from '../../customer-web/src/components/SystemUpdatePrompt.jsx';
-import {shouldSendDriverFix} from './utils/gps-transmission.js';
+import {shouldSendDriverFix,validDriverFix} from './utils/gps-transmission.js';
 import {Capacitor,CapacitorHttp,registerPlugin} from '@capacitor/core';
 import {createNativeTrackingSession} from '../../driver-native/src/background-tracker.js';
 import {createDispatchRequestGate,createDispatchTimeout,latestDispatchTickets} from './utils/dispatch-sync.js';
@@ -217,7 +217,7 @@ export default function App() {
       if(next==='offline'){
         if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
         nativeTrackingRef.current=null;
-        setIsGpsActive(false);setGpsQuality('off');
+        setIsGpsActive(false);setGpsQuality('off');setLastCoords(null);
         discoveryConsentRef.current=false;setDiscoveryConsent(false);
         lastPresenceSentRef.current=null;
         if(discoveryPilotEnabled)void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
@@ -333,7 +333,7 @@ export default function App() {
       if(isGpsActive){
         if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
         nativeTrackingRef.current=null;
-        setIsGpsActive(false);setGpsQuality('off');
+        setIsGpsActive(false);setGpsQuality('off');setLastCoords(null);
         discoveryConsentRef.current=false;setDiscoveryConsent(false);
         return;
       }
@@ -368,6 +368,7 @@ export default function App() {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       setIsGpsActive(false);
       setWatchId(null);
+      setLastCoords(null);
       setGpsQuality('off');
       lastBroadcastRef.current = null;
       lastFixRef.current = null;
@@ -449,13 +450,14 @@ export default function App() {
 
   const handleUpdateStatus = async (orderId, newStatus, proof = null) => {
     try {
+      const fix = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords) ? lastCoords : null;
       const result = await apiFetch('/public/driver/status', {
         method: 'POST',
         body: JSON.stringify({
           orderId,
           status: newStatus,
-          lat: lastCoords?.lat,
-          lng: lastCoords?.lng,
+          lat: fix?.lat,
+          lng: fix?.lng,
           signature: proof?.signature,
           deliveryPhoto: proof?.photo,
           cashReceived: proof?.cashReceived
@@ -866,7 +868,7 @@ export default function App() {
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-main)' }}>🛵 {driver.name}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {gpsQuality === 'good' && lastCoords ? `Device location ±${Math.round(lastCoords.accuracyMeters)}m · ${new Date(lastCoords.recordedAt).toLocaleTimeString()}` : gpsQuality === 'weak' ? 'Weak location signal · not sharing' : gpsQuality === 'denied' ? 'Location permission denied' : 'Live location inactive'}
+                  {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {gpsQuality === 'good' && validDriverFix(lastCoords,driverClock) ? `Device location ±${Math.round(lastCoords.accuracyMeters)}m · ${new Date(lastCoords.recordedAt).toLocaleTimeString()}` : gpsQuality === 'good' ? 'Waiting for a fresh location' : gpsQuality === 'weak' ? 'Weak location signal · not sharing' : gpsQuality === 'denied' ? 'Location permission denied' : 'Live location inactive'}
                 </div>
               </div>
               <div className="driver-controls-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -911,7 +913,7 @@ export default function App() {
                 <div style={{ display: 'grid', gap: 12 }}>
                   {availableOrders.map(ord => {
                     // Calculate driver-to-destination distance
-                    const dropKm = (lastCoords && ord.deliveryLat && ord.deliveryLng)
+                    const dropKm = (isGpsActive && validDriverFix(lastCoords,driverClock) && ord.deliveryLat && ord.deliveryLng)
                       ? haversineKm(lastCoords.lat, lastCoords.lng, ord.deliveryLat, ord.deliveryLng)
                       : (ord.deliveryLat && ord.deliveryLng)
                         ? haversineKm(STORE_LAT, STORE_LNG, ord.deliveryLat, ord.deliveryLng)

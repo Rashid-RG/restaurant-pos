@@ -1,3 +1,4 @@
+import { platformPublisher } from '../../../shared/platform-brand.js';
 import { showHostedDriverShortcut } from './utils/native-driver-link-policy.js';
 import { ShoppingBag, Store, Utensils, Package, UserRound, Headphones, Bike, LogIn } from 'lucide-react';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
@@ -239,7 +240,7 @@ function InnerApp({ switchRestaurant }) {
   const [aiCustomize, setAiCustomize] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
-  const { items, totalItems, setCartOpen, cartOpen } = useCart();
+  const { items, totalItems, subtotal, setCartOpen, cartOpen } = useCart();
   const { store, canOrder, refreshStore } = useStorefront();
   const { messages, toast } = useToast();
   const { t, lang, setLang, languages } = useLang();
@@ -302,6 +303,10 @@ function InnerApp({ switchRestaurant }) {
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('view', v);
+      // Once the customer navigates away, refresh must open the current screen.
+      for (const param of ['legal','policies','page']) url.searchParams.delete(param);
+      if (v !== 'track') url.searchParams.delete('track');
+      if (v !== 'account') url.searchParams.delete('reset');
       Object.entries(extraParams).forEach(([k, val]) => {
         if (val !== null && val !== undefined) url.searchParams.set(k, val);
         else url.searchParams.delete(k);
@@ -427,17 +432,15 @@ function InnerApp({ switchRestaurant }) {
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
         {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
-        {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
-        {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
+        {view === 'support' && <SupportView store={store} onBack={() => navigate('menu')} toast={toast} />}
+        {view === 'legal' && <LegalPoliciesView store={store} onSupport={() => navigate('support')} onBack={() => navigate('menu')} />}
 
-        {/* A compact policy entry replaces the oversized legal footer in food browsing.
-            Full policies remain available inside the legal view. */}
         {view === 'restaurants' && (
           <div className="customer-mobile-policy-link">
             <button type="button" onClick={() => navigate('legal')}>
-              Policies, refunds & delivery information
+              Ordering, refunds & delivery help
             </button>
-            <span>GastroFlow Food · RS Technologies</span>
+            <span>GastroFlow Food · {platformPublisher}</span>
           </div>
         )}
       </main>
@@ -449,10 +452,10 @@ function InnerApp({ switchRestaurant }) {
           cannot move it under the fixed bottom navigation. */}
       {view === 'store-menu' && totalItems > 0 && !cartOpen && (
         <div className="customer-fixed-cart-action">
-          <button type="button" onClick={() => setCartOpen(true)} aria-label={`View cart containing ${totalItems} items`}>
+          <button type="button" onClick={() => setCartOpen(true)}>
             <ShoppingBag size={19}/>
-            <span>View Cart</span>
-            <strong>{totalItems}</strong>
+            <span className="cart-shortcut-label">{t('viewCart')} <b>{totalItems}</b></span>
+            <span className="cart-shortcut-price"><small>{t('subtotal')}</small>Rs. {subtotal.toFixed(2)}</span>
           </button>
         </div>
       )}

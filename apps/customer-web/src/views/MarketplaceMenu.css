@@ -41,3 +41,4 @@
 @media(max-width:600px){.marketplace-menu{padding:12px 12px 110px}.marketplace-hero{padding:23px;border-radius:22px}.marketplace-item-grid{gap:12px}.marketplace-item-image{height:150px}.marketplace-item-info{padding:12px;min-height:148px}.marketplace-item-info h3{font-size:14px}.marketplace-item-footer strong{font-size:15px}.marketplace-item-footer button{font-size:11px;padding:9px}.marketplace-store-grid{grid-template-columns:1fr}.marketplace-results-title h2{font-size:21px}}
 @media(max-width:350px){.marketplace-item-grid{grid-template-columns:1fr}.marketplace-item-image{height:200px}}
 @media(prefers-reduced-motion:reduce){.marketplace-item-image img{transition:none}.marketplace-item:hover .marketplace-item-image img{transform:none}}
+.marketplace-more { display:block; margin:20px auto; border:1px solid #297254; border-radius:12px; background:white; padding:12px 18px; color:#15583e; font:inherit; cursor:pointer; }

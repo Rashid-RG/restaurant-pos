@@ -1,3 +1,4 @@
+import { platformPublisher } from '../../../../shared/platform-brand.js';
 import { getActiveTenant } from '../utils/tenant.js';
 import { AnimatedFeatureIcon } from '../../../../shared/ui/AnimatedFeatureIcon.jsx';
 import React, { useState, useEffect, useRef } from 'react';
@@ -734,7 +735,7 @@ export default function OrderTrackingView({ orderId, onBack, toast = () => {} })
               <span style={{ color: 'var(--brand)' }}>Rs. {Number(order.total || 0).toFixed(2)}</span>
             </div>
 
-            <div className="customer-receipt-powered">Powered by <strong>GastroFlow</strong><span>Developed by RS Technologies</span></div>
+            <div className="customer-receipt-powered">Powered by <strong>GastroFlow</strong><span>Developed by {platformPublisher}</span></div>
             <button type="button" className="customer-print-receipt" onClick={() => window.print()}>🧾 Print / Save receipt</button>
             {canCancel && (
               <button

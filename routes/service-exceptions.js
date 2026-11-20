@@ -29,6 +29,15 @@ export function createServiceExceptions({
   );
   const fail = (message, code = 400) =>
     Object.assign(new Error(message), { code });
+  router.get("/service-exceptions/order-emails", async (req, res, next) => {
+    try {
+      const pending = await dbAll(
+        `SELECT orderId,status,attempts,availableAt FROM order_stage_email_queue
+         WHERE tenant_id=? AND sentAt IS NULL ORDER BY id LIMIT 100`, [req.tenantId],
+      );
+      res.set('Cache-Control','no-store').json(pending);
+    } catch (error) { next(error); }
+  });
   router.get("/service-exceptions", async (req, res, next) => {
     try {
       res.json(

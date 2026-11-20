@@ -1,5 +1,5 @@
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
-import {initOrderStatusEmail,sendOrderStatusEmail} from './lib/order-status-email.js';
+import {initOrderStatusEmail,deliverPendingStageEmails} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview, requiredLicenceClass, managerLicenceClassMatches } from './lib/driver-onboarding.js';
 import { DRIVER_DOCUMENT_KINDS, manualDocumentKey, manualDocumentsConfigured, decodeManualDocument, encryptManualDocument, decryptManualDocument, documentKindsForVehicle, documentKindsForIdentity } from './lib/driver-manual-documents.js';
@@ -995,7 +995,6 @@ async function initTables() {
     `);
 
     await initCustomerPush(dbRun);
-    await initOrderStatusEmail(dbRun);
 
     // 23. Timeclock Entries Table (Staff shift tracking)
     await dbRun(`
@@ -1398,6 +1397,7 @@ async function initTables() {
     await initExpensesTable(dbRun);
     await initStaffPayroll(dbRun);
     await initWorkday(dbRun);
+    await initOrderStatusEmail(dbRun);
     await seedDatabase();
     // A singleton records platform ownership independently of restaurant roles.
     await dbRun(`CREATE TABLE IF NOT EXISTS platform_ownership (
@@ -5456,12 +5456,7 @@ function notifyPublicStore(eventData, tenantId) {
 function notifyOrderUpdate(orderId, orderData) {
   if (orderData?.tenant_id) {
     void sendOrderPush(dbAll,dbRun,orderId,orderData.tenant_id,orderData.status).catch(()=>{});
-    // Read the saved tenant-bound order again after its committed transition.
-    // Stage emails are idempotent and must never block kitchen or driver actions.
-    void sendOrderStatusEmail({
-      dbGet, dbRun, orderId, tenantId:orderData.tenant_id,
-      status:orderData.status, customerAppUrl:customerAppUrl()
-    }).catch(error=>console.error('[Order stage email]',error.message));
+
   }
   notifyOrderStream(orderId, orderData);
   notifyPOS({ type: 'order_updated', orderId, order: orderData }, orderData?.tenant_id);
@@ -6078,10 +6073,6 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
       // provider outage. The persisted push receipt suppresses successful
       // sends; failed sends may be retried without touching proof or settlement.
       void sendOrderPush(dbAll,dbRun,orderId,t,'delivered').catch(()=>{});
-      void sendOrderStatusEmail({
-        dbGet, dbRun, orderId, tenantId:t,
-        status:'delivered', customerAppUrl:customerAppUrl()
-      }).catch(error=>console.error('[Order stage email]',error.message));
       return res.json({ success: true, status, proof: existingProof, alreadySaved: true });
     }
     const transitions = {
@@ -7999,6 +7990,7 @@ app.use((err, req, res, next) => {
 
 // Start Server — skip when imported by the test runner (supertest drives `app` directly).
 let server = null;
+let emailTimer;
 let pushRecoveryTimer = null;
 let databaseProbeTimer=null;
 let databaseProbeBusy=false;
@@ -8032,6 +8024,17 @@ if (!process.env.VITEST) {
         console.error('[Database readiness]',error?.message||'Health probe failed');
       }finally{if(timer)clearTimeout(timer);databaseProbeBusy=false;}
     };
+    let deliveringEmails = false;
+    const deliverEmails = async () => {
+      if (deliveringEmails) return;
+      deliveringEmails = true;
+      try { await deliverPendingStageEmails({dbAll,dbGet,dbRun,customerAppUrl:customerAppUrl()}); }
+      catch (error) { console.error('[Order stage email queue]',error.message); }
+      finally { deliveringEmails = false; }
+    };
+    void deliverEmails();
+    emailTimer = setInterval(deliverEmails,15000);
+    emailTimer.unref();
     void probe();
     databaseProbeTimer=setInterval(()=>void probe(),30000);
     databaseProbeTimer.unref();
@@ -8060,6 +8063,7 @@ if (!process.env.VITEST) {
 // Graceful Shutdown Handler
 const handleGracefulShutdown = (signal) => {
   if (!server) return;
+  clearInterval(emailTimer);
   if(pushRecoveryTimer){clearInterval(pushRecoveryTimer);pushRecoveryTimer=null;}
   if(databaseProbeTimer){clearInterval(databaseProbeTimer);databaseProbeTimer=null;}
   console.log(`\n[Server] ${signal} signal received. Initiating graceful shutdown...`);

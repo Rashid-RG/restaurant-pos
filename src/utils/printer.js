@@ -35,6 +35,10 @@ export function resolvePrinterPaperSize(settingValue) {
   return '80mm';
 }
 
+function escapePrintText(value) {
+  return String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+}
+
 export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
   const paper = resolvePrinterPaperSize(settings.printerPaperWidth);
   const storeName = settings.restaurantName || settings.businessName || 'GastroFlow Store';
@@ -77,7 +81,7 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
       <body>
         <div class="center">
           <div style="font-size: 24px;">🍽️</div>
-          <h3 style="margin: 2px 0; font-size: 15px; text-transform: uppercase;">${storeName}</h3>
+          <h3 style="margin: 2px 0; font-size: 15px; text-transform: uppercase;">${escapePrintText(storeName)}</h3>
           <p style="margin: 2px 0; font-size: 11px;">PRINTER ALIGNMENT TEST SLIP</p>
           <p style="margin: 2px 0; font-size: 11px;">Profile: ${paper.toUpperCase()} (${paperWidth})</p>
         </div>
@@ -86,13 +90,13 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
         <div class="row"><span>Paper Setting:</span><span class="bold">${paper.toUpperCase()}</span></div>
         <div class="row"><span>Device Width:</span><span>${window.innerWidth}px</span></div>
         <div class="divider"></div>
-        <div class="row"><span>1x Sample Burger</span><span>${currencySymbol} 850.00</span></div>
-        <div class="row"><span>1x Fresh Orange Juice</span><span>${currencySymbol} 450.00</span></div>
+        <div class="row"><span>1x Sample Burger</span><span>${escapePrintText(currencySymbol)} 850.00</span></div>
+        <div class="row"><span>1x Fresh Orange Juice</span><span>${escapePrintText(currencySymbol)} 450.00</span></div>
         <div class="divider"></div>
-        <div class="row bold" style="font-size: 14px;"><span>TEST TOTAL:</span><span>${currencySymbol} 1,300.00</span></div>
+        <div class="row bold" style="font-size: 14px;"><span>TEST TOTAL:</span><span>${escapePrintText(currencySymbol)} 1,300.00</span></div>
         <div class="divider"></div>
         <div class="center" style="margin-top: 10px;">
-          <p class="bold">✅ Printer Connected Correctly!</p>
+          <p class="bold">Check text alignment and paper cut.</p>
           <p style="font-size: 10px;">GastroFlow Intelligent POS Print Engine</p>
         </div>
         <script>

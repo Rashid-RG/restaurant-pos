@@ -1,3 +1,4 @@
+import { platformPublisher } from '../../shared/platform-brand.js';
 import React,{useEffect,useMemo,useState} from 'react';
 import {ShieldCheck,Building2,RefreshCw,Search,Clock3,ClipboardCheck,AlertCircle,LockKeyhole} from 'lucide-react';
 
@@ -37,7 +38,7 @@ export default function PlatformDriverVerification(){
  ];
  return <section aria-label="Platform driver verification oversight" className="platform-operations" style={{display:'grid',gap:20}}>
    <header style={{display:'flex',gap:14,alignItems:'start',justifyContent:'space-between',flexWrap:'wrap'}}>
-    <div><span style={{fontWeight:700,fontSize:12,letterSpacing:1.4,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:7}}><ShieldCheck size={17}/> RS TECHNOLOGIES · OVERSIGHT</span>
+    <div><span style={{fontWeight:700,fontSize:12,letterSpacing:1.4,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:7}}><ShieldCheck size={17}/> {platformPublisher.toUpperCase()} · OVERSIGHT</span>
      <h2 style={{fontSize:'clamp(1.5rem,3vw,2.1rem)',margin:'10px 0 6px'}}>Driver verification overview</h2>
      <p style={{color:'var(--text-muted)',margin:0,maxWidth:700}}>Monitor verification progress across restaurants without exposing private identity evidence. All document review and final approval remain restaurant-owned.</p>
     </div>
@@ -45,12 +46,12 @@ export default function PlatformDriverVerification(){
    </header>
    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(165px,1fr))',gap:12}}>
     {metrics.map(({label,value,icon:Icon})=><article key={label} style={{border:'1px solid var(--border-color)',background:'var(--bg-card)',borderRadius:16,padding:18}}>
-      <Icon size={20} color="#059669"/><div style={{fontSize:30,fontWeight:850,margin:'8px 0 3px',fontVariantNumeric:'tabular-nums'}}>{value}</div><small style={{color:'var(--text-muted)'}}>{label}</small>
+      <Icon size={20} color="#059669"/><div style={{fontSize:30,fontWeight:850,margin:'8px 0 3px',fontVariantNumeric:'tabular-nums'}}>{data && !error ? value : '—'}</div><small style={{color:'var(--text-muted)'}}>{label}</small>
     </article>)}
    </div>
    <section style={{border:'1px solid var(--border-color)',background:'var(--bg-card)',borderRadius:17,padding:20,display:'grid',gap:14}}>
      <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',justifyContent:'space-between'}}>
-      <div><h3 style={{margin:0}}>Restaurant review queues</h3><p style={{color:'var(--text-muted)',fontSize:12,margin:'5px 0 0'}}>Only opted-in restaurant names and aggregate counts, never applicant details</p></div>
+      <div><h3 style={{margin:0}}>Restaurant review queues</h3><p style={{color:'var(--text-muted)',fontSize:12,margin:'5px 0 0'}}>Restaurants with pending applications. Counts reflect those applications.</p></div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
        <label style={{display:'flex',alignItems:'center',gap:7,border:'1px solid var(--border-color)',borderRadius:11,padding:'6px 10px'}}><Search size={15}/><input aria-label="Search restaurants" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search restaurants" style={{border:0,background:'transparent',color:'inherit',maxWidth:180}}/></label>
        <select aria-label="Filter restaurant queues" value={filter} onChange={e=>setFilter(e.target.value)} style={{borderRadius:11,padding:9,background:'var(--bg-card)',color:'inherit',border:'1px solid var(--border-color)'}}>
@@ -60,7 +61,7 @@ export default function PlatformDriverVerification(){
      </div>
      {loading&&<p role="status">Loading protected platform metrics…</p>}
      {error&&<p role="alert" style={{color:'#dc2626'}}>{error}</p>}
-     {!loading&&!error&&rows.length===0&&<p style={{padding:25,textAlign:'center',color:'var(--text-muted)'}}>No restaurants match these filters.</p>}
+     {!loading&&!error&&rows.length===0&&<p style={{padding:25,textAlign:'center',color:'var(--text-muted)'}}>{all.length ? 'No restaurants match these filters.' : 'No rider applications are awaiting restaurant review.'}</p>}
      {!loading&&!error&&rows.length>0&&<div style={{overflowX:'auto'}}><table style={{width:'100%',minWidth:680,borderCollapse:'collapse',fontSize:13}}>
       <thead><tr><th style={{textAlign:'left',padding:12}}>Restaurant</th><th>Pending</th><th>Manual passed</th><th>Resubmit</th><th>Rejected review</th><th>Provider ID</th><th>Provider licence</th></tr></thead>
       <tbody>{rows.map(item=><tr key={item.tenantId} style={{borderTop:'1px solid var(--border-color)'}}>

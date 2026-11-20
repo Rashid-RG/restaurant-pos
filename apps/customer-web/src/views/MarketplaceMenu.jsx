@@ -1,6 +1,6 @@
 import { resolveCustomerImageUrl } from '../utils/native-image-url.js';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Store, ArrowUpRight, UtensilsCrossed, RefreshCw, MapPin, ShoppingBag } from 'lucide-react';
+import { Search, Store, ArrowUpRight, RefreshCw, MapPin, ShoppingBag } from 'lucide-react';
 import { apiFetch, apiUrl } from '../utils/api.js';
 import { marketplaceReadSignal } from '../utils/native-marketplace-timeout.js';
 import './MarketplaceMenu.css';
@@ -17,6 +17,8 @@ export default function MarketplaceMenu({ onChooseStore }) {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [promotionCount,setPromotionCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [failedMenus, setFailedMenus] = useState(0);
+  const [limit, setLimit] = useState(24);
   const [menusLoaded, setMenusLoaded] = useState(0);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -39,6 +41,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
       setError('');
       setMenus({});
       setMenusLoaded(0);
+      setFailedMenus(0);
       try {
         const discovered = await apiFetch('/public/restaurants', {
           cache: 'no-store',
@@ -64,6 +67,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
             return { id: store.id, data };
           }));
           if (cancelled) return;
+          setFailedMenus(count => count + results.filter(result => result.status === 'rejected').length);
           setMenusLoaded(count => count + batch.length);
           setMenus(previous => {
             const next = { ...previous };
@@ -96,7 +100,7 @@ export default function MarketplaceMenu({ onChooseStore }) {
       // Never show internal category IDs (cat_*) in customer-facing filters.
       if (category && category.length <= 32 && !/^cat[_-]/i.test(category)) names.add(category);
     }
-    return ['All', ...Array.from(names).slice(0, 6)];
+    return ['All', ...Array.from(names)];
   }, [allItems]);
 
   const visibleItems = useMemo(() => {
@@ -123,11 +127,10 @@ export default function MarketplaceMenu({ onChooseStore }) {
   return <div className="marketplace-menu">
     <PromotionShowcase stores={stores} itemImages={promotionImages} onChooseStore={onChooseStore} onCampaignCount={setPromotionCount}/>
     <section className={'marketplace-hero '+(promotionCount>0?'has-live-promotions':'')} >
-      <div className="marketplace-eyebrow"><UtensilsCrossed size={17}/> EXPLORE GASTROFLOW</div>
       {promotionCount===0 && <div className="marketplace-hero-layout">
         <div className="marketplace-hero-copy">
           <h1>What are you craving today?</h1>
-          <p>Delicious meals from local kitchens, ready when you are.</p>
+
         </div>
         <div className="marketplace-hero-visual" aria-hidden="true">
           {heroFoodImage
@@ -138,23 +141,28 @@ export default function MarketplaceMenu({ onChooseStore }) {
       <label className="marketplace-search">
         <Search size={21} aria-hidden="true"/>
         <span className="sr-only">Search available menus</span>
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search dishes, restaurants or cuisines…" autoComplete="off"/>
+        <input value={query} onChange={e => { setQuery(e.target.value); setLimit(24); }} placeholder="Search dishes, restaurants or cuisines…" autoComplete="off"/>
       </label>
       <div className="marketplace-stats"><span><Store size={16}/> {stores.length} open restaurants</span><span><ShoppingBag size={16}/> {allItems.length} available dishes</span></div>
     </section>
     {categories.length > 1 && <div className="marketplace-category-row" role="group" aria-label="Filter dishes by category">
-      {categories.map(category => <button key={category} type="button" className={selectedCategory === category ? 'is-active' : ''} aria-pressed={selectedCategory === category} onClick={() => setSelectedCategory(category)}>{category === 'All' ? 'All dishes' : category}</button>)}
+      {categories.map(category => <button key={category} type="button" className={selectedCategory === category ? 'is-active' : ''} aria-pressed={selectedCategory === category} onClick={() => { setSelectedCategory(category); setLimit(24); }}>{category === 'All' ? 'All dishes' : category}</button>)}
     </div>}
 
     {error && <div className="marketplace-error" role="alert">{error}<button type="button" onClick={() => setRefresh(n => n + 1)}><RefreshCw size={16}/> Retry</button></div>}
     {loading && <p className="marketplace-loading" role="status">Loading menus from available restaurants… {menusLoaded}/{stores.length}</p>}
     {!loading && !error && stores.length === 0 && <div className="marketplace-empty"><Store size={34}/><h2>No stores accepting online orders</h2><p>Please check again later or browse the Stores tab.</p></div>}
-    {!loading && !error && stores.length > 0 && visibleItems.length === 0 && <div className="marketplace-empty"><Search size={32}/><h2>No matching dishes found</h2><p>Try another search or select a restaurant in Stores.</p></div>}
+    {!loading && !error && failedMenus > 0 && <div className="marketplace-error" role="status">
+      {failedMenus} restaurant {failedMenus === 1 ? 'menu is' : 'menus are'} temporarily unavailable.
+      <button type="button" onClick={() => setRefresh(n => n + 1)}><RefreshCw size={16}/> Retry menus</button>
+    </div>}
+    {!loading && !error && failedMenus < stores.length && visibleItems.length === 0 && <div className="marketplace-empty"><Search size={32}/><h2>No matching dishes found</h2><p>Try another search or select a restaurant in Stores.</p>
+      {(query || selectedCategory !== 'All') && <button className="btn btn-outline" onClick={() => { setQuery(''); setSelectedCategory('All'); setLimit(24); }}>Clear filters</button>}</div>}
 
     {visibleItems.length > 0 && <>
-      <div className="marketplace-results-title"><div><span>MADE FOR YOUR APPETITE</span><h2>Explore delicious picks</h2></div><small>{visibleItems.length} result{visibleItems.length === 1 ? '' : 's'}</small></div>
+      <div className="marketplace-results-title"><div><h2>Available dishes</h2></div><small>{visibleItems.length} result{visibleItems.length === 1 ? '' : 's'}</small></div>
       <div className="marketplace-item-grid">
-        {visibleItems.map(({ item, store }) => <article className="marketplace-item" key={`${store.id}:${item.id}`}>
+        {visibleItems.slice(0,limit).map(({ item, store }) => <article className="marketplace-item" key={`${store.id}:${item.id}`}>
           <div className="marketplace-item-image">
             {item.imageUrl ? <img src={resolveCustomerImageUrl(item.imageUrl,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})} loading="lazy" alt={item.name}/> : <div className="marketplace-item-fallback" aria-hidden="true">{item.emoji || '🍽️'}</div>}
             <span className="marketplace-item-store"><Store size={13}/> {store.name}</span>
@@ -168,9 +176,10 @@ export default function MarketplaceMenu({ onChooseStore }) {
           </div>
         </article>)}
       </div>
+      {visibleItems.length > limit && <button className="marketplace-more" type="button" onClick={() => setLimit(n => n + 24)}>Show more dishes ({visibleItems.length - limit} remaining)</button>}
     </>}
     {stores.length > 0 && <section className="marketplace-restaurants">
-      <div className="marketplace-results-title"><div><span>LOCAL FAVORITES</span><h2>Choose your kitchen</h2></div></div>
+      <div className="marketplace-results-title"><div><h2>Choose your kitchen</h2></div></div>
       <div className="marketplace-store-grid">{stores.map(store => <button type="button" key={store.id} className="marketplace-store" onClick={() => onChooseStore(store)}>
         <div className="marketplace-store-icon"><Store size={23}/></div><div><strong>{store.name}</strong><small><MapPin size={12}/>{store.location || store.cuisine || 'Restaurant'}</small></div><ArrowUpRight size={20}/>
       </button>)}</div>
