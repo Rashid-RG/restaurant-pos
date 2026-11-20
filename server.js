@@ -24,6 +24,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import {createRiderPresence} from './lib/delivery/rider-presence.js';
+import {rankDispatchRiders} from './lib/delivery/smart-dispatch.js';
 import {createRedisRiderPresence} from './lib/delivery/redis-rider-presence.js';
 import {createRedisRespClient} from './lib/delivery/redis-resp-client.js';
 import {createRiderPresenceRouter} from './routes/rider-presence.js';
@@ -3370,10 +3371,6 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     const order = await dbGet("SELECT deliveryLat, deliveryLng, customerName FROM orders WHERE id = ? AND tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId = '')", [orderId,tenantId]);
     if (!order || !order.deliveryLat || !order.deliveryLng) return;
 
-    // Recent GPS pings must resolve to verified, tenant-bound driver IDs.
-    const recentFixSince = Date.now() - 5 * 60 * 1000;
-    const driverPings = await loadVerifiedDispatchPings(dbAll,tenantId,recentFixSince);
-
     // Never rank drivers relative to fabricated default store coordinates.
     const dispatchStore = await getSettingsMap(tenantId, ['storeLat', 'storeLng']);
     const storeLat = Number(dispatchStore.storeLat);
@@ -3384,14 +3381,34 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
       return;
     }
 
-    // Calculate distance from each driver to the STORE (pickup point)
-    const driversWithDistance = driverPings.map(d => ({
-      ...d,
-      distToStore: haversineDistanceKm(d.lat, d.lng, storeLat, storeLng)
-    }));
-
-    // Sort by distance to store (nearest first)
-    driversWithDistance.sort((a, b) => a.distToStore - b.distToStore);
+    const smartDispatchEnabled=process.env.GASTROFLOW_SMART_DISPATCH_PILOT==='true' &&
+      process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true';
+    let driversWithDistance;
+    if(smartDispatchEnabled){
+      // This opt-in path uses fresh, consented, tenant-isolated rider presence,
+      // H3 proximity and OSRM travel estimates. No old order GPS fallback.
+      const ranked=await rankDispatchRiders({
+        tenantId,pickup:{lat:storeLat,lng:storeLng},presence:riderPresence,
+        dbAll,estimateRoad:async({from,to})=>{
+          if(!routingOrigin())return null;
+          const route=await fetchRoadRoute({from,to});
+          return route?.available?route.travelMinutes:null;
+        }
+      });
+      driversWithDistance=ranked.map(d=>({
+        driverId:d.driverId,distToStore:d.distanceMeters/1000,
+        roadTravelMinutes:d.roadTravelMinutes
+      }));
+    }else{
+      // Preserve the existing legacy dispatch policy until a manager explicitly
+      // enables the new rider-presence pilot on isolated staging data.
+      const recentFixSince=Date.now()-5*60*1000;
+      const driverPings=await loadVerifiedDispatchPings(dbAll,tenantId,recentFixSince);
+      driversWithDistance=driverPings.map(d=>({
+        ...d,distToStore:haversineDistanceKm(d.lat,d.lng,storeLat,storeLng)
+      }));
+      driversWithDistance.sort((a,b)=>a.distToStore-b.distToStore);
+    }
 
     // Check which drivers are currently NOT on an active delivery
     for (const driver of driversWithDistance) {
