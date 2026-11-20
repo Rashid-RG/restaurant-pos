@@ -42,7 +42,7 @@ describe('Platform owner announcement targeting',()=>{
     const router=createPlatformCommunicationsRouter({
       dbGet,dbAll,dbRun,authenticateToken:(req,res,next)=>{req.user=actor;next();},
       requirePlatformAdmin:(req,res,next)=>res.status(403).json({error:'Platform role required.'}),
-      env:{PLATFORM_COMMUNICATIONS_ENABLED:enabled?'true':'false'}
+      env:{PLATFORM_COMMUNICATIONS_ENABLED:enabled?'true':'false',PLATFORM_COMMUNICATIONS_STAGE:'staging'}
     });
     const app=express();app.use(express.json());app.use('/api',router);
     return {app,dbGet,dbAll,dbRun};
