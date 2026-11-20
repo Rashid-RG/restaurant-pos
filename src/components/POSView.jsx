@@ -1797,14 +1797,9 @@ export default function POSView() {
             <div className="receipt-divider"></div>
             <div className="receipt-center receipt-document-heading"><strong>{printReceiptOrder.paymentStatus === 'paid' || printReceiptOrder.status === 'paid' ? 'PAYMENT RECEIPT' : 'CUSTOMER BILL'}</strong></div>
             <p>Date: {formatRestaurantTime(printReceiptOrder.timestamp || Date.now(), restaurantTimeZone(settings))}</p>
-            <div className="receipt-row receipt-references">
-              {printReceiptOrder.invoiceNumber != null && (
-                <strong>INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</strong>
-              )}
-              {printReceiptOrder.id && (
-                <span>Order #{String(printReceiptOrder.id).slice(-6).toUpperCase()}</span>
-              )}
-            </div>
+            {printReceiptOrder.id && (
+              <p className="receipt-order-reference"><strong>Order ID: #{String(printReceiptOrder.id).slice(-6).toUpperCase()}</strong></p>
+            )}
             <p>Type: {(printReceiptOrder.orderType || printReceiptOrder.diningType || 'POS')?.toUpperCase()}</p>
             {printReceiptOrder.tableId && <p>Table: {tables?.find(t => t.id === printReceiptOrder.tableId)?.number || printReceiptOrder.tableId}</p>}
             {printReceiptOrder.customerName && <p>Customer: {printReceiptOrder.customerName}</p>}
