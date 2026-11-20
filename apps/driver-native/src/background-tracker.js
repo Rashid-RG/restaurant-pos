@@ -8,25 +8,30 @@
 export function createNativeTrackingSession({
   plugin,httpPost,apiOrigin,getToken,getActiveOrders,clock=Date.now,onStatus=()=>{},onFix=()=>{}
 }={}) {
-  const endpoint=new URL(apiOrigin||'https://invalid.example');
+  if(typeof apiOrigin!=='string'||!apiOrigin.trim())
+    throw new TypeError('A configured native staging API origin is required');
+  const endpoint=new URL(apiOrigin);
   if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||
      endpoint.search||endpoint.hash||endpoint.pathname!=='/')
     throw new TypeError('A trusted HTTPS API origin is required');
   if(!plugin?.addWatcher||!plugin?.removeWatcher||typeof httpPost!=='function'||
      typeof getToken!=='function'||typeof getActiveOrders!=='function')
     throw new TypeError('Native plugin, authenticated HTTP and order provider required');
-  let watcherId=null,active=false,pendingStart=false,consent=false,discovery=false,lastUpload=0;
+  let watcherId=null,active=false,pendingStart=false,consent=false,discovery=false,lastUpload=0,epoch=0;
   let chain=Promise.resolve();
-  const post=(path,data)=>{
+  const post=async(path,data)=>{
     const token=getToken();
     if(!token)return Promise.reject(new Error('Rider login required'));
-    return httpPost({url:endpoint.origin+'/api'+path,
+    const result=await httpPost({url:endpoint.origin+'/api'+path,
       headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
       data,connectTimeout:6000,readTimeout:6000
     });
+    if(!Number.isInteger(result?.status)||result.status<200||result.status>=300)
+      throw new Error('Native location upload was rejected');
+    return result;
   };
   async function stop(){
-    active=false;pendingStart=false;consent=false;discovery=false;
+    epoch++;active=false;pendingStart=false;consent=false;discovery=false;
     const id=watcherId;watcherId=null;
     try{if(id!==null)await plugin.removeWatcher({id});}finally{
       // A best-effort revoke is safe even after GPS has been switched off.
@@ -39,6 +44,7 @@ export function createNativeTrackingSession({
     if(!onDuty||!locationConsent)throw new Error('Explicit on-duty location permission required');
     if(!getToken())throw new Error('Rider login required');
     consent=true;discovery=discoveryConsent===true;pendingStart=true;active=true;
+    const currentEpoch=++epoch;
     try{
       const id=await plugin.addWatcher({
         backgroundMessage:'GastroDriver uses location only while your delivery shift is active. Open the app to stop sharing.',
@@ -46,7 +52,7 @@ export function createNativeTrackingSession({
         requestPermissions:true,stale:false,distanceFilter:12
       },(point,error)=>{
         if(error){onStatus('location_error');return;}
-        if(!active||!consent||!point)return;
+        if(!active||!consent||currentEpoch!==epoch||!point)return;
         const lat=point.latitude,lng=point.longitude,
           accuracyMeters=point.accuracy,recordedAt=point.time;
         const now=clock();
@@ -59,7 +65,7 @@ export function createNativeTrackingSession({
         const fix={lat,lng,accuracyMeters,recordedAt};
         // Serialize uploads so earlier fixes cannot overtake later ones.
         chain=chain.catch(()=>{}).then(async()=>{
-          if(!active||!consent)return;
+          if(!active||!consent||currentEpoch!==epoch)return;
           const orders=getActiveOrders().filter(o=>o?.id&&
             !['delivered','completed','cancelled','rejected'].includes(String(o.status||'').toLowerCase()));
           if(orders.length){
@@ -70,7 +76,7 @@ export function createNativeTrackingSession({
         }).catch(()=>onStatus('upload_error'));
       });
       watcherId=id;
-      if(!active){await plugin.removeWatcher({id});watcherId=null;return false;}
+      if(!active||currentEpoch!==epoch){await plugin.removeWatcher({id});watcherId=null;return false;}
       pendingStart=false;onStatus('active');return true;
     }catch(error){
       active=false;pendingStart=false;consent=false;discovery=false;
