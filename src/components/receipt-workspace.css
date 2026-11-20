@@ -98,3 +98,43 @@
  .system-settings-page .settings-panel { padding:12px; }
  .system-settings-page .settings-nav { border-radius:11px; }
 }
+
+/* Settings Home and focused full-width section pages. The restaurant sidebar stays untouched. */
+.system-settings-page .settings-full-layout { width:100%; min-width:0; display:block; }
+.system-settings-page .settings-full-panel { width:100%; min-width:0; padding:24px; overflow:visible; }
+.settings-home { width:100%; display:grid; gap:23px; padding-bottom:22px; }
+.settings-home-hero { background:linear-gradient(125deg,#063b31,#0e6852 67%,#238b67); color:white; border-radius:22px; padding:30px 34px; position:relative; overflow:hidden; }
+.settings-home-hero::after { content:'◌'; position:absolute; right:1%; top:-100px; font-size:250px; opacity:.075; pointer-events:none; }
+.settings-home-kicker { display:block; color:#acedd4; font-size:10px; font-weight:800; letter-spacing:1.6px; margin-bottom:9px; }
+.settings-home-hero h2 { color:white; font-size:clamp(22px,2.6vw,30px); letter-spacing:-.6px; margin:0 0 10px; }
+.settings-home-hero p { color:#e0f5ea; margin:0; line-height:1.6; max-width:740px; font-size:13px; }
+.settings-home-group { display:grid; gap:12px; }
+.settings-home-group-heading { display:flex; justify-content:space-between; align-items:baseline; gap:12px; border-bottom:1px solid var(--border-color); padding:0 2px 9px; }
+.settings-home-group-heading h3 { font-size:15px; font-weight:800; margin:0; color:var(--text-main); }
+.settings-home-group-heading span { font-size:11px; color:var(--text-muted); }
+.settings-home-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:13px; }
+.settings-home-card { display:flex; align-items:flex-start; text-align:left; gap:14px; border:1px solid var(--border-color); background:var(--bg-card); border-radius:17px; padding:20px; color:var(--text-main); cursor:pointer; width:100%; min-width:0; min-height:120px; transition:transform .14s,border-color .14s,box-shadow .14s; }
+.settings-home-card:hover { transform:translateY(-2px); border-color:rgba(27,147,102,.45); box-shadow:0 6px 22px #00000010; }
+.settings-home-card:focus-visible { outline:3px solid #32aa7a; outline-offset:3px; }
+.settings-home-card-icon { display:grid; place-items:center; flex:0 0 47px; height:47px; font-size:23px; border-radius:13px; background:rgba(33,156,102,.10); }
+.settings-home-card-copy { display:grid; gap:7px; flex:1; min-width:0; }
+.settings-home-card-copy strong { font-size:14px; font-weight:800; }
+.settings-home-card-copy small { font-size:11px; line-height:1.5; color:var(--text-muted); }
+.settings-home-card-arrow { color:var(--color-primary,#12845f); font-size:18px; font-weight:800; }
+.settings-page-toolbar { display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:15px; border:1px solid var(--border-color); border-radius:14px; padding:11px 15px; background:var(--bg-card); }
+.settings-page-breadcrumb { display:flex; align-items:center; gap:9px; flex-wrap:wrap; font-size:12px; color:var(--text-muted); }
+.settings-page-breadcrumb [aria-current="page"] { font-weight:800; color:var(--text-main); }
+.settings-back-link { color:var(--color-primary,#127b5c); border:none; border-radius:8px; background:var(--bg-surface); font-size:12px; font-weight:800; padding:9px 11px; cursor:pointer; }
+.settings-back-link:hover { background:var(--color-primary-light,rgba(0,140,95,.1)); }
+.settings-back-link:focus-visible { outline:2px solid #32aa7a; outline-offset:2px; }
+.settings-jump-label { display:flex; align-items:center; gap:10px; font-size:11px; font-weight:700; color:var(--text-muted); }
+.settings-jump-label select { max-width:220px; min-width:165px; font-size:12px; padding:9px 11px; }
+@media(min-width:900px) { .system-settings-page .settings-full-panel:has(.receipt-workspace) { padding:22px; } }
+@media(max-width:680px) {
+ .settings-home-hero { padding:22px; border-radius:17px; }
+ .settings-home-card { min-height:98px; padding:16px; }
+ .settings-page-toolbar { padding:12px; }
+ .settings-jump-label { width:100%; justify-content:space-between; }
+ .settings-jump-label select { flex:1; max-width:100%; }
+ .system-settings-page .settings-full-panel { padding:14px; }
+}
