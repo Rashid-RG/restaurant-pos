@@ -1665,6 +1665,36 @@ button {
   .receipt-totals { font-weight: 800; font-size: 14px; }
   .receipt-logo { max-width: 70px; max-height: 70px; margin: 0 auto 4px; display: block; object-fit: contain; }
 
+  /* Paper Saver: applies to the receipt only, never sales reports or kitchen tickets. */
+  .receipt-print-area .receipt-gratitude {
+    border: 0 !important;
+    margin: 2px 0 0 !important;
+    padding: 0 !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    font-size: 10px !important;
+    font-style: normal !important;
+    font-weight: 600 !important;
+    line-height: 1.15 !important;
+  }
+  .receipt-print-area .receipt-platform-credit {
+    border: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    overflow-wrap: anywhere;
+  }
+  .receipt-print-area .receipt-logo {
+    max-width: 46px !important;
+    max-height: 46px !important;
+    margin-bottom: 2px !important;
+  }
+  .receipt-print-area .receipt-divider { margin: 2px 0 !important; }
+  .receipt-print-area .receipt-item-block { padding: 2px 0 !important; }
+  .receipt-print-area .receipt-item-detail { padding: 0 0 0 4px !important; }
+  .receipt-print-area .receipt-totals { padding: 3px 0 !important; }
+  .receipt-print-area p { margin: 1px 0 !important; }
+
   .receipt-print-area p {
     margin: 2px 0 !important;
     padding: 0 !important;
