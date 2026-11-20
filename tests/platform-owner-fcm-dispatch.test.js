@@ -74,6 +74,8 @@ describe('dormant tenant-specific owner FCM dispatcher',()=>{
   expect(claim[0]).toContain('INSERT OR IGNORE INTO platform_owner_communication_fcm_dispatch');
   expect(claim[0]).toContain('WHERE EXISTS');
   expect(claim[1].slice(0,4)).toEqual(['notice_a','tenant_a','owner_a',deviceHash]);
+  expect(claim[0]).toContain('AND f.tokenHash=?');
+  expect(claim[1].at(-1)).toBe(encryptBoundFcmToken({...options,token,env}).tokenHash);
   const sent=JSON.parse(input.fetcher.mock.calls[1][1].body);
   expect(sent.message.token).toBe(token);
   expect(sent.message.topic).toBeUndefined();
