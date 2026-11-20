@@ -160,6 +160,15 @@ Authenticated restaurant owner (only own user+tenant):
 - This applies to the sandbox Communication Center only; it does **not** claim to establish commercial unsubscribe management for unrelated GastroFlow order notifications or other messaging programs.
 - Verified Brevo suppression evidence must not be cleared automatically. A controlled review and lawful resubscription/consent workflow, database-backed integration tests and provider-specific webhook validation remain release requirements.
 
+### Dormant quota-bound sandbox worker (not scheduled)
+- `lib/communications/platform-sandbox-email-worker.js` is an **unmounted, one-job-per-tick** foundation. It is intentionally not imported from the app server or wired into HTTP routes, cron, Render jobs, or production infrastructure. **No automatic email sending is active.**
+- Sending requires all existing Brevo/test-address/isolated-staging gates **plus** `PLATFORM_COMMUNICATIONS_AUTO_WORKER_ENABLED=true`, `PLATFORM_COMMUNICATIONS_EMAIL_STOP=false`, `PLATFORM_COMMUNICATIONS_EMAIL_WORKER_ACK=I_APPROVE_STAGING_SANDBOX_WORKER`, and a strict `PLATFORM_COMMUNICATIONS_EMAIL_DAILY_CAP` integer from 1 to 5. Missing controls stop the worker.
+- The caller must supply one exact announcement ID. A read-only preview must identify exactly one due, eligible queued owner with zero blocked rows before quota can be reserved. The downstream queue worker performs its own ownership, allowlist, suppression and state-claim checks again before contacting the injected provider.
+- Additive `platform_owner_email_sandbox_quota` holds one UTC-date row with a **durable atomic reservation counter** shared across workers. The conditional update prevents sending once the daily cap is exhausted. Quota reservations are intentionally not refunded on crashes or ambiguous outcomes.
+- Emergency stop is fail-closed: anything other than an exact `PLATFORM_COMMUNICATIONS_EMAIL_STOP=false` prevents this worker from starting. Stop is checked at the start of a tick, not as an interrupt during an already-in-flight provider HTTP request.
+- This is **not a deployable automated email service**: operator approval, database isolation confirmation, job scheduling, rate limiting, monitoring, bounce/unsubscribe governance and actual Brevo sandbox end-to-end tests are still missing. The caps reduce but do not eliminate all concurrent-send races during runtime flag changes.
+- Automated tests inject a mock Brevo HTTP response. Do not enable the worker's flags or run it against actual Brevo without a separately authorized isolated-staging smoke test.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
