@@ -88,7 +88,7 @@ jobs:
       - name: Compile unsigned iOS simulator candidate
         working-directory: apps/driver-native
         run: |
-          xcodebuild -project ios/App/App.xcodeproj -scheme App \
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
             -configuration Debug -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/driver-ios-derived" \
