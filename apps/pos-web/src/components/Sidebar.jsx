@@ -46,6 +46,7 @@ export default function Sidebar({ collapsed, onToggle }) {
   const mobilePrimaryIds = new Set(mobilePrimary.map(item => item.id));
   const mobileSecondary = items.filter(item => !mobilePrimaryIds.has(item.id) && item.id !== 'my-attendance');
   const mobileSections = organizeSidebarDestinations(mobileSecondary).groups;
+  const mobileMenu = mobileSecondary.find(item => item.id === 'menu');
 
   return <>
     <aside className={`sidebar desktop-sidebar ${collapsed ? 'collapsed' : ''} ${platformOwner ? 'platform-owner-sidebar' : ''}`} aria-label="Staff navigation">
@@ -80,6 +81,7 @@ export default function Sidebar({ collapsed, onToggle }) {
     <header className="mobile-top-header"><span className="mobile-brand"><img src="/pos-logo.svg" alt="" width="28" height="28"/> {inPlatform ? 'Platform admin' : 'gastroflow.'}</span>{platformOwner && <button onClick={switchWorkspace} aria-label={inPlatform ? 'Switch to restaurant POS workspace' : 'Switch to platform administration workspace'} style={{fontSize: 12, fontWeight: 700}}>{inPlatform ? 'Restaurant POS' : 'Platform admin'}</button>}<button onClick={logout} aria-label="Sign out"><LogOut size={19}/></button></header>
     <nav className="mobile-bottom-nav" aria-label="Mobile staff navigation">{mobilePrimary.map(item => <button key={item.id} className={`mobile-nav-item ${activeTab === item.id ? 'active' : ''}`} onClick={() => select(item.id)}><item.icon size={20}/><span>{item.name}</span></button>)}<button className="mobile-nav-item" onClick={() => setMoreOpen(true)} aria-label="More pages"><MoreHorizontal size={20}/><span>More</span></button></nav>
     {moreOpen && <div className="mobile-more-backdrop" onClick={() => setMoreOpen(false)}><section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="More pages" onClick={event => event.stopPropagation()}><header><h2>{inPlatform ? 'Platform administration' : 'Restaurant workspace'}</h2><button onClick={() => setMoreOpen(false)} aria-label="Close more pages"><X size={22}/></button></header>{platformOwner && <button onClick={switchWorkspace}>{inPlatform ? 'Switch to restaurant POS' : 'Switch to platform administration'}</button>}
+      {mobileMenu && <button type="button" onClick={() => select(mobileMenu.id)}><mobileMenu.icon size={20}/>Menu</button>}
       {mobileSections.map(group => <div className="mobile-nav-group" key={group.id}>
         <p className="mobile-nav-group-title">{group.title}</p>
         {group.items.map(item => <button key={item.id} onClick={() => select(item.id)}><item.icon size={20}/>{item.name}</button>)}
