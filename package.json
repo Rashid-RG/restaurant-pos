@@ -56,7 +56,9 @@
     "sqlite3": "^6.0.1",
     "web-push": "^3.6.7",
     "zod": "^4.4.3",
-    "h3-js": "^4.5.0"
+    "h3-js": "^4.5.0",
+    "@capacitor/core": "^7.6.8",
+    "@capacitor-community/background-geolocation": "^1.2.27"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
