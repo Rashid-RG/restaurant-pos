@@ -184,6 +184,7 @@ Authenticated restaurant owner (only own user+tenant):
 - Added isolated libSQL regression tests for an injected Brevo timeout: the claimed job becomes `manual_review` with an attempt count, and a subsequent tick must not contact the provider again.
 - A separate simulated worker-crash case creates a stale `sending` claim; the non-sending reconciliation function transitions it into `manual_review` without triggering a retry.
 - These cases deliberately prioritize prevention of duplicate emails over automatic recovery of uncertain outcomes. A human reviewer must reconcile external provider evidence before deciding whether a failed or ambiguous message can ever be resent.
+- An additional local concurrency test runs two worker ticks against the same database with a shared one-email-per-day quota; it must allow only one provider attempt. Remote multi-process Turso concurrency still requires an isolated staging test.
 - The local tests use only ephemeral database files and mock provider functions. Real Brevo delivery, Render/Turso isolation, remote multi-instance contention, push-provider integration, and actual Android/iPhone device tests are still outstanding.
 
 ### Safe deployment checklist
