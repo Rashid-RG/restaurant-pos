@@ -1,3 +1,5 @@
+import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
+import './rider-wizard.css';
 import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
 import { Bike } from 'lucide-react';
 import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
@@ -1013,43 +1015,14 @@ export default function App() {
 
         {proofPreview && <DeliveryProofViewer proof={proofPreview} onClose={() => setProofPreview(null)} />}
 
-        {/* Self-registration modal */}
-        {showRegModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <div className="card device-dialog" role="dialog" aria-modal="true" aria-label="Driver application" style={{ maxWidth: 440, width: '100%', maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto', margin: 0, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>🛵 Rider Self-Registration</h3>
-                <span style={{fontSize:11,color:'var(--text-muted)'}}>{selectedHiringRestaurant?.name||'Select a restaurant before registering'}</span>
-                <button aria-label="Close driver application" onClick={() => setShowRegModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer' }}>✕</button>
-              </div>
-
-              <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <input className="input-field" type="text" value={reg.name} onChange={e => setReg({ ...reg, name: e.target.value })} placeholder="Full name" required />
-                <input className="input-field" type="tel" inputMode="tel" value={reg.phone} onChange={e => setReg({ ...reg, phone: e.target.value })} placeholder="Phone (e.g. 0771234567)" required />
-                <input className="input-field" type="email" autoComplete="email" value={reg.email} onChange={e => setReg({ ...reg, email: e.target.value })} placeholder="Email address for verification" required />
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input className="input-field" type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={reg.verificationCode} onChange={e => setReg({ ...reg, verificationCode: e.target.value.replace(/[^0-9]/g, '') })} placeholder="6-digit email code" required /><button type="button" className="btn-outline" onClick={handleSendRegCode} disabled={sendingRegCode || !reg.email} style={{ whiteSpace: 'nowrap' }}>{sendingRegCode ? 'Sending…' : 'Email code'}</button></div>
-                {regCodeSentTo && <small role="status" style={{ color: 'var(--text-muted)' }}>Code requested for {regCodeSentTo}. Check inbox or spam. Expires after 10 minutes.</small>}
-                <input className="input-field" type="password" autoComplete="new-password" minLength={10} maxLength={72} value={reg.password} onChange={e => setReg({ ...reg, password: e.target.value })} placeholder="Create a password (10–72 characters)" required />
-                <select className="input-field" value={reg.vehicleType} onChange={e => setReg({ ...reg, vehicleType: e.target.value })}>
-                  <option value="Motorbike">🛵 Motorbike / Scooter</option>
-                  <option value="TukTuk">🛺 Three Wheeler / TukTuk</option>
-                  <option value="Car">🚗 Car / Van</option>
-                  <option value="Bicycle">🚲 Bicycle</option>
-                </select>
-                <input className="input-field" type="text" value={reg.plateNumber} onChange={e => setReg({ ...reg, plateNumber: e.target.value })} placeholder="Plate number (e.g. WP BZ-9988)" />
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.78rem', lineHeight: 1.5, color: 'var(--text-muted)' }}><input type="checkbox" checked={reg.privacyAccepted} onChange={e => setReg({ ...reg, privacyAccepted: e.target.checked })} required style={{ marginTop: 4, width: 18, height: 18, flexShrink: 0 }} /><span>I understand my details will be shared with the selected restaurant for review. Email verification proves email control only; phone, identity, licence and vehicle eligibility still require checks.</span></label>
-                <label style={{display:'flex',gap:10,alignItems:'flex-start',fontSize:'0.78rem',lineHeight:1.5}}><input type="checkbox" checked={reg.identityConsent===true} onChange={e=>setReg({...reg,identityConsent:e.target.checked})} style={{marginTop:4,width:18,height:18}}/><span>I consent to optional third-party identity verification, which may process my NIC/passport image, selfie and biometric information under that provider's notice. If the provider is unavailable, the restaurant must arrange a separate secure review.</span></label>
-                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                  <button type="button" className="btn-outline" onClick={() => setShowRegModal(false)} style={{ flex: 1 }}>Cancel</button>
-                  <button type="submit" className="btn-emerald" disabled={regSubmitting||!selectedHiringRestaurant} style={{ flex: 2 }}>
-                    {regSubmitting ? 'Submitting…' : 'Submit Application'}
-                  </button>
-                </div>
-                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0 }}>Applications are pending review. The restaurant must check identity, licence and vehicle eligibility before approving delivery access. Do not upload identity documents through this form.</p>
-              </form>
-            </div>
-          </div>
-        )}
+        {/* Guided registration: email → profile → vehicle → review. Server validates OTP on submission. */}
+        {showRegModal && <RiderRegistrationWizard
+          reg={reg} setReg={setReg} restaurant={selectedHiringRestaurant}
+          onSendCode={handleSendRegCode} codeSentTo={regCodeSentTo}
+          sendingCode={sendingRegCode} onSubmit={handleRegisterSubmit}
+          submitting={regSubmitting} onClose={()=>setShowRegModal(false)}
+        />}
+      
       </main>
     </div>
   );
