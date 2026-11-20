@@ -153,6 +153,13 @@ Authenticated restaurant owner (only own user+tenant):
 - The in-app inbox and non-sending queue/preview functions remain independently staged. This flag does not activate a sender, schedule a test, register a Brevo webhook, or deploy changes.
 - All mocked provider tests set the attestation explicitly; real external traffic remains prohibited until separate approval.
 
+### Verified provider suppression enforcement
+- The staged email worker now checks historical Brevo provider receipts for **verified** hard bounces, blocked/invalid addresses, spam complaints and unsubscribes before attempting a new send to the same restaurant owner and email address.
+- Suppression checks are scoped by tenant, owner and normalized email. A suppressed queue row is moved to `suppressed` rather than resent, and the worker repeats its suppression check inside the conditional claim to reduce race windows.
+- The read-only dry-run now reports `provider_suppressed` as a blocking reason. The single-recipient manual runner refuses to send if any queued recipient is suppressed.
+- This applies to the sandbox Communication Center only; it does **not** claim to establish commercial unsubscribe management for unrelated GastroFlow order notifications or other messaging programs.
+- Verified Brevo suppression evidence must not be cleared automatically. A controlled review and lawful resubscription/consent workflow, database-backed integration tests and provider-specific webhook validation remain release requirements.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
