@@ -68,6 +68,60 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The user has Windows and a free Apple ID, so compile the isolated
+  # GastroFlow POS staging iOS wrapper on a GitHub-hosted Mac. An unsigned
+  # simulator app is NOT installable on an iPhone and has no APNs entitlement.
+  gastroflow-staging-ios-simulator:
+    if: (github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness') || (github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-staging-ios]'))
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install POS frontend dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated staging Capacitor dependencies
+        run: npm ci --prefix mobile-staging --ignore-scripts --no-audit --no-fund
+      - name: Build POS frontend
+        run: npm run build
+      - name: Generate iOS staging shell and validate Firebase identifiers
+        run: |
+          npm --prefix mobile-staging run setup:ios
+          npm --prefix mobile-staging run sync -- ios
+          /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' mobile-staging/GoogleService-Info.plist | grep -Fx 'com.gastroflow.app.staging'
+          /usr/libexec/PlistBuddy -c 'Print :PROJECT_ID' mobile-staging/GoogleService-Info.plist | grep -Fx 'gastroflow-staging'
+      - name: Compile unsigned iPhone simulator staging app
+        working-directory: mobile-staging
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \\
+            -configuration Debug -sdk iphonesimulator \\
+            -destination 'generic/platform=iOS Simulator' \\
+            -derivedDataPath "$RUNNER_TEMP/gastroflow-staging-ios-derived" \\
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Verify compiled native app has staging identity
+        run: |
+          APP="$RUNNER_TEMP/gastroflow-staging-ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" | grep -Fx 'com.gastroflow.app.staging'
+          # Native Firebase config must be present in the compiled bundle,
+          # not merely copied alongside the Xcode sources.
+          test -f "$APP/GoogleService-Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :PROJECT_ID' "$APP/GoogleService-Info.plist" | grep -Fx 'gastroflow-staging'
+      - name: Package simulator-only candidate for Mac-based inspection
+        run: |
+          cd "$RUNNER_TEMP/gastroflow-staging-ios-derived/Build/Products/Debug-iphonesimulator"
+          ditto -c -k --sequesterRsrc --keepParent App.app "$GITHUB_WORKSPACE/gastroflow-staging-ios-simulator.zip"
+      - name: Upload simulator artifact (not installable on iPhone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastroflow-staging-ios-simulator-candidate
+          path: gastroflow-staging-ios-simulator.zip
+          retention-days: 7
+          if-no-files-found: error
+
   gastrodriver-android-candidate:
     if: (github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness') || (github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-driver-native]'))
     runs-on: ubuntu-latest
