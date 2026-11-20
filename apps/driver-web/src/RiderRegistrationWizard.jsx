@@ -4,7 +4,7 @@ import React, { useState } from 'react';
  * Guided rider application. The first step performs real server OTP verification
  * and receives a short-lived email-bound proof before the application can advance.
  */
-export default function RiderRegistrationWizard({reg,setReg,onSendCode,codeSentTo,sendingCode,onVerifyCode,verifyingCode,verificationToken,selfieCandidate,onSelfieCapture,onClearSelfie,onSubmit,submitting,onClose,restaurant}) {
+export default function RiderRegistrationWizard({reg,setReg,onSendCode,codeSentTo,sendingCode,onVerifyCode,verifyingCode,verificationToken,emailError,onClearEmailError,selfieCandidate,onSelfieCapture,onClearSelfie,onSubmit,submitting,onClose,restaurant}) {
   const [step,setStep]=useState(0);
   const steps=['Email','Selfie','Your details','Vehicle','Review'];
   const update=(field,value)=>setReg(prev=>({...prev,[field]:value}));
@@ -21,7 +21,8 @@ export default function RiderRegistrationWizard({reg,setReg,onSendCode,codeSentT
       <form onSubmit={e=>{e.preventDefault();if(step===4&&nextAllowed)onSubmit(e);}} className="rider-wizard-body">
         {step===0&&<div className="rider-wizard-fields">
           <h3>First, verify your email</h3><p>Enter your email and verify the six-digit code before continuing. An email already registered with GastroDriver cannot be used again.</p>
-          <label>Email address<input required className="input-field" type="email" autoComplete="email" value={reg.email} onChange={e=>{update('email',e.target.value);update('verificationCode','');}} placeholder="you@example.com"/></label>
+          <label>Email address<input required className="input-field" type="email" autoComplete="email" value={reg.email} onChange={e=>{update('email',e.target.value);update('verificationCode','');onClearEmailError();}} placeholder="you@example.com"/></label>
+          {emailError&&<div role="alert" className="rider-wizard-error"><strong>Registration cannot continue</strong><p>{emailError}</p><small>Already registered? Sign in, or use “Already applied? Resume” for a pending application.</small></div>}
           <button type="button" className="btn-outline" disabled={sendingCode||!reg.email.trim()} onClick={onSendCode}>{sendingCode?'Sending code…':correctEmail?'Resend verification code':'Send verification code'}</button>
           {correctEmail&&<label>Six-digit code<input required className="input-field" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={reg.verificationCode} onChange={e=>update('verificationCode',e.target.value.replace(/\D/g,''))} placeholder="000000"/></label>}
           {correctEmail&&<><button type="button" className="btn-emerald" onClick={onVerifyCode} disabled={verifyingCode||Boolean(verificationToken)||!/^\d{6}$/.test(reg.verificationCode)}>{verificationToken?'✓ Email verified':verifyingCode?'Verifying…':'Verify email code'}</button><small role="status">{verificationToken?'Email verified securely. You can continue.':`Code sent to ${codeSentTo}. Valid for 10 minutes. Do not share it.`}</small></>}
