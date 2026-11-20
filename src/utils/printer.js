@@ -275,7 +275,9 @@ export function buildStandaloneReceiptDocument(receiptMarkup, paperSetting='80mm
     '.receipt-row{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 0;break-inside:avoid}',
     '.receipt-row span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}.receipt-row span:last-child{text-align:right;white-space:nowrap}',
     '.receipt-totals{font-size:1.15em;font-weight:800}',
-    '.receipt-logo{display:block;max-width:46px;max-height:46px;object-fit:contain;margin:0 auto 2px}',
+    '.receipt-logo{display:block;max-width:100%;height:auto;object-fit:contain;margin:0 auto 2px}',
+    '.receipt-layout-standard .receipt-divider{margin:5px 0}.receipt-layout-standard .receipt-item-block{padding:4px 0}.receipt-layout-standard .receipt-totals{padding:5px 0!important}',
+    '.receipt-layout-detailed .receipt-divider{margin:7px 0}.receipt-layout-detailed .receipt-item-block{padding:5px 0}.receipt-layout-detailed .receipt-totals{padding:7px 0!important}',
     'p{margin:1px 0!important}h3{margin:1px 0!important}img{max-width:100%;height:auto}',
     '.receipt-gratitude{font-size:10px!important;font-weight:600!important;line-height:1.1!important;margin:2px 0 0!important;padding:0!important;border:0!important}.receipt-platform-credit{font-size:9px!important;line-height:1.1!important;margin:0!important;padding:0!important;border:0!important;white-space:normal!important}',
     '@media print{html,body{overflow:visible!important}.receipt-print-area{break-inside:auto!important}}'
