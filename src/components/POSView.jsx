@@ -6,6 +6,7 @@ import { usePOS } from '../context/POSContext';
 import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt, printSelectedReceipt } from '../utils/printer';
 import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
 import { isNativePrintingEnabled, nativePrintReceiptElement } from '../utils/native-printer';
+import { useExpressBilling } from '../utils/express-billing';
 
 export function getFoodImageForItem(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
@@ -100,21 +101,7 @@ export default function POSView() {
   useEffect(()=>{if(!mobileCartOpen)return;const close=event=>{if(event.key==='Escape'){setMobileCartOpen(false);mobileCartToggle.current?.focus();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[mobileCartOpen]);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef(null);
-  // A workstation preference, scoped to the signed-in restaurant. Standard mode
-  // remains available for staff who prefer the full customization dialog.
-  const expressPreferenceKey = `gastroflow:express-billing:${currentUser?.tenant_id || currentUser?.tenantId || 'unknown'}`;
-  const [expressBilling, setExpressBilling] = useState(() => {
-    try { return localStorage.getItem(expressPreferenceKey) !== 'standard'; }
-    catch { return true; }
-  });
-  useEffect(() => {
-    try { setExpressBilling(localStorage.getItem(expressPreferenceKey) !== 'standard'); }
-    catch { setExpressBilling(true); }
-  }, [expressPreferenceKey]);
-  const chooseBillingMode = (enabled) => {
-    setExpressBilling(enabled);
-    try { localStorage.setItem(expressPreferenceKey, enabled ? 'express' : 'standard'); } catch { /* storage disabled */ }
-  };
+  const [expressBilling] = useExpressBilling(currentUser);
   const [activeCategory, setActiveCategory] = useState('all');
 
   // Modals visibility
@@ -654,16 +641,6 @@ export default function POSView() {
             />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>F2 Search · F4 Pay · Tap an item to add</span>
-            <button type="button" className={`btn ${expressBilling ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => chooseBillingMode(!expressBilling)}
-              aria-pressed={expressBilling}
-              title="Switch between one-tap billing and the full item customization dialog"
-              style={{ padding: '7px 12px', fontSize: '12px', minHeight: '34px' }}>
-              {expressBilling ? '⚡ Express billing ON' : 'Standard billing · Enable Express'}
-            </button>
-          </div>
           <div className="category-tabs">
             <button
               className={`category-tab ${activeCategory === 'all' ? 'active' : ''}`}
