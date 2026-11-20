@@ -709,7 +709,8 @@ export default function App() {
         setManualVehicleType(reg.vehicleType);
         setManualEvidence({});
         setApplicationIdentityType(null);
-        clearSelfieCapture();
+        // Keep the locally previewed selfie so the rider can consent and
+        // securely confirm its upload on the first document step.
         setManualConsent(false);
       }
       if(res.identityVerificationUrl) setIdentityVerificationLink(res.identityVerificationUrl);
@@ -1033,8 +1034,10 @@ export default function App() {
           reg={reg} setReg={setReg} restaurant={selectedHiringRestaurant}
           onSendCode={handleSendRegCode} codeSentTo={regCodeSentTo}
           sendingCode={sendingRegCode} onVerifyCode={handleVerifyRegCode}
-          verifyingCode={verifyingRegCode} verificationToken={regVerificationToken} onSubmit={handleRegisterSubmit}
-          submitting={regSubmitting} onClose={()=>setShowRegModal(false)}
+          verifyingCode={verifyingRegCode} verificationToken={regVerificationToken}
+          selfieCandidate={selfieCandidate} onSelfieCapture={handleSelfieCapture} onClearSelfie={clearSelfieCapture}
+          onSubmit={handleRegisterSubmit}
+          submitting={regSubmitting} onClose={()=>{setShowRegModal(false);clearSelfieCapture();}}
         />}
       
       </main>
