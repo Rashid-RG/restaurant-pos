@@ -3472,7 +3472,7 @@ app.get('/api/public/orders/:id/road-route',publicApiLimiter,async(req,res)=>{
       if(validRoadPoint(store))from=store;
     }
     if(!validRoadPoint(from))return res.json({available:false,reason:'no_origin_pin'});
-    const key=order.id+':'+startingPoint+':'+Number(from.lat).toFixed(4)+':'+Number(from.lng).toFixed(4)+':'+Number(to.lat).toFixed(4)+':'+Number(to.lng).toFixed(4);
+    const key=[tenantId,order.id,order.driverId||'unassigned',String(order.status||'').toLowerCase(),startingPoint,Number(from.lat).toFixed(4),Number(from.lng).toFixed(4),Number(to.lat).toFixed(4),Number(to.lng).toFixed(4)].join(':');
     const cached=roadRouteCache.get(key);
     if(cached&&Date.now()-cached.at<30000)return res.json(cached.data);
     const route=await fetchRoadRoute({from,to,origin});
