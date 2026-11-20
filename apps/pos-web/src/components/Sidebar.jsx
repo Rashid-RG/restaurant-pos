@@ -42,8 +42,9 @@ export default function Sidebar({ collapsed, onToggle }) {
     <item.icon size={19}/>{!collapsed && <span>{item.name}</span>}
   </button>;
   // Preserve the original mobile bottom bar including New Sale's exact position.
-  const mobilePrimary = items.slice(0, 4);
-  const mobileSecondary = items.slice(4).filter(item => item.id !== 'my-attendance');
+  const mobilePrimary = items.filter(item => item.id !== 'menu').slice(0, 4);
+  const mobilePrimaryIds = new Set(mobilePrimary.map(item => item.id));
+  const mobileSecondary = items.filter(item => !mobilePrimaryIds.has(item.id) && item.id !== 'my-attendance');
   const mobileSections = organizeSidebarDestinations(mobileSecondary).groups;
 
   return <>
