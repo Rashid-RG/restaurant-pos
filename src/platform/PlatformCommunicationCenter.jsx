@@ -21,6 +21,8 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
   const [emailReadiness,setEmailReadiness]=useState(null);
   const [deliveryPreviews,setDeliveryPreviews]=useState({});
   const [reviewItems,setReviewItems]=useState({});
+  const [translationReviews,setTranslationReviews]=useState({});
+  const [ackEvidence,setAckEvidence]=useState({});
   const [preview,setPreview]=useState(null);
   const [report,setReport]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -139,6 +141,44 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
         {items.map(x=><article key={x.id} style={{padding:14,border:'1px solid var(--border-color,#ddd)',borderRadius:10,display:'grid',gap:9}}>
           <div style={{display:'flex',gap:8,justifyContent:'space-between'}}><strong>{x.title}</strong><small>{x.status}</small></div>
           <small>{x.category}{x.policyVersion?' · Version '+x.policyVersion:''} · {new Date(x.createdAt).toLocaleString()}</small>
+          <div style={{display:'grid',gap:8}}>
+            <button type="button" className="btn btn-outline" disabled={busy} onClick={()=>act(async()=>{
+              const review=await api('/'+encodeURIComponent(x.id)+'/translations');
+              setTranslationReviews(old=>({...old,[x.id]:review.translations}));
+            })}>Review language translations</button>
+            {translationReviews[x.id]&&<div style={{display:'grid',gap:8}}>
+              {!translationReviews[x.id].length&&<small>No translations provided. English remains the default.</small>}
+              {translationReviews[x.id].map(t=><div key={t.locale} style={{padding:10,border:'1px solid var(--border-color,#ddd)',borderRadius:8}}>
+                <strong>{t.locale==='si'?'Sinhala':'Tamil'} · {t.reviewedAt?'Approved':'Awaiting review'}</strong>
+                <p style={{margin:'7px 0',fontWeight:600}}>{t.title}</p>
+                <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{t.body}</p>
+                <button className="btn btn-outline" type="button" disabled={busy} onClick={()=>{
+                  if(!window.confirm('Confirm this translation has been independently reviewed for accuracy?'))return;
+                  act(async()=>{
+                    await api('/'+encodeURIComponent(x.id)+'/translations/'+t.locale+'/approve',{method:'POST'});
+                    const review=await api('/'+encodeURIComponent(x.id)+'/translations');
+                    setTranslationReviews(old=>({...old,[x.id]:review.translations}));
+                    setNotice('Translation approved.');
+                  });
+                }}>Approve translation</button>
+                {t.reviewedAt&&<button className="btn btn-outline" type="button" disabled={busy} onClick={()=>{
+                  if(!window.confirm('Revoke this language approval? Owners will see the English original.'))return;
+                  act(async()=>{
+                    await api('/'+encodeURIComponent(x.id)+'/translations/'+t.locale+'/revoke',{method:'POST'});
+                    const review=await api('/'+encodeURIComponent(x.id)+'/translations');
+                    setTranslationReviews(old=>({...old,[x.id]:review.translations}));
+                  });
+                }}>Revoke approval</button>}
+              </div>)}
+            </div>}
+            {x.requiresAcknowledgment&&<button type="button" className="btn btn-outline" disabled={busy} onClick={()=>act(async()=>{
+              const summary=await api('/'+encodeURIComponent(x.id)+'/acknowledgments');
+              setAckEvidence(old=>({...old,[x.id]:summary.evidenceSummary}));
+            })}>View acknowledgment evidence</button>}
+            {ackEvidence[x.id]&&<div style={{fontSize:12}}>
+              {ackEvidence[x.id].length?ackEvidence[x.id].map((v,i)=><p key={i}>{v.contentLanguage.toUpperCase()} · Version {v.policyVersion||'—'} · {v.count} acknowledgment(s)</p>):<small>No acknowledgments recorded yet.</small>}
+            </div>}
+          </div>
           {x.status==='draft'&&<button type="button" className="btn btn-primary" disabled={busy}
             onClick={()=>{if(!window.confirm('Publish this announcement to all currently eligible selected owners?'))return;
               act(async()=>{const result=await api('/'+encodeURIComponent(x.id)+'/publish',{method:'POST'});
