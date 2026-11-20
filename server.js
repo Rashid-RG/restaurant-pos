@@ -1244,6 +1244,13 @@ async function initTables() {
       created_at BIGINT NOT NULL, PRIMARY KEY(tenant_id,driver_id)
     )`);
     await safeAddColumn('driver_manual_reviews','resubmit_reason','TEXT');
+    // Tenant-bound, append-only workflow timeline; no document images or codes.
+    await dbRun(`CREATE TABLE IF NOT EXISTS driver_verification_events (
+      id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, driver_id TEXT NOT NULL,
+      event_type TEXT NOT NULL, detail TEXT, actor_role TEXT NOT NULL,
+      occurred_at BIGINT NOT NULL
+    )`);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_verification_events_tenant ON driver_verification_events(tenant_id,driver_id,occurred_at)');
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_manual_reviews_tenant ON driver_manual_reviews(tenant_id,review_state)');
     // Store only the chosen document type, not document images or identity numbers.
     await dbRun(`CREATE TABLE IF NOT EXISTS driver_application_document_types (
@@ -4487,6 +4494,19 @@ app.post('/api/delivery/drivers', authenticateToken, requireRole(['owner','manag
   }
 });
 
+// Recording timeline metadata must never block or roll back an accepted application.
+// Only predefined event fields are allowed. Never persist names, IDs from
+// documents, image data, OTP values or application tokens in the event log.
+async function recordRiderTimeline(tenantId,driverId,eventType,detail=null,actorRole='system'){
+  if(!['application_submitted','document_submitted','manual_approved','resubmit_requested','manual_rejected','driver_approved','driver_rejected'].includes(eventType))return;
+  if(detail!==null && !['identity_front','identity_back','selfie','licence_front','licence_back',
+    'missing_evidence','unclear_identity','unclear_selfie','selfie_mismatch','unclear_licence','licence_expired'].includes(detail))detail=null;
+  try{
+    await dbRun('INSERT INTO driver_verification_events (id,tenant_id,driver_id,event_type,detail,actor_role,occurred_at) VALUES (?,?,?,?,?,?,?)',
+      ['rve_'+crypto.randomUUID(),tenantId,driverId,eventType,detail,['rider','manager','owner'].includes(actorRole)?actorRole:'system',Date.now()]);
+  }catch(_){console.warn('[Driver verification] Could not record non-critical timeline event');}
+}
+
 // Notification failures do not roll back completed identity-review decisions.
 async function notifyRiderApplication({tenantId,driverId,event,recipient,reason}){
   if(!isEmailConfigured())return;
@@ -4501,6 +4521,17 @@ async function notifyRiderApplication({tenantId,driverId,event,recipient,reason}
     if(!result?.success)console.warn('[Driver notifications] Email provider rejected an onboarding update');
   }catch(_){console.warn('[Driver notifications] Could not send onboarding status notification');}
 }
+
+// Authorized restaurant managers can inspect the complete *recorded* event
+// timeline for their own rider; never return cross-tenant activity.
+app.get('/api/delivery/driver-verification/:id/timeline',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const rider=await dbGet('SELECT id FROM drivers WHERE id=? AND tenant_id=?',[req.params.id,req.tenantId]);
+    if(!rider)return res.status(404).json({error:'Rider not found for this restaurant.'});
+    const events=await dbAll('SELECT event_type AS eventType,detail,actor_role AS actorRole,occurred_at AS occurredAt FROM driver_verification_events WHERE tenant_id=? AND driver_id=? ORDER BY occurred_at DESC LIMIT 100',[req.tenantId,rider.id]);
+    return res.set('Cache-Control','no-store').json({events});
+  }catch(_){return res.status(500).json({error:'Could not load rider activity timeline.'});}
+});
 
 // Restaurant owners/managers only: current and historic review state overview.
 // No images, full identity numbers, or cross-tenant records in the response.
@@ -4814,6 +4845,7 @@ app.post('/api/public/drivers/manual-document', publicApiLimiter, authenticatePe
       "INSERT INTO driver_manual_documents (tenant_id,driver_id,kind,content_type,ciphertext,iv,tag,digest,created_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,driver_id,kind) DO UPDATE SET content_type=excluded.content_type,ciphertext=excluded.ciphertext,iv=excluded.iv,tag=excluded.tag,digest=excluded.digest,created_at=excluded.created_at,viewed_at=NULL,viewed_by=NULL",
       [a.tenantId,a.driverId,doc.kind,doc.contentType,encrypted.ciphertext,encrypted.iv,encrypted.tag,encrypted.digest,Date.now()]);
     await dbRun("DELETE FROM driver_manual_reviews WHERE tenant_id=? AND driver_id=? AND review_state!='approved'",[a.tenantId,a.driverId]);
+    await recordRiderTimeline(a.tenantId,a.driverId,'document_submitted',doc.kind,'rider');
     res.set('Cache-Control','no-store').status(201).json({success:true,kind:doc.kind,message:'Encrypted document received for restaurant review. Not yet verified.'});
   }catch(_){res.status(500).json({error:'Could not securely save the document.'});}
 });
@@ -4880,6 +4912,8 @@ app.post('/api/delivery/drivers/:id/manual-review',authenticateToken,requireRole
       [req.tenantId,req.params.id,decision==='approve'?'approved':decision==='reject'?'rejected':'resubmit',
        identityKind,digest,dmtStandingStatus,rider.vehicleType==='Bicycle'?null:licenceExpiry||null,
        rider.vehicleType==='Bicycle'?null:licenceClass||null,req.user.id,Date.now(),Date.now(),decision==='resubmit'?resubmitReason:null]);
+    await recordRiderTimeline(req.tenantId,req.params.id,decision==='approve'?'manual_approved':decision==='reject'?'manual_rejected':'resubmit_requested',
+      decision==='resubmit'?resubmitReason:null,req.user.role);
     void notifyRiderApplication({tenantId:req.tenantId,driverId:req.params.id,
       event:decision==='approve'?'manual_approved':decision==='reject'?'manual_rejected':'resubmit',reason:resubmitReason});
     // The review decision remains manual (not an automated face-match or official DMT check).
@@ -4949,6 +4983,7 @@ app.post('/api/public/drivers/register', driverApplicationLimiter, validateReque
         console.warn('[Driver licence] Verification session unavailable:',error.message);
       }
     }
+    await recordRiderTimeline(tenantId,id,'application_submitted',null,'rider');
     broadcastEvent('driver_registered', { id, name: name.trim(), vehicleType },tenantId);
     void notifyRiderApplication({tenantId,driverId:id,event:'submitted'});
     void notifyRiderApplication({tenantId,driverId:id,event:'manager_pending',recipient:'owner'});
@@ -5020,7 +5055,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
     // Automated evidence or explicitly reviewed encrypted manual evidence
     // must substantiate approval. Neither self-attestation nor images alone suffice.
     const manual=await dbGet(
-      'SELECT review_state,licence_expiry,licence_class,evidence_digest FROM driver_manual_reviews WHERE tenant_id=? AND driver_id=?',
+      'SELECT review_state,identity_kind,licence_expiry,licence_class,evidence_digest FROM driver_manual_reviews WHERE tenant_id=? AND driver_id=?',
       [req.tenantId,id]
     );
     const manualApproved=manual?.review_state==='approved';
@@ -5028,7 +5063,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
        (manual.licence_expiry!==licenceExpiry || manual.licence_class!==licenceClass))
       return res.status(409).json({error:'Manual evidence review does not match the licence details being approved.'});
     if(status==='available' && manualApproved){
-      const kinds=documentKindsForVehicle(approvedVehicleType);
+      const kinds=documentKindsForIdentity(approvedVehicleType,manual.identity_kind||'nic');
       const proofs=await dbAll(
         "SELECT kind,digest FROM driver_manual_documents WHERE tenant_id=? AND driver_id=? AND ciphertext IS NOT NULL",
         [req.tenantId,id]
@@ -5069,6 +5104,7 @@ app.post('/api/delivery/drivers/:id/approve', authenticateToken, requireRole(['o
     // Minimize retention of sensitive encrypted images once the restaurant
     // has issued its final rider approval/rejection.
     await dbRun('DELETE FROM driver_manual_documents WHERE tenant_id=? AND driver_id=?',[req.tenantId,id]);
+    await recordRiderTimeline(req.tenantId,id,status==='available'?'driver_approved':'driver_rejected',null,req.user.role);
     await writeAuditLog(req.user.id, req.user.username, 'review_driver', `Reviewed driver ${id} as ${status}; eligibility attested: ${verificationConfirmed === true}`);
     broadcastEvent('driver_updated', { id, status });
     void notifyRiderApplication({tenantId:req.tenantId,driverId:id,event:status==='available'?'approved':'rejected'});
