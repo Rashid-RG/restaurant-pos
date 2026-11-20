@@ -49,11 +49,11 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   const router=express.Router();
   // Opt-in explicitly on staging. Disabled elsewhere, including unconfigured production.
   router.use('/platform/communications', (req,res,next)=>{
-    if(((env.PLATFORM_COMMUNICATIONS_ENABLED!=='true'||env.PLATFORM_COMMUNICATIONS_STAGE!=='staging')||env.PLATFORM_COMMUNICATIONS_STAGE!=='staging'))return res.status(404).json({error:'Communications module unavailable.'});
+    if(env.PLATFORM_COMMUNICATIONS_ENABLED!=='true'||env.PLATFORM_COMMUNICATIONS_STAGE!=='staging')return res.status(404).json({error:'Communications module unavailable.'});
     next();
   });
   router.use('/owner/communications', (req,res,next)=>{
-    if(env.PLATFORM_COMMUNICATIONS_ENABLED!=='true')return res.status(404).json({error:'Communications module unavailable.'});
+    if(env.PLATFORM_COMMUNICATIONS_ENABLED!=='true'||env.PLATFORM_COMMUNICATIONS_STAGE!=='staging')return res.status(404).json({error:'Communications module unavailable.'});
     next();
   });
   // No emails or push calls; only tenant-scoped in-app inbox rows.
