@@ -1957,6 +1957,20 @@ const riderPresence=process.env.GASTROFLOW_RIDER_PRESENCE_REDIS_URL
     url:process.env.GASTROFLOW_RIDER_PRESENCE_REDIS_URL
   })})
   :createRiderPresence();
+// Staging-only synthetic route probe: proves the GastroFlow backend can
+// authenticate to its dedicated HTTPS router. No customer/order GPS involved.
+if(process.env.GASTROFLOW_ROUTING_STARTUP_SMOKE==='true'){
+  const timer=setTimeout(async()=>{
+    const result=await fetchRoadRoute({
+      from:{lat:6.9271,lng:79.8612},to:{lat:6.9317,lng:79.8661},
+      timeoutMs:8000
+    });
+    console.info('[OSRM staging integration]',result?.available
+      ?'Verified authenticated Sri Lanka road routing through HTTPS'
+      :'Staging router unavailable; existing safe fallback remains active');
+  },15000);
+  timer.unref?.();
+}
 app.use('/api',createRiderPresenceRouter({
   express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,
   presence:riderPresence,enabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true',
