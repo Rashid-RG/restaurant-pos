@@ -13,6 +13,7 @@ import {platformCommunicationDeliveryReadiness} from '../lib/communications/plat
 import {brevoWebhookEnabled,authenticateBrevoWebhook,normalizeBrevoTransactionalPayload} from '../lib/communications/platform-brevo-webhook.js';
 import {recordVerifiedBrevoEvent} from '../lib/communications/platform-brevo-receipts.js';
 import { pushEnrollmentEnabled, enrollOwnerInstallation, revokeOwnerInstallation } from '../lib/communications/platform-push-enrollment.js';
+import {fcmTokenEnrollmentEnabled,registerOwnerFcmToken,revokeOwnerFcmToken} from '../lib/communications/platform-fcm-token-registry.js';
 
 const audienceSchema=z.object({
   scope:z.enum(['all','specific']).default('all'),
@@ -118,6 +119,13 @@ export async function initPlatformCommunications(dbRun) {
     revokedAt BIGINT,PRIMARY KEY(tenant_id,userId,deviceHash),UNIQUE(deviceHash))`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_push_devices
     ON platform_owner_communication_devices (tenant_id,userId,revokedAt)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_fcm_tokens (
+    tenant_id TEXT NOT NULL,userId TEXT NOT NULL,deviceHash TEXT NOT NULL,
+    tokenHash TEXT NOT NULL UNIQUE,cipherText TEXT NOT NULL,cipherIv TEXT NOT NULL,
+    cipherTag TEXT NOT NULL,registeredAt BIGINT NOT NULL,updatedAt BIGINT NOT NULL,
+    revokedAt BIGINT,PRIMARY KEY(tenant_id,userId,deviceHash))`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_fcm_tokens_active
+    ON platform_owner_communication_fcm_tokens (tenant_id,userId,revokedAt)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_acknowledgment_evidence (
     announcementId TEXT NOT NULL,tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
     contentLanguage TEXT NOT NULL,contentHash TEXT NOT NULL,
@@ -483,6 +491,8 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     if(!req.body.optedIn&&pushEnrollmentEnabled(env)){
       await dbRun(`UPDATE platform_owner_communication_devices SET revokedAt=?,updatedAt=?
         WHERE tenant_id=? AND userId=? AND revokedAt IS NULL`,[now,now,tid,uid]);
+      await dbRun(`UPDATE platform_owner_communication_fcm_tokens SET revokedAt=?,updatedAt=?
+        WHERE tenant_id=? AND userId=? AND revokedAt IS NULL`,[now,now,tid,uid]);
     }
     res.set('Cache-Control','no-store').json({optedIn:req.body.optedIn,updatedAt:now,pushOperational:false});
   }catch(e){next(e)}});
@@ -511,6 +521,35 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     if(result.status==='conflict')return res.status(409).json({error:'Installation already belongs to an account.'});
     if(result.status!=='enrolled')return res.status(503).json({error:'Device enrollment unavailable.'});
     res.status(201).set('Cache-Control','no-store').json(result);
+  }catch(e){next(e)}});
+  // Store tokens only after owner authentication, explicit opt-in and installation enrollment.
+  // Never return raw FCM token data, and never dispatch from an HTTP request.
+  router.post('/owner/communications/fcm-token',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    if(!fcmTokenEnrollmentEnabled(env))return res.status(404).json({error:'FCM enrollment disabled.'});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
+    const pref=await dbGet('SELECT optedIn FROM platform_owner_communication_push_preferences WHERE tenant_id=? AND userId=?',[tid,uid]);
+    if(!pref?.optedIn)return res.status(409).json({error:'Push consent required.'});
+    const result=await registerOwnerFcmToken({dbGet,dbRun,tenantId:tid,userId:uid,input:req.body,env});
+    if(result.status==='invalid')return res.status(400).json({error:'Invalid token registration.'});
+    if(result.status==='device_not_enrolled')return res.status(409).json({error:'Enroll this installation first.'});
+    if(result.status==='token_already_bound')return res.status(409).json({error:'Token belongs to another installation.'});
+    if(result.status!=='registered')return res.status(503).json({error:'Registration unavailable.'});
+    return res.status(201).set('Cache-Control','no-store').json(result);
+  }catch(e){next(e)}});
+  router.post('/owner/communications/fcm-token/revoke',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    if(!fcmTokenEnrollmentEnabled(env))return res.status(404).json({error:'FCM enrollment disabled.'});
+    if(!req.body||Object.keys(req.body).join(',')!=='installationId')
+      return res.status(400).json({error:'Installation ID required.'});
+    const result=await revokeOwnerFcmToken({
+      dbRun,tenantId:tid,userId:uid,installationId:req.body.installationId,env
+    });
+    if(result.status==='invalid')return res.status(400).json({error:'Invalid installation.'});
+    res.set('Cache-Control','no-store').json(result);
   }catch(e){next(e)}});
   router.post('/owner/communications/devices/revoke',authenticateToken,async(req,res,next)=>{try{
     const uid=req.user?.id,tid=req.user?.tenant_id;
