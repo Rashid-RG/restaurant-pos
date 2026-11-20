@@ -1,4 +1,5 @@
-import {eligibleNearbyRiders} from '../lib/delivery/rider-discovery.js';
+import {createH3RiderIndex} from '../lib/delivery/h3-rider-index.js';
+import * as h3 from 'h3-js';
 
 /** Optional single-process staging pilot. Disabled unless explicitly enabled. */
 export function createRiderPresenceRouter({
@@ -54,9 +55,15 @@ export function createRiderPresenceRouter({
       id:r.driverId,tenantId,status:'available',verified:true,onDuty:true,locationConsent:true,
       fix:{lat:r.lat,lng:r.lng,accuracyMeters:r.accuracyMeters,updatedAt:r.recordedAt}
     }));
-    return res.json({candidates:eligibleNearbyRiders({
-      tenantId,origin:{lat,lng},riders,now:clock(),maxRadiusMeters:10000
-    }),method:'straight_line_shortlist_not_road_eta'});
+    // Real H3 v4 spatial prefilter. Cell radius is deliberately bounded and
+    // results remain subject to actual distance, age and tenant checks.
+    const index=createH3RiderIndex(h3,{resolution:8});
+    index.replaceTenant(tenantId,riders,clock());
+    const candidates=index.nearby({
+      tenantId,origin:{lat,lng},ringCount:4,now:clock(),maxRadiusMeters:10000
+    });
+    index.clearTenant(tenantId);
+    return res.json({candidates,method:'h3_cell_shortlist_not_road_eta'});
   });
   return router;
 }
