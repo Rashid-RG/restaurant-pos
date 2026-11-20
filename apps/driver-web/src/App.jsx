@@ -16,7 +16,12 @@ const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
 // API helper — attaches the driver JWT so the server can identify + tenant-scope the rider.
 const apiFetch = async (url, opts = {}) => {
   const token = getToken();
-  const res = await fetch(`/api${url}`, {
+  const nativeOrigin=import.meta.env.MODE==='native' ? import.meta.env.VITE_DRIVER_NATIVE_API_URL : null;
+  if(import.meta.env.MODE==='native' &&
+     (!nativeOrigin || !/^https:\/\/[a-z0-9.-]+(?::443)?\/?$/i.test(nativeOrigin)))
+    throw new Error('Native driver API origin is not configured securely.');
+  const base=nativeOrigin ? nativeOrigin.replace(/\/$/,'') : '';
+  const res = await fetch(`${base}/api${url}`, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
