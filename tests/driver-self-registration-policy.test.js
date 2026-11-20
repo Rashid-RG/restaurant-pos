@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { driverRegisterSchema } from '../lib/validation.js';
+import { driverRegisterSchema, driverOtpRequestSchema, driverOtpVerifySchema } from '../lib/validation.js';
 
 const valid = {
   name: 'Test Rider', phone: '0771234567', password: 'secure-passphrase-123',
@@ -20,6 +20,16 @@ describe('driver self-registration validation boundary', () => {
     ]) {
       expect(driverRegisterSchema.safeParse({ ...valid, ...patch }).success).toBe(false);
     }
+  });
+
+  it('supports verified email and separate recovery verification', () => {
+    const {verificationCode: _unused,...withoutCode}=valid;
+    expect(driverRegisterSchema.safeParse({...withoutCode,verificationToken:'x'.repeat(40)}).success).toBe(true);
+    expect(driverOtpRequestSchema.safeParse({email:valid.email,flow:'recover'}).success).toBe(true);
+    expect(driverOtpRequestSchema.safeParse({email:valid.email,flow:'register'}).success).toBe(true);
+    expect(driverOtpRequestSchema.safeParse({email:valid.email,flow:'invalid'}).success).toBe(false);
+    expect(driverOtpVerifySchema.safeParse({email:valid.email,verificationCode:'123456'}).success).toBe(true);
+    expect(driverOtpVerifySchema.safeParse({email:valid.email,verificationCode:'1234'}).success).toBe(false);
   });
 
   it('accepts the explicitly supported vehicle options', () => {
