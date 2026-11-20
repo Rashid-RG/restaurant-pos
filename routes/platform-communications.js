@@ -7,6 +7,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { enqueueSandboxOwnerEmails, sandboxEmailConfig, reconcileStaleSandboxEmailClaims, closeSandboxEmailReview } from '../lib/communications/platform-email-queue.js';
+import { previewSandboxOwnerEmailDispatch } from '../lib/communications/platform-email-preview.js';
 
 const audienceSchema=z.object({
   scope:z.enum(['all','specific']).default('all'),
@@ -199,6 +200,22 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       FROM platform_owner_communication_email_queue WHERE announcementId=?
       GROUP BY status ORDER BY status`,[req.params.id]);
     res.set('Cache-Control','no-store').json({statuses:rows});
+  }catch(e){next(e)}});
+  router.get('/platform/communications/:id/email-queue/preview',...platform,async(req,res,next)=>{try{
+    if(!sandboxEmailConfig(env).enabled)return res.status(403).json({error:'Sandbox email queue disabled.'});
+    const m=await dbGet('SELECT id FROM platform_owner_announcements WHERE id=?',[req.params.id]);
+    if(!m)return res.status(404).json({error:'Announcement not found.'});
+    const report=await previewSandboxOwnerEmailDispatch({dbAll,dbGet,announcementId:req.params.id,env});
+    res.set('Cache-Control','no-store').json({...report,dryRun:true,sent:0});
+  }catch(e){next(e)}});
+  router.get('/platform/communications/:id/email-queue/reviews',...platform,async(req,res,next)=>{try{
+    if(!sandboxEmailConfig(env).enabled)return res.status(403).json({error:'Sandbox email queue disabled.'});
+    const rows=await dbAll(`SELECT announcementId,tenant_id AS tenantId,userId,
+      status,attemptCount,lastAttemptAt,lastErrorCode,updatedAt
+      FROM platform_owner_communication_email_queue
+      WHERE announcementId=? AND status='manual_review'
+      ORDER BY updatedAt DESC LIMIT 100`,[req.params.id]);
+    res.set('Cache-Control','no-store').json({reviews:rows});
   }catch(e){next(e)}});
   router.post('/platform/communications/email-queue/reconcile',...platform,async(req,res,next)=>{try{
     if(!sandboxEmailConfig(env).enabled)return res.status(403).json({error:'Sandbox email queue disabled.'});
