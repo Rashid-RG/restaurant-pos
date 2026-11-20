@@ -1,7 +1,7 @@
-import React, {useState} from 'react';
+import React, {useEffect,useState} from 'react';
 import {usePOS} from '../context/POSContext';
 import {
-  eligibleStagingOwner,enrollStagingOwnerPush,revokeStagingOwnerPush
+  eligibleStagingOwner,enrollStagingOwnerPush,revokeStagingOwnerPush,syncRotatedStagingOwnerToken
 } from '../utils/staging-fcm-enrollment';
 
 /**
@@ -15,6 +15,33 @@ export default function StagingPushSetup() {
   const [registered,setRegistered]=useState(false);
   const [status,setStatus]=useState('');
   const capacitor=typeof window!=='undefined'?window.Capacitor:null;
+  const eligible=eligibleStagingOwner(currentUser,capacitor,
+    typeof window==='undefined'?'':window.location.origin);
+  const ownerId=currentUser?.id,tenantId=currentUser?.tenant_id;
+
+  // The native plugin emits tokenReceived when Firebase rotates a token.
+  // A handler never opts in a new owner; only existing registered devices sync.
+  useEffect(()=>{
+    if(!eligible)return undefined;
+    const messaging=capacitor.Plugins.FirebaseMessaging;
+    if(typeof messaging?.addListener!=='function')return undefined;
+    let cancelled=false;
+    const pending=Promise.resolve().then(()=>messaging.addListener('tokenReceived',event=>{
+      if(cancelled)return;
+      void syncRotatedStagingOwnerToken({
+        user:currentUser,capacitor,origin:window.location.origin,
+        storage:window.localStorage,fetcher:window.fetch.bind(window),
+        token:event?.token
+      }).then(result=>{
+        if(!cancelled && result.status==='synced')
+          setStatus('This staging device registration was securely refreshed.');
+      }).catch(()=>{});
+    })).catch(()=>null);
+    return ()=>{
+      cancelled=true;
+      void pending.then(handle=>handle?.remove?.()).catch(()=>{});
+    };
+  },[eligible,ownerId,tenantId]);
 
   if(!eligibleStagingOwner(currentUser,capacitor,
     typeof window==='undefined'?'':window.location.origin))return null;
