@@ -88,6 +88,15 @@ Authenticated restaurant owner (only own user+tenant):
 - Staging sandbox email composition currently uses the original English message only; translated email delivery is not implemented.
 - Translation fields are optional for compatibility with preexisting drafts and messages. No existing data is overwritten or deleted.
 
+### Translation approval and acknowledgment evidence
+- Sinhala/Tamil text can be entered when a draft is created, but **owners receive English until an authorized platform owner explicitly approves each translation**.
+- Platform endpoints: `GET /api/platform/communications/:id/translations`, `POST /api/platform/communications/:id/translations/:locale/approve` and `POST /api/platform/communications/:id/translations/:locale/revoke`.
+- Approvals are stored separately in `platform_owner_translation_approvals` with reviewer ID, approval timestamp and a SHA-256 fingerprint of the approved locale text. Revocation makes the owner inbox fall back to English. No existing translation text is deleted.
+- Owner acknowledgment now records an additive, tenant-scoped evidence row containing announcement, user, tenant, displayed approved language (or English fallback), content hash, policy version and timestamp. Duplicate acknowledgment inserts are ignored so existing evidence isn't overwritten.
+- Platform endpoint `GET /api/platform/communications/:id/acknowledgments` returns aggregated language/version evidence counts without disclosing account IDs.
+- An administrative approval click **does not certify legal translation quality** and does not prove a person viewed the translated text. Independent language review, immutable snapshot proof, explicit consent language and legal advice remain separate release gates. Original in-app read/ack timestamps remain unchanged.
+- All new tables are additive, and still guarded by the staging-only communication flags. Do not run on a database shared with production.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
