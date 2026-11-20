@@ -23,6 +23,8 @@ import {initInventoryOperations,createInventoryOperations} from './routes/invent
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact ,createTrackingGuard,makeTrackingAccess,publicTrackingEvent,loadAssignedDriverLocation ,initOrderInventory,setOrderInventory,createReleaseOrderLoyalty} from './lib/orders/index.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
+import {createRiderPresence} from './lib/delivery/rider-presence.js';
+import {createRiderPresenceRouter} from './routes/rider-presence.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
 import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier, createCustomerRegistrationDuplicates, isCustomerRegistrationUniqueConflict } from './lib/identity/index.js';
 import { createCustomerOtpLoginLookup } from './lib/identity/customer-otp-login.js';
@@ -1944,6 +1946,13 @@ const requireRole = (allowedRoles) => {
   };
 };
 
+// Disabled by default: ephemeral single-process pilot, never general-purpose
+// customer location sharing or a multi-instance production presence store.
+const riderPresence=createRiderPresence();
+app.use('/api',createRiderPresenceRouter({
+  express,authenticateDriver,authenticateToken,requireRole,dbGet,
+  presence:riderPresence,enabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true'
+}));
 app.use('/api',createServiceExceptions({dbGet,dbAll,dbRun,authenticateToken,requireRole,resolveAndCalculateBill,releaseOrderLoyalty,notifyOrderUpdate}));
 app.use('/api',createManualPayments({dbGet,dbAll,dbRun,authenticateToken,requireRole,settleOrderPaid,notifyOrderUpdate,writeAuditLog:(...args)=>writeAuditLog(...args)}));
 app.use('/api',createKitchenRouter({dbGet,dbAll,dbRun,authenticateToken,requireRole,notifyOrderUpdate}));
@@ -5731,6 +5740,7 @@ app.post('/api/public/driver/availability', authenticateDriver, async (req, res)
   const changed=await dbRun("UPDATE drivers SET status=? WHERE id=? AND tenant_id=? AND status IN ('available','active','busy','offline')",
     [nextStatus,id,t]);
   if(changed.changes!==1)return res.status(409).json({ error:'Driver availability changed. Refresh and retry.' });
+  if(nextStatus!=='available')riderPresence.revoke(t,id);
   res.set('Cache-Control','no-store').json({ success:true,status:nextStatus,activeDeliveries:Number(active?.total)||0 });
 });
 
