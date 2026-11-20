@@ -46,6 +46,17 @@ Authenticated restaurant owner (only own user+tenant):
 9. Reconcile existing global broadcast UI and avoid conflicting urgent banners.
 10. Verify staging uses a separate Turso database before migration approval. Back up and test restoration. Never deploy to production or run destructive changes.
 
+### Sandbox email delivery foundation
+- Queue code lives in `lib/communications/platform-email-queue.js`; staging queue table and admin queue endpoints live in `routes/platform-communications.js`.
+- Email queue is disabled unless ALL are configured: `PLATFORM_COMMUNICATIONS_ENABLED=true`, `PLATFORM_COMMUNICATIONS_STAGE=staging`, `PLATFORM_COMMUNICATIONS_EMAIL_ENABLED=true`, `PLATFORM_COMMUNICATIONS_EMAIL_MODE=sandbox`, and `PLATFORM_COMMUNICATIONS_TEST_EMAILS` containing explicitly approved, comma-separated testing addresses.
+- The UI's **Queue allowed sandbox emails** action only creates queued records; it never sends.
+- The injected-provider worker is not mounted in server startup. No live, automatic or transactional emails are delivered by this change. It must first be connected to an explicit staging sandbox provider and tested.
+- All queued addresses must match the exact allowlist, and the worker rechecks current owner membership, tenant status, announcement publication and expiration before calling the sandbox transport.
+- After a provider timeout or other ambiguous failure, work is marked `manual_review` rather than automatically retried; safe retry policies require provider idempotency contracts.
+- Queue insertion, HTTP inbox delivery and provider acceptance are separate statuses. Provider acceptance is not evidence of inbox arrival or human reading.
+- Never use actual customers' email addresses in the allowlist during staging.
+- Future steps: dedicated controlled worker, stale sending reconciliation, delivery webhooks, permanent failures and backoff, unsubscribe/transactional-message policy, bounce suppression, quotas, isolation and load tests.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
