@@ -53,6 +53,14 @@ export async function initPlatformCommunications(dbRun) {
     PRIMARY KEY (announcementId,tenant_id,userId))`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_announcements_inbox
     ON platform_owner_announcement_recipients (tenant_id,userId,deliveredAt)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_deliveries (
+    announcementId TEXT NOT NULL, tenant_id TEXT NOT NULL, userId TEXT NOT NULL,
+    channel TEXT NOT NULL, status TEXT NOT NULL, attemptCount INTEGER NOT NULL DEFAULT 0,
+    nextAttemptAt BIGINT, lastAttemptAt BIGINT, lastErrorCode TEXT,
+    deliveredAt BIGINT, createdAt BIGINT NOT NULL, updatedAt BIGINT NOT NULL,
+    PRIMARY KEY (announcementId,tenant_id,userId,channel))`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_delivery_pending
+    ON platform_owner_communication_deliveries (channel,status,nextAttemptAt)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_schedule (
     announcementId TEXT PRIMARY KEY, scheduledAt BIGINT NOT NULL, createdBy TEXT NOT NULL,
     createdAt BIGINT NOT NULL)`);
@@ -110,8 +118,11 @@ export async function dispatchDueOwnerAnnouncements({dbGet,dbAll,dbRun,now=Date.
         results.push({id:candidate.id,status:'no_eligible_owners'});continue;
       }
       const at=Date.now();
-      for(const row of rows)await dbRun(`INSERT OR IGNORE INTO platform_owner_announcement_recipients
-        (announcementId,tenant_id,userId,deliveredAt) VALUES (?,?,?,?)`,[candidate.id,row.tenantId,row.userId,at]);
+      for(const row of rows){
+        await dbRun(`INSERT OR IGNORE INTO platform_owner_announcement_recipients
+          (announcementId,tenant_id,userId,deliveredAt) VALUES (?,?,?,?)`,[candidate.id,row.tenantId,row.userId,at]);
+        await recordOwnerInboxDelivery(dbRun,{announcementId:candidate.id,tenantId:row.tenantId,userId:row.userId,at});
+      }
       await dbRun("UPDATE platform_owner_announcements SET status='published',publishedAt=? WHERE id=? AND status='scheduled'",[at,candidate.id]);
       await dbRun('DELETE FROM platform_owner_announcement_schedule WHERE announcementId=?',[candidate.id]);
       await dbRun(`INSERT INTO platform_owner_announcement_audit
@@ -125,6 +136,15 @@ export async function dispatchDueOwnerAnnouncements({dbGet,dbAll,dbRun,now=Date.
     }
   }
   return results;
+}
+
+/** Record an in-app delivery. External channels are intentionally not queued
+ * until sandbox destinations, opt-in and provider idempotency are implemented. */
+export async function recordOwnerInboxDelivery(dbRun,{announcementId,tenantId,userId,at}){
+  await dbRun(`INSERT OR IGNORE INTO platform_owner_communication_deliveries
+    (announcementId,tenant_id,userId,channel,status,attemptCount,nextAttemptAt,lastAttemptAt,lastErrorCode,deliveredAt,createdAt,updatedAt)
+    VALUES (?,?,?,'in_app','delivered',1,NULL,?,NULL,?,?,?)`,
+    [announcementId,tenantId,userId,at,at,at,at]);
 }
 
 export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authenticateToken,requirePlatformAdmin,env=process.env}) {
@@ -250,6 +270,7 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
         await dbRun(`INSERT INTO platform_owner_announcement_recipients
           (announcementId,tenant_id,userId,deliveredAt) VALUES (?,?,?,?)`,
           [m.id,r.tenantId,r.userId,now]);
+        await recordOwnerInboxDelivery(dbRun,{announcementId:m.id,tenantId:r.tenantId,userId:r.userId,at:now});
       }
       await audit(req,m.id,'published');
       await dbRun('COMMIT');tx=false;
@@ -271,7 +292,10 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
        SUM(CASE WHEN readAt IS NOT NULL THEN 1 ELSE 0 END) AS readCount,
        SUM(CASE WHEN acknowledgedAt IS NOT NULL THEN 1 ELSE 0 END) AS acknowledgedCount
        FROM platform_owner_announcement_recipients WHERE announcementId=?`,[m.id]);
-    res.set('Cache-Control','no-store').json({announcement:m,stats});
+    const channels=await dbAll(`SELECT channel,status,COUNT(*) AS count
+      FROM platform_owner_communication_deliveries WHERE announcementId=?
+      GROUP BY channel,status ORDER BY channel,status`,[m.id]);
+    res.set('Cache-Control','no-store').json({announcement:m,stats,channels});
   }catch(e){next(e)}});
   router.get('/owner/communications',authenticateToken,async(req,res,next)=>{try{
     if(!req.user||req.user.role!=='owner'||!req.user.tenant_id||req.user.isPlatformAdmin)return res.status(403).json({error:'Owner account required.'});
