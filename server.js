@@ -24,6 +24,8 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import {createRiderPresence} from './lib/delivery/rider-presence.js';
+import {createRedisRiderPresence} from './lib/delivery/redis-rider-presence.js';
+import {createRedisRespClient} from './lib/delivery/redis-resp-client.js';
 import {createRiderPresenceRouter} from './routes/rider-presence.js';
 import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
 import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier, createCustomerRegistrationDuplicates, isCustomerRegistrationUniqueConflict } from './lib/identity/index.js';
@@ -1948,7 +1950,13 @@ const requireRole = (allowedRoles) => {
 
 // Disabled by default: ephemeral single-process pilot, never general-purpose
 // customer location sharing or a multi-instance production presence store.
-const riderPresence=createRiderPresence();
+// The single-instance pilot remains the default. A separately configured
+// Redis URL enables shared, expiring rider presence without touching Turso.
+const riderPresence=process.env.GASTROFLOW_RIDER_PRESENCE_REDIS_URL
+  ?createRedisRiderPresence({client:createRedisRespClient({
+    url:process.env.GASTROFLOW_RIDER_PRESENCE_REDIS_URL
+  })})
+  :createRiderPresence();
 app.use('/api',createRiderPresenceRouter({
   express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,
   presence:riderPresence,enabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true',
@@ -5745,7 +5753,7 @@ app.post('/api/public/driver/availability', authenticateDriver, async (req, res)
   const changed=await dbRun("UPDATE drivers SET status=? WHERE id=? AND tenant_id=? AND status IN ('available','active','busy','offline')",
     [nextStatus,id,t]);
   if(changed.changes!==1)return res.status(409).json({ error:'Driver availability changed. Refresh and retry.' });
-  if(nextStatus!=='available')riderPresence.revoke(t,id);
+  if(nextStatus!=='available')await riderPresence.revoke(t,id);
   res.set('Cache-Control','no-store').json({ success:true,status:nextStatus,activeDeliveries:Number(active?.total)||0 });
 });
 
