@@ -97,6 +97,14 @@ Authenticated restaurant owner (only own user+tenant):
 - An administrative approval click **does not certify legal translation quality** and does not prove a person viewed the translated text. Independent language review, immutable snapshot proof, explicit consent language and legal advice remain separate release gates. Original in-app read/ack timestamps remain unchanged.
 - All new tables are additive, and still guarded by the staging-only communication flags. Do not run on a database shared with production.
 
+### Owner acknowledgment receipt and dormant push consent
+- `GET /api/owner/communications/:id/receipt` returns only the signed-in owner's own immutable first-acknowledgment evidence (content hash, language, version and recorded timestamp). The tenant and account identities come only from authentication, never from URL or request body.
+- Receipt visibility requires an active tenant and owner role. A receipt proves that the server stored an acknowledgment action, not that a human read or understood the notice.
+- `GET /api/owner/communications/push-preference` and `POST /api/owner/communications/push-preference` provide an owner-scoped, opt-in preference for a **future** push channel.
+- `platform_owner_communication_push_preferences` is additive and records only tenant ID, owner ID, preference and last-updated timestamp. It stores **no device token or personal device identifier**.
+- The UI clearly states that push is not operational. There is no push sender, token-registration endpoint, delivery job, or automatic push broadcast in this phase.
+- Device registration, revocation, data-retention policy, platform-specific permission UX, web/native push credentials, and actual device testing remain required before any push delivery is activated.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
