@@ -17,8 +17,21 @@ const messageSchema=z.object({
   category:z.enum(['announcement','urgent','maintenance','policy','disclaimer','feature']).default('announcement'),
   requiresAcknowledgment:z.boolean().default(false),
   expiresAt:z.number().int().positive().nullable().default(null),
-  audience:audienceSchema
+  audience:audienceSchema,
+  policyVersion:policyVersionSchema.nullable().optional()
+}).strict().superRefine((m,ctx)=>{
+  if(['policy','disclaimer'].includes(m.category)&&!m.policyVersion)ctx.addIssue({code:'custom',path:['policyVersion'],message:'Policy and disclaimer notices require an immutable version.'});
+  if(['policy','disclaimer'].includes(m.category)&&!m.requiresAcknowledgment)ctx.addIssue({code:'custom',path:['requiresAcknowledgment'],message:'Policy and disclaimer notices require acknowledgment.'});
+});
+
+const templateSchema=z.object({
+  name:z.string().trim().min(2).max(100),
+  title:z.string().trim().min(3).max(140),
+  body:z.string().trim().min(5).max(10000),
+  category:z.enum(['announcement','urgent','maintenance','policy','disclaimer','feature']).default('announcement'),
+  requiresAcknowledgment:z.boolean().default(false)
 }).strict();
+const policyVersionSchema=z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
 
 export function validateOwnerAudience(input){ return audienceSchema.safeParse(input); }
 export function ownerRecipientEligible(row){
@@ -40,6 +53,13 @@ export async function initPlatformCommunications(dbRun) {
     PRIMARY KEY (announcementId,tenant_id,userId))`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_announcements_inbox
     ON platform_owner_announcement_recipients (tenant_id,userId,deliveredAt)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_templates (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+    category TEXT NOT NULL, requiresAcknowledgment INTEGER NOT NULL DEFAULT 0,
+    createdBy TEXT NOT NULL, createdAt BIGINT NOT NULL, updatedAt BIGINT NOT NULL)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_versions (
+    announcementId TEXT PRIMARY KEY, policyVersion TEXT NOT NULL,
+    contentHash TEXT NOT NULL, createdAt BIGINT NOT NULL)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_audit (
     id TEXT PRIMARY KEY, announcementId TEXT NOT NULL, actorId TEXT NOT NULL,
     action TEXT NOT NULL, createdAt BIGINT NOT NULL)`);
@@ -73,6 +93,25 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   const audit=async (req,id,action)=>dbRun(
     'INSERT INTO platform_owner_announcement_audit (id,announcementId,actorId,action,createdAt) VALUES (?,?,?,?,?)',
     [crypto.randomUUID(),id,req.user.id,action,Date.now()]);
+  router.get('/platform/communications/templates',...platform,async(req,res,next)=>{try{
+    res.set('Cache-Control','no-store').json(await dbAll(
+      'SELECT id,name,title,body,category,requiresAcknowledgment,createdAt,updatedAt FROM platform_owner_communication_templates ORDER BY updatedAt DESC LIMIT 200'));
+  }catch(e){next(e)}});
+  router.post('/platform/communications/templates',...platform,async(req,res,next)=>{try{
+    const parsed=templateSchema.safeParse(req.body);
+    if(!parsed.success)return res.status(400).json({error:'Invalid communication template.'});
+    const x=parsed.data,id=crypto.randomUUID(),now=Date.now();
+    await dbRun(`INSERT INTO platform_owner_communication_templates
+      (id,name,title,body,category,requiresAcknowledgment,createdBy,createdAt,updatedAt)
+      VALUES (?,?,?,?,?,?,?,?,?)`,[id,x.name,x.title,x.body,x.category,Number(x.requiresAcknowledgment),req.user.id,now,now]);
+    res.status(201).set('Cache-Control','no-store').json({id});
+  }catch(e){next(e)}});
+  router.delete('/platform/communications/templates/:id',...platform,async(req,res,next)=>{try{
+    const entry=await dbGet('SELECT id FROM platform_owner_communication_templates WHERE id=?',[req.params.id]);
+    if(!entry)return res.status(404).json({error:'Template not found.'});
+    await dbRun('DELETE FROM platform_owner_communication_templates WHERE id=?',[req.params.id]);
+    res.json({success:true});
+  }catch(e){next(e)}});
   router.post('/platform/communications/preview',...platform,async(req,res,next)=>{try{
     const parsed=audienceSchema.safeParse(req.body?.audience);
     if(!parsed.success)return res.status(400).json({error:'Invalid restaurant audience.'});
@@ -90,13 +129,18 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       (id,title,body,category,requiresAcknowledgment,status,audienceJson,createdBy,createdAt,expiresAt)
       VALUES (?,?,?,?,?,'draft',?,?,?,?)`,
       [id,m.title,m.body,m.category,Number(m.requiresAcknowledgment),JSON.stringify(m.audience),req.user.id,now,m.expiresAt]);
+    if(m.policyVersion){
+      const hash=crypto.createHash('sha256').update(JSON.stringify([m.title,m.body,m.category,m.policyVersion])).digest('hex');
+      await dbRun('INSERT INTO platform_owner_announcement_versions (announcementId,policyVersion,contentHash,createdAt) VALUES (?,?,?,?)',[id,m.policyVersion,hash,now]);
+    }
     await audit(req,id,'created');
     res.status(201).set('Cache-Control','no-store').json({id,status:'draft'});
   }catch(e){next(e)}});
   router.get('/platform/communications',...platform,async(req,res,next)=>{try{
     res.set('Cache-Control','no-store').json(await dbAll(
-      `SELECT id,title,category,status,requiresAcknowledgment,createdAt,publishedAt,expiresAt
-       FROM platform_owner_announcements ORDER BY createdAt DESC LIMIT 100`));
+      `SELECT a.id,a.title,a.category,a.status,a.requiresAcknowledgment,a.createdAt,a.publishedAt,a.expiresAt,v.policyVersion
+       FROM platform_owner_announcements a LEFT JOIN platform_owner_announcement_versions v ON v.announcementId=a.id
+       ORDER BY a.createdAt DESC LIMIT 100`));
   }catch(e){next(e)}});
   router.post('/platform/communications/:id/publish',...platform,async(req,res,next)=>{try{
     const m=await dbGet('SELECT * FROM platform_owner_announcements WHERE id=?',[req.params.id]);
@@ -142,9 +186,10 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     if(!req.user||req.user.role!=='owner'||!req.user.tenant_id||req.user.isPlatformAdmin===1)return res.status(403).json({error:'Owner account required.'});
     const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[req.user.tenant_id]);
     if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
-    const rows=await dbAll(`SELECT a.id,a.title,a.body,a.category,a.requiresAcknowledgment,a.publishedAt,a.expiresAt,
+    const rows=await dbAll(`SELECT a.id,a.title,a.body,a.category,a.requiresAcknowledgment,a.publishedAt,a.expiresAt,v.policyVersion,v.contentHash,
       r.readAt,r.acknowledgedAt FROM platform_owner_announcements a
       JOIN platform_owner_announcement_recipients r ON a.id=r.announcementId
+      LEFT JOIN platform_owner_announcement_versions v ON v.announcementId=a.id
       WHERE r.tenant_id=? AND r.userId=? AND a.status='published'
       AND (a.expiresAt IS NULL OR a.expiresAt>?)
       ORDER BY a.publishedAt DESC LIMIT 100`,[req.user.tenant_id,req.user.id,Date.now()]);
@@ -161,6 +206,7 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
         WHERE a.id=? AND r.userId=? AND r.tenant_id=? AND a.status='published'
         AND (a.expiresAt IS NULL OR a.expiresAt>?)`,[req.params.id,uid,tid,Date.now()]);
       if(!row)return res.status(404).json({error:'Announcement not available.'});
+      if(action==='acknowledge'&&!row.requiresAcknowledgment)return res.status(409).json({error:'This message does not require acknowledgment.'});
       const now=Date.now();
       if(action==='read')await dbRun(`UPDATE platform_owner_announcement_recipients SET readAt=COALESCE(readAt,?)
         WHERE announcementId=? AND tenant_id=? AND userId=?`,[now,row.id,tid,uid]);
