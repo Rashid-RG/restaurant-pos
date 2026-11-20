@@ -70,6 +70,15 @@ describe('Authenticated Brevo transactional staging webhook',()=>{
   expect(f.dbRun).toHaveBeenCalledTimes(1);
   expect(JSON.stringify(result.body)).not.toContain(event['message-id']);
  });
+ it('cannot apply a known message ID to a different recipient',async()=>{
+  const f=setup();
+  const result=await request(f.app).post(endpoint)
+    .set('Authorization','Bearer '+env.PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_TOKEN)
+    .send({...event,email:'other@example.test'});
+  expect(result.status).toBe(200);
+  expect(result.body).toEqual({accepted:true,recorded:false});
+  expect(f.dbRun).not.toHaveBeenCalled();
+ });
  it('does not accept unsupported events after authentication',async()=>{
   const f=setup();
   const result=await request(f.app).post(endpoint).set('Authorization','Bearer '+env.PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_TOKEN).send({...event,event:'opened'});
