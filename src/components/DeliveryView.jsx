@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
 import { restaurantTimeZone } from '../utils/restaurant-time';
 import RiderRecruitmentPanel from './RiderRecruitmentPanel';
+import './RiderVerificationCenter.css';
 
 export default function DeliveryView({verificationOnly=false}) {
   const { orders, showToast, settings,currentUser } = usePOS();
   const [verificationTab,setVerificationTab]=useState('Pending');
   const [verificationSearch,setVerificationSearch]=useState('');
+  const [selectedVerificationRider,setSelectedVerificationRider]=useState(null);
+  const [reviewStep,setReviewStep]=useState('identity');
   const [auditRows,setAuditRows]=useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -225,7 +228,15 @@ export default function DeliveryView({verificationOnly=false}) {
   const statusCounts=['Pending','Under Review','Resubmit','Approved','Rejected'].map(name=>({
     name,count:drivers.filter(d=>verificationStatus(d)===name).length
   }));
-  const visibleVerificationDrivers=drivers.filter(d=>verificationStatus(d)===verificationTab && [d.name,d.phone,d.vehicleType,d.plateNumber].some(value=>String(value||'').toLowerCase().includes(verificationSearch.trim().toLowerCase())));
+  const visibleVerificationDrivers=drivers.filter(d=>verificationStatus(d)===verificationTab && [d.name,d.phone,d.email,d.vehicleType,d.plateNumber].some(value=>String(value||'').toLowerCase().includes(verificationSearch.trim().toLowerCase())));
+  const evidenceKinds=d=>[
+    'identity_front',...(d.applicationIdentityKind==='passport'?[]:['identity_back']),'selfie',
+    ...(d.vehicleType==='Bicycle'?[]:['licence_front','licence_back'])
+  ];
+  const evidenceCount=d=>evidenceKinds(d).filter(k=>String(d.submittedDocumentKinds||'').split(',').includes(k)).length;
+  useEffect(()=>{
+    if(selectedVerificationRider&&!visibleVerificationDrivers.some(d=>d.id===selectedVerificationRider))setSelectedVerificationRider(null);
+  },[selectedVerificationRider,visibleVerificationDrivers]);
   const canReview=['owner','manager'].includes(currentUser?.role);
   const fetchVerificationAudit=async()=>{
     if(!canReview)return;
@@ -302,6 +313,22 @@ export default function DeliveryView({verificationOnly=false}) {
                 <span style={{fontSize:12,fontWeight:650}}>{name}</span><strong style={{fontSize:22,lineHeight:1.15}}>{count}</strong>
               </button>)}
             </div>
+            <div className="rvc-cards" aria-label="Rider application cards">
+              {visibleVerificationDrivers.map(d=>{
+                const kinds=evidenceKinds(d),count=evidenceCount(d),received=String(d.submittedDocumentKinds||'').split(',');
+                return <article className={'rvc-application-card'+(selectedVerificationRider===d.id?' selected':'')} key={d.id}>
+                  <div className="rvc-card-identity"><div className="rvc-initial" aria-hidden="true">{String(d.name||'R').charAt(0).toUpperCase()}</div>
+                    <div><h4>{d.name}</h4><p>{d.vehicleType||'Rider'} · {d.plateNumber||'Unassigned'}</p></div>
+                    <span className="rvc-card-state">{verificationStatus(d)}</span>
+                  </div>
+                  <p className="rvc-card-contact">{d.phone} · {d.email||'Email not recorded'}</p>
+                  <div className="rvc-card-progress"><strong>Verification documents</strong><span>{count}/{kinds.length} received</span></div>
+                  <progress value={count} max={kinds.length} aria-label={'Document progress for '+d.name}/>
+                  <div className="rvc-card-docs">{kinds.map(kind=><span key={kind} className={received.includes(kind)?'received':''}>{received.includes(kind)?'✓ ':'○ '}{kind==='identity_front'?(d.applicationIdentityKind==='passport'?'Passport':'NIC front'):kind==='identity_back'?'NIC back':kind==='selfie'?'Selfie':kind==='licence_front'?'Licence front':'Licence back'}</span>)}</div>
+                  <button type="button" className="btn btn-primary rvc-open-button" onClick={()=>{setSelectedVerificationRider(d.id);setReviewStep('identity');}}>{d.status==='pending_approval'?'Review application':'View rider details'}</button>
+                </article>;
+              })}
+            </div>
             {visibleVerificationDrivers.length===0&&<div role="status" style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',borderRadius:12,background:'var(--bg-secondary,rgba(148,163,184,.07))'}}>
               <span aria-hidden="true" style={{fontSize:20}}>📋</span>
               <div><strong style={{fontSize:13}}>No {verificationTab.toLowerCase()} applications</strong><p style={{fontSize:12,color:'var(--text-muted)',margin:'4px 0 0'}}>{verificationSearch?'No riders match this search. Clear the search or choose another status.':'Applications appear here after riders register or their review status changes.'}</p></div>
@@ -320,13 +347,19 @@ export default function DeliveryView({verificationOnly=false}) {
           </section>
         )}
         {/* 0. Pending Driver Registrations Queue */}
-        {verificationOnly && canReview && visibleVerificationDrivers.some(d=>d.status==='pending_approval') && (
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '18px', padding: 'clamp(14px,2vw,22px)' }}>
+        {verificationOnly && canReview && visibleVerificationDrivers.some(d=>d.id===selectedVerificationRider && d.status==='pending_approval') && (
+          <div className="rvc-review-panel" aria-label="Selected rider review">
+            <div className="rvc-review-head"><div><span>APPLICATION REVIEW</span><h3>{visibleVerificationDrivers.find(d=>d.id===selectedVerificationRider)?.name}</h3></div>
+              <button type="button" className="btn btn-outline" onClick={()=>setSelectedVerificationRider(null)}>Close review ✕</button></div>
+            <div className="rvc-review-tabs" role="tablist" aria-label="Manager review stages">
+              {[['identity','1 · Identity & documents'],['eligibility','2 · Licence & decision'],['timeline','3 · Activity timeline']].map(([key,label])=>
+                <button key={key} type="button" role="tab" aria-selected={reviewStep===key} className={reviewStep===key?'active':''} onClick={()=>setReviewStep(key)}>{label}</button>)}
+            </div>
             <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               ⏳ {verificationTab} Rider Applications ({visibleVerificationDrivers.length})
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%,370px), 1fr))', gap: '12px' }}>
-              {visibleVerificationDrivers.filter(d=>d.status==='pending_approval').map(d => (
+              {visibleVerificationDrivers.filter(d=>d.status==='pending_approval' && d.id===selectedVerificationRider).map(d => (
                 <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '13px' }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: '1rem' }}>👤 {d.name}</div>
@@ -338,7 +371,7 @@ export default function DeliveryView({verificationOnly=false}) {
                     <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Driving-licence document: <strong>{d.licenceDocumentStatus === 'verified' ? 'Document authenticity verified; class and standing still need review' : d.licenceDocumentStatus === 'rejected' ? 'Provider rejected' : d.licenceDocumentStatus === 'resubmit' ? 'Resubmission needed' : d.licenceDocumentStatus === 'review' ? 'Manual review needed' : d.licenceDocumentStatus === 'created' ? 'Waiting for provider' : 'No provider check recorded'}</strong></div>
                     <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Manual review: <strong>{d.manualReviewStatus||'Not reviewed'}</strong> · DMT standing: {d.dmtReviewStatus==='manager_checked_external'?'Manager recorded external check':'Not officially checked'}</div>
                   </div>
-                  <section style={{border:'1px solid var(--border-color)',borderRadius:9,padding:10,display:'flex',flexDirection:'column',gap:8}}>
+                  {reviewStep==='identity'&&<section className="rvc-identity-review">
                     <strong style={{fontSize:13}}>Identity & licence review</strong>
                     {d.applicationIdentityKind&&<p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>Applicant selected: <strong>{d.applicationIdentityKind==='passport'?'Passport':'National Identity Card'}</strong></p>}
                     <select className="form-input" value={manualReviews[d.id]?.identityKind||d.applicationIdentityKind||'nic'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],identityKind:e.target.value}}))}>
@@ -382,7 +415,9 @@ export default function DeliveryView({verificationOnly=false}) {
                       <button type="button" className="btn btn-outline" disabled={loading} onClick={()=>decideManualReview(d,'resubmit')}>Request resubmission</button>
                       <button type="button" className="btn btn-danger" disabled={loading} onClick={()=>decideManualReview(d,'reject')}>Reject evidence</button>
                     </div>
-                  </section>
+                    <button className="btn btn-primary" type="button" onClick={()=>setReviewStep('eligibility')}>Continue to licence & decision →</button>
+                  </section>}
+                  {reviewStep==='eligibility'&&<section className="rvc-eligibility-review">
                   <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
                   {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Verified driving licence class
                     <select className="form-input" value={licenceReviews[d.id]?.licenceClass || ''} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],licenceClass:e.target.value}}))}>
@@ -413,6 +448,19 @@ export default function DeliveryView({verificationOnly=false}) {
                       ✕ Reject
                     </button>
                   </div>
+                  </section>}
+                  {reviewStep==='timeline'&&<section className="rvc-timeline">
+                    <h4>Recorded application activity</h4>
+                    <p>Only events recorded by the restaurant verification audit are shown. Missing historical events are not inferred.</p>
+                    {auditRows.filter(row=>row.driverId===d.id).length===0?
+                      <div className="rvc-empty-state">No manager review recorded for this rider yet.</div>:
+                      auditRows.filter(row=>row.driverId===d.id).map((row,index)=><div className="rvc-event" key={row.driverId+'-'+index}>
+                        <div className="rvc-event-marker" aria-hidden="true"/><div><strong>{String(row.state||'Review').replace(/_/g,' ')}</strong>
+                          <p>{row.identityType==='passport'?'Passport':'NIC'} · {row.standingCheck==='manager_checked_external'?'Manager-attested external check':'No official DMT check'}</p>
+                          {row.resubmitReason&&<p>Resubmission: {String(row.resubmitReason).replace(/_/g,' ')}</p>}
+                          <small>{row.reviewedAt?new Date(row.reviewedAt).toLocaleString():'Time unavailable'}</small></div>
+                      </div>)}
+                  </section>}
                 </div>
               ))}
             </div>
