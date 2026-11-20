@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { enqueueSandboxOwnerEmails, sandboxEmailConfig, reconcileStaleSandboxEmailClaims, closeSandboxEmailReview } from '../lib/communications/platform-email-queue.js';
 import { previewSandboxOwnerEmailDispatch } from '../lib/communications/platform-email-preview.js';
 import { sandboxBrevoReady } from '../lib/communications/platform-brevo-sandbox.js';
+import { pushEnrollmentEnabled, enrollOwnerInstallation, revokeOwnerInstallation } from '../lib/communications/platform-push-enrollment.js';
 
 const audienceSchema=z.object({
   scope:z.enum(['all','specific']).default('all'),
@@ -98,6 +99,12 @@ export async function initPlatformCommunications(dbRun) {
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_push_preferences (
     tenant_id TEXT NOT NULL,userId TEXT NOT NULL,optedIn INTEGER NOT NULL DEFAULT 0,
     updatedAt BIGINT NOT NULL,PRIMARY KEY (tenant_id,userId))`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_devices (
+    tenant_id TEXT NOT NULL,userId TEXT NOT NULL,deviceHash TEXT NOT NULL,
+    platform TEXT NOT NULL,registeredAt BIGINT NOT NULL,updatedAt BIGINT NOT NULL,
+    revokedAt BIGINT,PRIMARY KEY(tenant_id,userId,deviceHash),UNIQUE(deviceHash))`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_push_devices
+    ON platform_owner_communication_devices (tenant_id,userId,revokedAt)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_acknowledgment_evidence (
     announcementId TEXT NOT NULL,tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
     contentLanguage TEXT NOT NULL,contentHash TEXT NOT NULL,
@@ -453,7 +460,50 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       VALUES (?,?,?,?) ON CONFLICT (tenant_id,userId)
       DO UPDATE SET optedIn=excluded.optedIn,updatedAt=excluded.updatedAt`,
       [tid,uid,Number(req.body.optedIn),now]);
+    if(!req.body.optedIn&&pushEnrollmentEnabled(env)){
+      await dbRun(`UPDATE platform_owner_communication_devices SET revokedAt=?,updatedAt=?
+        WHERE tenant_id=? AND userId=? AND revokedAt IS NULL`,[now,now,tid,uid]);
+    }
     res.set('Cache-Control','no-store').json({optedIn:req.body.optedIn,updatedAt:now,pushOperational:false});
+  }catch(e){next(e)}});
+  // Enrollment records are NOT push tokens; this is dormant device association only.
+  router.get('/owner/communications/devices',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    if(!pushEnrollmentEnabled(env))return res.status(404).json({error:'Device enrollment disabled.'});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
+    const rows=await dbAll(`SELECT substr(deviceHash,1,16) AS deviceId,platform,registeredAt,updatedAt,revokedAt
+      FROM platform_owner_communication_devices WHERE tenant_id=? AND userId=?
+      ORDER BY updatedAt DESC LIMIT 50`,[tid,uid]);
+    res.set('Cache-Control','no-store').json({devices:rows,pushOperational:false});
+  }catch(e){next(e)}});
+  router.post('/owner/communications/devices',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    if(!pushEnrollmentEnabled(env))return res.status(404).json({error:'Device enrollment disabled.'});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
+    const preference=await dbGet('SELECT optedIn FROM platform_owner_communication_push_preferences WHERE tenant_id=? AND userId=?',[tid,uid]);
+    if(!preference?.optedIn)return res.status(409).json({error:'Push preference must be enabled first.'});
+    const result=await enrollOwnerInstallation({dbGet,dbRun,tenantId:tid,userId:uid,input:req.body,env});
+    if(result.status==='invalid')return res.status(400).json({error:'Invalid installation identifier or platform.'});
+    if(result.status==='conflict')return res.status(409).json({error:'Installation already belongs to an account.'});
+    if(result.status!=='enrolled')return res.status(503).json({error:'Device enrollment unavailable.'});
+    res.status(201).set('Cache-Control','no-store').json(result);
+  }catch(e){next(e)}});
+  router.post('/owner/communications/devices/revoke',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    if(!pushEnrollmentEnabled(env))return res.status(404).json({error:'Device enrollment disabled.'});
+    if(!req.body||Object.keys(req.body).length!==1||typeof req.body.installationId!=='string')
+      return res.status(400).json({error:'Installation identifier required.'});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
+    const result=await revokeOwnerInstallation({dbRun,tenantId:tid,userId:uid,installationId:req.body.installationId,env});
+    if(result.status==='invalid')return res.status(400).json({error:'Invalid installation identifier.'});
+    if(result.status==='not_found')return res.status(404).json({error:'Enrolled device not found.'});
+    res.set('Cache-Control','no-store').json(result);
   }catch(e){next(e)}});
   router.get('/owner/communications/:id/receipt',authenticateToken,async(req,res,next)=>{try{
     const uid=req.user?.id,tid=req.user?.tenant_id;
