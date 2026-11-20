@@ -38,7 +38,7 @@ export function ownerRecipientEligible(row){
   return Boolean(row?.userId && row?.tenantId && row?.role==='owner' && row?.status==='active' && !row?.isPlatformAdmin);
 }
 export function safeOwnerScope(user,tenantId){
-  return Boolean(user && user.id && user.role==='owner' && user.tenant_id && user.tenant_id===tenantId && user.isPlatformAdmin!==1);
+  return Boolean(user && user.id && user.role==='owner' && user.tenant_id && user.tenant_id===tenantId && !user.isPlatformAdmin);
 }
 
 export async function initPlatformCommunications(dbRun) {
@@ -125,15 +125,21 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     if(!parsed.success)return res.status(400).json({error:'Invalid announcement content or recipients.'});
     const m=parsed.data,now=Date.now(),id=crypto.randomUUID();
     if(m.expiresAt!==null&&m.expiresAt<=now)return res.status(400).json({error:'Expiry must be in the future.'});
-    await dbRun(`INSERT INTO platform_owner_announcements
-      (id,title,body,category,requiresAcknowledgment,status,audienceJson,createdBy,createdAt,expiresAt)
-      VALUES (?,?,?,?,?,'draft',?,?,?,?)`,
-      [id,m.title,m.body,m.category,Number(m.requiresAcknowledgment),JSON.stringify(m.audience),req.user.id,now,m.expiresAt]);
-    if(m.policyVersion){
-      const hash=crypto.createHash('sha256').update(JSON.stringify([m.title,m.body,m.category,m.policyVersion])).digest('hex');
-      await dbRun('INSERT INTO platform_owner_announcement_versions (announcementId,policyVersion,contentHash,createdAt) VALUES (?,?,?,?)',[id,m.policyVersion,hash,now]);
-    }
-    await audit(req,id,'created');
+    // Persist the notice, its immutable version fingerprint, and creation audit together.
+    let tx=false;
+    try {
+      await dbRun('BEGIN TRANSACTION');tx=true;
+      await dbRun(`INSERT INTO platform_owner_announcements
+        (id,title,body,category,requiresAcknowledgment,status,audienceJson,createdBy,createdAt,expiresAt)
+        VALUES (?,?,?,?,?,'draft',?,?,?,?)`,
+        [id,m.title,m.body,m.category,Number(m.requiresAcknowledgment),JSON.stringify(m.audience),req.user.id,now,m.expiresAt]);
+      if(m.policyVersion){
+        const hash=crypto.createHash('sha256').update(JSON.stringify([m.title,m.body,m.category,m.policyVersion])).digest('hex');
+        await dbRun('INSERT INTO platform_owner_announcement_versions (announcementId,policyVersion,contentHash,createdAt) VALUES (?,?,?,?)',[id,m.policyVersion,hash,now]);
+      }
+      await audit(req,id,'created');
+        await dbRun('COMMIT');tx=false;
+    }catch(err){if(tx)await dbRun('ROLLBACK');throw err;}
     res.status(201).set('Cache-Control','no-store').json({id,status:'draft'});
   }catch(e){next(e)}});
   router.get('/platform/communications',...platform,async(req,res,next)=>{try{
@@ -183,7 +189,7 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     res.set('Cache-Control','no-store').json({announcement:m,stats});
   }catch(e){next(e)}});
   router.get('/owner/communications',authenticateToken,async(req,res,next)=>{try{
-    if(!req.user||req.user.role!=='owner'||!req.user.tenant_id||req.user.isPlatformAdmin===1)return res.status(403).json({error:'Owner account required.'});
+    if(!req.user||req.user.role!=='owner'||!req.user.tenant_id||req.user.isPlatformAdmin)return res.status(403).json({error:'Owner account required.'});
     const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[req.user.tenant_id]);
     if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
     const rows=await dbAll(`SELECT a.id,a.title,a.body,a.category,a.requiresAcknowledgment,a.publishedAt,a.expiresAt,v.policyVersion,v.contentHash,
