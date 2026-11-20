@@ -488,7 +488,9 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       VALUES (?,?,?,?) ON CONFLICT (tenant_id,userId)
       DO UPDATE SET optedIn=excluded.optedIn,updatedAt=excluded.updatedAt`,
       [tid,uid,Number(req.body.optedIn),now]);
-    if(!req.body.optedIn&&pushEnrollmentEnabled(env)){
+    // Consent withdrawal revokes previously recorded devices and tokens even if
+    // enrollment gates have since been turned off.
+    if(!req.body.optedIn){
       await dbRun(`UPDATE platform_owner_communication_devices SET revokedAt=?,updatedAt=?
         WHERE tenant_id=? AND userId=? AND revokedAt IS NULL`,[now,now,tid,uid]);
       await dbRun(`UPDATE platform_owner_communication_fcm_tokens SET revokedAt=?,updatedAt=?
