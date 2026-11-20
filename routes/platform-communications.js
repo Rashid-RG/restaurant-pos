@@ -12,7 +12,7 @@ import { sandboxBrevoReady } from '../lib/communications/platform-brevo-sandbox.
 import {platformCommunicationDeliveryReadiness} from '../lib/communications/platform-delivery-readiness.js';
 import {brevoWebhookEnabled,authenticateBrevoWebhook,normalizeBrevoTransactionalPayload} from '../lib/communications/platform-brevo-webhook.js';
 import {recordVerifiedBrevoEvent} from '../lib/communications/platform-brevo-receipts.js';
-import { pushEnrollmentEnabled, enrollOwnerInstallation, revokeOwnerInstallation } from '../lib/communications/platform-push-enrollment.js';
+import { pushEnrollmentEnabled, enrollOwnerInstallation, revokeOwnerInstallation, digestOwnerInstallation } from '../lib/communications/platform-push-enrollment.js';
 import {fcmTokenEnrollmentEnabled,registerOwnerFcmToken,revokeOwnerFcmToken} from '../lib/communications/platform-fcm-token-registry.js';
 
 const audienceSchema=z.object({
@@ -562,6 +562,12 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     const result=await revokeOwnerInstallation({dbRun,tenantId:tid,userId:uid,installationId:req.body.installationId,env});
     if(result.status==='invalid')return res.status(400).json({error:'Invalid installation identifier.'});
     if(result.status==='not_found')return res.status(404).json({error:'Enrolled device not found.'});
+    if(result.status==='revoked'){
+      const deviceHash=digestOwnerInstallation(req.body.installationId,env);
+      await dbRun(`UPDATE platform_owner_communication_fcm_tokens
+        SET revokedAt=?,updatedAt=? WHERE tenant_id=? AND userId=? AND deviceHash=?
+          AND revokedAt IS NULL`,[Date.now(),Date.now(),tid,uid,deviceHash]);
+    }
     res.set('Cache-Control','no-store').json(result);
   }catch(e){next(e)}});
   router.get('/owner/communications/:id/receipt',authenticateToken,async(req,res,next)=>{try{
