@@ -4,7 +4,7 @@ import * as h3 from 'h3-js';
 /** Optional single-process staging pilot. Disabled unless explicitly enabled. */
 export function createRiderPresenceRouter({
   express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,presence,
-  enabled=false,clock=Date.now
+  enabled=false,clock=Date.now,estimateRoad=null
 }){
   const router=express.Router();
   const gate=(req,res,next)=>enabled?next():res.status(404).json({error:'Location discovery is not enabled.'});
@@ -63,7 +63,34 @@ export function createRiderPresenceRouter({
       tenantId,origin:{lat,lng},ringCount:4,now:clock(),maxRadiusMeters:10000
     });
     index.clearTenant(tenantId);
-    return res.json({candidates,method:'h3_cell_shortlist_not_road_eta'});
+    // Only the server sees exact rider positions. Road time is optional and
+    // deliberately capped to five short-listed riders per request.
+    const byDriver=new Map(riders.map(r=>[r.id,r.fix]));
+    const top=candidates.slice(0,5);
+    let roadCount=0;
+    if(typeof estimateRoad==='function'){
+      await Promise.all(top.map(async candidate=>{
+        try{
+          const from=byDriver.get(candidate.driverId);
+          if(!from)return;
+          const time=await estimateRoad({from,to:{lat,lng}});
+          if(Number.isFinite(time)&&time>=0&&time<=24*60){
+            candidate.roadTravelMinutes=Math.ceil(time);
+            roadCount++;
+          }
+        }catch{/* Road ETA absent when dedicated routing is down. */}
+      }));
+    }
+    top.sort((a,b)=>{
+      if(Number.isFinite(a.roadTravelMinutes)&&Number.isFinite(b.roadTravelMinutes))
+        return a.roadTravelMinutes-b.roadTravelMinutes||a.distanceMeters-b.distanceMeters;
+      if(Number.isFinite(a.roadTravelMinutes))return -1;
+      if(Number.isFinite(b.roadTravelMinutes))return 1;
+      return a.distanceMeters-b.distanceMeters;
+    });
+    return res.json({candidates:top,
+      method:roadCount?'h3_with_partial_road_estimates':'h3_proximity_only',
+      estimatedRoadTimesAvailable:roadCount>0});
   });
   return router;
 }
