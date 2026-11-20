@@ -97,3 +97,12 @@ must not be represented as a working shared-storage connection.
 - **Deployment:** staging backend `dep-dc0319f40ujc73f8perg` and dedicated routing image `dep-dc02vnqjnfac738qvic0` were reported live by Render. The production service's most recent deployment remained unchanged.
 - **Limitations:** free routing service sleeps during inactivity and first requests may time out before wake-up. Road ETA is not live-traffic ETA. No scheduled OSM refresh, SLA, advanced traffic optimization or physical rider test has been validated. Move routing to suitable always-on compute before commercial launch.
 - **Security:** never paste or commit routing API keys. For secret rotation, update the separate routing service first, then staging together; there may be a brief fallback window. Do not change production.
+
+## Smart dispatch integration — 2026-11-20
+
+- `lib/delivery/smart-dispatch.js` supplies a single H3/OSRM shortlist shared by the manager rider-search API and opt-in automatic dispatch.
+- The server-side filter requires **fresh consented rider presence**, current approved verification, the correct tenant, available status, and no active assigned deliveries. It reuses atomic order/driver claim guards to prevent double assignment.
+- Existing `DeliveryView` dispatch cards now offer a manager-only **Find nearby riders** action when restaurant pickup coordinates have been configured. The card shows road-travel minutes only when verified OSRM estimates are available; otherwise it labels straight-line distance as proximity, and selecting a rider populates the existing manual assignment control.
+- `GASTROFLOW_SMART_DISPATCH_PILOT=true` is the **separate auto-assignment flag**, requiring `GASTROFLOW_RIDER_PRESENCE_PILOT=true` too. It remains disabled in the deployed staging environment unless explicitly and safely activated after verifying staging order/database isolation.
+- With the smart-dispatch flag on, auto-assignment **never falls back to stale order GPS** if no fresh consented rider is present. With the flag off, existing delivery dispatch policy is preserved.
+- No change to automatic delivery order assignment should be activated while staging might share the production Turso customer dataset. Confirm isolated testing and demonstrate tenant/driver cancellation, rejection, consent withdrawal, double assignment and reconnect behavior first.
