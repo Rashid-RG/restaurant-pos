@@ -9,6 +9,13 @@
 4. Enable the FCM HTTP v1 API. Use the least-privileged dedicated service identity on the server. **Do not commit** service-account JSON, private keys or APNs credentials, and never inject them into browser Vite variables.
 5. In Apple Developer, create an APNs authentication key for the appropriate team and upload it in Firebase Console -> Project settings -> Cloud Messaging. Configure Xcode Push Notifications and Background Modes/Remote Notifications. APNs keys and Apple signing cannot be generated through a backend GitHub commit.
 
+### Existing app identifiers inspected on `codex/production-readiness`
+- Customer food app `apps/customer-web/capacitor.config.json`: `com.rstechnologies.gastrofood`. The checked-in Android Gradle file uses `applicationId "com.rstechnologies.gastrofood"` but its **staging** build type adds `applicationIdSuffix '.staging'`. Therefore, before registering the Android Firebase app, choose the **actual build variant and final application ID** (for that staging variant: `com.rstechnologies.gastrofood.staging`). A Firebase Android configuration for the base ID alone will not match the suffixed staging binary.
+- Driver native shell `apps/driver-native/capacitor.config.json`: `com.rstechnologies.gastrodriver`. Its final Android application ID and iOS bundle ID must be confirmed from the generated/signed native project before Firebase registration.
+- Root Capacitor shell `capacitor.config.json`: `com.gastroflow.app`. This is not interchangeable with the customer or driver application ID.
+- The Platform Owner Communication Center is **not** automatically installed in either the customer or driver mobile shell. Their FCM tokens must not be registered as restaurant-owner tokens without a separately designed authenticated owner mobile shell.
+- Never register the customer or rider application under the wrong tenant/owner token endpoint. Plan separate customer/rider token schemas and permissions for their own notification use cases.
+
 ## 2. Capacitor native client
 - Confirm which existing Capacitor app shell will carry restaurant-owner notifications. The current owner Communication Center runs in the POS UI; customer and GastroDriver shells are distinct apps and must **not** reuse an owner token binding.
 - For each intended mobile shell, install a matching-version `@capacitor/push-notifications` package, add permissions, sync Android/iOS, and register after the user signs in and explicitly opts into notifications.
