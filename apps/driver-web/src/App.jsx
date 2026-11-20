@@ -141,6 +141,7 @@ export default function App() {
   const [regCodeSentTo, setRegCodeSentTo] = useState('');
   const [regVerificationToken,setRegVerificationToken]=useState('');
   const [verifyingRegCode,setVerifyingRegCode]=useState(false);
+  const [regEmailError,setRegEmailError]=useState('');
 
   // Bug 6 fix: cancel pending timer before setting a new one to prevent
   // setState-on-unmounted-component warnings and stale toast flashes.
@@ -592,13 +593,14 @@ export default function App() {
   const handleSendRegCode = async () => {
     if (!selectedHiringRestaurant?.id) { showToast('Select your restaurant or enter a valid invitation first.', 'warning'); return; }
     if (!reg.email.trim()) { showToast('Enter your email address first.', 'warning'); return; }
+    setRegEmailError('');
     setSendingRegCode(true);
     try {
       const result = await apiFetch('/public/drivers/request-email-code', { method: 'POST', body: JSON.stringify({email:reg.email.trim()}) });
       setRegVerificationToken('');
       setRegCodeSentTo(reg.email.trim().toLowerCase());
       showToast(result.message || 'Verification code sent.', 'success');
-    } catch (err) { showToast(err.message || 'Unable to send verification code.', 'error'); }
+    } catch (err) { setRegEmailError(err.message || 'Unable to send verification code.');showToast(err.message || 'Unable to send verification code.', 'error'); }
     finally { setSendingRegCode(false); }
   };
 
@@ -606,6 +608,7 @@ export default function App() {
     if(regCodeSentTo!==reg.email.trim().toLowerCase() || !/^\\d{6}$/.test(reg.verificationCode)) {
       showToast('Enter the six-digit code sent to this email.','warning');return;
     }
+    setRegEmailError('');
     setVerifyingRegCode(true);
     try{
       const result=await apiFetch('/public/drivers/verify-email-code',{
@@ -614,7 +617,7 @@ export default function App() {
       if(!result.verificationToken)throw new Error('Email confirmation is unavailable.');
       setRegVerificationToken(result.verificationToken);
       showToast('Email verified successfully.','success');
-    }catch(error){setRegVerificationToken('');showToast(error.message||'Email verification failed.','error');}
+    }catch(error){setRegVerificationToken('');setRegEmailError(error.message||'Email verification failed.');showToast(error.message||'Email verification failed.','error');}
     finally{setVerifyingRegCode(false);}
   };
 
@@ -1035,6 +1038,7 @@ export default function App() {
           onSendCode={handleSendRegCode} codeSentTo={regCodeSentTo}
           sendingCode={sendingRegCode} onVerifyCode={handleVerifyRegCode}
           verifyingCode={verifyingRegCode} verificationToken={regVerificationToken}
+          emailError={regEmailError} onClearEmailError={()=>setRegEmailError('')}
           selfieCandidate={selfieCandidate} onSelfieCapture={handleSelfieCapture} onClearSelfie={clearSelfieCapture}
           onSubmit={handleRegisterSubmit}
           submitting={regSubmitting} onClose={()=>{setShowRegModal(false);clearSelfieCapture();}}
