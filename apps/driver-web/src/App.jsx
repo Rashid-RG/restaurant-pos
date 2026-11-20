@@ -51,6 +51,8 @@ function isRushHour(timeZone = 'Asia/Colombo') {
 
 export default function App() {
   const [driver, setDriver] = useState(JSON.parse(localStorage.getItem(DRIVER_KEY) || 'null'));
+  const driverStatusRef=useRef(null);
+  driverStatusRef.current=driver?.status||null;
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [restaurantTimeZone, setRestaurantTimeZone] = useState('Asia/Colombo');
   const [activeOrders, setActiveOrders] = useState([]);
@@ -342,7 +344,7 @@ export default function App() {
       setLastCoords(coords);
       setGpsQuality('good');
       if(discoveryPilotEnabled&&discoveryConsentRef.current&&
-         ['available','active'].includes(String(driver?.status||'').toLowerCase())&&
+         ['available','active'].includes(String(driverStatusRef.current||'').toLowerCase())&&
          shouldSendDriverFix(coords,lastPresenceSentRef.current)){
         lastPresenceSentRef.current={...coords,sentAt:Date.now()};
         apiFetch('/public/driver/on-duty-location',{
