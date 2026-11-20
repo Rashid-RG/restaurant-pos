@@ -79,6 +79,15 @@ Authenticated restaurant owner (only own user+tenant):
 - The existing queue state uses a legacy `deliveredAt` column to represent provider acceptance; that naming should be corrected through an additive schema update and a provider webhook process before commercial release.
 - Before any real sandbox trial: confirm **separate staging database**, test-address ownership, verified sender, sending quota, duplicate prevention and approval to turn on the provider gate. No production/live broadcast is approved.
 
+### Multilingual restaurant-owner notices (English / Sinhala / Tamil)
+- The Platform Owner can attach **human-written** Sinhala (`si`) and Tamil (`ta`) title and body to each new English announcement. Partial translations are rejected in the composer; the server uses strict field and size validation.
+- Approved translations persist in a separate additive `platform_owner_announcement_translations` table, written in the same draft-creation transaction. No automatic AI translation is performed.
+- Restaurant owners can select English / සිංහල / தமிழ் in the inbox. `GET /api/owner/communications?lang=en|si|ta` uses a server-side language allowlist with bound SQL parameters. It never takes tenant/user identity from a query parameter.
+- Where a requested translation is missing, the API returns the English original with `contentLanguage:'en'` and the owner UI explains the fallback.
+- The original English text remains the canonical content for existing `policyVersion` and `contentHash` records. Legal reviewers must approve all translated versions before using them for binding consent. Translation fingerprints, version-specific legal consent and approval workflow remain future release gates.
+- Staging sandbox email composition currently uses the original English message only; translated email delivery is not implemented.
+- Translation fields are optional for compatibility with preexisting drafts and messages. No existing data is overwritten or deleted.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
