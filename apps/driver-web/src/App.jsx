@@ -1,3 +1,4 @@
+import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
 import './rider-wizard.css';
 import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
@@ -789,43 +790,12 @@ export default function App() {
                 </>}
               </div>}
             </section>}
-            {manualApplicationToken && <section className="card" aria-label="Secure manual identity document submission" style={{marginTop:12,display:'flex',flexDirection:'column',gap:12}}>
-              <strong>Secure manual NIC / passport, selfie and driving-licence submission</strong>
-              <p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>
-                Use this when automated verification is not available. Photos are encrypted in the restaurant database, visible only to managers during review, and deleted after the final approval decision. Uploading photos is not identity verification or official DMT clearance.
-              </p>
-              <label style={{fontSize:13,display:'flex',gap:8,alignItems:'start'}}>
-                <input type="checkbox" checked={manualConsent} onChange={e=>setManualConsent(e.target.checked)}/>
-                I consent to encrypted storage of my NIC/passport, selfie photo and driving-licence evidence (if applicable) for restricted restaurant-manager review. I understand a selfie photograph is not automated liveness verification.
-              </label>
-              <div style={{display:'flex',flexDirection:'column',gap:8,border:'1px solid var(--border-color)',borderRadius:10,padding:12}}>
-                <strong style={{fontSize:13}}>Selfie photo {manualEvidence.selfie?'✓ Submitted':''}</strong>
-                <p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>Take a clear front-facing selfie with your entire face visible, good lighting and no sunglasses. Your manager will compare it to your ID image. This is not an automated biometric or liveness check.</p>
-                <label style={{fontSize:12}}>Take selfie with front camera
-                  <input type="file" accept="image/jpeg,image/png,image/webp" capture="user" disabled={!manualConsent || Boolean(manualUploading)} onChange={e=>{const file=e.target.files?.[0];if(file)handleSelfieCapture(file);e.target.value='';}}/>
-                </label>
-                {selfieCandidate && <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
-                  <img src={selfieCandidate.url} alt="Preview of selfie awaiting submission" style={{width:'min(230px,80%)',aspectRatio:'3 / 4',objectFit:'cover',borderRadius:10,border:'1px solid var(--border-color)'}}/>
-                  <div style={{display:'flex',gap:8}}>
-                    <button type="button" className="btn-outline" onClick={clearSelfieCapture}>Retake</button>
-                    <button type="button" className="btn-emerald" disabled={!manualConsent || Boolean(manualUploading)} onClick={()=>submitManualEvidence('selfie',selfieCandidate.file)}>{manualUploading==='selfie'?'Uploading…':'Confirm and submit selfie'}</button>
-                  </div>
-                </div>}
-              </div>
-              {[
-                ['identity_front','NIC front / passport photo page'],
-                ['identity_back','NIC back / passport supporting page'],
-                ...(manualVehicleType==='Bicycle'?[]:[
-                  ['licence_front','Driving-licence front'],
-                  ['licence_back','Driving-licence back']
-                ])
-              ].map(([kind,label])=><label key={kind} style={{display:'flex',flexDirection:'column',gap:5,fontSize:12}}>
-                <strong>{label} {manualEvidence[kind]?'✓ Submitted':''}</strong>
-                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={!manualConsent||Boolean(manualUploading)} onChange={e=>{const file=e.target.files?.[0];if(file) void submitManualEvidence(kind,file);e.target.value='';}}/>
-                {manualUploading===kind && <span role="status">Encrypting and submitting…</span>}
-              </label>)}
-              <small style={{color:'var(--text-muted)'}}>Maximum 2 MB per photo. On mobile, the front-camera capture is device-dependent and does not prove liveness. Use secure HTTPS. Never send identity evidence through chat or email.</small>
-            </section>}
+            {manualApplicationToken && <RiderEvidenceWizard
+              evidence={manualEvidence} vehicleType={manualVehicleType}
+              consent={manualConsent} setConsent={setManualConsent} uploading={manualUploading}
+              onUpload={submitManualEvidence} selfieCandidate={selfieCandidate}
+              onSelfieCapture={handleSelfieCapture} onClearSelfie={clearSelfieCapture}
+            />}
             {licenceVerificationLink && <div className="card" role="status" style={{marginTop:12}}>
               <strong>Sri Lankan driving-licence check</strong>
               <p style={{fontSize:12}}>Continue secure document authenticity verification on Veriff. The restaurant still needs to confirm your vehicle category, expiry and legal driving eligibility before approval.</p>
