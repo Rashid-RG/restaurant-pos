@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db, seedDatabase } from '../database/db';
 import { isExpiredStaffSession, restoreStaffSession } from '../utils/staff-session';
+import {revokeStagingInstallationOnLogout} from '../utils/staging-fcm-enrollment';
 
 const DB_VERSION = 1;
 
@@ -601,6 +602,15 @@ export const POSProvider = ({ children }) => {
   };
 
   const logout = () => {
+    // Best effort, device-specific revocation while the old owner's bearer JWT
+    // is still available. This does not block immediate local sign-out.
+    if(typeof window!=='undefined' && window.Capacitor){
+      void revokeStagingInstallationOnLogout({
+        user:currentUser,capacitor:window.Capacitor,
+        origin:window.location.origin,storage:window.localStorage,
+        fetcher:window.fetch.bind(window)
+      }).catch(()=>{});
+    }
     localStorage.setItem('gastroflow_signed_out','1');
     // Clear the browser's HttpOnly renewal credential as well as its access
     // token. A network outage cannot stop immediate local sign-out.
