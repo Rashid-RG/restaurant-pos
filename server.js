@@ -24,6 +24,7 @@ import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,pu
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import {createRiderPresence} from './lib/delivery/rider-presence.js';
+import {createStaffRefreshToken,verifyStaffRefreshToken,readStaffRefreshCookie,staffRefreshCookie,staffRefreshCredentialVersion} from './lib/staff-session-refresh.js';
 import {rankDispatchRiders} from './lib/delivery/smart-dispatch.js';
 import {createRedisRiderPresence} from './lib/delivery/redis-rider-presence.js';
 import {createRedisRespClient} from './lib/delivery/redis-resp-client.js';
@@ -2184,6 +2185,12 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
       { expiresIn: '12h' }
     );
 
+    // Refresh credential is host-only, HttpOnly and signed under a separate
+    // key domain; it can never be presented as a staff API bearer token.
+    res.setHeader('Set-Cookie',staffRefreshCookie(
+      createStaffRefreshToken({user:{...user,tenant_id:userTenantId},jwtSecret:JWT_SECRET}),
+      {secure:process.env.NODE_ENV==='production'}
+    ));
     res.json({
       token,
       user: {
@@ -2197,6 +2204,56 @@ app.post('/api/auth/login', authLimiter, validateRequest(authLoginSchema), async
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
+});
+
+// The short access token may expire while the browser tab is closed.
+// Rotate it using an HttpOnly session cookie, rechecking the current account,
+// password revision, restaurant URL and platform owner authority every time.
+app.post('/api/auth/refresh',authLimiter,async(req,res)=>{
+  res.set('Cache-Control','no-store');
+  const refresh=readStaffRefreshCookie(req.headers.cookie);
+  if(!refresh)return res.status(401).json({error:'Please sign in again.',code:'AUTH_REQUIRED'});
+  let claims;
+  try{claims=verifyStaffRefreshToken({token:refresh,jwtSecret:JWT_SECRET});}
+  catch{
+    res.setHeader('Set-Cookie',staffRefreshCookie('',{secure:process.env.NODE_ENV==='production',clear:true}));
+    return res.status(401).json({error:'Your saved sign-in has expired. Please sign in again.',code:'TOKEN_EXPIRED'});
+  }
+  const user=await dbGet(
+    'SELECT u.id,u.username,u.role,u.tenant_id,u.passwordHash, CASE WHEN p.userId IS NOT NULL THEN 1 ELSE 0 END AS isPlatformAdmin FROM users u LEFT JOIN platform_ownership p ON p.userId=u.id WHERE u.id=?',
+    [claims.id]
+  );
+  if(!user||!isStaffClaim({id:user.id,role:user.role})||
+     user.tenant_id!==claims.tenant_id||
+     staffRefreshCredentialVersion({passwordHash:user.passwordHash||'',jwtSecret:JWT_SECRET})!==claims.credentialVersion){
+    res.setHeader('Set-Cookie',staffRefreshCookie('',{secure:process.env.NODE_ENV==='production',clear:true}));
+    return res.status(401).json({error:'Please sign in again.',code:'INVALID_TOKEN'});
+  }
+  const expectedTenant=req.headers['x-expected-tenant-id'];
+  if(expectedTenant){
+    const selected=await resolvePosLoginTenant(expectedTenant);
+    if(!isExpectedRestaurant(selected,user.tenant_id))
+      return res.status(403).json({error:'This account belongs to a different restaurant URL.',code:'TENANT_URL_MISMATCH'});
+  }
+  const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[user.tenant_id]);
+  if(!tenant||tenant.status==='suspended'&&!user.isPlatformAdmin)
+    return res.status(403).json({error:'Restaurant unavailable.',code:'TENANT_SUSPENDED'});
+  const access=jwt.sign({
+    id:user.id,username:user.username,role:user.role,tenant_id:user.tenant_id
+  },JWT_SECRET,{expiresIn:'12h',algorithm:'HS256'});
+  res.setHeader('Set-Cookie',staffRefreshCookie(
+    createStaffRefreshToken({user,jwtSecret:JWT_SECRET}),
+    {secure:process.env.NODE_ENV==='production'}
+  ));
+  return res.json({token:access,user:{
+    id:user.id,username:user.username,role:user.role,
+    tenant_id:user.tenant_id,isPlatformAdmin:user.isPlatformAdmin===1
+  }});
+});
+// Always clear browser refresh credentials on explicit logout.
+app.post('/api/auth/logout',(_req,res)=>{
+  res.setHeader('Set-Cookie',staffRefreshCookie('',{secure:process.env.NODE_ENV==='production',clear:true}));
+  res.set('Cache-Control','no-store').json({success:true});
 });
 
 app.get('/api/auth/me', authenticateToken, (req, res) => res.json({ user: { ...req.user, isPlatformAdmin: req.user.isPlatformAdmin === 1 } }));
