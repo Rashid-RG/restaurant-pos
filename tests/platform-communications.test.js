@@ -3,7 +3,7 @@ import request from 'supertest';
 import express from 'express';
 import {
   createPlatformCommunicationsRouter,validateOwnerAudience,
-  ownerRecipientEligible,safeOwnerScope
+  ownerRecipientEligible,safeOwnerScope,dispatchDueOwnerAnnouncements
 } from '../routes/platform-communications.js';
 
 describe('Platform owner announcement targeting',()=>{
@@ -86,6 +86,22 @@ describe('Platform owner announcement targeting',()=>{
     const r=await request(f.app).post('/api/owner/communications/notice1/acknowledge').send({tenantId:'tenant_b'});
     expect(r.status).toBe(200);
     expect(f.dbRun.mock.calls[0][1].slice(-3)).toEqual(['notice1','tenant_a','u_a']);
+  });
+  it('does not dispatch an announcement that is no longer scheduled',async()=>{
+    const dbAll=vi.fn(async()=>[{id:'notice1',status:'scheduled',audienceJson:'{"scope":"all","tenantIds":[]}',expiresAt:null}]);
+    const dbGet=vi.fn(async()=>({status:'cancelled'}));
+    const dbRun=vi.fn(async()=>({changes:1}));
+    const result=await dispatchDueOwnerAnnouncements({dbAll,dbGet,dbRun,now:Date.now()});
+    expect(result).toEqual([]);
+    expect(dbRun.mock.calls.map(x=>x[0])).toEqual(['BEGIN TRANSACTION','ROLLBACK']);
+  });
+  it('marks already expired scheduled notices cancelled, without notifying owners',async()=>{
+    const dbAll=vi.fn(async()=>[{id:'notice_expired',status:'scheduled',expiresAt:1000}]);
+    const dbGet=vi.fn(async()=>({status:'scheduled',expiresAt:1000}));
+    const dbRun=vi.fn(async()=>({changes:1}));
+    const result=await dispatchDueOwnerAnnouncements({dbAll,dbGet,dbRun,now:2000});
+    expect(result).toEqual([{id:'notice_expired',status:'expired'}]);
+    expect(dbRun.mock.calls.some(x=>x[0].includes('announcement_recipients'))).toBe(false);
   });
   it('rejects a manager inbox request',async()=>{
     const f=fixture({actor:{id:'mgr',role:'manager',tenant_id:'tenant_a'}});
