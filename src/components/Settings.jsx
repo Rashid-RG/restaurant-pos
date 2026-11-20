@@ -4,6 +4,7 @@ import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
 import { testPrintReceipt } from '../utils/printer';
 import SmartReceiptDesigner from './SmartReceiptDesigner.jsx';
+import './receipt-workspace.css';
 import { getNativePrinterConfig, saveNativePrinterConfig, listNativePrinters, nativePrintTestSlip } from '../utils/native-printer';
 import { restaurantTimeZone, validTimeZone } from '../utils/restaurant-time';
 
@@ -42,6 +43,7 @@ export default function Settings() {
   const [nativeBusy, setNativeBusy] = useState(false);
   const [nativeStatus, setNativeStatus] = useState('');
   const [nativeTested, setNativeTested] = useState(false);
+  const [printerWorkspaceView, setPrinterWorkspaceView] = useState('design');
   const onFeedLinesChange = (feedLines) => {
     try {
       const next = saveNativePrinterConfig(nativeTenantId, { ...nativeConfig, enabled: false, printerName: nativePrinterName, feedLines });
@@ -1178,88 +1180,79 @@ export default function Settings() {
             {/* Restaurant point-of-sale workstation printer configuration.
                 Unlike storefront delivery settings, this belongs under POS Settings. */}
             {subTab === 'printer' && (
-              <div>
-                <h2 className="settings-section-title">Printer & Hardware</h2>
-                <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.6 }}>
-                  Configure receipt paper, test the Windows thermal printer, and optionally enable direct ESC/POS printing on this computer.
-                  Browser printing remains the default until a local native test is completed.
-                </p>
-                    <div style={{ width: '100%', maxWidth: '850px', padding: '24px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                      <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Smart Printer & Paper Size</h3>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600 }}>Printer Paper Size</label>
-                        <select 
-                          className="form-select"
+              <div className="receipt-workspace">
+                <header className="receipt-workspace-header">
+                  <span className="receipt-workspace-kicker">GastroFlow · Restaurant workspace</span>
+                  <h2>Receipt & Printer Studio</h2>
+                  <p>Make every bill look professional and save thermal paper. Design once for your restaurant, then calibrate the local printer safely.</p>
+                </header>
+                <div className="receipt-workspace-tabs" role="tablist" aria-label="Printer workspace sections">
+                  <button role="tab" aria-selected={printerWorkspaceView==='design'} type="button"
+                    className={`receipt-workspace-tab ${printerWorkspaceView==='design'?'active':''}`} onClick={()=>setPrinterWorkspaceView('design')}>✨ Receipt Designer</button>
+                  <button role="tab" aria-selected={printerWorkspaceView==='hardware'} type="button"
+                    className={`receipt-workspace-tab ${printerWorkspaceView==='hardware'?'active':''}`} onClick={()=>setPrinterWorkspaceView('hardware')}>🖨️ Printer & Hardware</button>
+                </div>
+                {printerWorkspaceView==='design' ? (
+                  <SmartReceiptDesigner settings={settings} updateSetting={updateSetting} showToast={showToast}
+                    nativeConfig={nativeConfig} onFeedLinesChange={onFeedLinesChange}/>
+                ) : (
+                  <div className="receipt-hardware-card">
+                    <div className="receipt-card-head">
+                      <div><h3>Printer setup</h3><p style={{fontSize:12,color:'var(--text-muted)',margin:'5px 0 0'}}>Choose paper width and run a quick print test before cashier operations.</p></div>
+                      <span className="receipt-pill">Windows · 58mm / 80mm</span>
+                    </div>
+                    <div className="receipt-hardware-subcard">
+                      <label className="receipt-field" htmlFor="gastroflow-printer-paper">Printer paper size
+                        <select id="gastroflow-printer-paper" className="form-select"
                           value={settings?.printerPaperWidth || 'auto'}
-                          onChange={async (e) => {
-                            await updateSetting('printerPaperWidth', e.target.value);
-                            try { localStorage.setItem('gastroflow_printer_paper', e.target.value); } catch (_) {}
-                          }}
-                        >
-                          <option value="auto">⚡ Auto-Detect (Handheld: 58mm · Counter: 80mm)</option>
-                          <option value="80mm">🖨️ 80mm Standard Thermal Printer (POS-80)</option>
-                          <option value="58mm">🧾 58mm Compact Portable Printer (POS-58 / Sunmi)</option>
-                          <option value="a4">📄 A4 / Letter Full Invoice (Laser / Inkjet)</option>
+                          onChange={async e=>{await updateSetting('printerPaperWidth',e.target.value);try{localStorage.setItem('gastroflow_printer_paper',e.target.value);}catch(_){}}}>
+                          <option value="auto">Auto-detect · 58mm handheld / 80mm counter</option>
+                          <option value="80mm">80mm · Standard POS-80</option>
+                          <option value="58mm">58mm · Compact thermal</option>
+                          <option value="a4">A4 · Full-size invoice</option>
                         </select>
-                        <button
-                          type="button"
-                          className="btn btn-outline"
-                          style={{ fontSize: '12px', padding: '6px 12px', height: 'auto', marginTop: '4px' }}
-                          onClick={() => {
-                            const curSettingsObj = { ...settings };
-                            testPrintReceipt(curSettingsObj, settings?.currencySymbol || 'Rs.');
-                          }}
-                        >
-                          🖨️ Test Print Slip
-                        </button>
-                        <div style={{ padding: '14px', border: '1px solid var(--border-color)', borderRadius: '10px', display: 'grid', gap: 10 }}>
-                          <strong style={{ fontSize: 13 }}>Windows Direct Thermal Print (ESC/POS) — Pilot</strong>
-                          <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>
-                            Optional per Windows computer. Requires QZ Tray running locally, a connected ESC/POS-compatible printer and permission prompts.
-                            No Windows driver reinstall is needed just to try this mode. Leave disabled to keep the current browser printing.
-                          </p>
-                          <a href="https://qz.io/download/" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Download QZ Tray for Windows</a>
-                          <button type="button" className="btn btn-outline" disabled={nativeBusy} onClick={discoverNativePrinters}>
-                            {nativeBusy ? 'Connecting…' : '1. Connect QZ Tray / Find printers'}
-                          </button>
-                          <label style={{ fontSize: 12, fontWeight: 600 }} htmlFor="gastroflow-native-printer-select">2. Select the correct Windows printer</label>
-                          <select id="gastroflow-native-printer-select" className="form-select" value={nativePrinterName}
-                            onChange={e => { setNativePrinterName(e.target.value); setNativeTested(false); if (nativeConfig.enabled) toggleNativePrinter(false); }}>
-                            <option value="">Select a detected printer</option>
-                            {nativePrinters.map(printer => <option key={printer} value={printer}>{printer}</option>)}
-                          </select>
-                          <button type="button" className="btn btn-outline" disabled={nativeBusy || !nativePrinters.includes(nativePrinterName) || nativeConfig.enabled} onClick={testNativePrinter}>
-                            3. Send one native test slip (includes cut command)
-                          </button>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                            <input type="checkbox" checked={nativeConfig.enabled}
-                              onChange={e => toggleNativePrinter(e.target.checked)}
-                              disabled={nativeBusy || (!nativeConfig.enabled && !nativeTested)} />
-                            Enable native cashier receipt printing on this computer
-                          </label>
-                          {nativeStatus && <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>{nativeStatus}</p>}
-                          <p style={{ margin: 0, fontSize: 11, color: 'var(--text-muted)' }}>
-                            QZ print success means sent to Windows, not confirmed physically printed. Unsigned QZ requests show confirmation prompts.
-                            If a native job fails, manually use the browser Print button; GastroFlow will not submit a duplicate automatically.
-                          </p>
-                        </div>
-                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', marginTop: '4px' }}>
-                          <input 
-                            type="checkbox"
-                            checked={settings?.autoKickDrawer === 'true'}
-                            onChange={async (e) => {
-                              await updateSetting('autoKickDrawer', e.target.checked ? 'true' : 'false');
-                            }}
-                          />
-                          Auto Kick Cash Drawer on Cash Settlement
-                        </label>
+                      </label>
+                      <div className="receipt-hardware-row">
+                        <button type="button" className="btn btn-outline"
+                          onClick={()=>testPrintReceipt({...settings},settings?.currencySymbol||'Rs.')}>🧾 Print alignment slip</button>
+                        <small style={{fontSize:11,color:'var(--text-muted)'}}>This does not create a sale.</small>
                       </div>
                     </div>
-
-
-
-                <SmartReceiptDesigner settings={settings} updateSetting={updateSetting} showToast={showToast}
-                  nativeConfig={nativeConfig} onFeedLinesChange={onFeedLinesChange} />
+                    <div className="receipt-hardware-subcard">
+                      <div className="receipt-card-head">
+                        <div><h3>Direct thermal printing</h3><p style={{fontSize:12,color:'var(--text-muted)',margin:'6px 0 0'}}>Optional QZ Tray integration for ESC/POS printers on this workstation.</p></div>
+                        <span className="receipt-pill">{nativeConfig.enabled?'Enabled locally':'Optional pilot'}</span>
+                      </div>
+                      <a href="https://qz.io/download/" target="_blank" rel="noopener noreferrer" style={{fontSize:12}}>Download QZ Tray for Windows</a>
+                      <button type="button" className="btn btn-outline" disabled={nativeBusy} onClick={discoverNativePrinters}>
+                        {nativeBusy?'Connecting…':'1 · Find connected printers'}
+                      </button>
+                      <label className="receipt-field" htmlFor="gastroflow-native-printer-select">2 · Select Windows printer
+                        <select id="gastroflow-native-printer-select" className="form-select" value={nativePrinterName}
+                          onChange={e=>{setNativePrinterName(e.target.value);setNativeTested(false);if(nativeConfig.enabled)toggleNativePrinter(false);}}>
+                          <option value="">Choose a detected printer</option>
+                          {nativePrinters.map(printer=><option key={printer} value={printer}>{printer}</option>)}
+                        </select>
+                      </label>
+                      <button type="button" className="btn btn-outline"
+                        disabled={nativeBusy||!nativePrinters.includes(nativePrinterName)||nativeConfig.enabled}
+                        onClick={testNativePrinter}>3 · Print native test + cut</button>
+                      <label className="receipt-toggle">
+                        <input type="checkbox" checked={nativeConfig.enabled} onChange={e=>toggleNativePrinter(e.target.checked)}
+                          disabled={nativeBusy||(!nativeConfig.enabled&&!nativeTested)}/>
+                        <span><strong>Enable direct cashier printing on this computer</strong>
+                          <small>Only activate after confirming the test printed and cut correctly.</small></span>
+                      </label>
+                      {nativeStatus && <p role="status" style={{fontSize:12,color:'var(--text-muted)',margin:0}}>{nativeStatus}</p>}
+                      <p style={{fontSize:11,color:'var(--text-muted)',margin:0,lineHeight:1.5}}>A successful QZ request only confirms that the job was sent to Windows. A failure will not trigger an automatic duplicate; use browser Print manually.</p>
+                    </div>
+                    <label className="receipt-toggle">
+                      <input type="checkbox" checked={settings?.autoKickDrawer === 'true'}
+                        onChange={async e=>await updateSetting('autoKickDrawer',e.target.checked?'true':'false')}/>
+                      <span><strong>Auto-open cash drawer on cash settlement</strong><small>Uses the configured cashier hardware.</small></span>
+                    </label>
+                  </div>
+                )}
               </div>
             )}
 
