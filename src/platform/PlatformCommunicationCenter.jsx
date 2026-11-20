@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {Megaphone,ShieldCheck,Send,RefreshCw,AlertTriangle,CheckCircle2} from 'lucide-react';
 
-const defaultDraft={title:'',body:'',category:'announcement',requiresAcknowledgment:false,scope:'all',tenantIds:[],expiresInDays:'30',policyVersion:''};
+const defaultDraft={title:'',body:'',category:'announcement',requiresAcknowledgment:false,scope:'all',tenantIds:[],expiresInDays:'30',policyVersion:'',translations:{si:{title:'',body:''},ta:{title:'',body:''}}};
 const token=()=>localStorage.getItem('gastroflow_token');
 async function api(path,options={}){
   const response=await fetch('/api/platform/communications'+path,{
@@ -27,6 +27,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
   const [error,setError]=useState('');
   const [notice,setNotice]=useState('');
   const [filter,setFilter]=useState('');
+  const updateTranslation=(locale,key,value)=>setDraft(d=>({...d,translations:{...d.translations,[locale]:{...d.translations[locale],[key]:value}}}));
   const update=(key,value)=>{setDraft(x=>({...x,[key]:value}));setPreview(null);};
   const audience=()=>({scope:draft.scope,tenantIds:draft.scope==='specific'?draft.tenantIds:[]});
   const refresh=async()=>{try{const [announcements,savedTemplates]=await Promise.all([api(''),api('/templates')]);setItems(announcements);setTemplates(savedTemplates);setError('')}catch(e){setError(e.message)}};
@@ -45,12 +46,13 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
     {notice&&<p role="status" style={{padding:12,borderRadius:10,background:'var(--bg-card)'}}>{notice}</p>}
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,340px),1fr))',gap:16,alignItems:'start'}}>
       <form onSubmit={e=>{e.preventDefault();act(async()=>{
+        if(Object.values(draft.translations).some(v=>Boolean(v.title.trim())!==Boolean(v.body.trim())))throw new Error('Complete both title and message for each translation.');
         const data=await api('',{method:'POST',body:JSON.stringify({
           title:draft.title,body:draft.body,category:draft.category,
           requiresAcknowledgment:draft.requiresAcknowledgment||['policy','disclaimer'].includes(draft.category),
           policyVersion:['policy','disclaimer'].includes(draft.category)?draft.policyVersion:null,
           expiresAt:draft.expiresInDays?Date.now()+Number(draft.expiresInDays)*86400000:null,
-          audience:audience()})});
+          audience:audience(),translations:Object.fromEntries(Object.entries(draft.translations).filter(([,v])=>v.title.trim()&&v.body.trim()))})});
         setNotice('Draft created. Review it below before publishing. ID: '+data.id);
         setDraft(defaultDraft);setPreview(null);await refresh();
       })}} style={{display:'grid',gap:12,padding:20,border:'1px solid var(--border-color,#ddd)',borderRadius:14,background:'var(--bg-card)'}}>
@@ -64,6 +66,17 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
         </select></label>
         <label>Title<input required maxLength={140} minLength={3} value={draft.title} onChange={e=>update('title',e.target.value)} placeholder="Important update for restaurant owners"/></label>
         <label>Message<textarea required minLength={5} maxLength={10000} rows={6} value={draft.body} onChange={e=>update('body',e.target.value)} placeholder="Explain the change, action required and effective date."/></label>
+        <details>
+          <summary style={{cursor:'pointer',fontWeight:600}}>Sinhala / Tamil translations (optional)</summary>
+          <p style={{fontSize:12,color:'var(--text-muted)'}}>Enter approved human-written translations. Leave both fields empty to fall back to English. Partial translations cannot be published.</p>
+          {['si','ta'].map(locale=><div key={locale} style={{display:'grid',gap:8,padding:10,border:'1px solid var(--border-color,#ddd)',borderRadius:8,marginTop:8}}>
+            <strong>{locale==='si'?'Sinhala':'Tamil'}</strong>
+            <label>Translated title<input maxLength={140} value={draft.translations[locale].title}
+              onChange={e=>updateTranslation(locale,'title',e.target.value)}/></label>
+            <label>Translated message<textarea rows={4} maxLength={10000} value={draft.translations[locale].body}
+              onChange={e=>updateTranslation(locale,'body',e.target.value)}/></label>
+          </div>)}
+        </details>
         <label>Message category<select value={draft.category} onChange={e=>update('category',e.target.value)}>
           {['announcement','urgent','maintenance','policy','disclaimer','feature'].map(x=><option key={x} value={x}>{x[0].toUpperCase()+x.slice(1)}</option>)}
         </select></label>
@@ -221,7 +234,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
       </section>
     </div>
     <p style={{fontSize:12,color:'var(--text-muted)',display:'flex',alignItems:'center',gap:7}}>
-      <AlertTriangle size={16}/> Staging foundation. Automatic schedule processing is implemented; native push, live email sending, multilingual translations and formal legal consent workflows remain pending.
+      <AlertTriangle size={16}/> Staging foundation. Automatic schedule processing is implemented; native push, live email sending, translation approvals and formal legal consent workflows remain pending.
     </p>
   </section>;
 }
