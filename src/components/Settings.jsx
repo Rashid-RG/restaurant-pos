@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
 import { usePOS } from '../context/POSContext';
 import { testPrintReceipt } from '../utils/printer';
+import SmartReceiptDesigner from './SmartReceiptDesigner.jsx';
 import { getNativePrinterConfig, saveNativePrinterConfig, listNativePrinters, nativePrintTestSlip } from '../utils/native-printer';
 import { restaurantTimeZone, validTimeZone } from '../utils/restaurant-time';
 
@@ -41,6 +42,14 @@ export default function Settings() {
   const [nativeBusy, setNativeBusy] = useState(false);
   const [nativeStatus, setNativeStatus] = useState('');
   const [nativeTested, setNativeTested] = useState(false);
+  const onFeedLinesChange = (feedLines) => {
+    try {
+      const next = saveNativePrinterConfig(nativeTenantId, { ...nativeConfig, printerName: nativePrinterName, feedLines });
+      setNativeConfig(next);
+      setNativeTested(false);
+      setNativeStatus('Feed setting saved for this workstation. Send a new test slip before using direct printing.');
+    } catch (error) { showToast(error.message || 'Could not save feed setting.', 'error'); }
+  };
   const discoverNativePrinters = async () => {
     setNativeBusy(true);
     setNativeStatus('Connecting to QZ Tray on this computer...');
@@ -59,7 +68,7 @@ export default function Settings() {
     setNativeBusy(true);
     setNativeStatus('Sending one short native test slip...');
     try {
-      await nativePrintTestSlip(nativePrinterName, settings?.printerPaperWidth === '58mm' ? '58mm' : '80mm', true);
+      await nativePrintTestSlip(nativePrinterName, settings?.printerPaperWidth === '58mm' ? '58mm' : '80mm', true, nativeConfig.feedLines);
       setNativeTested(true);
       setNativeStatus('Test slip sent. Confirm the slip printed and cut correctly before enabling.');
     } catch (error) {
@@ -74,7 +83,7 @@ export default function Settings() {
       return;
     }
     try {
-      const next = saveNativePrinterConfig(nativeTenantId, { enabled, printerName: nativePrinterName, cut: true });
+      const next = saveNativePrinterConfig(nativeTenantId, { enabled, printerName: nativePrinterName, cut: true, feedLines: nativeConfig.feedLines });
       setNativeConfig(next);
       setNativeStatus(enabled ? 'Direct printing enabled for this computer only. Browser print is still available as a fallback.' : 'Direct printing disabled. Existing browser printing restored.');
     } catch (error) { showToast(error.message, 'error'); }
@@ -1249,6 +1258,8 @@ export default function Settings() {
 
 
 
+                <SmartReceiptDesigner settings={settings} updateSetting={updateSetting} showToast={showToast}
+                  nativeConfig={nativeConfig} onFeedLinesChange={onFeedLinesChange} />
               </div>
             )}
 
