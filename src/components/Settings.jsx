@@ -22,7 +22,7 @@ const SETTINGS_SECTIONS = [
 const COMMON_TIME_ZONES = ['Asia/Colombo', 'Asia/Qatar', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'America/New_York'];
 const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedValuesOf?.('timeZone') || [])])].sort();
 
-export default function Settings() {
+export default function Settings({ initialSubTab = null } = {}) {
   const {
     currentUser,
     setActiveTab,
@@ -111,7 +111,8 @@ export default function Settings() {
   const [subTab, setSubTab] = useState(()=>{
     const requested=sessionStorage.getItem('gastroflow_settings_tab');
     sessionStorage.removeItem('gastroflow_settings_tab');
-    return ['online','business','printer','menu','database','users','billing','saas'].includes(requested)?requested:'home';
+    const allowed = ['online','business','printer','menu','database','users','billing','saas'];
+    return allowed.includes(initialSubTab) ? initialSubTab : (allowed.includes(requested) ? requested : 'home');
   });
 
   // Business config states
