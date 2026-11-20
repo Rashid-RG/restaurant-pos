@@ -53,6 +53,10 @@ export async function initPlatformCommunications(dbRun) {
     PRIMARY KEY (announcementId,tenant_id,userId))`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_announcements_inbox
     ON platform_owner_announcement_recipients (tenant_id,userId,deliveredAt)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_schedule (
+    announcementId TEXT PRIMARY KEY, scheduledAt BIGINT NOT NULL, createdBy TEXT NOT NULL,
+    createdAt BIGINT NOT NULL)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_owner_schedule_due ON platform_owner_announcement_schedule (scheduledAt)`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_templates (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
     category TEXT NOT NULL, requiresAcknowledgment INTEGER NOT NULL DEFAULT 0,
@@ -93,6 +97,28 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   const audit=async (req,id,action)=>dbRun(
     'INSERT INTO platform_owner_announcement_audit (id,announcementId,actorId,action,createdAt) VALUES (?,?,?,?,?)',
     [crypto.randomUUID(),id,req.user.id,action,Date.now()]);
+  router.post('/platform/communications/:id/schedule',...platform,async(req,res,next)=>{try{
+    const parsed=z.object({scheduledAt:z.number().int().positive()}).strict().safeParse(req.body);
+    if(!parsed.success)return res.status(400).json({error:'A valid UTC schedule timestamp is required.'});
+    const at=parsed.data.scheduledAt,now=Date.now();
+    if(at<now+60_000||at>now+365*86_400_000)return res.status(400).json({error:'Schedule must be 1 minute to 365 days in the future.'});
+    const m=await dbGet('SELECT status,expiresAt FROM platform_owner_announcements WHERE id=?',[req.params.id]);
+    if(!m)return res.status(404).json({error:'Announcement not found.'});
+    if(m.status!=='draft')return res.status(409).json({error:'Only drafts can be scheduled.'});
+    if(m.expiresAt!==null&&m.expiresAt<=at)return res.status(400).json({error:'Announcement expiry must follow the publication time.'});
+    let tx=false;
+    try{
+      await dbRun('BEGIN TRANSACTION');tx=true;
+      const current=await dbGet('SELECT status FROM platform_owner_announcements WHERE id=?',[req.params.id]);
+      if(current?.status!=='draft')return await (async()=>{await dbRun('ROLLBACK');tx=false;res.status(409).json({error:'Announcement status changed.'})})();
+      await dbRun("UPDATE platform_owner_announcements SET status='scheduled' WHERE id=? AND status='draft'",[req.params.id]);
+      await dbRun('INSERT INTO platform_owner_announcement_schedule (announcementId,scheduledAt,createdBy,createdAt) VALUES (?,?,?,?)',
+        [req.params.id,at,req.user.id,now]);
+      await audit(req,req.params.id,'scheduled');
+      await dbRun('COMMIT');tx=false;
+      res.json({success:true,scheduledAt:at});
+    }catch(err){if(tx)await dbRun('ROLLBACK');throw err}
+  }catch(err){next(err)}});
   router.get('/platform/communications/templates',...platform,async(req,res,next)=>{try{
     res.set('Cache-Control','no-store').json(await dbAll(
       'SELECT id,name,title,body,category,requiresAcknowledgment,createdAt,updatedAt FROM platform_owner_communication_templates ORDER BY updatedAt DESC LIMIT 200'));
