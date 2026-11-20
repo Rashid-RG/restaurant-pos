@@ -14,6 +14,13 @@ const audienceSchema=z.object({
   scope:z.enum(['all','specific']).default('all'),
   tenantIds:z.array(z.string().min(1).max(180)).max(500).default([])
 }).strict().refine(x=>x.scope!=='specific'||x.tenantIds.length>0, 'Select restaurants.');
+const translationsSchema=z.object({
+  si:z.object({title:z.string().trim().min(3).max(140),body:z.string().trim().min(5).max(10000)}).strict().optional(),
+  ta:z.object({title:z.string().trim().min(3).max(140),body:z.string().trim().min(5).max(10000)}).strict().optional()
+}).strict().default({});
+export function announcementLanguage(value){
+  return ['en','si','ta'].includes(value)?value:'en';
+}
 const policyVersionSchema=z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);
 const messageSchema=z.object({
   title:z.string().trim().min(3).max(140),
@@ -22,6 +29,7 @@ const messageSchema=z.object({
   requiresAcknowledgment:z.boolean().default(false),
   expiresAt:z.number().int().positive().nullable().default(null),
   audience:audienceSchema,
+  translations:translationsSchema,
   policyVersion:policyVersionSchema.nullable().optional()
 }).strict().superRefine((m,ctx)=>{
   if(['policy','disclaimer'].includes(m.category)&&!m.policyVersion)ctx.addIssue({code:'custom',path:['policyVersion'],message:'Policy and disclaimer notices require an immutable version.'});
@@ -80,6 +88,9 @@ export async function initPlatformCommunications(dbRun) {
     id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
     category TEXT NOT NULL, requiresAcknowledgment INTEGER NOT NULL DEFAULT 0,
     createdBy TEXT NOT NULL, createdAt BIGINT NOT NULL, updatedAt BIGINT NOT NULL)`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_translations (
+    announcementId TEXT NOT NULL,locale TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,
+    createdAt BIGINT NOT NULL,PRIMARY KEY (announcementId,locale))`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_announcement_versions (
     announcementId TEXT PRIMARY KEY, policyVersion TEXT NOT NULL,
     contentHash TEXT NOT NULL, createdAt BIGINT NOT NULL)`);
@@ -304,6 +315,11 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
         (id,title,body,category,requiresAcknowledgment,status,audienceJson,createdBy,createdAt,expiresAt)
         VALUES (?,?,?,?,?,'draft',?,?,?,?)`,
         [id,m.title,m.body,m.category,Number(m.requiresAcknowledgment),JSON.stringify(m.audience),req.user.id,now,m.expiresAt]);
+      for(const [locale,content] of Object.entries(m.translations)){
+        await dbRun(`INSERT INTO platform_owner_announcement_translations
+          (announcementId,locale,title,body,createdAt) VALUES (?,?,?,?,?)`,
+          [id,locale,content.title,content.body,now]);
+      }
       if(m.policyVersion){
         const hash=crypto.createHash('sha256').update(JSON.stringify([m.title,m.body,m.category,m.policyVersion])).digest('hex');
         await dbRun('INSERT INTO platform_owner_announcement_versions (announcementId,policyVersion,contentHash,createdAt) VALUES (?,?,?,?)',[id,m.policyVersion,hash,now]);
@@ -368,13 +384,17 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
     if(!req.user||req.user.role!=='owner'||!req.user.tenant_id||req.user.isPlatformAdmin)return res.status(403).json({error:'Owner account required.'});
     const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[req.user.tenant_id]);
     if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
-    const rows=await dbAll(`SELECT a.id,a.title,a.body,a.category,a.requiresAcknowledgment,a.publishedAt,a.expiresAt,v.policyVersion,v.contentHash,
+    const locale=announcementLanguage(req.query.lang);
+    const rows=await dbAll(`SELECT a.id,COALESCE(tr.title,a.title) AS title,COALESCE(tr.body,a.body) AS body,
+      CASE WHEN tr.locale IS NOT NULL THEN tr.locale ELSE 'en' END AS contentLanguage,
+      a.category,a.requiresAcknowledgment,a.publishedAt,a.expiresAt,v.policyVersion,v.contentHash,
       r.readAt,r.acknowledgedAt FROM platform_owner_announcements a
       JOIN platform_owner_announcement_recipients r ON a.id=r.announcementId
       LEFT JOIN platform_owner_announcement_versions v ON v.announcementId=a.id
+      LEFT JOIN platform_owner_announcement_translations tr ON tr.announcementId=a.id AND tr.locale=?
       WHERE r.tenant_id=? AND r.userId=? AND a.status='published'
       AND (a.expiresAt IS NULL OR a.expiresAt>?)
-      ORDER BY a.publishedAt DESC LIMIT 100`,[req.user.tenant_id,req.user.id,Date.now()]);
+      ORDER BY a.publishedAt DESC LIMIT 100`,[locale,req.user.tenant_id,req.user.id,Date.now()]);
     res.set('Cache-Control','no-store').json(rows);
   }catch(e){next(e)}});
   for(const action of ['read','acknowledge']){
