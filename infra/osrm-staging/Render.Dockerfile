@@ -22,6 +22,7 @@ FROM ghcr.io/project-osrm/osrm-backend:v5.27.1
 COPY --chown=65532:65532 --from=preprocess /data /data
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 COPY gateway.mjs /app/gateway.mjs
+COPY route-smoke.mjs /app/route-smoke.mjs
 COPY render-start.sh /app/render-start.sh
 ENV PORT=10000 OSRM_INTERNAL_URL=http://127.0.0.1:5000
 EXPOSE 10000
