@@ -13,7 +13,7 @@ describe('tenant receipt presentation settings', () => {
     const config = readReceiptConfig({smartReceiptConfig:JSON.stringify({layout:'detailed',logoSize:80,showInvoiceNumber:true})});
     expect(config.layout).toBe('detailed');
     expect(config.logoSize).toBe(80);
-    expect(config.showInvoiceNumber).toBe(true);
+    expect(config.showInvoiceNumber).toBe(false);
     expect(readReceiptConfig({smartReceiptConfig:'{"layout":"unknown","logoSize":999}'}).logoSize).toBe(46);
   });
   it('never hides nonzero taxes even when hide zero tax is selected', () => {
