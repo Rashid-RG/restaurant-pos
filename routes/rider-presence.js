@@ -1,5 +1,4 @@
-import {createH3RiderIndex} from '../lib/delivery/h3-rider-index.js';
-import * as h3 from 'h3-js';
+import {rankDispatchRiders} from '../lib/delivery/smart-dispatch.js';
 
 /** Optional single-process staging pilot. Disabled unless explicitly enabled. */
 export function createRiderPresenceRouter({
@@ -46,51 +45,18 @@ export function createRiderPresenceRouter({
       !Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)
       return res.status(400).json({error:'A valid dispatch origin is required.'});
     const tenantId=req.tenantId;
-    const rows=await presence.list(tenantId);
-    // A dispatch or status update can make an earlier GPS heartbeat obsolete.
-    // Always verify current availability against the authoritative tenant DB.
-    const available=await dbAll("SELECT id FROM drivers WHERE tenant_id=? AND status IN ('available','active')",[tenantId]);
-    const allowed=new Set(available.map(d=>d.id));
-    const riders=rows.filter(r=>allowed.has(r.driverId)).map(r=>({
-      id:r.driverId,tenantId,status:'available',verified:true,onDuty:true,locationConsent:true,
-      fix:{lat:r.lat,lng:r.lng,accuracyMeters:r.accuracyMeters,updatedAt:r.recordedAt}
-    }));
-    // Real H3 v4 spatial prefilter. Cell radius is deliberately bounded and
-    // results remain subject to actual distance, age and tenant checks.
-    const index=createH3RiderIndex(h3,{resolution:8});
-    index.replaceTenant(tenantId,riders,clock());
-    const candidates=index.nearby({
-      tenantId,origin:{lat,lng},ringCount:4,now:clock(),maxRadiusMeters:10000
-    });
-    index.clearTenant(tenantId);
-    // Only the server sees exact rider positions. Road time is optional and
-    // deliberately capped to five short-listed riders per request.
-    const byDriver=new Map(riders.map(r=>[r.id,r.fix]));
-    const top=candidates.slice(0,5);
-    let roadCount=0;
-    if(typeof estimateRoad==='function'){
-      await Promise.all(top.map(async candidate=>{
-        try{
-          const from=byDriver.get(candidate.driverId);
-          if(!from)return;
-          const time=await estimateRoad({from,to:{lat,lng}});
-          if(Number.isFinite(time)&&time>=0&&time<=24*60){
-            candidate.roadTravelMinutes=Math.ceil(time);
-            roadCount++;
-          }
-        }catch{/* Road ETA absent when dedicated routing is down. */}
-      }));
-    }
-    top.sort((a,b)=>{
-      if(Number.isFinite(a.roadTravelMinutes)&&Number.isFinite(b.roadTravelMinutes))
-        return a.roadTravelMinutes-b.roadTravelMinutes||a.distanceMeters-b.distanceMeters;
-      if(Number.isFinite(a.roadTravelMinutes))return -1;
-      if(Number.isFinite(b.roadTravelMinutes))return 1;
-      return a.distanceMeters-b.distanceMeters;
-    });
-    return res.json({candidates:top,
+    // Match the exact tenant, current verified rider and H3/OSRM policy
+    // used by the gated automatic-dispatch engine.
+    const candidates=(await rankDispatchRiders({
+      tenantId,pickup:{lat,lng},presence,dbAll,estimateRoad,clock,
+      maxCandidates:10,maxDistanceMeters:10000
+    })).slice(0,5);
+    const roadCount=candidates.filter(c=>c.roadTravelMinutes!=null).length;
+    return res.json({
+      candidates,
       method:roadCount?'h3_with_partial_road_estimates':'h3_proximity_only',
-      estimatedRoadTimesAvailable:roadCount>0});
+      estimatedRoadTimesAvailable:roadCount>0
+    });
   });
   return router;
 }
