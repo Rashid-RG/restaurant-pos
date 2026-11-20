@@ -105,6 +105,15 @@ Authenticated restaurant owner (only own user+tenant):
 - The UI clearly states that push is not operational. There is no push sender, token-registration endpoint, delivery job, or automatic push broadcast in this phase.
 - Device registration, revocation, data-retention policy, platform-specific permission UX, web/native push credentials, and actual device testing remain required before any push delivery is activated.
 
+### Dormant owner installation enrollment (no push delivery)
+- Added `lib/communications/platform-push-enrollment.js` and additive `platform_owner_communication_devices` table. These enroll an installation identifier, **not** a push token; no FCM/APNs integration, background sender, web push permission request or device notification occurs.
+- Enrollment is disabled unless all are set in an isolated staging environment: `PLATFORM_COMMUNICATIONS_ENABLED=true`, `PLATFORM_COMMUNICATIONS_STAGE=staging`, `PLATFORM_COMMUNICATIONS_PUSH_ENROLLMENT_ENABLED=true` and a secret `PLATFORM_COMMUNICATIONS_DEVICE_HMAC_KEY` of at least 32 characters. Treat this as a sensitive server-only secret; never publish it or put it in the browser.
+- API: `GET /api/owner/communications/devices`, `POST /api/owner/communications/devices` with `{installationId: UUIDv4, platform: web|android|ios}`, and `POST /api/owner/communications/devices/revoke` with `{installationId: UUIDv4}`.
+- All endpoints require an authenticated active restaurant owner. Enrollment additionally requires explicit future-push opt-in; owner/tenant values are taken only from the authenticated context. Device installation UUIDs are never persisted: only keyed HMAC-SHA256 digests are stored and a shortened non-sensitive prefix returned for display.
+- A global unique digest prevents one installation being silently associated with multiple accounts/tenants. Re-enrollment requires the same owner and tenant. Turning the push preference off revokes active installation rows.
+- The registry is a preparation step only. It is **not** a complete native push integration: no token upload, secure encrypted provider token storage, device validation, installation migration, delivery queue or push sender is implemented.
+- HMAC key rotation and race-safe enrollment across multiple workers must be validated before deployment. Never register actual customer devices on shared production databases.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
