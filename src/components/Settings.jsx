@@ -675,11 +675,12 @@ export default function Settings() {
   };
 
   return (
-    <div className="main-content">
+    <div className="main-content system-settings-page">
       <div className="view-header">
         <div className="view-title">
+          <span className="settings-eyebrow">RESTAURANT CONTROL CENTER</span>
           <h1>System Settings</h1>
-          <p>Configure business variables, customize restaurant menu, and manage database tools.</p>
+          <p>Your restaurant, your workflow. Configure the essentials in one place.</p>
         </div>
       </div>
 
@@ -687,7 +688,8 @@ export default function Settings() {
         <div className="settings-layout">
           
           {/* Inner Left Nav */}
-          <nav className="settings-nav">
+          <nav className="settings-nav" aria-label="System settings sections">
+            <div className="settings-nav-kicker">WORKSPACE SETTINGS</div>
             <button
               className={`settings-nav-btn ${subTab === 'business' ? 'active' : ''}`}
               onClick={() => setSubTab('business')}
