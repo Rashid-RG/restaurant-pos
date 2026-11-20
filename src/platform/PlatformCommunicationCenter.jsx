@@ -141,6 +141,7 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
             <span>Actual test mailbox delivery: Not verified</span>
             <span>Firebase FCM adapter: {emailReadiness.firebaseFcmAdapterConfigured?'Credentials configured (unverified)':'Not configured'}</span>
             <span>FCM staging authorization: {emailReadiness.firebaseFcmStagingGatesReady?'Configured, inactive':'Disabled'}</span>
+            <span>Encrypted device-token enrollment: {emailReadiness.firebaseFcmTokenEnrollmentReady?'Configured (unverified)':'Disabled'}</span>
             <span>FCM emergency stop: {emailReadiness.firebaseFcmEmergencyStopArmed?'Armed':'Released in configuration'}</span>
             <span>FCM dispatch: Not connected to device tokens or scheduler</span>
             <span>Native push: Not operational</span>
