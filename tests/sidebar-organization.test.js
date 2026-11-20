@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+
+const sidebar = readFileSync(new URL('../apps/pos-web/src/components/Sidebar.jsx', import.meta.url), 'utf8');
+const destinations = readFileSync(new URL('../src/components/WorkspaceTools.jsx', import.meta.url), 'utf8');
+const policy = readFileSync(new URL('../src/platform/workspace-policy.js', import.meta.url), 'utf8');
+
+describe('GastroFlow organized sidebar safety', () => {
+  it('pins Overview then New Sale at the beginning of the main desktop navigation', () => {
+    expect(sidebar).toContain("const pinned = ['dashboard', 'pos']");
+    expect(sidebar).toContain('{pinned.map(link)}');
+    expect(sidebar).toContain("item.id === 'pos' ? 'sidebar-new-sale'");
+    expect(destinations).toMatch(/id: 'dashboard'[\s\S]*id: 'pos'/);
+  });
+  it('never requires opening a group to reach the cashier sale screen', () => {
+    expect(sidebar.indexOf('{pinned.map(link)}')).toBeLessThan(sidebar.indexOf('{groups.map(group =>'));
+    expect(sidebar).toContain('(collapsed || isOpen)');
+  });
+  it('preserves original navigation policy for role and platform isolation', () => {
+    expect(sidebar).toContain('const items = useDestinations()');
+    expect(policy).toContain('visibleWorkspaceDestinations');
+    expect(policy).toContain("item.id !== 'rider-verification'");
+    expect(sidebar).toContain("const inPlatform = platformOwner && activeTab === 'platform'");
+  });
+  it('preserves the first four original mobile navigation shortcuts', () => {
+    expect(sidebar).toContain('const mobilePrimary = items.slice(0, 4)');
+    expect(sidebar).toContain('mobilePrimary.map(item =>');
+    expect(sidebar).toContain("select('my-attendance')");
+  });
+  it('keeps future destinations reachable even when not assigned to a group', () => {
+    expect(sidebar).toContain("const additional = items.filter(item => !known.has(item.id))");
+    expect(sidebar).toContain("id: 'additional'");
+    expect(sidebar).toContain('mobileSections.map(group =>');
+  });
+});
