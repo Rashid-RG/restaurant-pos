@@ -12,11 +12,11 @@ const env={
  PLATFORM_COMMUNICATIONS_BREVO_WEBHOOK_TOKEN:'test-staging-only-webhook-bearer-secret-1234567890'
 };
 const now=Date.now();
-const event={'event':'delivered','message-id':'brevo-msg-123',ts_event:Math.floor(now/1000)};
+const event={'event':'delivered','message-id':'brevo-msg-123',email:'test@example.test',ts_event:Math.floor(now/1000)};
 const setup=(configuration=env)=>{
  const dbGet=vi.fn(async sql=>{
   if(sql.includes('platform_owner_communication_email_receipts'))
-   return {eventStatus:'accepted',acceptedAt:now-10000,eventAt:null};
+   return {eventStatus:'accepted',acceptedAt:now-10000,eventAt:null,recipientEmail:'test@example.test'};
   return null;
  });
  const dbRun=vi.fn(async()=>({changes:1}));
@@ -45,6 +45,7 @@ describe('Authenticated Brevo transactional staging webhook',()=>{
   expect(normalizeBrevoTransactionalPayload(event,now)).toMatchObject({event:'delivered',messageId:'brevo-msg-123'});
   expect(normalizeBrevoTransactionalPayload({...event,event:'hardBounce'},now).event).toBe('hard_bounce');
   expect(normalizeBrevoTransactionalPayload({...event,event:'opened'},now)).toBeNull();
+  expect(normalizeBrevoTransactionalPayload({...event,email:'wrong-address'},now)).toBeNull();
   expect(normalizeBrevoTransactionalPayload({...event,ts_event:1},now)).toBeNull();
   expect(normalizeBrevoTransactionalPayload({...event,ts_event:Math.floor(now/1000)+3600},now)).toBeNull();
  });
