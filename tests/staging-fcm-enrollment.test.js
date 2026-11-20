@@ -1,6 +1,6 @@
 import {describe,it,expect,vi} from 'vitest';
 import {
-  STAGING_ORIGIN,eligibleStagingOwner,getStagingInstallationId,
+  STAGING_ORIGIN,STAGING_DEVICE_OWNER_KEY,eligibleStagingOwner,getStagingInstallationId,
   enrollStagingOwnerPush,revokeStagingOwnerPush,revokeStagingInstallationOnLogout
 } from '../src/utils/staging-fcm-enrollment.js';
 
@@ -98,6 +98,34 @@ describe('native staging-only owner FCM enrollment',()=>{
     expect(f.calls.map(x=>x.url.split('/').at(-1))).toEqual([
       'push-enrollment-readiness','push-preference','devices'
     ]);
+  });
+  it('blocks a second restaurant owner after first registration until server revocation',async()=>{
+    const f=fixture();
+    expect((await enrollStagingOwnerPush(f.options)).registered).toBe(true);
+    expect(f.storage.getItem(STAGING_DEVICE_OWNER_KEY))
+      .toBe(JSON.stringify(['tenant_a','owner_a']));
+    const secondOwner={...user,id:'owner_b',tenant_id:'tenant_b'};
+    const calls=f.fetcher.mock.calls.length;
+    await expect(enrollStagingOwnerPush({...f.options,user:secondOwner}))
+      .rejects.toThrow('previous owner push registration');
+    expect(f.fetcher).toHaveBeenCalledTimes(calls);
+    // Owner A may explicitly disable; only then can owner B register.
+    await revokeStagingOwnerPush(f.options);
+    expect(f.storage.getItem(STAGING_DEVICE_OWNER_KEY)).toBe(null);
+    expect((await enrollStagingOwnerPush({...f.options,user:secondOwner})).registered)
+      .toBe(true);
+  });
+  it('retains prior-owner binding when offline logout cannot confirm revocation',async()=>{
+    const f=fixture();
+    await enrollStagingOwnerPush(f.options);
+    f.fetcher.mockRejectedValue(new Error('offline'));
+    expect(await revokeStagingInstallationOnLogout(f.options))
+      .toEqual({status:'unconfirmed'});
+    expect(f.storage.getItem(STAGING_DEVICE_OWNER_KEY))
+      .toBe(JSON.stringify(['tenant_a','owner_a']));
+    await expect(enrollStagingOwnerPush({...f.options,
+      user:{...user,id:'owner_b',tenant_id:'tenant_b'}}))
+      .rejects.toThrow('previous owner push registration');
   });
   it('allows the signed-in owner to withdraw push consent and revoke devices',async()=>{
     const f=fixture();
