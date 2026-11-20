@@ -103,6 +103,44 @@ export async function enrollStagingOwnerPush({
   storage.setItem(STAGING_DEVICE_OWNER_KEY,ownerBinding(user));
   return {status:'registered',registered:true,pushOperational:false};
 }
+/**
+ * A native Firebase token may rotate without user interaction. Sync only when
+ * this exact owner already opted in and previously completed server enrollment.
+ * NEVER opt users in, create device records, or switch a tenant automatically.
+ */
+export async function syncRotatedStagingOwnerToken({
+  user,capacitor,origin,storage,fetcher,token
+}={}){
+  if(!eligibleStagingOwner(user,capacitor,origin))
+    return {status:'not_applicable'};
+  if(!storage||storage.getItem(STAGING_DEVICE_OWNER_KEY)!==ownerBinding(user))
+    return {status:'not_enrolled'};
+  if(typeof token!=='string'||!/^[A-Za-z0-9:_-]{20,4096}$/.test(token))
+    return {status:'invalid_token'};
+  const key=STAGING_PUSH_STORAGE_PREFIX+
+    encodeURIComponent(user.tenant_id)+':'+encodeURIComponent(user.id);
+  const installationId=storage.getItem(key);
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(installationId||''))
+    return {status:'not_enrolled'};
+  // Always recheck the exact isolated-staging, owner-authenticated server
+  // instead of assuming registration can proceed because a token event fired.
+  const jwt=storage.getItem('gastroflow_token');
+  if(!jwt)return {status:'not_authorized'};
+  try{
+    const reply=await fetcher('/api/owner/communications/push-enrollment-readiness',{
+      method:'GET',credentials:'same-origin',
+      headers:{Authorization:'Bearer '+jwt}
+    });
+    const readiness=await reply.json().catch(()=>({}));
+    if(!reply.ok||readiness.enabled!==true)
+      return {status:'disabled'};
+    const result=await stagingPushApi('fcm-token',{installationId,token},{storage,fetcher});
+    return result.status==='registered'
+      ?{status:'synced',pushOperational:false}:{status:'unconfirmed'};
+  }catch{
+    return {status:'unconfirmed'};
+  }
+}
 export async function revokeStagingOwnerPush({user,storage,fetcher}={}){
   if(!user?.id||!user?.tenant_id||user.role!=='owner'||user.isPlatformAdmin)
     throw new Error('Owner account required.');
