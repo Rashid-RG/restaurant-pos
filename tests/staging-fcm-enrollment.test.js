@@ -1,7 +1,8 @@
 import {describe,it,expect,vi} from 'vitest';
 import {
   STAGING_ORIGIN,STAGING_DEVICE_OWNER_KEY,eligibleStagingOwner,getStagingInstallationId,
-  enrollStagingOwnerPush,revokeStagingOwnerPush,revokeStagingInstallationOnLogout
+  enrollStagingOwnerPush,revokeStagingOwnerPush,revokeStagingInstallationOnLogout,
+  syncRotatedStagingOwnerToken
 } from '../src/utils/staging-fcm-enrollment.js';
 
 const user={id:'owner_a',tenant_id:'tenant_a',role:'owner',isPlatformAdmin:false};
@@ -127,6 +128,62 @@ describe('native staging-only owner FCM enrollment',()=>{
     await expect(enrollStagingOwnerPush({...f.options,
       user:{...user,id:'owner_b',tenant_id:'tenant_b'}}))
       .rejects.toThrow('previous owner push registration');
+  });
+  it('does not send a token refresh to a new owner or before explicit opt-in',async()=>{
+    const f=fixture();
+    expect(await syncRotatedStagingOwnerToken({...f.options,token:fcmToken}))
+      .toEqual({status:'not_enrolled'});
+    expect(f.fetcher).not.toHaveBeenCalled();
+    await enrollStagingOwnerPush(f.options);
+    const before=f.fetcher.mock.calls.length;
+    expect(await syncRotatedStagingOwnerToken({
+      ...f.options,user:{...user,id:'owner_other',tenant_id:'tenant_other'},token:fcmToken
+    })).toEqual({status:'not_enrolled'});
+    expect(await syncRotatedStagingOwnerToken({
+      ...f.options,origin:'https://bad.example',token:fcmToken
+    })).toEqual({status:'not_applicable'});
+    expect(f.fetcher).toHaveBeenCalledTimes(before);
+  });
+  it('syncs an updated token via authenticated FCM registration only',async()=>{
+    const f=fixture();
+    await enrollStagingOwnerPush(f.options);
+    f.calls.length=0;
+    f.fetcher.mockClear();
+    const updatedToken='rotated_FCM_registration_token_999999999999999';
+    const result=await syncRotatedStagingOwnerToken({...f.options,token:updatedToken});
+    expect(result).toEqual({status:'synced',pushOperational:false});
+    expect(f.calls.map(x=>x.url.split('/').at(-1))).toEqual([
+      'push-enrollment-readiness','fcm-token'
+    ]);
+    expect(JSON.parse(f.calls[1].options.body)).toEqual({
+      installationId:uuid,token:updatedToken
+    });
+    expect(JSON.stringify(result)).not.toContain(updatedToken);
+  });
+  it('refuses native token refresh after consent withdrawal or server guard failure',async()=>{
+    const f=fixture();
+    await enrollStagingOwnerPush(f.options);
+    await revokeStagingOwnerPush(f.options);
+    f.fetcher.mockClear();
+    expect(await syncRotatedStagingOwnerToken({...f.options,token:fcmToken}))
+      .toEqual({status:'not_enrolled'});
+    expect(f.fetcher).not.toHaveBeenCalled();
+    await enrollStagingOwnerPush(f.options);
+    f.fetcher.mockClear();
+    f.fetcher.mockResolvedValue({ok:true,json:async()=>({enabled:false})});
+    expect(await syncRotatedStagingOwnerToken({...f.options,token:fcmToken}))
+      .toEqual({status:'disabled'});
+    expect(f.fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('rejects invalid rotated tokens and never logs or stores raw token data',async()=>{
+    const f=fixture();
+    await enrollStagingOwnerPush(f.options);
+    f.fetcher.mockClear();
+    expect(await syncRotatedStagingOwnerToken({...f.options,token:'bad'}))
+      .toEqual({status:'invalid_token'});
+    expect(f.fetcher).not.toHaveBeenCalled();
+    expect([...f.storage.setItem.mock.calls].some(x=>JSON.stringify(x).includes(fcmToken)))
+      .toBe(false);
   });
   it('allows the signed-in owner to withdraw push consent and revoke devices',async()=>{
     const f=fixture();
