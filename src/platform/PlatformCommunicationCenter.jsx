@@ -141,6 +141,13 @@ export default function PlatformCommunicationCenter({restaurants=[]}){
           <p>Inbox recipients: {report.stats.recipients||0}<br/>Restaurants: {report.stats.restaurants||0}<br/>
           Read: {report.stats.readCount||0}<br/>Acknowledged: {report.stats.acknowledgedCount||0}</p>
           <small>Inbox delivery does not prove the owner has viewed the message.</small>
+          <div style={{display:'grid',gap:6,marginTop:10}}>
+            <strong>Channel delivery status</strong>
+            {(report.channels||[]).map((row,i)=><div key={i} style={{display:'flex',justifyContent:'space-between',gap:12}}>
+              <span>{row.channel==='in_app'?'In-app inbox':row.channel} · {row.status}</span><strong>{row.count}</strong>
+            </div>)}
+            {!report.channels?.length&&<small>No channel delivery records yet.</small>}
+          </div>
         </div>}
       </section>
     </div>
