@@ -137,6 +137,8 @@ export default function App() {
   const [manualVehicleType,setManualVehicleType]=useState('Motorbike');
   const [sendingRegCode, setSendingRegCode] = useState(false);
   const [regCodeSentTo, setRegCodeSentTo] = useState('');
+  const [regVerificationToken,setRegVerificationToken]=useState('');
+  const [verifyingRegCode,setVerifyingRegCode]=useState(false);
 
   // Bug 6 fix: cancel pending timer before setting a new one to prevent
   // setState-on-unmounted-component warnings and stale toast flashes.
@@ -558,7 +560,7 @@ export default function App() {
     setRecoveryBusy(true);
     try{
       await apiFetch('/public/drivers/request-email-code',{
-        method:'POST',body:JSON.stringify({email:recoveryEmail.trim()})
+        method:'POST',body:JSON.stringify({email:recoveryEmail.trim(),flow:'recover'})
       });
       setRecoveryCodeSent(true);
       showToast('A fresh application code was sent to your email.','success');
@@ -590,10 +592,27 @@ export default function App() {
     setSendingRegCode(true);
     try {
       const result = await apiFetch('/public/drivers/request-email-code', { method: 'POST', body: JSON.stringify({email:reg.email.trim()}) });
+      setRegVerificationToken('');
       setRegCodeSentTo(reg.email.trim().toLowerCase());
       showToast(result.message || 'Verification code sent.', 'success');
     } catch (err) { showToast(err.message || 'Unable to send verification code.', 'error'); }
     finally { setSendingRegCode(false); }
+  };
+
+  const handleVerifyRegCode = async () => {
+    if(regCodeSentTo!==reg.email.trim().toLowerCase() || !/^\\d{6}$/.test(reg.verificationCode)) {
+      showToast('Enter the six-digit code sent to this email.','warning');return;
+    }
+    setVerifyingRegCode(true);
+    try{
+      const result=await apiFetch('/public/drivers/verify-email-code',{
+        method:'POST',body:JSON.stringify({email:reg.email.trim(),verificationCode:reg.verificationCode})
+      });
+      if(!result.verificationToken)throw new Error('Email confirmation is unavailable.');
+      setRegVerificationToken(result.verificationToken);
+      showToast('Email verified successfully.','success');
+    }catch(error){setRegVerificationToken('');showToast(error.message||'Email verification failed.','error');}
+    finally{setVerifyingRegCode(false);}
   };
 
   const handleSelfieCapture = (file) => {
@@ -656,13 +675,13 @@ export default function App() {
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     if(!selectedHiringRestaurant?.id){showToast('Confirm the restaurant before registering.','warning');return;}
-    if (!reg.name || !reg.phone || !reg.email || !reg.password || !reg.verificationCode) { showToast('Enter your details and the emailed verification code.', 'warning'); return; }
+    if (!reg.name || !reg.phone || !reg.email || !reg.password || !regVerificationToken) { showToast('Verify your email and complete the required details.', 'warning'); return; }
     if (regCodeSentTo !== reg.email.trim().toLowerCase()) { showToast('Request a verification code for this email first.', 'warning'); return; }
     if (reg.password.length < 10) { showToast('Password must be at least 10 characters.', 'warning'); return; }
     if (!reg.privacyAccepted) { showToast('Review and acknowledge the application privacy notice.', 'warning'); return; }
     try {
       setRegSubmitting(true);
-      const res = await apiFetch('/public/drivers/register', { method: 'POST', body: JSON.stringify(reg) });
+      const res = await apiFetch('/public/drivers/register', { method: 'POST', body: JSON.stringify({...reg,verificationToken:regVerificationToken}) });
       showToast(res.message || 'Application submitted for restaurant review.', 'success');
       if(res.applicationToken) {
         sessionStorage.setItem('gastrodriver_manual_application',res.applicationToken);
@@ -676,6 +695,7 @@ export default function App() {
       if(res.licenceVerificationUrl) setLicenceVerificationLink(res.licenceVerificationUrl);
       setShowRegModal(false);
       setRegCodeSentTo('');
+      setRegVerificationToken('');
       setLoginPhone(reg.phone);
       setReg({ name: '', phone: '', email: '', password: '', vehicleType: 'Motorbike', plateNumber: '', privacyAccepted: false, identityConsent: false });
     } catch (err) {
@@ -989,7 +1009,8 @@ export default function App() {
         {showRegModal && <RiderRegistrationWizard
           reg={reg} setReg={setReg} restaurant={selectedHiringRestaurant}
           onSendCode={handleSendRegCode} codeSentTo={regCodeSentTo}
-          sendingCode={sendingRegCode} onSubmit={handleRegisterSubmit}
+          sendingCode={sendingRegCode} onVerifyCode={handleVerifyRegCode}
+          verifyingCode={verifyingRegCode} verificationToken={regVerificationToken} onSubmit={handleRegisterSubmit}
           submitting={regSubmitting} onClose={()=>setShowRegModal(false)}
         />}
       
