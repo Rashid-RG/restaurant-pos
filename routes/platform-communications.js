@@ -60,8 +60,9 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   const targets=async (audience)=>{
     const ids=[...new Set(audience.tenantIds)];
     const sql=`SELECT u.id AS userId,u.tenant_id AS tenantId,u.role,t.status,
-       COALESCE(u.isPlatformAdmin,0) AS isPlatformAdmin,t.name AS restaurantName
+       CASE WHEN p.userId IS NOT NULL THEN 1 ELSE 0 END AS isPlatformAdmin,t.name AS restaurantName
        FROM users u INNER JOIN tenants t ON t.id=u.tenant_id
+       LEFT JOIN platform_ownership p ON p.userId=u.id
        WHERE u.role='owner' AND t.status='active' AND t.id!='default_tenant'
        ${audience.scope==='specific' ? `AND t.id IN (${ids.map(()=>'?').join(',')})` : ''}
        ORDER BY t.name,u.id`;
