@@ -1,4 +1,4 @@
-import { platformPublisher } from '../../shared/platform-brand.js';
+import { displayPlatformCompany, platformPublisher } from '../../shared/platform-brand.js';
 import PlatformOperations from './PlatformOperations';
 import PlatformDriverVerification from './PlatformDriverVerification';
 import PromotionManager from '../components/PromotionManager';
@@ -146,7 +146,7 @@ export default function PlatformAdmin({ embedded = false }) {
     try {
       const data = await request('/api/platform/settings');
       if (data && Object.keys(data).length > 0) {
-        setBrandingSettings(prev => ({ ...prev, ...data }));
+        setBrandingSettings(prev => ({ ...prev, ...data, platformCompany: displayPlatformCompany(data.platformCompany) }));
       }
     } catch (err) {
       showToast(err.message || 'Could not load platform branding settings.', 'error');

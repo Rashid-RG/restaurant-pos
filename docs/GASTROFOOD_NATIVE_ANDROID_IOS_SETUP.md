@@ -8,7 +8,7 @@ These commands create **GastroFlow Food** app projects, not the root POS project
 - Node.js 22+, project currently targets Node.js 24.
 - Android: current Android Studio and SDK; iOS: a Mac with Xcode 26+.
 - Staging API for testing: `https://gastroflow-staging.onrender.com` only. Do not use production or live customer credentials.
-- Customer package ID `com.rstechnologies.gastrofood` is provisional until RS Technologies confirms ownership.
+- Customer package ID `com.rstechnologies.gastrofood` is provisional until RS Orunara confirms ownership.
 
 ## 1. Safely generate customer-only lockfile
 From the existing repository, **do not use the root `cap:android` or `cap:ios` scripts**: those target the shared POS Capacitor config.

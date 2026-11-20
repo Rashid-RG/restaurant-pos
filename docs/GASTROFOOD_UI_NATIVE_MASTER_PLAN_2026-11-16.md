@@ -25,7 +25,7 @@ This plan extends the 2026-11-13 customer-app master review, not a new product. 
 ## Prioritized backlog and acceptance criteria
 
 ### P0-A — Common mobile design system
-- Define tokens: brand, text/surfaces, elevation, 8px spacing, type scale, radius, focus, motion; unify conflicting CSS rules; retain existing RS Technologies / GastroFlow identity.
+- Define tokens: brand, text/surfaces, elevation, 8px spacing, type scale, radius, focus, motion; unify conflicting CSS rules; retain existing RS Orunara / GastroFlow identity.
 - Screens: splash/onboarding, home/restaurant list, search, restaurant detail, menu, cart, checkout, orders, tracking, profile, help, login/OTP, saved addresses, AI.
 - Navigation: persistent accessible mobile bar, safe-area insets, keyboard-aware fixed CTA, visible checkout/cart action, scroll-restoration, deep links/back gestures.
 - Each screen gets empty/loading/error/offline/closed-store/disabled states; no forced scrolling past hidden primary controls. Benchmark p75 LCP <=2.5s, INP <=200ms, CLS <=0.1 for key routes.

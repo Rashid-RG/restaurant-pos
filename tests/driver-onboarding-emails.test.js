@@ -24,7 +24,7 @@ describe('GastroDriver automatic recruitment and verification email privacy',()=
   const msg=riderEmailTemplate({event,restaurant:'Sample Restaurant',rider:'Sample Rider'});
   expect(msg.subject).toContain('Sample Restaurant');
   expect(msg.html).toContain('Sample Restaurant');
-  expect(msg.text).toContain('Powered by GastroFlow, RS.');
+  expect(msg.text).toContain('Powered by GastroFlow, RS Orunara.');
   expect(msg.html).not.toContain('data:image/');
   expect(msg.text).not.toContain('verification code');
   expect(msg.html).not.toContain('?invite=');

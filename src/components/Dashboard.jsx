@@ -1,6 +1,6 @@
 import PendingOrderEmails from './PendingOrderEmails.jsx';
 import PendingDeviceSales from './PendingDeviceSales.jsx';
-import { platformPublisher } from '../../shared/platform-brand.js';
+import { displayPlatformCompany } from '../../shared/platform-brand.js';
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { 
   Calendar, ChevronLeft, ChevronRight, Download, Printer, Filter, 
@@ -773,14 +773,14 @@ export default function Dashboard() {
                 <span>Smarter Dining Operations & Cloud POS</span>
               </div>
               <div style={{ fontSize: '9px', color: '#4b5563', marginTop: '2px' }}>
-                Platform Engineered & Powered by <strong>{settings?.platformCompany || platformPublisher}</strong> • All Rights Reserved
+                Platform Engineered & Powered by <strong>{displayPlatformCompany(settings?.platformCompany)}</strong> • All Rights Reserved
               </div>
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div>Official Financial Statement • Store: <strong style={{ color: '#111827' }}>{shopName}</strong></div>
             <div style={{ fontSize: '9px', color: '#6b7280', marginTop: '2px' }}>
-              System by <strong>{settings?.platformCompany || platformPublisher}</strong> • www.gastroflow.lk
+              System by <strong>{displayPlatformCompany(settings?.platformCompany)}</strong> • www.gastroflow.lk
             </div>
           </div>
         </div>
