@@ -95,6 +95,9 @@ export async function initPlatformCommunications(dbRun) {
     announcementId TEXT NOT NULL,locale TEXT NOT NULL,contentHash TEXT NOT NULL,
     reviewedBy TEXT NOT NULL,reviewedAt BIGINT NOT NULL,
     PRIMARY KEY (announcementId,locale))`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_communication_push_preferences (
+    tenant_id TEXT NOT NULL,userId TEXT NOT NULL,optedIn INTEGER NOT NULL DEFAULT 0,
+    updatedAt BIGINT NOT NULL,PRIMARY KEY (tenant_id,userId))`);
   await dbRun(`CREATE TABLE IF NOT EXISTS platform_owner_acknowledgment_evidence (
     announcementId TEXT NOT NULL,tenant_id TEXT NOT NULL,userId TEXT NOT NULL,
     contentLanguage TEXT NOT NULL,contentHash TEXT NOT NULL,
@@ -428,6 +431,42 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
       FROM platform_owner_communication_deliveries WHERE announcementId=?
       GROUP BY channel,status ORDER BY channel,status`,[m.id]);
     res.set('Cache-Control','no-store').json({announcement:m,stats,channels});
+  }catch(e){next(e)}});
+  // Push-preference foundation only. No tokens, device identifiers or external push.
+  router.get('/owner/communications/push-preference',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
+    const row=await dbGet('SELECT optedIn,updatedAt FROM platform_owner_communication_push_preferences WHERE tenant_id=? AND userId=?',[tid,uid]);
+    res.set('Cache-Control','no-store').json({optedIn:Boolean(row?.optedIn),updatedAt:row?.updatedAt||null,pushOperational:false});
+  }catch(e){next(e)}});
+  router.post('/owner/communications/push-preference',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    if(typeof req.body?.optedIn!=='boolean'||Object.keys(req.body||{}).some(k=>k!=='optedIn'))
+      return res.status(400).json({error:'Expected optedIn boolean.'});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
+    const now=Date.now();
+    await dbRun(`INSERT INTO platform_owner_communication_push_preferences (tenant_id,userId,optedIn,updatedAt)
+      VALUES (?,?,?,?) ON CONFLICT (tenant_id,userId)
+      DO UPDATE SET optedIn=excluded.optedIn,updatedAt=excluded.updatedAt`,
+      [tid,uid,Number(req.body.optedIn),now]);
+    res.set('Cache-Control','no-store').json({optedIn:req.body.optedIn,updatedAt:now,pushOperational:false});
+  }catch(e){next(e)}});
+  router.get('/owner/communications/:id/receipt',authenticateToken,async(req,res,next)=>{try{
+    const uid=req.user?.id,tid=req.user?.tenant_id;
+    if(!safeOwnerScope(req.user,tid))return res.status(403).json({error:'Owner access required.'});
+    const tenant=await dbGet('SELECT status FROM tenants WHERE id=?',[tid]);
+    if(tenant?.status!=='active')return res.status(403).json({error:'Restaurant inactive.'});
+    const row=await dbGet(`SELECT e.announcementId,e.contentLanguage,e.contentHash,e.policyVersion,e.acknowledgedAt
+      FROM platform_owner_acknowledgment_evidence e
+      JOIN platform_owner_announcement_recipients r ON r.announcementId=e.announcementId
+        AND r.tenant_id=e.tenant_id AND r.userId=e.userId
+      WHERE e.announcementId=? AND e.tenant_id=? AND e.userId=?`,[req.params.id,tid,uid]);
+    if(!row)return res.status(404).json({error:'No acknowledgment receipt for this owner.'});
+    res.set('Cache-Control','no-store').json(row);
   }catch(e){next(e)}});
   router.get('/owner/communications',authenticateToken,async(req,res,next)=>{try{
     if(!req.user||req.user.role!=='owner'||!req.user.tenant_id||req.user.isPlatformAdmin)return res.status(403).json({error:'Owner account required.'});
