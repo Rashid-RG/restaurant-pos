@@ -135,6 +135,8 @@ export default function App() {
   const [manualUploading,setManualUploading]=useState('');
   const [manualConsent,setManualConsent]=useState(false);
   const [manualVehicleType,setManualVehicleType]=useState('Motorbike');
+  const [applicationIdentityType,setApplicationIdentityType]=useState(null);
+  const [identityTypeSaving,setIdentityTypeSaving]=useState(false);
   const [sendingRegCode, setSendingRegCode] = useState(false);
   const [regCodeSentTo, setRegCodeSentTo] = useState('');
   const [regVerificationToken,setRegVerificationToken]=useState('');
@@ -578,6 +580,7 @@ export default function App() {
       setManualApplicationToken(result.applicationToken);
       setManualVehicleType(result.vehicleType);
       setManualEvidence({});
+      setApplicationIdentityType(null);
       setManualConsent(false);
       setRecoveryOpen(false);
       setRecoveryCode('');
@@ -641,10 +644,27 @@ export default function App() {
       if(ignore)return;
       const accepted=new Set(data.requiredKinds||[]);
       setManualVehicleType(accepted.has('licence_front')?'Motorbike':'Bicycle');
+      setApplicationIdentityType(data.identityKind||null);
       setManualEvidence(Object.fromEntries((data.documents||[]).map(doc=>[doc.kind,true])));
     }).catch(()=>{});
     return()=>{ignore=true;};
   },[manualApplicationToken]);
+
+  const saveApplicationIdentityType=async(identityKind)=>{
+    if(!manualApplicationToken)return false;
+    setIdentityTypeSaving(true);
+    try{
+      await apiFetch('/public/drivers/identity-type',{
+        method:'POST',headers:{Authorization:'Bearer '+manualApplicationToken},
+        body:JSON.stringify({identityKind})
+      });
+      setApplicationIdentityType(identityKind);
+      return true;
+    }catch(error){
+      showToast(error.message||'Unable to save identity document choice.','error');
+      return false;
+    }finally{setIdentityTypeSaving(false);}
+  };
 
   const submitManualEvidence = async (kind,file) => {
     if(!file || !manualApplicationToken)return;
@@ -688,6 +708,7 @@ export default function App() {
         setManualApplicationToken(res.applicationToken);
         setManualVehicleType(reg.vehicleType);
         setManualEvidence({});
+        setApplicationIdentityType(null);
         clearSelfieCapture();
         setManualConsent(false);
       }
@@ -812,6 +833,8 @@ export default function App() {
             </section>}
             {manualApplicationToken && <RiderEvidenceWizard
               evidence={manualEvidence} vehicleType={manualVehicleType}
+              identityType={applicationIdentityType} savingIdentityType={identityTypeSaving}
+              onIdentityChange={saveApplicationIdentityType}
               consent={manualConsent} setConsent={setManualConsent} uploading={manualUploading}
               onUpload={submitManualEvidence} selfieCandidate={selfieCandidate}
               onSelfieCapture={handleSelfieCapture} onClearSelfie={clearSelfieCapture}
