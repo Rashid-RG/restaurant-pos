@@ -2,7 +2,7 @@ import {eligibleNearbyRiders} from '../lib/delivery/rider-discovery.js';
 
 /** Optional single-process staging pilot. Disabled unless explicitly enabled. */
 export function createRiderPresenceRouter({
-  express,authenticateDriver,authenticateToken,requireRole,dbGet,presence,
+  express,authenticateDriver,authenticateToken,requireRole,dbGet,dbAll,presence,
   enabled=false,clock=Date.now
 }){
   const router=express.Router();
@@ -46,7 +46,11 @@ export function createRiderPresenceRouter({
       return res.status(400).json({error:'A valid dispatch origin is required.'});
     const tenantId=req.tenantId;
     const rows=presence.list(tenantId);
-    const riders=rows.map(r=>({
+    // A dispatch or status update can make an earlier GPS heartbeat obsolete.
+    // Always verify current availability against the authoritative tenant DB.
+    const available=await dbAll("SELECT id FROM drivers WHERE tenant_id=? AND status IN ('available','active')",[tenantId]);
+    const allowed=new Set(available.map(d=>d.id));
+    const riders=rows.filter(r=>allowed.has(r.driverId)).map(r=>({
       id:r.driverId,tenantId,status:'available',verified:true,onDuty:true,locationConsent:true,
       fix:{lat:r.lat,lng:r.lng,accuracyMeters:r.accuracyMeters,updatedAt:r.recordedAt}
     }));
