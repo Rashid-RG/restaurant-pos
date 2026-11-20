@@ -228,8 +228,9 @@ export function createPlatformCommunicationsRouter({dbRun,dbGet,dbAll,authentica
   }catch(e){next(e)}});
   router.get('/platform/communications',...platform,async(req,res,next)=>{try{
     res.set('Cache-Control','no-store').json(await dbAll(
-      `SELECT a.id,a.title,a.category,a.status,a.requiresAcknowledgment,a.createdAt,a.publishedAt,a.expiresAt,v.policyVersion
+      `SELECT a.id,a.title,a.category,a.status,a.requiresAcknowledgment,a.createdAt,a.publishedAt,a.expiresAt,v.policyVersion,s.scheduledAt
        FROM platform_owner_announcements a LEFT JOIN platform_owner_announcement_versions v ON v.announcementId=a.id
+       LEFT JOIN platform_owner_announcement_schedule s ON s.announcementId=a.id
        ORDER BY a.createdAt DESC LIMIT 100`));
   }catch(e){next(e)}});
   router.post('/platform/communications/:id/publish',...platform,async(req,res,next)=>{try{
