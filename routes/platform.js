@@ -381,7 +381,7 @@ export function createPlatformRouter({ authenticateToken, requirePlatformAdmin, 
   });
   let communicationsInit;
   const initCommunications=(req,res,next)=>{
-    if(process.env.PLATFORM_COMMUNICATIONS_ENABLED!=='true')return next();
+    if(process.env.PLATFORM_COMMUNICATIONS_ENABLED!=='true'||process.env.PLATFORM_COMMUNICATIONS_STAGE!=='staging')return next();
     if(!communicationsInit) communicationsInit=initPlatformCommunications(dbRun).catch(err=>{
       communicationsInit=null;throw err;
     });
