@@ -1,3 +1,4 @@
+import OwnerCommunicationsInbox from './OwnerCommunicationsInbox.jsx';
 import PendingOrderEmails from './PendingOrderEmails.jsx';
 import PendingDeviceSales from './PendingDeviceSales.jsx';
 import { displayPlatformCompany } from '../../shared/platform-brand.js';
@@ -790,6 +791,7 @@ export default function Dashboard() {
 
   return (
     <div className="main-content">
+      <OwnerCommunicationsInbox currentUser={currentUser} />
       <PendingDeviceSales key={currentUser?.tenant_id} />
       {['manager','owner'].includes(currentUser?.role) && <PendingOrderEmails key={currentUser.tenant_id} />}
       {/* Top Header */}
