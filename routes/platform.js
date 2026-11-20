@@ -1,3 +1,4 @@
+import { createPlatformCommunicationsRouter, initPlatformCommunications } from './platform-communications.js';
 import express from 'express';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
@@ -372,6 +373,23 @@ export function createPlatformRouter({ authenticateToken, requirePlatformAdmin, 
       res.json({ success: true, posUrl: `/?tenant=${encodeURIComponent(tenantId)}`, tenantName: tenant.name });
     } catch (error) { next(error); }
   });
+
+  // Dedicated communications module: gated, additive, owner-targeted.
+  // Initialize only when the staging feature flag is enabled; no production migration.
+  const communicationsRouter=createPlatformCommunicationsRouter({
+    dbRun,dbGet,dbAll,authenticateToken,requirePlatformAdmin
+  });
+  let communicationsInit;
+  const initCommunications=(req,res,next)=>{
+    if(process.env.PLATFORM_COMMUNICATIONS_ENABLED!=='true')return next();
+    if(!communicationsInit) communicationsInit=initPlatformCommunications(dbRun).catch(err=>{
+      communicationsInit=null;throw err;
+    });
+    communicationsInit.then(()=>next()).catch(next);
+  };
+  router.use('/platform/communications',initCommunications);
+  router.use('/owner/communications',initCommunications);
+  router.use(communicationsRouter);
 
   return router;
 }
