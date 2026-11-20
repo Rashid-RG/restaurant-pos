@@ -99,6 +99,22 @@ export default function POSView() {
   const closeMobileCart=()=>{setMobileCartOpen(false);mobileCartToggle.current?.focus();};
   useEffect(()=>{if(!mobileCartOpen)return;const close=event=>{if(event.key==='Escape'){setMobileCartOpen(false);mobileCartToggle.current?.focus();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[mobileCartOpen]);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef(null);
+  // A workstation preference, scoped to the signed-in restaurant. Standard mode
+  // remains available for staff who prefer the full customization dialog.
+  const expressPreferenceKey = `gastroflow:express-billing:${currentUser?.tenant_id || currentUser?.tenantId || 'unknown'}`;
+  const [expressBilling, setExpressBilling] = useState(() => {
+    try { return localStorage.getItem(expressPreferenceKey) !== 'standard'; }
+    catch { return true; }
+  });
+  useEffect(() => {
+    try { setExpressBilling(localStorage.getItem(expressPreferenceKey) !== 'standard'); }
+    catch { setExpressBilling(true); }
+  }, [expressPreferenceKey]);
+  const chooseBillingMode = (enabled) => {
+    setExpressBilling(enabled);
+    try { localStorage.setItem(expressPreferenceKey, enabled ? 'express' : 'standard'); } catch { /* storage disabled */ }
+  };
   const [activeCategory, setActiveCategory] = useState('all');
 
   // Modals visibility
@@ -240,8 +256,25 @@ export default function POSView() {
   const totals = getCartTotals(tipInput, deliveryInfo.fee);
 
   // Open customizer modal for item
-  const handleItemClick = (item) => {
-    if (item.stock <= 0) return; // out of stock
+  const handleItemClick = (item, forceCustomize = false) => {
+    if (Number(item.stock) <= 0) return;
+    // Explicit options must not be bypassed. Normal menu items add immediately
+    // and the existing cart reducer merges identical lines.
+    const hasOptions = Boolean(
+      item.requiresCustomization || item.requiresModifiers ||
+      item.modifierGroups?.length || item.modifiers?.length ||
+      item.requiredOptions?.length || item.variants?.length
+    );
+    if (expressBilling && !forceCustomize && !hasOptions) {
+      const inCart = cart.filter(line => line.id === item.id)
+        .reduce((quantity, line) => quantity + Number(line.quantity || 0), 0);
+      if (Number.isFinite(Number(item.stock)) && inCart >= Number(item.stock)) {
+        showToast('All available stock for this item is already in the bill.', 'warning');
+        return;
+      }
+      addToCart(item, 1, '');
+      return;
+    }
     setCustomizerItem(item);
     setCustomizerQty(1);
     setCustomizerNotes('');
@@ -297,11 +330,29 @@ export default function POSView() {
   };
 
   const handlePayClick = () => {
-    if (cart.length === 0) return;
-     // Clear any stale split-bill state from a previous order
+    if (cart.length === 0 || settlementBusyRef.current) return;
+    // Express checkout selects cash by default, but still requires a deliberate
+    // final confirmation and preserves the existing server-side settlement.
+    if (expressBilling) setPaymentMethod('cash');
     setCashReceived(totals.total.toString());
     setShowPaymentModal(true);
   };
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+      const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+      if (event.key === 'F2') {
+        event.preventDefault();
+        if (!showPaymentModal && !showCustomizerModal) searchInputRef.current?.focus();
+      } else if (event.key === 'F4' && !editing && !showPaymentModal && !showCustomizerModal && !printReceiptOrder) {
+        event.preventDefault();
+        handlePayClick();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   // Poll the authoritative order status until it flips to paid (or a timeout elapses).
   // Returns the settled order (with its fiscal invoiceNumber) on success, else null.
@@ -596,12 +647,23 @@ export default function POSView() {
             <input
               type="text"
               className="search-input"
+              ref={searchInputRef}
               placeholder="Search dishes, drinks, or ingredients..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
 
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>F2 Search · F4 Pay · Tap an item to add</span>
+            <button type="button" className={`btn ${expressBilling ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => chooseBillingMode(!expressBilling)}
+              aria-pressed={expressBilling}
+              title="Switch between one-tap billing and the full item customization dialog"
+              style={{ padding: '7px 12px', fontSize: '12px', minHeight: '34px' }}>
+              {expressBilling ? '⚡ Express billing ON' : 'Standard billing · Enable Express'}
+            </button>
+          </div>
           <div className="category-tabs">
             <button
               className={`category-tab ${activeCategory === 'all' ? 'active' : ''}`}
@@ -637,6 +699,11 @@ export default function POSView() {
                     key={item.id}
                     className={`menu-item-card ${isOutOfStock ? 'disabled' : ''}`}
                     onClick={() => handleItemClick(item)}
+                    onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); handleItemClick(item); } }}
+                    role="button"
+                    tabIndex={isOutOfStock ? -1 : 0}
+                    aria-disabled={isOutOfStock}
+                    aria-label={`${expressBilling ? 'Add' : 'Customize'} ${item.name}`}
                     style={{ opacity: isOutOfStock ? 0.5 : 1, cursor: isOutOfStock ? 'not-allowed' : 'pointer' }}
                   >
                     <div className="menu-item-media-box">
@@ -668,7 +735,7 @@ export default function POSView() {
 
                     <div className="menu-item-footer">
                       <span className="menu-item-price">{currencySymbol}{item.price.toFixed(2)}</span>
-                      <button className="btn btn-icon" style={{ width: '32px', height: '32px', borderRadius: '6px' }} disabled={isOutOfStock}>
+                      <button type="button" className="btn btn-icon" style={{ width: '32px', height: '32px', borderRadius: '6px' }} disabled={isOutOfStock} aria-label={`Add ${item.name}`} onClick={event => { event.stopPropagation(); handleItemClick(item); }}>
                         ＋
                       </button>
                     </div>
@@ -915,7 +982,7 @@ export default function POSView() {
               Split / Portions
             </button>
             <button className="btn btn-primary" onClick={handlePayClick} disabled={cart.length === 0} style={{ fontWeight: 700, background: 'var(--color-primary)' }}>
-              💳 Pay {currencySymbol}{totals.total.toFixed(2)}
+              {expressBilling ? '💵 Cash & Pay' : '💳 Pay'} {currencySymbol}{totals.total.toFixed(2)}
             </button>
           </div>
         </div>
@@ -1240,7 +1307,7 @@ export default function POSView() {
           <div className="modal-content" style={{ maxWidth: '480px', padding: '20px 24px', maxHeight: '92vh', overflowY: 'auto' }}>
             <div className="modal-header" style={{ marginBottom: '12px' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: '18px' }}>Select Payment Mode</h2>
+                <h2 style={{ margin: 0, fontSize: '18px' }}>{expressBilling ? 'Confirm Cash Payment' : 'Select Payment Mode'}</h2>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose tender to settle bill</span>
               </div>
               <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false); }}>×</button>
@@ -1457,7 +1524,7 @@ export default function POSView() {
                 disabled={settlementBusy} 
                 onClick={handlePaymentComplete}
               >
-                {settlementBusy ? 'Processing…' : 'Complete Settlement'}
+                {settlementBusy ? 'Processing…' : (expressBilling && paymentMethod === 'cash' ? 'Confirm Cash & Print' : 'Complete Settlement')}
               </button>
             </div>
           </div>
