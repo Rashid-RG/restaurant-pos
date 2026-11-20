@@ -4,7 +4,7 @@ import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
 import { DRIVER_SIGNUP_PURPOSE, driverTenantSelector, normalizeDriverEmail, summarizeDriverCashOrders, verifiedLicenceExpiry, needsLicenceReview, requiredLicenceClass, managerLicenceClassMatches } from './lib/driver-onboarding.js';
 import { DRIVER_DOCUMENT_KINDS, manualDocumentKey, manualDocumentsConfigured, decodeManualDocument, encryptManualDocument, decryptManualDocument, documentKindsForVehicle, documentKindsForIdentity } from './lib/driver-manual-documents.js';
 import { safeDriverVerificationSummary } from './lib/driver-review-access.js';
-import { riderEmailTemplate } from './lib/driver-onboarding-emails.js';
+import { riderEmailTemplate, riderOtpEmailTemplate } from './lib/driver-onboarding-emails.js';
 import { veriffConfigured, drivingLicenceProviderEnabled, createVeriffSession, verifyVeriffWebhook, interpretVeriffDecision } from './lib/driver-identity-provider.js';
 import { normalizeGastroHistory, selectGastroMenu, gastroCartContext, gastroPrivateOrderQuestion, validateGastroResponse, groundedGastroRecommendations, gastroVerifiedReply, gastroOrderProposal, gastroStoreAnswer } from './lib/gastromate-ai.js';
 import { gastroMultiItemPlan } from './lib/gastromate-multi-item.js';
@@ -4670,11 +4670,8 @@ app.post('/api/public/drivers/request-email-code', otpLimiter, validateRequest(d
       [id,'email',email,DRIVER_SIGNUP_PURPOSE,hashCode(code),Date.now()+600000,Date.now(),tenantId]);
     let result;
     try {
-      result = await sendEmail({
-        to: email, subject: 'GastroDriver application verification',
-        html: buildOtpEmail({ code, purpose: 'driver signup', destination: email }),
-        text: 'Your GastroDriver application verification code is ' + code + '. It expires in 10 minutes. Do not share it.'
-      });
+      const message=riderOtpEmailTemplate({code,email,purpose:req.body.flow==='recover'?'recover':'register',assetOrigin:process.env.GASTROFLOW_EMAIL_ASSET_ORIGIN||process.env.RENDER_EXTERNAL_URL});
+      result = await sendEmail({to:email,...message});
     } catch (_) { result = null; }
     if (!result?.success) {
       await dbRun('DELETE FROM otp_codes WHERE id=?',[id]);
