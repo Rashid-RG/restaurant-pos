@@ -122,6 +122,14 @@ Authenticated restaurant owner (only own user+tenant):
 - Automated tests inject a fake HTTP provider; they do not send real messages. Provider acceptance cannot be equated with mailbox receipt. Existing ambiguous outcomes are marked for manual review instead of blindly resending.
 - Missing commercial release work: an explicitly controlled operational invocation mechanism, real sandbox delivery smoke test with approved test mailbox, provider event verification, accepted-versus-delivered status, bounce/unsubscribe handling, concurrency protections, quotas, and comprehensive live-device/staging acceptance testing.
 
+### Provider acceptance versus verified mailbox events
+- A separate additive `platform_owner_communication_email_receipts` table records Brevo `providerMessageId`, announcement/tenant/owner mapping, API acceptance timestamp and later verified provider event status. Receipt reports contain aggregated event counts, never email addresses.
+- The queue worker now stores Brevo API acceptance without populating the old `deliveredAt` field: an HTTP 2xx and message ID **never prove mailbox delivery**. The legacy field may remain populated on preexisting rows and must not be interpreted as a mailbox-delivered signal.
+- `lib/communications/platform-brevo-receipts.js` provides an **unmounted** verified-event processor. It only accepts a caller-supplied `verified:true` flag after an upstream verifier authenticates the provider; it MUST NEVER be called with `verified:true` directly from untrusted HTTP requests.
+- Supported normalized lifecycle event codes: `delivered`, `hard_bounce`, `soft_bounce`, `blocked`, `invalid`, `spam`, `unsubscribed`. Events are scoped to previously registered provider message IDs and applied with idempotent, monotonically timestamped status updates.
+- **No Brevo webhook endpoint, signature verifier or automatic event receiver exists yet.** Consequently these statuses are only a preparation layer, not evidence that any actual customer or tester received an email. The status processor is not connected to the public application.
+- Remaining release gates include verifying Brevo's actual webhook authenticity mechanism and event format, controlling raw event retention, protecting against replay and ordering errors, mapping provider identifiers safely, and isolated staging tests with a real approved test mailbox.
+
 ### Safe deployment checklist
 - Confirm `gastroflow-staging` Render service branch `codex/production-readiness`.
 - Inspect `TURSO_DATABASE_URL` safely in Render dashboard to establish a separately isolated staging database. Do not print secrets.
