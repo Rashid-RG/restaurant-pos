@@ -10,6 +10,7 @@ Owner-targeted in-app communication foundation on `codex/production-readiness`. 
 - Platform template library (create/list/delete) and template selection in the composer.
 - Versioned policy/disclaimer messages with required acknowledgment, SHA-256 content fingerprint, and atomic draft/version/audit writes.
 - UTC scheduled publication in an additive schedule table, 30-second staging dispatcher after database readiness, current eligibility recheck, restart recovery, and cancellation before dispatch.
+- Durable, idempotent per-user/per-tenant/channel in-app delivery ledger with delivery status shown on platform reports. These are inbox insertion events, **not** proof of human reading or provider delivery.
 - Scheduling UI accepts local date/time, converts to UTC epoch for backend validation, and stores execution times independently of browser state.
 - Platform owner access enforced by the existing platform_ownership table; both feature gates required for platform and owner routes.
 - Existing basic platform-wide broadcast feature remains separate and unchanged.
@@ -39,7 +40,7 @@ Authenticated restaurant owner (only own user+tenant):
 3. Scheduled in-app publication is implemented, but validate clock drift, concurrent workers, and retry cases; add reliable email/push delivery jobs, idempotency and dead-letter queues.
 4. Templates, attachments, signed media, multilingual English/Sinhala/Tamil; content sanitization, size/accessibility review.
 5. Versioned legal disclaimers and immutable consent evidence; consent vs notice acknowledgment review by counsel.
-6. Email and native push integration using staging-only sandbox recipients, opt-out rules, quotas and provider failure/retry handling.
+6. Email and native push integration using staging-only sandbox recipients, opt-out rules, quotas and provider failure/retry handling. External channels are NOT activated by the current in-app ledger.
 7. Audit log immutability, publishing approvals, emergency stop, metrics, delivery analytics, recipient opt-out compliance.
 8. Distinct channel permissions and tests for customer/driver/manager audiences; owner targeting must never implicitly expand to them.
 9. Reconcile existing global broadcast UI and avoid conflicting urgent banners.
