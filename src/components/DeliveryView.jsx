@@ -10,6 +10,9 @@ export default function DeliveryView({verificationOnly=false}) {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState({});
+  const [nearbyRiders,setNearbyRiders]=useState({});
+  const [nearbyLoading,setNearbyLoading]=useState({});
+
   const [verifiedApplications, setVerifiedApplications] = useState({});
   const [licenceReviews, setLicenceReviews] = useState({});
   const [manualReviews,setManualReviews]=useState({});
@@ -96,6 +99,35 @@ export default function DeliveryView({verificationOnly=false}) {
       fetchDrivers();
     } catch (err) {
       showToast('Delete error: ' + err.message, 'error');
+    }
+  };
+
+  const findNearbyRiders = async (orderId) => {
+    // Pickup coordinates must be explicitly configured per restaurant.
+    const lat=Number(settings?.storeLat),lng=Number(settings?.storeLng);
+    if(!settings?.storeLat||!settings?.storeLng||
+       !Number.isFinite(lat)||!Number.isFinite(lng)||
+       Math.abs(lat)>90||Math.abs(lng)>180){
+      showToast('Configure your restaurant pickup GPS coordinates in Settings before searching for nearby riders.','warning');
+      return;
+    }
+    setNearbyLoading(prev=>({...prev,[orderId]:true}));
+    try{
+      const params=new URLSearchParams({lat:String(lat),lng:String(lng)});
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch(`/api/delivery/nearby-riders?${params}`,{
+        headers:{Authorization:`Bearer ${token}`},cache:'no-store'
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Rider discovery unavailable');
+      setNearbyRiders(prev=>({...prev,[orderId]:data}));
+      if(!data.candidates?.length)
+        showToast('No verified riders with fresh on-duty location are currently nearby.','info');
+    }catch(error){
+      setNearbyRiders(prev=>({...prev,[orderId]:null}));
+      showToast(error.message||'Could not find nearby riders.','warning');
+    }finally{
+      setNearbyLoading(prev=>({...prev,[orderId]:false}));
     }
   };
 
@@ -539,6 +571,45 @@ export default function DeliveryView({verificationOnly=false}) {
                           Assign Rider
                         </button>
                       </div>
+                      {['owner','manager'].includes(String(currentUser?.role||'').toLowerCase()) &&
+                        (ord.diningType==='delivery'||ord.orderType==='delivery') &&
+                        !ord.driverId && (
+                        <div style={{display:'flex',flexDirection:'column',gap:8,padding:10,borderRadius:10,background:'var(--bg-surface)',border:'1px solid var(--border-color)'}}>
+                          <button type="button" className="btn btn-secondary"
+                            onClick={()=>findNearbyRiders(ord.id)} disabled={nearbyLoading[ord.id]}
+                            style={{fontSize:12,alignSelf:'flex-start',padding:'7px 10px'}}>
+                            {nearbyLoading[ord.id]?'Finding verified riders…':'📍 Find nearby riders'}
+                          </button>
+                          {nearbyRiders[ord.id] && (
+                            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                              <div style={{fontSize:11,color:'var(--text-muted)'}}>
+                                {nearbyRiders[ord.id].estimatedRoadTimesAvailable
+                                  ? 'Estimated road travel to restaurant (not live traffic)'
+                                  : 'Straight-line proximity only — route ETA unavailable'}
+                              </div>
+                              {(nearbyRiders[ord.id].candidates||[]).length===0
+                                ? <span style={{fontSize:12,color:'var(--text-muted)'}}>No fresh, consented and available riders in range.</span>
+                                : nearbyRiders[ord.id].candidates.map(candidate=>(
+                                  <button key={candidate.driverId} type="button"
+                                    onClick={()=>setSelectedDriver(prev=>({...prev,[ord.id]:candidate.driverId}))}
+                                    aria-pressed={selectedDriver[ord.id]===candidate.driverId}
+                                    style={{
+                                      textAlign:'left',padding:9,borderRadius:8,
+                                      border:selectedDriver[ord.id]===candidate.driverId
+                                        ? '2px solid var(--brand)':'1px solid var(--border-color)',
+                                      background:'var(--bg-card)',color:'var(--text-main)',cursor:'pointer',fontSize:12
+                                    }}>
+                                    🛵 {drivers.find(d=>d.id===candidate.driverId)?.name||'Verified rider'}
+                                    {' · '}{candidate.roadTravelMinutes!=null
+                                      ? `${candidate.roadTravelMinutes} min by road`
+                                      : `${(candidate.distanceMeters/1000).toFixed(1)} km nearby`}
+                                    {' · '}GPS {Math.ceil(candidate.locationAgeMs/1000)}s old
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {assignedDrv && (
                         <a
                           href={waLink}
