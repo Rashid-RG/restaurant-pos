@@ -146,6 +146,33 @@ describe('Platform owner announcement targeting',()=>{
     expect((await request(f.app).post('/api/platform/communications/n1/translations/si/approve')).status).toBe(403);
     expect((await request(f.app).get('/api/platform/communications/n1/acknowledgments')).status).toBe(403);
   });
+  it('never accepts a tenant id from the owner push preference body',async()=>{
+    const f=fixture();
+    const response=await request(f.app).post('/api/owner/communications/push-preference')
+      .send({optedIn:true,tenantId:'tenant_b'});
+    expect(response.status).toBe(400);
+    expect(f.dbRun).not.toHaveBeenCalled();
+  });
+  it('records the current owner push preference under the signed-in tenant and identity',async()=>{
+    const f=fixture();
+    const response=await request(f.app).post('/api/owner/communications/push-preference')
+      .send({optedIn:true});
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({optedIn:true,pushOperational:false});
+    expect(f.dbRun.mock.calls[0][1].slice(0,3)).toEqual(['tenant_a','u_a',1]);
+  });
+  it('does not expose another owner acknowledgment receipt',async()=>{
+    const f=fixture();
+    const response=await request(f.app).get('/api/owner/communications/notice_other/receipt');
+    expect(response.status).toBe(404);
+    expect(f.dbGet.mock.calls.some(([sql,args])=>sql.includes('platform_owner_acknowledgment_evidence') &&
+      args?.[0]==='notice_other'&&args?.[1]==='tenant_a'&&args?.[2]==='u_a')).toBe(true);
+  });
+  it('rejects manager push preference updates',async()=>{
+    const f=fixture({actor:{id:'mgr',role:'manager',tenant_id:'tenant_a'}});
+    expect((await request(f.app).post('/api/owner/communications/push-preference').send({optedIn:true})).status).toBe(403);
+    expect(f.dbRun).not.toHaveBeenCalled();
+  });
   it('rejects a manager inbox request',async()=>{
     const f=fixture({actor:{id:'mgr',role:'manager',tenant_id:'tenant_a'}});
     expect((await request(f.app).get('/api/owner/communications')).status).toBe(403);
