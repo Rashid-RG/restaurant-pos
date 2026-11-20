@@ -44,7 +44,7 @@ export default function Settings() {
   const [nativeTested, setNativeTested] = useState(false);
   const onFeedLinesChange = (feedLines) => {
     try {
-      const next = saveNativePrinterConfig(nativeTenantId, { ...nativeConfig, printerName: nativePrinterName, feedLines });
+      const next = saveNativePrinterConfig(nativeTenantId, { ...nativeConfig, enabled: false, printerName: nativePrinterName, feedLines });
       setNativeConfig(next);
       setNativeTested(false);
       setNativeStatus('Feed setting saved for this workstation. Send a new test slip before using direct printing.');
