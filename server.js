@@ -6780,9 +6780,11 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
     }
     const transitions = {
       picked_up: ['ready'],
-      out_for_delivery: ['ready', 'picked_up'],
+      // The delivery lifecycle must not skip pickup or confirmed arrival.
+      // These are enforced by the API, not only by the mobile button layout.
+      out_for_delivery: ['picked_up'],
       arrived: ['out_for_delivery'],
-      delivered: ['out_for_delivery', 'arrived']
+      delivered: ['arrived']
     };
     if ((order.status !== status && !transitions[status].includes(order.status)) || order.status === 'delivered') {
       await dbRun('ROLLBACK'); transaction = false; return res.status(409).json({ error: 'The order changed. Refresh before updating its delivery status.' });
