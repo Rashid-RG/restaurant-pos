@@ -5,6 +5,7 @@ import { recoveryDecision, shouldFinalizeOnlinePayment } from '../utils/order-re
 import {validOrderAcknowledgement,shouldClearCartAfterSubmit} from '../utils/order-acknowledgement.js';
 import { zoneMessage } from '../../../../lib/delivery/zones.js';
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -126,6 +127,25 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [otpSent, setOtpSent] = useState(false);
   const [enteredOtp, setEnteredOtp] = useState('');
   const [showOtpModal, setShowOtpModal] = useState(false);
+  const otpDialogRef=useRef(null);
+  useEffect(()=>{
+    if(!showOtpModal)return;
+    const previous=document.activeElement;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    otpDialogRef.current?.focus();
+    const onKeyDown=event=>{
+      if(event.key==='Escape') {event.preventDefault();setShowOtpModal(false);return;}
+      if(event.key!=='Tab'||!otpDialogRef.current)return;
+      const focusable=[...otpDialogRef.current.querySelectorAll('button:not([disabled]),input:not([disabled])')];
+      if(!focusable.length)return;
+      const first=focusable[0],last=focusable[focusable.length-1];
+      if(event.shiftKey&&(document.activeElement===first||document.activeElement===otpDialogRef.current)){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    };
+    document.addEventListener('keydown',onKeyDown);
+    return()=>{document.removeEventListener('keydown',onKeyDown);document.body.style.overflow=previousOverflow;if(previous?.isConnected)previous.focus?.();};
+  },[showOtpModal]);
   const [otpChannel, setOtpChannel] = useState('email'); // 'email' (FREE!) | 'sms'
 
   const boundTable = localStorage.getItem('gastroflow_dinein_table');
@@ -699,11 +719,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       )}
 
       {/* OTP Verification Modal */}
-      {showOtpModal && (
+      {showOtpModal && createPortal(
         <div className="gastrofood-otp-backdrop">
-          <div className="device-dialog gastrofood-otp-dialog" role="dialog" aria-modal="true" aria-labelledby="gastrofood-otp-title">
+          <div ref={otpDialogRef} tabIndex={-1} className="device-dialog gastrofood-otp-dialog" role="dialog" aria-modal="true" aria-labelledby="gastrofood-otp-title">
             <div className="gastrofood-otp-icon" aria-hidden="true">🔐</div>
-            <span className="gastrofood-otp-eyebrow">SECURE CHECKOUT · STEP 3 OF 3</span>
+            <span className="gastrofood-otp-eyebrow">SECURE CHECKOUT · FINAL VERIFICATION</span>
             <h3 id="gastrofood-otp-title" className="gastrofood-otp-title">Verify your order</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
               Enter the 6-digit code sent to <strong>{otpChannel === 'email' ? (email || customer?.email) : phone}</strong>. Your code expires after 10 minutes.
@@ -810,7 +830,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   }
                 })}
               >
-                Verify & place order
+                Verify & submit order
               </button>
               <button 
                 type="button" className="btn btn-ghost" style={{ width: '100%', minHeight: 44 }} 
@@ -820,8 +840,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               </button>
             </div>
           </div>
-        </div>
-      )}
+        </div>,document.body)}
 
       <div className="checkout-review-summary gf-checkout-overview">
         <div><small className="gf-checkout-overline">YOUR ORDER</small><h2>Review & checkout</h2><span>{items.reduce((sum,item)=>sum+Number(item.qty||0),0)} items · {ORDER_TYPES.find(type => type.id === orderType)?.label}</span></div>
