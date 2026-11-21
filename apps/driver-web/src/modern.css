@@ -246,3 +246,11 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 
 .driver-pickup-distance{display:inline-flex;align-items:center;gap:5px;padding:7px 10px;border:1px solid #b4d8c6;background:#e8f7ed;border-radius:10px;color:#176c47;font-size:11px;font-weight:750;text-align:right;line-height:1.35}
 .driver-pickup-distance svg{flex:0 0 auto}
+
+.driver-verification-summary{display:grid;gap:10px}
+.driver-verification-summary h3{font-size:16px;margin:0;color:var(--brand-dark)}
+.driver-verification-summary dl{display:grid;gap:8px;margin:0}
+.driver-verification-summary dl>div{padding:9px 0;border-bottom:1px solid var(--border-color);display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:7px}
+.driver-verification-summary dt{font-size:12px;color:var(--text-muted)}
+.driver-verification-summary dd{font-size:12px;color:var(--text-main);font-weight:750;margin:0;text-align:right;overflow-wrap:anywhere}
+.driver-verification-summary p{font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
