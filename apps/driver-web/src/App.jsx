@@ -97,6 +97,22 @@ export default function App() {
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [restaurantTimeZone, setRestaurantTimeZone] = useState('Asia/Colombo');
   const [activeOrders, setActiveOrders] = useState([]);
+  // An accepted GPS upload for order A must not count as confirmation for
+  // newly assigned order B. Require the next fresh fix to reach the new set.
+  const assignedLocationOrderKey=activeOrders
+    .filter(order=>order?.id && !['delivered','completed','cancelled','rejected'].includes(String(order.status||'').toLowerCase()))
+    .map(order=>String(order.id)).sort().join('|');
+  const priorLocationOrderKey=useRef(null);
+  useEffect(()=>{
+    if(priorLocationOrderKey.current===null){
+      priorLocationOrderKey.current=assignedLocationOrderKey;
+      return;
+    }
+    if(priorLocationOrderKey.current===assignedLocationOrderKey)return;
+    priorLocationOrderKey.current=assignedLocationOrderKey;
+    lastBroadcastRef.current=null;
+    setGpsUploadStatus('idle');
+  },[assignedLocationOrderKey]);
   const [history, setHistory] = useState([]);
   const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
   const [cashSummary,setCashSummary]=useState(null);
