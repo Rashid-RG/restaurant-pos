@@ -1,0 +1,34 @@
+/* iPhone-safe rider chat: composer is always visible, page underneath never scrolls. */
+.gf-rider-chat-backdrop{position:fixed;inset:0;z-index:6500;display:flex;align-items:flex-end;justify-content:center;background:rgba(5,24,16,.68);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);overscroll-behavior:contain}
+.gf-rider-chat-dialog{box-sizing:border-box;display:flex;flex-direction:column;position:relative;width:100%;max-width:520px;height:min(77dvh,720px);max-height:calc(100dvh - env(safe-area-inset-top,0px) - 14px);min-height:260px;border-radius:26px 26px 0 0;background:#fff;color:#173d2e;box-shadow:0 -20px 70px #051e194a;overflow:hidden;outline:0;animation:gf-chat-rise .22s ease-out}
+.gf-rider-chat-handle{width:39px;height:5px;margin:9px auto 3px;border-radius:10px;background:#c4d5cb;flex-shrink:0}
+.gf-rider-chat-header{display:flex;align-items:center;gap:11px;padding:11px 15px 13px;border-bottom:1px solid #e4eee6;flex-shrink:0}
+.gf-rider-chat-avatar{display:grid;place-items:center;width:45px;height:45px;flex:0 0 45px;border-radius:15px;background:#e4f6ec;color:#137650}
+.gf-rider-chat-header-copy{flex:1;min-width:0}
+.gf-rider-chat-kicker{display:flex;align-items:center;gap:6px;font-size:9px;font-weight:900;letter-spacing:.12em;color:#0c8055}
+.gf-rider-chat-status-dot{width:7px;height:7px;background:#21a16d;border-radius:50%}
+.gf-rider-chat-header h2{font-size:17px;font-weight:850;color:#143d2a;letter-spacing:-.025em;margin:2px 0}
+.gf-rider-chat-header small{display:block;font-size:10px;color:#6e8677}
+.gf-rider-chat-close{border:1px solid #d7e7dc;background:#f3f9f5;color:#1f6649;width:36px;height:36px;border-radius:13px;flex:0 0 36px;display:grid;place-items:center;cursor:pointer}
+.gf-rider-chat-privacy{padding:9px 15px;background:#f0f8f2;color:#4e6c5b;display:flex;align-items:center;gap:7px;font-size:11px;flex-shrink:0}
+.gf-rider-chat-privacy svg{color:#147750;flex-shrink:0}
+.gf-rider-chat-messages{display:flex;flex:1;min-height:0;flex-direction:column;gap:13px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:18px 15px;background:linear-gradient(#f9fcfa,#f5faf7)}
+.gf-rider-chat-empty{align-self:center;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;margin:auto;max-width:245px;gap:8px;color:#5b806a}
+.gf-rider-chat-empty svg{color:#23845d}
+.gf-rider-chat-empty strong{font-size:14px;color:#275a40}
+.gf-rider-chat-empty p{font-size:12px;line-height:1.55;margin:0}
+.gf-rider-chat-message{display:flex;flex-direction:column;max-width:85%;gap:4px;align-self:flex-start}
+.gf-rider-chat-message.is-mine{align-self:flex-end;align-items:flex-end}
+.gf-rider-chat-meta{font-size:10px;color:#7b8e82;overflow-wrap:anywhere}
+.gf-rider-chat-bubble{border-radius:16px 16px 16px 4px;padding:10px 13px;font-size:13px;line-height:1.5;overflow-wrap:anywhere;background:#fff;border:1px solid #dfece2;color:#31513f}
+.gf-rider-chat-message.is-mine .gf-rider-chat-bubble{border-radius:16px 16px 4px 16px;background:#0c7854;border-color:#0c7854;color:#fff}
+.gf-rider-chat-compose{display:flex;align-items:center;gap:9px;padding:11px 14px calc(11px + env(safe-area-inset-bottom,0px));flex-shrink:0;background:#fff;border-top:1px solid #e0ece5}
+.gf-rider-chat-compose input{width:100%;min-width:0;min-height:45px;box-sizing:border-box;flex:1;background:#f4f9f6;border:1px solid #d8e9df;border-radius:15px;padding:10px 13px;font-size:16px;color:#173c2d;outline:0}
+.gf-rider-chat-compose input:focus{border-color:#319e75;box-shadow:0 0 0 3px #319e7520}
+.gf-rider-chat-compose button{border:0;flex:0 0 46px;height:46px;display:grid;place-items:center;background:#0b7853;color:#fff;border-radius:14px;cursor:pointer}
+.gf-rider-chat-compose button:disabled{background:#cbdcd0;color:#6e8577;cursor:default}
+.gf-rider-chat-close:focus-visible,.gf-rider-chat-compose button:focus-visible{outline:3px solid #319e75;outline-offset:2px}
+@media(min-width:700px){.gf-rider-chat-backdrop{align-items:center;padding:20px}.gf-rider-chat-dialog{height:min(75dvh,660px);border-radius:25px;max-height:90dvh}}
+@media(max-height:560px){.gf-rider-chat-dialog{height:calc(100dvh - 8px)}.gf-rider-chat-privacy{display:none}.gf-rider-chat-header{padding:7px 12px}}
+@keyframes gf-chat-rise{from{transform:translateY(16px);opacity:.7}to{transform:translateY(0);opacity:1}}
+@media(prefers-reduced-motion:reduce){.gf-rider-chat-dialog{animation:none!important}}
