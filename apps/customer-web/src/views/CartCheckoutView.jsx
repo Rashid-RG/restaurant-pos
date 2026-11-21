@@ -12,7 +12,7 @@ import { getActiveTenant } from '../utils/tenant.js';
 import { canUseHostedPayHereGateway, payHerePaymentDisabled } from '../utils/native-payment-policy.js';
 import { Store, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/LocationPicker.jsx';
-import {selectedDeliveryPin} from '../utils/restaurant-fulfilment.js';
+import {locationKey, selectedDeliveryPin} from '../utils/restaurant-fulfilment.js';
 import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
 
 const ORDER_TYPES = [
@@ -40,6 +40,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [address, setAddress] = useState('');
   // Real geocoded delivery location (lat/lng) chosen on the map picker.
   const [geoLocation, setGeoLocation] = useState(selectedDeliveryPin);
+  const [confirmedEntrance, setConfirmedEntrance] = useState(null);
+  const [pickerRevision, setPickerRevision] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [notes, setNotes] = useState('');
 
@@ -178,10 +180,13 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
 
   // Only show a delivery quote for the selected restaurant, pinned location
   // and current subtotal. Ignore late results from superseded requests.
-  const activeQuoteKey = deliveryQuoteKey({
-    tenantId:store?.tenantId || getActiveTenant(),
+  const tenantId = store?.tenantId || getActiveTenant();
+  const pinKey = locationKey(geoLocation);
+  const entranceConfirmed = !!pinKey && confirmedEntrance?.tenantId === tenantId && confirmedEntrance?.pinKey === pinKey;
+  const activeQuoteKey = entranceConfirmed ? deliveryQuoteKey({
+    tenantId,
     lat:geoLocation?.lat,lng:geoLocation?.lng,subtotal
-  });
+  }) : null;
   const modePaused = orderType === 'delivery' && store?.deliveryEnabled === false || orderType === 'takeaway' && store?.pickupEnabled === false;
   const deliveryQuoteConfirmed=deliveryQuoteReady({type:orderType,key:activeQuoteKey,quote:deliveryQuote});
   useEffect(() => {
@@ -314,7 +319,6 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   // The map picker sets both the human-readable address and the real coordinates.
   const handlePickLocation = (loc) => {
     setGeoLocation(loc);
-    setAddress('');
   };
 
   const executeOrderPlacement = () => checkoutGuard.current.run(async () => {
@@ -954,6 +958,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   onChange={e => {
                     const sel = savedAddresses.find(a => a.id === e.target.value);
                     if (sel) {
+                      setPickerRevision(revision => revision + 1);
+                      setConfirmedEntrance(null);
                       setAddress('');
                       if (typeof sel.lat === 'number' && Number.isFinite(sel.lat) && typeof sel.lng === 'number' && Number.isFinite(sel.lng)) {
                         setGeoLocation({ lat: sel.lat, lng: sel.lng, label: sel.addressLine });
@@ -971,7 +977,16 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 </select>
               )}
 
-              <LocationPicker value={geoLocation} onChange={handlePickLocation} toast={toast} />
+              <LocationPicker key={pickerRevision} value={geoLocation} onChange={handlePickLocation} toast={toast} />
+              {pinKey && (
+                <div className="form-group">
+                  <p>Move the pin to the entrance where your rider should meet you.</p>
+                  <button type="button" className="btn btn-outline" disabled={entranceConfirmed}
+                    onClick={() => setConfirmedEntrance({ tenantId, pinKey })}>
+                    {entranceConfirmed ? 'Delivery entrance confirmed' : 'Confirm delivery entrance'}
+                  </button>
+                </div>
+              )}
 
               <textarea
                 className="form-control"
@@ -1197,8 +1212,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   </>
                 ) : (
                   <div role="status" className="gf-checkout-delivery-quote-status">
-                    <strong>{!activeQuoteKey ? 'Select a map pin to check delivery' : deliveryQuote.key===activeQuoteKey && deliveryQuote.status==='unavailable' ? 'Delivery quote unavailable' : 'Checking delivery fee and eligibility…'}</strong>
-                    <span>{deliveryQuote.key===activeQuoteKey && deliveryQuote.data?.error ? deliveryQuote.data.error : !activeQuoteKey ? 'Choose your exact delivery location to receive a fee quote.' : 'No delivery fee is confirmed yet. Please verify the restaurant and customer map pins before ordering.'}</span>
+                    <strong>{!activeQuoteKey ? 'Confirm your entrance pin to check delivery' : deliveryQuote.key===activeQuoteKey && deliveryQuote.status==='unavailable' ? 'Delivery quote unavailable' : 'Checking delivery fee and eligibility…'}</strong>
+                    <span>{deliveryQuote.key===activeQuoteKey && deliveryQuote.data?.error ? deliveryQuote.data.error : !activeQuoteKey ? 'Confirm your exact delivery entrance on the map to receive a fee quote.' : 'No delivery fee is confirmed yet. Please verify the restaurant and customer map pins before ordering.'}</span>
                   </div>
                 )}
               </div>
