@@ -86,6 +86,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
 
   // Promo & Loyalty
   const [promoCode, setPromoCode] = useState('');
+  const [promoBusy,setPromoBusy]=useState(false);
   const [appliedPromo, setAppliedPromo] = useState(null);
   const [redeemPoints, setRedeemPoints] = useState(false);
 
@@ -337,7 +338,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   },[cartFingerprint,appliedPromo]);
   const handleApplyPromo = async () => {
     const code=promoCode.trim().toUpperCase();
-    if(!code)return;
+    if(!code||promoBusy)return;
+    setPromoBusy(true);
     try {
       const result=await apiFetch('/public/promotions/preview',{
         method:'POST',body:JSON.stringify({
@@ -350,6 +352,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     } catch(err) {
       setAppliedPromo(null);
       toast(err.message || 'Promotion unavailable.', 'error');
+    } finally {
+      setPromoBusy(false);
     }
   };
 
@@ -1051,16 +1055,16 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               placeholder="Enter Promo Code (e.g. WELCOME10)" 
               value={promoCode} 
               onChange={e => setPromoCode(e.target.value)} 
-              disabled={!!appliedPromo}
+              disabled={!!appliedPromo||promoBusy}
             />
             <button 
               type="button" 
               className="btn btn-brand" 
               style={{ width: 'auto', padding: '0 16px' }}
               onClick={handleApplyPromo}
-              disabled={!!appliedPromo}
+              disabled={!!appliedPromo||promoBusy}
             >
-              Apply
+              {promoBusy?'Checking…':'Apply'}
             </button>
           </div>
 
