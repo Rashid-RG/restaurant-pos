@@ -112,6 +112,7 @@ export default function App() {
     priorLocationOrderKey.current=assignedLocationOrderKey;
     lastBroadcastRef.current=null;
     setGpsUploadStatus('idle');
+    setGpsLastAcceptedAt(null);
   },[assignedLocationOrderKey]);
   const [history, setHistory] = useState([]);
   const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
@@ -255,6 +256,7 @@ export default function App() {
   const [lastCoords, setLastCoords] = useState(null);
   const [gpsQuality, setGpsQuality] = useState('not_started');
   const [gpsUploadStatus,setGpsUploadStatus]=useState('idle'); // Device GPS != server-accepted location
+  const [gpsLastAcceptedAt,setGpsLastAcceptedAt]=useState(null);
   const [discoveryConsent,setDiscoveryConsent]=useState(false);
   const discoveryConsentRef=useRef(false);
   const lastPresenceSentRef=useRef(null);
@@ -570,6 +572,7 @@ export default function App() {
         if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
         nativeTrackingRef.current=null;
         setIsGpsActive(false);setGpsQuality('off');setLastCoords(null);
+        setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);
         discoveryConsentRef.current=false;setDiscoveryConsent(false);
         return;
       }
@@ -591,8 +594,8 @@ export default function App() {
             if(locationSessionEpochRef.current!==locationEpoch) return;
             if(status==='location_error') setGpsQuality('weak');
             if(status==='upload_error') setGpsUploadStatus('failed');
-            if(status==='upload_success') setGpsUploadStatus('accepted');
-            if(status==='off') setGpsUploadStatus('idle');
+            if(status==='upload_success'){setGpsUploadStatus('accepted');setGpsLastAcceptedAt(Date.now());}
+            if(status==='off'){setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);}
           }
         });
         nativeTrackingRef.current=session;
@@ -626,7 +629,7 @@ export default function App() {
       lastFixRef.current=null;
       lastBroadcastRef.current=null;
       setLastCoords(null);
-      setGpsUploadStatus('idle');
+      setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);
       setGpsQuality('searching');
     }
     if (isGpsActive && !retryWebLocation) {
@@ -635,7 +638,7 @@ export default function App() {
       setIsGpsActive(false);
       setWatchId(null);
       setLastCoords(null);
-      setGpsQuality('off');setGpsUploadStatus('idle');
+      setGpsQuality('off');setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);
       lastBroadcastRef.current = null;
       lastFixRef.current = null;
       lastPresenceSentRef.current=null;
@@ -704,6 +707,8 @@ export default function App() {
           // A subsequent fresh device fix may attempt another upload.
           lastBroadcastRef.current=null;
         }
+        if(allAccepted)setGpsLastAcceptedAt(Date.now());
+        else setGpsLastAcceptedAt(null);
         setGpsUploadStatus(allAccepted?'accepted':'failed');
       });
     }, err => {
@@ -714,6 +719,7 @@ export default function App() {
         setWatchId(null);
         setIsGpsActive(false);
         setLastCoords(null);
+        setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);
         discoveryConsentRef.current=false;
         setDiscoveryConsent(false);
         setGpsQuality('denied');
@@ -1209,7 +1215,8 @@ export default function App() {
     : dispatchFresh ? 'Dispatch connected'
     : 'Dispatch update delayed';
   const hasFreshLocation = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords,driverClock);
-  const isServerConfirmedLocation = hasFreshLocation && gpsUploadStatus==='accepted';
+  const isServerConfirmedLocation = hasFreshLocation && gpsUploadStatus==='accepted' &&
+    Number.isFinite(gpsLastAcceptedAt) && driverClock-gpsLastAcceptedAt>=0 && driverClock-gpsLastAcceptedAt<=45000;
   const routeRequest = useRef(requestRoadEstimate);
   useEffect(()=>{routeRequest.current=requestRoadEstimate;});
   const liveRouteOrderId = mapOrder===null && activeOrders.length===1 ? activeOrders[0].id : mapOrder;
