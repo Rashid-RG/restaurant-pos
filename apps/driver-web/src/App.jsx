@@ -2,7 +2,7 @@ import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
 import './rider-wizard.css';
 import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
-import { Bike, House, ClipboardList, Wallet, UserRound, MapPin, Bell, LogOut } from 'lucide-react';
+import { Bike, House, ClipboardList, Wallet, UserRound } from 'lucide-react';
 import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
