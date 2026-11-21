@@ -6147,9 +6147,13 @@ app.get('/api/public/driver/earnings',authenticateDriver,async(req,res)=>{
       'SELECT orderId,amountCents,approvedAt FROM driver_compensation_entries WHERE tenant_id=? AND driverId=? ORDER BY approvedAt DESC LIMIT 200',
       [req.driver.tenant_id,req.driver.driverId]
     );
-    const totalCents=entries.reduce((sum,e)=>sum+Number(e.amountCents||0),0);
-    if(!Number.isSafeInteger(totalCents))throw new Error('Compensation total exceeds safe bounds');
-    return res.set('Cache-Control','no-store').json({currency:'LKR',entries,totalApprovedCents:totalCents,
+    const totals=await dbGet(
+      'SELECT COALESCE(SUM(amountCents),0) AS totalCents, COUNT(*) AS entryCount FROM driver_compensation_entries WHERE tenant_id=? AND driverId=?',
+      [req.driver.tenant_id,req.driver.driverId]
+    );
+    const totalCents=Number(totals?.totalCents||0);
+    if(!Number.isSafeInteger(totalCents)||totalCents<0)throw new Error('Compensation total exceeds safe bounds');
+    return res.set('Cache-Control','no-store').json({currency:'LKR',entries,totalApprovedCents:totalCents,totalApprovedDeliveries:Number(totals?.entryCount||0),
       payoutStatus:'not_integrated',note:'Approved earnings only; payouts are not confirmed or processed by this endpoint.'});
   }catch(error){console.error('[Driver earnings]',error.message);return res.status(500).json({error:'Could not load approved driver earnings.'});}
 });
