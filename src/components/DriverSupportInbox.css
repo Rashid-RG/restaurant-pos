@@ -1,0 +1,23 @@
+.driver-support-inbox{display:grid;gap:14px;padding:clamp(14px,2vw,22px);border:1px solid var(--border-color);border-radius:17px;background:var(--bg-card);min-width:0}
+.driver-support-inbox-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.driver-support-inbox-heading h3{margin:0;font-size:18px}
+.driver-support-inbox-heading p{font-size:12px;color:var(--text-muted);margin:6px 0}
+.driver-support-filters{display:flex;flex-wrap:wrap;gap:8px}
+.driver-support-filters button{min-height:41px;display:inline-flex;align-items:center;gap:8px;text-transform:capitalize}
+.driver-support-filters span{font-size:12px}
+.driver-support-inbox-list{display:grid;gap:12px}
+.driver-support-ticket{padding:14px;border:1px solid var(--border-color);border-radius:13px;min-width:0}
+.driver-support-ticket-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.driver-support-ticket-top strong{font-size:14px;overflow-wrap:anywhere}
+.driver-support-ticket-top span{font-size:11px;padding:5px 9px;border-radius:20px;background:var(--bg-secondary,#edf4f1);text-transform:capitalize}
+.driver-support-ticket small{display:block;color:var(--text-muted);margin:7px 0}
+.driver-support-ticket p,.driver-support-ticket blockquote{font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+.driver-support-ticket blockquote{margin:8px 0;padding:10px;border-left:3px solid #19865e;background:rgba(25,134,94,.06)}
+.driver-support-review{margin-top:12px;display:grid;gap:8px}
+.driver-support-review label{font-size:12px;font-weight:700}
+.driver-support-review select,.driver-support-review textarea{width:100%;box-sizing:border-box;font:inherit;font-size:13px;padding:11px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-card);color:var(--text-main)}
+.driver-support-review-actions{display:flex;flex-wrap:wrap;gap:9px}
+.driver-support-review button{min-height:44px}
+.driver-support-inbox-empty,.driver-support-inbox-footnote{font-size:12px;color:var(--text-muted)}
+.driver-support-inbox-error{font-size:12px;color:#c33}
+@media(max-width:420px){.driver-support-inbox-heading>button{width:100%}.driver-support-filters button{flex:1 1 110px;justify-content:center}}
