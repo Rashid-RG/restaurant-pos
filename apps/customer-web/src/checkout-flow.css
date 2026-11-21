@@ -139,3 +139,26 @@
 
 .gf-checkout-applied-promo{display:flex;justify-content:space-between;align-items:center;gap:9px;margin-top:12px;border:1px solid #bce1c5;background:#ecf9ee;border-radius:12px;padding:10px;color:#086744;font-size:12px;font-weight:800}
 .gf-checkout-applied-promo button{border:1px solid #b1d8bc;border-radius:9px;background:#fff;color:#0b714d;padding:7px 10px;font-size:11px;font-weight:800}
+
+/* Order OTP: portal escapes transformed checkout ancestors and sits above
+   persistent iPhone navigation; visible controls remain scrollable with keyboard. */
+body .gastrofood-otp-backdrop{position:fixed;inset:0;z-index:6000;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:max(12px,env(safe-area-inset-top,0px)) 12px max(12px,env(safe-area-inset-bottom,0px));overflow:hidden;overscroll-behavior:contain}
+body .gastrofood-otp-backdrop .gastrofood-otp-dialog{box-sizing:border-box;width:min(100%,420px);max-width:420px;max-height:calc(100dvh - 28px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:0;margin:auto;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border-radius:24px;padding:20px 19px 18px;outline:0}
+body .gastrofood-otp-backdrop .gastrofood-otp-icon{height:44px;width:44px;border-radius:14px;margin-bottom:10px;font-size:1.35rem}
+body .gastrofood-otp-backdrop .gastrofood-otp-eyebrow{font-size:10px;letter-spacing:.08em;margin-bottom:5px}
+body .gastrofood-otp-backdrop .gastrofood-otp-title{font-size:clamp(20px,5vw,25px);margin-bottom:7px;line-height:1.18}
+body .gastrofood-otp-backdrop .gastrofood-otp-dialog p{line-height:1.45;margin:6px 0 10px!important;font-size:12px!important;overflow-wrap:anywhere}
+body .gastrofood-otp-backdrop .gastrofood-otp-channel-switch{margin:11px 0;gap:8px}
+body .gastrofood-otp-backdrop .gastrofood-otp-channel-switch .btn{min-height:43px;font-size:11px;padding:8px 5px}
+body .gastrofood-otp-backdrop .gastrofood-otp-input{height:52px;min-height:52px;font-size:20px!important;letter-spacing:.14em;border-radius:12px}
+body .gastrofood-otp-backdrop .gastrofood-otp-submit{min-height:46px}
+body .gastrofood-otp-backdrop button:focus-visible{outline:3px solid #239b78;outline-offset:2px}
+@media(max-width:480px){
+  body .gastrofood-otp-backdrop{align-items:center;padding:max(10px,env(safe-area-inset-top,0px)) 12px max(10px,env(safe-area-inset-bottom,0px))}
+  body .gastrofood-otp-backdrop .gastrofood-otp-dialog{max-width:420px;border-radius:22px;padding:18px 16px 16px;animation:none}
+}
+@media(max-height:570px){
+  body .gastrofood-otp-backdrop .gastrofood-otp-dialog{padding:12px 14px;max-height:calc(100dvh - 12px)}
+  body .gastrofood-otp-backdrop .gastrofood-otp-icon{height:35px;width:35px;margin-bottom:4px}
+  body .gastrofood-otp-backdrop .gastrofood-otp-dialog p{margin:3px 0 6px!important}
+}
