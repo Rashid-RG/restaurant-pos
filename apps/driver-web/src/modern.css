@@ -272,3 +272,25 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-high-contrast .driver-bottom-nav button.selected{background:#d1f0db;color:#0b5435}
 .driver-high-contrast .driver-controls-actions button,.driver-high-contrast .driver-offer-actions button{border-width:2px}
 .driver-reduced-motion *,.driver-reduced-motion *::before,.driver-reduced-motion *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+
+/* Per-rider theme. Platform chrome and dark elements remain inside app shell. */
+.driver-preferences select{flex:0 0 auto;max-width:48%;min-width:110px;min-height:44px;border:1px solid var(--border-color);border-radius:9px;background:var(--bg-surface,#fff);color:var(--text-main);padding:8px;font:inherit;font-size:13px}
+.driver-theme-dark{--text-main:#f0f7f2;--text-muted:#b6ccbd;--border-color:#465b4c;--brand-emerald:#53c28d;--brand-dark:#d5f4dd;--bg-card:#1b2c22;--bg-surface:#1c3025;--bg-secondary:#273b2c;background:#111f18!important;color:var(--text-main);min-height:100vh}
+.driver-theme-dark .driver-header{background:#15271c!important;border-color:var(--border-color)}
+.driver-theme-dark .driver-title{color:#c0f1cf}
+.driver-theme-dark .card,.driver-theme-dark .driver-home-focus,.driver-theme-dark .driver-metrics>div,
+.driver-theme-dark .driver-controls-card,.driver-theme-dark .driver-bottom-nav,
+.driver-theme-dark .driver-welcome,.driver-theme-dark .driver-offer-countdown,
+.driver-theme-dark .driver-preferences{background:#1b2c22!important;border-color:var(--border-color)!important;color:var(--text-main)!important}
+.driver-theme-dark .driver-welcome h1,.driver-theme-dark .driver-home-focus-header,
+.driver-theme-dark .driver-home-order-line span,.driver-theme-dark .driver-screen-heading,
+.driver-theme-dark .driver-verified-status,.driver-theme-dark .driver-section-header h2{color:var(--text-main)!important}
+.driver-theme-dark .driver-bottom-nav button{color:#bbd0c1}
+.driver-theme-dark .driver-bottom-nav button.selected{color:#b4f2ca;background:#24583d}
+.driver-theme-dark .driver-offer-countdown{color:#f4d8a0!important}
+.driver-theme-dark .btn-outline,.driver-theme-dark .driver-offer-actions button.btn-outline{background:#253b2d!important;color:#f0f7f2!important;border-color:#58785f!important}
+.driver-theme-dark input:not([type="checkbox"]),.driver-theme-dark select,.driver-theme-dark textarea{background:#182a20!important;color:#f0f7f2!important;border-color:#58785f!important}
+.driver-theme-dark .driver-support-history li,.driver-theme-dark .driver-support-reply,
+.driver-theme-dark .driver-earnings-breakdown>div{background:#21392a!important;border-color:#4a6d54!important;color:var(--text-main)!important}
+.driver-theme-dark .driver-earnings-payout-note,.driver-theme-dark .driver-support-emergency{background:#3b321f!important;color:#f6d79b!important;border-color:#705b36!important}
+@media(max-width:400px){.driver-preferences select{min-width:98px;max-width:44%}}
