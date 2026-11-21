@@ -210,3 +210,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-support-history li strong{font-size:12px;text-transform:capitalize}
 .driver-support-history li span{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .driver-support .driver-support-emergency{color:#855326;background:#fff7e8;border:1px solid #eed6ab;border-radius:10px;padding:10px}
+
+.driver-support-reply{display:grid;gap:5px;padding:10px;border-left:3px solid #189768;border-radius:8px;background:#edf8f1;overflow-wrap:anywhere}
+.driver-support-reply strong{color:#176244;font-size:12px}
+.driver-support-reply span{line-height:1.5}
+.driver-support-reply small{font-size:11px;color:#62786a}
