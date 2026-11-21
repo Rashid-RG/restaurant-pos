@@ -1,0 +1,16 @@
+.driver-compensation-panel{display:grid;gap:14px;padding:clamp(14px,2vw,22px);border:1px solid var(--border-color);border-radius:17px;background:var(--bg-card)}
+.driver-compensation-panel-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.driver-compensation-panel h3{font-size:18px;margin:0}
+.driver-compensation-panel-heading p,.driver-compensation-footnote{font-size:12px;color:var(--text-muted);line-height:1.5;margin:5px 0}
+.driver-compensation-panel form{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;align-items:end}
+.driver-compensation-panel form label{font-size:12px;font-weight:750}
+.driver-compensation-panel input,.driver-compensation-panel select{min-height:44px;box-sizing:border-box;width:100%;min-width:0;padding:10px;border:1px solid var(--border-color);background:var(--bg-card);color:var(--text-main);font:inherit;border-radius:9px}
+.driver-compensation-panel form button{min-height:44px;grid-column:span 2}
+.driver-compensation-records{display:grid;gap:8px}
+.driver-compensation-records>strong{font-size:13px}
+.driver-compensation-records ul{list-style:none;display:grid;gap:8px;padding:0;margin:0}
+.driver-compensation-records li{padding:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;border:1px solid var(--border-color);border-radius:10px;font-size:12px}
+.driver-compensation-records li span{overflow-wrap:anywhere}
+.driver-compensation-records p{font-size:12px;color:var(--text-muted)}
+.driver-compensation-error{color:#b42318;font-size:13px}.driver-compensation-success{color:#176542;font-size:13px}
+@media(max-width:600px){.driver-compensation-panel form{grid-template-columns:1fr}.driver-compensation-panel form button{grid-column:span 1}.driver-compensation-panel-heading>button{width:100%}}
