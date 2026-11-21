@@ -1074,6 +1074,17 @@ async function initTables() {
       )
     `);
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_support_tenant_time ON driver_support_requests (tenant_id,createdAt)');
+    // Declining a shared available ticket hides it for one rider only.
+    // Never cancel or modify the customer's actual order.
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_order_declines (
+        tenant_id TEXT NOT NULL,
+        driverId TEXT NOT NULL,
+        orderId TEXT NOT NULL,
+        declinedAt BIGINT NOT NULL,
+        PRIMARY KEY (tenant_id,driverId,orderId)
+      )
+    `);
     await dbRun(`
       CREATE TABLE IF NOT EXISTS driver_support_replies (
         requestId TEXT PRIMARY KEY,
@@ -6066,8 +6077,8 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
     );
     const eligibility = await dbGet('SELECT status FROM drivers WHERE id=? AND tenant_id=?', [driverId,t]);
     const unassigned = eligibility && eligibility.status!=='offline' ? await dbAll(
-      "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') ORDER BY timestamp DESC",
-      [t]
+      "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') AND NOT EXISTS (SELECT 1 FROM driver_order_declines dec WHERE dec.tenant_id=orders.tenant_id AND dec.driverId=? AND dec.orderId=orders.id) ORDER BY timestamp DESC",
+      [t,driverId]
     ) : [];
     const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
     const zoneSetting = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [t, 'timeZone']);
@@ -6202,6 +6213,26 @@ app.get('/api/public/driver/orders/:orderId/road-eta', authenticateDriver, async
   }
 });
 
+// Decline one shared offer for this rider, without cancelling the actual order.
+// Replays are idempotent; other drivers still see the original ticket.
+app.post('/api/public/driver/decline',authenticateDriver,async(req,res)=>{
+  const orderId=typeof req.body?.orderId==='string'?req.body.orderId.trim():'';
+  if(!orderId||orderId.length>128)return res.status(400).json({error:'A valid order ID is required.'});
+  const tenantId=req.driver.tenant_id,driverId=req.driver.driverId;
+  try{
+    const order=await dbGet(
+      "SELECT id FROM orders WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')",
+      [orderId,tenantId]
+    );
+    if(!order)return res.status(409).json({error:'This delivery is no longer available to decline.'});
+    await dbRun(
+      'INSERT INTO driver_order_declines (tenant_id,driverId,orderId,declinedAt) VALUES (?,?,?,?) ON CONFLICT(tenant_id,driverId,orderId) DO NOTHING',
+      [tenantId,driverId,orderId,Date.now()]
+    );
+    return res.set('Cache-Control','no-store').json({success:true,orderId});
+  }catch(error){console.error('[Driver decline]',error.message);return res.status(500).json({error:'Could not decline this delivery.'});}
+});
+
 // POST /api/public/driver/assign — Driver claims a delivery ticket (own tenant only)
 app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
   const { orderId } = req.body;
@@ -6213,6 +6244,8 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
     if (!availability || availability.status==='offline') return res.status(409).json({error:'Go online before claiming a new delivery.'});
     const order = await dbGet('SELECT tenant_id FROM orders WHERE id = ?', [orderId]);
     if (!order || order.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
+    const declined=await dbGet('SELECT 1 AS declined FROM driver_order_declines WHERE tenant_id=? AND driverId=? AND orderId=?',[t,driverId,orderId]);
+    if(declined)return res.status(409).json({error:'You declined this offer. Restaurant dispatch can assign it manually if necessary.'});
     const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
     if (claimed.changes !== 1) {
       // Network recovery: an acknowledged or lost response must not turn
