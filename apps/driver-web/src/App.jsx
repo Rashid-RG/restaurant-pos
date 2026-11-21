@@ -138,6 +138,9 @@ export default function App() {
   const [roadEstimates,setRoadEstimates]=useState({});
   const [roadLoadingId,setRoadLoadingId]=useState(null);
   const roadRequestEpochRef=useRef(0);
+  // React state updates are asynchronous; a ref prevents duplicate requests
+  // when visibility, reconnect, and the periodic timer fire together.
+  const roadRequestInFlightRef=useRef(null);
   const [cashLoading,setCashLoading]=useState(false);
   const cashRequestVersionRef=useRef(0);
   const [cashError,setCashError]=useState('');
@@ -399,6 +402,7 @@ export default function App() {
     setPendingOrderId(null);
     pendingOrderRef.current=null;
     roadRequestEpochRef.current+=1;
+    roadRequestInFlightRef.current=null;
     setRoadEstimates({});setMapOrder(null);setRoadLoadingId(null);
     cashRequestVersionRef.current+=1; // Invalidates any in-flight result from the previous rider.
     setCashSummary(null);setCashLoading(false);setCashDetailsOpen(false);setCashError('');
@@ -734,13 +738,18 @@ export default function App() {
   };
 
   const requestRoadEstimate = async (orderId) => {
-    if(!driver || roadLoadingId!==null) return;
+    if(!driver || !orderId || navigator.onLine===false ||
+       roadRequestInFlightRef.current!==null)return;
     const currentEpoch=++roadRequestEpochRef.current;
     const riderId=driver.id;
+    const request={orderId,epoch:currentEpoch};
+    roadRequestInFlightRef.current=request;
     setRoadLoadingId(orderId);
     try {
       const result=await apiFetch(`/public/driver/orders/${encodeURIComponent(orderId)}/road-eta?geometry=1`,{cache:'no-store'});
-      if(roadRequestEpochRef.current!==currentEpoch || riderId!==driverStatusIdentityRef.current) return;
+      if(roadRequestEpochRef.current!==currentEpoch ||
+         riderId!==driverStatusIdentityRef.current ||
+         roadRequestInFlightRef.current!==request)return;
       const validResult=result.available===true && result.source==='road' &&
         Number.isFinite(result.distanceKm) && result.distanceKm>=0 &&
         Number.isFinite(result.travelMinutes) && result.travelMinutes>=0;
@@ -748,10 +757,15 @@ export default function App() {
         {available:true,distanceKm:result.distanceKm,travelMinutes:result.travelMinutes,estimatedAt:result.estimatedAt,basedOnFixAt:result.basedOnFixAt,geometry:result.geometry} :
         {available:false,message:typeof result.reason==='string' ? result.reason : 'No verified route estimate is available.'}}));
     } catch(error) {
-      if(roadRequestEpochRef.current===currentEpoch && riderId===driverStatusIdentityRef.current)
+      if(roadRequestEpochRef.current===currentEpoch &&
+         riderId===driverStatusIdentityRef.current &&
+         roadRequestInFlightRef.current===request)
         setRoadEstimates(prev=>({...prev,[orderId]:{available:false,message:error.message||'Road estimate unavailable.'}}));
     } finally {
-      if(roadRequestEpochRef.current===currentEpoch) setRoadLoadingId(null);
+      if(roadRequestInFlightRef.current===request){
+        roadRequestInFlightRef.current=null;
+        setRoadLoadingId(null);
+      }
     }
   };
 
