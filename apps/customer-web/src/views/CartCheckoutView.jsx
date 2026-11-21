@@ -1171,7 +1171,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               Service charge and tax use this restaurant's configured rates. Delivery charges use the server's restaurant-specific quote. Final payable amounts are validated by the server before ordering.
             </small>
             {orderType === 'delivery' && (
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, background: 'rgba(0,0,0,0.02)' }}>
+              <details className="gf-checkout-fee-details" defaultOpen={!deliveryQuoteConfirmed}>
+                <summary><span>🚚 Delivery fee details</span><strong>{deliveryQuoteConfirmed ? 'Rs. '+Number(visibleDeliveryBreakdown?.totalFee||0).toFixed(2) : deliveryQuote.status==='out-of-range'?'Outside delivery area':'Quote pending'}</strong></summary>
+                <div className="gf-checkout-fee-content">
                 {visibleDeliveryBreakdown?.isOutOfRange ? (
                   <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.82rem', textAlign: 'center', padding: '8px 0' }}>
                     ❌ {zoneMessage(visibleDeliveryBreakdown.coverageIssue) || `Your location is ${visibleDeliveryBreakdown.distanceKm} km away, outside the ${visibleDeliveryBreakdown.maxRadiusKm} km delivery limit.`}
@@ -1221,7 +1223,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                     <span>{deliveryQuote.key===activeQuoteKey && deliveryQuote.data?.error ? deliveryQuote.data.error : !activeQuoteKey ? 'Confirm your exact delivery entrance on the map to receive a fee quote.' : 'No delivery fee is confirmed yet. Please verify the restaurant and customer map pins before ordering.'}</span>
                   </div>
                 )}
-              </div>
+                </div>
+              </details>
             )}
             {tipAmount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--brand)' }}>
