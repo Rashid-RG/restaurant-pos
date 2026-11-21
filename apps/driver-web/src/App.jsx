@@ -2,7 +2,7 @@ import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
 import './rider-wizard.css';
 import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
-import { Bike, House, ClipboardList, Wallet, UserRound, Navigation, MapPin, PackageCheck } from 'lucide-react';
+import { Bike, House, ClipboardList, Wallet, UserRound, Navigation, MapPin, PackageCheck, Bell, LogOut, MessageCircle, Phone, User, Package, Check, CircleCheck, Truck, Radio } from 'lucide-react';
 import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
@@ -1073,19 +1073,19 @@ export default function App() {
 
             <div className="card driver-controls-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
               <div>
-                <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-main)' }}>🛵 {driver.name}</div>
+                <div className="driver-profile-name"><Bike size={20} aria-hidden="true"/> <span>{driver.name}</span></div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
                   {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {hasFreshLocation ? `Device location ±${Math.round(lastCoords.accuracyMeters)}m · ${new Date(lastCoords.recordedAt).toLocaleTimeString()}` : locationLabel}
                 </div>
               </div>
               <div className="driver-controls-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button
-                  onClick={() => { playDriverAlertRingtone(); showToast('🔔 Playing delivery ringer sound test!', 'info'); }}
+                  onClick={() => { playDriverAlertRingtone(); showToast('Playing delivery notification sound test.', 'info'); }}
                   className="btn-outline"
                   style={{ padding: '8px 12px', fontSize: '0.9rem' }}
                   title="Test Delivery Ringer Sound"
                 >
-                  🔔
+                  <Bell size={18} aria-hidden="true"/><span>Test sound</span>
                 </button>
                 {discoveryPilotEnabled&&<label style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>
                   <input type="checkbox" checked={discoveryConsent} onChange={toggleDiscoveryConsent}
@@ -1094,9 +1094,9 @@ export default function App() {
                 </label>}
                 <button onClick={toggleGps} className="btn-emerald"
                   style={{ padding: '8px 14px', borderRadius: 20, fontSize: '0.8rem', background: isGpsActive ? '#10b981' : '#64748b' }}>
-                  {isGpsActive ? (hasFreshLocation ? '📍 Sharing accurate location' : 'Location on · no reliable fix') : '📍 Share location'}
+                  <MapPin size={18} aria-hidden="true"/><span>{isGpsActive ? (hasFreshLocation ? 'Sharing accurate location' : 'Location on · no reliable fix') : 'Share location'}</span>
                 </button>
-                <button onClick={handleLogout} className="btn-outline" style={{ padding: '8px 12px', fontSize: '0.9rem' }} title="Sign out">🚪</button>
+                <button type="button" onClick={handleLogout} className="btn-outline" style={{ padding: '8px 12px', fontSize: '0.9rem' }} title="Sign out"><LogOut size={18} aria-hidden="true"/><span>Sign out</span></button>
               </div>
             </div>
 
@@ -1145,7 +1145,7 @@ export default function App() {
             {taskTab === 'available' && filteredAvailableOrders.length > 0 && (
               <>
                 <h3 style={{ fontSize: '1.0rem', fontWeight: 800, color: 'var(--text-main)', marginTop: 24, marginBottom: 12 }}>
-                  🟢 Available to Claim ({filteredAvailableOrders.length})
+                  Available pickups ({filteredAvailableOrders.length})
                 </h3>
                 <div style={{ display: 'grid', gap: 12 }}>
                   {filteredAvailableOrders.map(ord => {
@@ -1236,16 +1236,16 @@ export default function App() {
                       </ol>
                       <div className="driver-next-step"><strong>Next step</strong><span>{nextStep}</span></div>
                       <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div>👤 <strong>{ord.customerName || 'Customer'}</strong></div>
-                        <div>📞 <strong>{customerPhone}</strong></div>
-                        <div>📍 <strong>{ord.deliveryAddress || 'Store Location'}</strong></div>
-                        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>📦 {itemsStr}</div>
+                        <div className="driver-order-detail"><User size={16} aria-hidden="true"/><strong>{ord.customerName || 'Customer'}</strong></div>
+                        <div className="driver-order-detail"><Phone size={16} aria-hidden="true"/><strong>{customerPhone}</strong></div>
+                        <div className="driver-order-detail"><MapPin size={16} aria-hidden="true"/><strong>{ord.deliveryAddress || 'Destination unavailable'}</strong></div>
+                        <div className="driver-order-detail" style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}><Package size={16} aria-hidden="true"/><span>{itemsStr}</span></div>
                         <div>{ord.paymentStatus === 'paid' ? 'Payment verified' : ['cash', 'cod'].includes(ord.paymentMethod) ? 'Cash to collect' : 'Awaiting payment confirmation'}: <strong style={{ color: 'var(--brand-emerald)', fontSize: '1rem' }}>Rs. {Number(ord.total).toFixed(2)}</strong> ({ord.paymentMethod || 'Unknown method'})</div>
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to customer drop-off for order ${String(ord.id).slice(-4)}`}>🧭 Customer drop-off</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
-                        {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}>💬 WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
+                        {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to customer drop-off for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> Customer drop-off</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
+                        {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}><MessageCircle size={17} aria-hidden="true"/> WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
                         {hasDropCoordinates && ['picked_up','out_for_delivery','arrived'].includes(ord.status) && (
                           <div className="driver-road-eta">
                             <div><strong>Road travel estimate</strong><small>Road routing only · not a traffic-aware arrival guarantee</small></div>
@@ -1258,25 +1258,25 @@ export default function App() {
                         {ord.status === 'ready' && (
                           <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem' }}
                             disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'picked_up')}>
-                            {pendingOrderId===ord.id ? 'Confirming pickup…' : '✓ Confirm order picked up'}
+                            <Check size={17} aria-hidden="true"/>{pendingOrderId===ord.id ? 'Confirming pickup…' : 'Confirm order picked up'}
                           </button>
                         )}
                         {ord.status === 'picked_up' && (
                           <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem', background: '#2563eb' }}
                             disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'out_for_delivery')}>
-                            <AnimatedFeatureIcon kind="delivery" size={28} active={false}/> {pendingOrderId===ord.id ? 'Updating delivery…' : 'Start delivery'}
+                            <Truck size={18} aria-hidden="true"/>{pendingOrderId===ord.id ? 'Updating delivery…' : 'Start delivery'}
                           </button>
                         )}
                         {ord.status === 'out_for_delivery' && (
                           <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem', background: '#2563eb' }}
                             disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'arrived')}>
-                            {pendingOrderId===ord.id ? 'Confirming arrival…' : '📍 Confirm arrived at customer'}
+                            <MapPin size={17} aria-hidden="true"/>{pendingOrderId===ord.id ? 'Confirming arrival…' : 'Confirm arrived at customer'}
                           </button>
                         )}
                         {ord.status === 'arrived' && (
                           <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem' }}
                             disabled={pendingOrderId!==null} onClick={() => setSelectedDeliveryOrder(ord)}>
-                            ✓ Complete handover (Signature & Proof)
+                            <CircleCheck size={18} aria-hidden="true"/> Complete handover
                           </button>
                         )}
                         {ord.status === 'delivered' && (ord.proofSavedAt ? <button className="btn-outline" onClick={async () => {
