@@ -6748,7 +6748,7 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
           return res.status(429).json({error:'Too many invalid handover codes. Ask the customer to generate a new code.'});
         }
         const pin=typeof req.body?.deliveryPin==='string'?req.body.deliveryPin:'';
-        const hashed=/^\\d{6}$/.test(pin)
+        const hashed=/^\d{6}$/.test(pin)
           ? crypto.createHmac('sha256',process.env.JWT_SECRET||JWT_SECRET).update(t+'|'+orderId+'|'+pin).digest('hex')
           : null;
         const isCorrect=hashed && crypto.timingSafeEqual(Buffer.from(hashed,'hex'),Buffer.from(handover.codeHash,'hex'));
