@@ -47,3 +47,20 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
  .driver-task-nav{margin-top:16px}
 }
 @media(max-width:380px){.driver-quick-nav button{font-size:11px}.driver-metrics>div{padding:12px 7px}}
+
+
+/* GastroDriver 2.0: delivery cards and explicit delivery-stage guidance. */
+.driver-delivery-card{min-width:0;box-sizing:border-box;overflow-wrap:anywhere;border-color:#dce9df!important;box-shadow:0 5px 18px rgba(24,70,52,.045)!important}
+.driver-distance-unavailable{font-size:11px;color:#6d7784;line-height:1.35;max-width:156px;text-align:right}
+.driver-progress-steps{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:4px 0 2px;padding:0}
+.driver-progress-steps li{min-width:0;color:#728177;font-size:11px;font-weight:700;text-align:center;display:flex;flex-direction:column;gap:5px;align-items:center}
+.driver-progress-steps li span{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:#eef2ee;color:#64796a;border:1px solid #dae6db;font-size:12px}
+.driver-progress-steps li.complete{color:#1e7151}
+.driver-progress-steps li.complete span{background:#dbf5e7;color:#176545;border-color:#b4e8ce}
+.driver-progress-steps li[aria-current=step] span{outline:2px solid #147858;outline-offset:2px}
+.driver-order-action{min-height:44px;box-sizing:border-box;flex:1 1 45%;display:flex;align-items:center;justify-content:center;border-radius:11px;text-decoration:none;text-align:center;color:#fff;font-size:13px;font-weight:750;padding:10px}
+.driver-order-navigate{background:#2563eb}
+.driver-order-contact{background:#168451}
+.driver-order-action:focus-visible{outline:3px solid #0b7654;outline-offset:2px}
+.driver-order-action-unavailable{flex:1 1 45%;min-height:44px;display:flex;align-items:center;justify-content:center;text-align:center;border:1px dashed #cddbd2;border-radius:11px;padding:8px;font-size:11px;color:#617368;background:#f7faf8;box-sizing:border-box}
+@media(max-width:380px){.driver-progress-steps li{font-size:10px}.driver-distance-unavailable{max-width:125px}}
