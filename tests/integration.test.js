@@ -297,7 +297,7 @@ describe('Customer handover PIN protection (integration)',()=>{
       process.env.JWT_SECRET,{expiresIn:'1h'}
     );
     await dbRun(
-      "UPDATE orders SET diningType='delivery',orderType='delivery',status='out_for_delivery',driverId=? WHERE id=? AND tenant_id=?",
+      "UPDATE orders SET diningType='delivery',orderType='delivery',status='arrived',driverId=? WHERE id=? AND tenant_id=?",
       [riderId,created.orderId,'default_tenant']
     );
     const url=`/api/public/orders/${created.orderId}/handover-pin`;
