@@ -24,6 +24,7 @@ export default function DeliveryView({verificationOnly=false}) {
   const [selectedDriver, setSelectedDriver] = useState({});
   const [reassignReason,setReassignReason]=useState({});
   const [reassignBusy,setReassignBusy]=useState(null);
+  const [offerBusy,setOfferBusy]=useState(null);
   const [nearbyRiders,setNearbyRiders]=useState({});
   const [nearbyLoading,setNearbyLoading]=useState({});
 
@@ -120,6 +121,23 @@ export default function DeliveryView({verificationOnly=false}) {
     } catch (err) {
       showToast('Delete error: ' + err.message, 'error');
     }
+  };
+
+  const handleTimedOffer=async(order)=>{
+    const driverId=selectedDriver[order.id];
+    if(!driverId||offerBusy)return showToast('Select a restaurant rider for this offer.','warning');
+    setOfferBusy(order.id);
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/driver-offers',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({orderId:order.id,driverId,durationSeconds:120})
+      });
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||'Could not send timed offer.');
+      showToast('Two-minute offer issued to the selected rider. The order remains unassigned until accepted.','success');
+    }catch(error){showToast(error.message||'Timed offer failed.','error');}
+    finally{setOfferBusy(null);}
   };
 
   const handleReassignDriver=async(order)=>{
@@ -759,6 +777,13 @@ export default function DeliveryView({verificationOnly=false}) {
                           </button>
                           <small>Only before pickup. Manager action is recorded for audit.</small>
                         </div>
+                      )}
+                      {canReview && !ord.driverId && ['pending','preparing','ready'].includes(ord.status) &&
+                        (ord.diningType==='delivery'||ord.orderType==='delivery') && (
+                        <button type="button" className="btn btn-outline" disabled={Boolean(offerBusy)||!selectedDriver[ord.id]}
+                          onClick={()=>handleTimedOffer(ord)}>
+                          {offerBusy===ord.id?'Issuing offer…':'Send 2-minute offer to selected rider'}
+                        </button>
                       )}
                       {['owner','manager'].includes(String(currentUser?.role||'').toLowerCase()) &&
                         (ord.diningType==='delivery'||ord.orderType==='delivery') &&
