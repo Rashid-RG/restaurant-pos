@@ -171,6 +171,7 @@ export default function App() {
   // Bug 1 fix: ref always holds current activeOrders so GPS watchPosition
   // callback (registered once) never reads a stale closure value.
   const activeOrdersRef = useRef([]);
+  const previouslyAssignedIdsRef=useRef(null);
   useEffect(() => { activeOrdersRef.current = activeOrders; }, [activeOrders]);
 
   // Bug 3 fix: ref instead of state so polling interval always reads
@@ -306,6 +307,7 @@ export default function App() {
     setCashSummary(null);setCashLoading(false);setCashDetailsOpen(false);setCashError('');
     setApprovedEarnings(null);setEarningsLoading(false);setEarningsError('');
     activeOrdersRef.current = [];
+    previouslyAssignedIdsRef.current=null;
     prevUnassignedCountRef.current = 0;
     dispatchAbortRef.current?.cancel();dispatchAbortRef.current=null;
     dispatchGateRef.current.invalidate();
@@ -404,6 +406,15 @@ export default function App() {
         showToast('🔔 New Delivery Ticket Available!', 'info');
       }
       prevUnassignedCountRef.current = newUnassigned.length;
+      const nowAssignedIds=new Set(newAssigned.map(order=>order.id));
+      const completedIds=new Set(tickets.completed.map(order=>order.id));
+      const removed=previouslyAssignedIdsRef.current
+        ? [...previouslyAssignedIdsRef.current].filter(id=>!nowAssignedIds.has(id)&&!completedIds.has(id))
+        : [];
+      previouslyAssignedIdsRef.current=nowAssignedIds;
+      if(removed.length){
+        showToast('An assigned delivery is no longer on your route. Refresh and contact restaurant dispatch before continuing.','warning');
+      }
 
       setActiveOrders(newAssigned);
       setHistory(tickets.completed);
