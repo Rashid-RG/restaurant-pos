@@ -220,3 +220,12 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-offer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .driver-offer-actions button{min-width:0;min-height:48px;padding:10px 12px!important;font-size:13px;line-height:1.35;overflow-wrap:anywhere}
 @media(max-width:340px){.driver-offer-actions{grid-template-columns:1fr}}
+
+/* Device-local preference: prevents startling riders when audible offers are disabled. */
+.driver-preferences{display:grid;gap:10px}
+.driver-preferences h3{font-size:15px;margin:0;color:var(--brand-dark)}
+.driver-preferences label{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:48px}
+.driver-preferences label span{display:flex;flex-direction:column;gap:5px;min-width:0}
+.driver-preferences label strong{font-size:13px}
+.driver-preferences label small,.driver-preferences p{font-size:12px;line-height:1.5;color:var(--text-muted);margin:0}
+.driver-preferences input{flex:0 0 auto;width:23px;height:23px;accent-color:#24664f}
