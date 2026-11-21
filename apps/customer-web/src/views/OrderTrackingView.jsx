@@ -70,6 +70,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const [dynamicETA, setDynamicETA] = useState(null);
   const [roadRoute,setRoadRoute]=useState(null);
   const [driverChatOpen, setDriverChatOpen] = useState(false);
+  const [mapExpanded,setMapExpanded]=useState(true);
   const [driverMessages, setDriverMessages] = useState([]);
   const [driverInputMsg, setDriverInputMsg] = useState('');
   const [sendingDriverMsg, setSendingDriverMsg] = useState(false);
@@ -476,6 +477,9 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const restaurantContact=contactLinks(order?.storePhone || storeInfo?.phone);
   const riderAssigned=isDelivery && !isCancelled && !isDone && Boolean(order?.driver?.id || order?.driverId || dispatchStatus?.driverId);
   const riderContact=riderAssigned ? contactLinks(order?.driver?.phone || order?.driverPhone) : null;
+  const displayRiderName=order?.driver?.name && !/^drv[_ -]?[a-f0-9-]{12,}$/i.test(order.driver.name) ? order.driver.name : 'Your delivery rider';
+  const trackingIsLive=Boolean(streamConnected && hasRecentUpdates);
+  const stageNumber=actualProgress.done?actualProgress.steps.length:Math.max(1,actualProgress.currentIndex+1);
 
   return (
     <div className="tracking-page fade-in gf-modern-tracking" style={{ padding: '20px 16px 90px' }}>
@@ -514,98 +518,50 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
             {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
           </div>
-          {/* Delivery map leads the screen; display only authenticated, recent GPS fixes. */}
-          {!isCancelled && !isDone && isDelivery && validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng}) && (
-            <section className="gf-track-map-first" aria-label="Your delivery journey">
-              <div className="gf-track-map-first-heading">
-                <div><span className="gf-track-map-eyebrow">YOUR DELIVERY JOURNEY</span><h2>Follow your order</h2></div>
-                <span className="gf-track-map-eta">{etaDisplay !== null ? deliveryEstimate : 'ETA pending'}</span>
+          <section className="gf-journey-focus" aria-label="Current order progress" aria-live="off">
+            <div className="gf-journey-focus-heading">
+              <span className="gf-journey-focus-icon" aria-hidden="true"><AnimatedFeatureIcon kind={currentStage==='preparing'?'cooking':isDelivery&&['picked_up','out_for_delivery','arrived'].includes(currentStage)?'delivery':currentStage==='ready'?'ready':'order'} size={44} active={!isDone && !isCancelled}/></span>
+              <div className="gf-journey-focus-copy">
+                <div className="gf-journey-eyebrow">{isDelivery?'DELIVERY JOURNEY':isDineIn?'DINE-IN ORDER':'PICKUP ORDER'} · {isDone?'Complete':isCancelled?'Closed':`Stage ${stageNumber} of ${actualProgress.steps.length}`}</div>
+                <h1>{isCancelled?'Order no longer active':isDone?isDelivery?'Delivered successfully':'Order completed':actualProgress.steps[actualProgress.currentIndex]?.label || 'Order received'}</h1>
+                <p>{isCancelled?order.rejectedReason||'Contact the restaurant for help':isDone?'Thank you for ordering with us':actualProgress.steps[actualProgress.currentIndex]?.description}</p>
               </div>
-              <div className="gf-track-map-surface">
+            </div>
+            <div className="gf-journey-live-line">
+              <span className={`gf-journey-connection ${trackingIsLive?'is-connected':''}`}><span className="gf-journey-signal" aria-hidden="true"/>{isDone?'Delivery confirmed':trackingIsLive?'Live status connected':'Checking order updates'}</span>
+              {!isDone&&!isCancelled&&etaDisplay>0&&<span className="gf-journey-timing">{deliveryEstimate}</span>}
+            </div>
+            {!isCancelled&&<div className="gf-journey-track" role="progressbar" aria-label="Confirmed order progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={actualProgress.percent}><span style={{width:`${actualProgress.percent}%`}}/></div>}
+            {!isCancelled&&<div className="gf-journey-milestones" aria-label="Journey stages">
+              {actualProgress.steps.map((step,i)=><span key={step.id} title={step.label} className={i<actualProgress.currentIndex||isDone?'is-complete':i===actualProgress.currentIndex?'is-current':''} aria-label={`${step.label}: ${i<actualProgress.currentIndex||isDone?'complete':i===actualProgress.currentIndex?'current':'upcoming'}`}>
+                {i<actualProgress.currentIndex||isDone?'✓':i===actualProgress.currentIndex?'●':'·'}
+              </span>)}
+            </div>}
+            {isDelivery && !isDone && !isCancelled&&<div className="gf-journey-gps-state" role="status">
+              <span aria-hidden="true">🛵</span>
+              <span>{!riderAssigned?'Waiting for rider assignment':gpsState.label}</span>
+              {riderAssigned&&<button type="button" onClick={()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}}>Message rider</button>}
+            </div>}
+          </section>
+          {/* An explicit map toggle avoids a long, forced-scrolling page. */}
+          {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
+            <div className="gf-journey-map-shell">
+              <button type="button" className="gf-journey-map-toggle" aria-expanded={mapExpanded} onClick={()=>setMapExpanded(v=>!v)}>
+                <span>🗺️ {mapExpanded?'Live delivery map':'Show delivery map'}</span><span>{mapExpanded?'Hide map ↑':'View map ↓'}</span>
+              </button>
+              {mapExpanded&&<div className="gf-journey-map-body">
                 <TrackingMap
-                  store={storeInfo && typeof storeInfo.lat === 'number' ? { lat: storeInfo.lat, lng: storeInfo.lng } : null}
-                  dest={{ lat: order.deliveryLat, lng: order.deliveryLng }}
-                  driver={gpsState.visible ? driverLoc : null}
+                  store={storeInfo && validGeoPoint({lat:storeInfo.lat,lng:storeInfo.lng})?{lat:Number(storeInfo.lat),lng:Number(storeInfo.lng)}:null}
+                  dest={{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)}}
+                  driver={gpsState.visible?driverLoc:null}
                   route={roadRoute}
                 />
-                <div className="gf-track-gps-status" role="status">{gpsState.label}{driverLastSeen && <small> · Last fix {new Date(driverLastSeen).toLocaleTimeString()}</small>}</div>
-              </div>
-              {roadRoute?.available ? <div className="gf-route-summary" role="status"><strong>{roadRoute.distanceKm.toFixed(1)} km by road</strong><span>About {roadRoute.travelMinutes} min estimated driving · {roadRoute.startingPoint==='rider'?'from latest rider fix':'from restaurant'} · excludes traffic and preparation time</span></div> : <p className="gf-track-road-unavailable">Road routing unavailable; the map may show straight-line proximity only.</p>}
-            </section>
-          )}
-          {/* Server-backed order status hero. */}
-          <div className="uber-hero-card">
-            <div className="uber-hero-header">
-              {!isCancelled && <img className="tracking-food-art" src={`${import.meta.env.BASE_URL}tracking-food-bowl.svg`} alt="" aria-hidden="true" loading="lazy" />}
-              {!isCancelled && <AnimatedFeatureIcon kind={currentStage === 'preparing' ? 'cooking' : isDelivery && ['picked_up','out_for_delivery','arrived'].includes(currentStage) ? 'delivery' : currentStage === 'ready' ? 'ready' : 'order'} size={72} active={!isDone}/>}
-              {isCancelled ? (
-                <div>
-                  <div className="uber-status-badge cancelled">{t('statusCancelled')}</div>
-                  <h1 className="uber-hero-title" style={{ color: 'var(--danger)' }}>{t('orderCancelledTitle')}</h1>
-                  <p className="uber-hero-subtitle">{order.rejectedReason || 'The kitchen was unable to fulfill your order.'}</p>
+                <div className="gf-journey-route-note">{roadRoute?.available===true?
+                  `${Number(roadRoute.distanceKm).toFixed(1)} km road route · driving time ${roadRoute.travelMinutes} min (not live traffic)`:
+                  'Road route unavailable · straight-line proximity is not a driving route'}
                 </div>
-              ) : isDone ? (
-                <div>
-                  <div className="uber-status-badge completed">{isDineIn ? 'Served' : isTakeaway ? 'Picked Up' : 'Delivered'}</div>
-                  <h1 className="uber-hero-title">{isDineIn ? 'Food Served! 🍽️' : isTakeaway ? 'Order Picked Up! 🛍️' : 'Order Delivered! 🎉'}</h1>
-                  <p className="uber-hero-subtitle">{t('orderCompletedThanks')}</p>
-                </div>
-              ) : (
-                <div>
-                  <div className="uber-status-badge live">{streamConnected && hasRecentUpdates ? '● Live updates' : '○ Checking updates'} · {isDineIn ? 'Dine-in' : isTakeaway ? 'Pickup' : 'Delivery'}</div>
-                  <h1 className="uber-hero-title">
-                    {heroMessage}
-                  </h1>
-                  {isTakeaway && storeInfo?.pickupInstructions && <p>{storeInfo.pickupInstructions}</p>}
-                  {etaDisplay !== null && <p className="gf-tracking-eta-note">Approx. {etaDisplay} min · {isDelivery ? 'Delivery estimate' : 'Restaurant estimate'}</p>}
-
-                </div>
-              )}
-            </div>
-
-            {/* Uber Progress Bar */}
-            {!isCancelled && (
-              <div className="uber-progress-bar-wrap">
-                <div className="uber-progress-bar-fill" style={{ width: `${actualProgress.percent}%` }} />
-              </div>
-            )}
-
-            {/* ── Real-time Driver Dispatch Panel — Delivery ONLY ── */}
-            {!isCancelled && !isDone && isDelivery && dispatchStatus && (
-              <div style={{
-                margin: '12px 0',
-                padding: '14px 16px',
-                borderRadius: 14,
-                background: dispatchStatus.driverId ? 'linear-gradient(135deg,#0f2027,#1a3a2a)' : 'linear-gradient(135deg,#1a1a2e,#2a1a3e)',
-                border: `1px solid ${dispatchStatus.driverId ? '#10b981' : '#6366f1'}`,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.3)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: '1.8rem', lineHeight: 1 }}>{dispatchStatus.dispatchIcon}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#f8fafc' }}>{dispatchStatus.dispatchLabel}</div>
-                    {dispatchStatus.driver && dispatchStatus.driver.isRecent && dispatchStatus.driver.distanceToStoreKm !== null && (
-                      <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 3 }}>
-                        📍 {dispatchStatus.driver.distanceToStoreKm} km from restaurant · Last reported location
-                      </div>
-                    )}
-                    {trackingEtaMinutes(dispatchStatus.etaMinutes) !== null && (
-                      <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: 2, fontWeight: 700 }}>
-                        ⏱️ Est. delivery: about {trackingEtaMinutes(dispatchStatus.etaMinutes)} min
-                      </div>
-                    )}
-                  </div>
-                  <div style={{
-                    width: 10, height: 10, borderRadius: '50%',
-                    background: dispatchStatus.driverId ? '#10b981' : '#6366f1',
-                    boxShadow: `0 0 8px ${dispatchStatus.driverId ? '#10b981' : '#6366f1'}`,
-                    animation: 'pulse 1.5s infinite'
-                  }} />
-                </div>
-              </div>
-            )}
-          </div>
-
+              </div>}
+            </div>}
           {/* Native disclosure keeps the order timeline accessible without hiding the live map. */}
           <details className="gf-tracking-journey-sheet" open={false}>
             <summary className="gf-tracking-journey-summary">
@@ -632,7 +588,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             )}
           </details>
 
-          <section className="gf-tracking-contact-card" aria-label="Delivery and restaurant contacts">
+          <details className="gf-journey-auxiliary gf-journey-contacts"><summary>☎ Contact rider or restaurant <span>Calls, messages and help</span></summary><section className="gf-tracking-contact-card" aria-label="Delivery and restaurant contacts">
             <div className="gf-tracking-contact-heading">
               <div>
                 <span className="gf-tracking-contact-overline">NEED ASSISTANCE?</span>
@@ -644,7 +600,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
               <div className="gf-tracking-rider-contact">
                 <span className="gf-tracking-contact-avatar" aria-hidden="true">🛵</span>
                 <div className="gf-tracking-contact-identity">
-                  <strong>{order.driver?.name || driverLoc?.driverName || 'Assigned delivery rider'}</strong>
+                  <strong>{displayRiderName}</strong>
                   <small>{gpsState.visible ? 'Last reported rider location available' : 'Rider assigned · location may be unavailable'}</small>
                 </div>
                 <div className="gf-tracking-contact-buttons">
@@ -674,7 +630,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
                 navigator.clipboard.writeText(text).then(() => toast('Order reference copied', 'success')).catch(() => toast('Unable to copy order reference', 'warning'));
               } else toast(text, 'info');
             }}>Share order reference</button>
-          </section>
+          </section></details>
 
           <div style={{ display: 'flex', gap: 10, margin: '8px 0 12px' }}>
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={onBack}>
@@ -732,7 +688,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
           )}
 
           {/* The receipt identifies the restaurant that owns the order. */}
-          <div className="tracking-card customer-order-receipt" style={{ marginTop: 12 }}>
+          <details className="gf-journey-auxiliary gf-journey-receipt"><summary>🧾 Order details and receipt <span>Items, amount and handover</span></summary><div className="tracking-card customer-order-receipt" style={{ marginTop: 12 }}>
             <div className="customer-receipt-brand"><strong>{order.storeName || storeInfo?.name || 'Restaurant'}</strong><small>{order.storeAddress || storeInfo?.address || ''}</small>{(order.storePhone || storeInfo?.phone) && <small>Tel: {order.storePhone || storeInfo.phone}</small>}</div>
             <div className="flex-between" style={{ marginBottom: 8 }}>
               <div>
@@ -812,31 +768,9 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
                 {tr.cancelHint}
               </p>
             )}
-          </div>
+          </div></details>
 
-          {/* Accurate five-stage delivery timeline; never combine ready with rider departure. */}
-          {!isCancelled && (
-            <section className="tracking-card gf-tracking-timeline" aria-label="Order progress timeline">
-              <div className="gf-tracking-section-heading">
-                <span className="gf-tracking-overline">YOUR ORDER JOURNEY</span>
-                <h3>Order progress</h3>
-                <p>Updated from the restaurant's confirmed order status.</p>
-              </div>
-              <ol className="gf-tracking-steps">
-                {actualProgress.steps.map((step,i)=>{
-                  const complete=i<actualProgress.currentIndex || (actualProgress.done && i===actualProgress.currentIndex);
-                  const active=i===actualProgress.currentIndex && !actualProgress.done;
-                  return <li key={step.id} className={`gf-tracking-step ${complete?'is-done':active?'is-active':'is-upcoming'}`} aria-current={active?'step':undefined}>
-                    <div className="gf-tracking-node" aria-hidden="true">{complete?'✓':String(i+1)}</div>
-                    <div>
-                      <strong>{step.label}{active?' · Current':''}</strong>
-                      <p>{complete||active?step.description:'Upcoming stage'}</p>
-                    </div>
-                  </li>;
-                })}
-              </ol>
-            </section>
-          )}
+          {/* Full stage history is available once inside the expandable journey sheet above. */}
           {/* Driver In-App Live Chat Drawer */}
           {driverChatOpen && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'flex-end' }}>
