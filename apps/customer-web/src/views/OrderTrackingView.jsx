@@ -79,6 +79,8 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const [roadRoute,setRoadRoute]=useState(null);
   const [driverChatOpen, setDriverChatOpen] = useState(false);
   const [mapExpanded,setMapExpanded]=useState(true);
+  const [journeySheet,setJourneySheet]=useState('compact');
+  useEffect(()=>{setJourneySheet('compact');},[order?.id]);
   const receiptDetailsRef=useRef(null);
   const [driverMessages, setDriverMessages] = useState([]);
   const [driverInputMsg, setDriverInputMsg] = useState('');
@@ -545,6 +547,27 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
 
               </div>}
             </div>}
+          {isDelivery&&!isCancelled&&!isDone&&<section aria-label="Delivery journey details" style={{borderRadius:'24px 24px 18px 18px',background:'var(--card-bg, #fff)',padding:'14px 16px',margin:'12px 0',boxShadow:'0 12px 32px rgba(16,56,42,.10)'}}>
+            <div aria-hidden="true" style={{width:44,height:5,borderRadius:9,background:'#b7c9c0',margin:'0 auto 10px'}}/>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:10}}>
+              <div><strong style={{display:'block',fontSize:17}}>{actualProgress.steps[actualProgress.currentIndex]?.label || 'Delivery in progress'}</strong>
+                <small style={{color:'#5d736a'}}>{gpsState.visible?'Rider location recently confirmed':'Waiting for a fresh rider GPS update'}</small></div>
+              <div style={{textAlign:'right'}}>{etaDisplay>0&&<strong style={{display:'block',fontSize:18}}>{deliveryEstimate}</strong>}<small style={{color:'#648176'}}>Estimated, not guaranteed</small></div>
+            </div>
+            <div role="group" aria-label="Delivery details sheet size" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6,background:'#eef5f0',padding:5,borderRadius:15}}>
+              {[['compact','Summary'],['half','Details'],['full','Full order']].map(([value,label])=>
+                <button key={value} type="button" aria-pressed={journeySheet===value} onClick={()=>setJourneySheet(value)}
+                  style={{border:0,borderRadius:11,padding:'10px 5px',fontSize:12,fontWeight:800,color:journeySheet===value?'#fff':'#275244',background:journeySheet===value?'#087653':'transparent'}}>{label}</button>)}
+            </div>
+            {riderAssigned&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginTop:12}}>
+              <div style={{minWidth:0}}><strong style={{display:'block',fontSize:14}}>🛵 {displayRiderName}</strong><small>{gpsState.visible?'Last confirmed position available':'Rider assigned · GPS may be unavailable'}</small></div>
+              <div style={{display:'flex',gap:6}}>
+                <button type="button" onClick={()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}} aria-label="Message delivery rider" style={{border:0,borderRadius:12,padding:'11px 12px',background:'#e7f5ed',color:'#096a4d',fontWeight:800}}>Message</button>
+                {riderContact&&<a href={riderContact.tel} style={{borderRadius:12,padding:'11px 12px',background:'#e7f5ed',color:'#096a4d',fontWeight:800,textDecoration:'none'}}>Call</a>}
+              </div>
+            </div>}
+          </section>}
+          {(journeySheet!=='compact' || !isDelivery || isCancelled || isDone) &&
           <section className="gf-journey-focus" aria-label="Current order progress" aria-live="off">
             <div className="gf-journey-focus-heading">
               <span className="gf-journey-focus-icon" aria-hidden="true"><AnimatedFeatureIcon kind={currentStage==='preparing'?'cooking':isDelivery&&['picked_up','out_for_delivery','arrived'].includes(currentStage)?'delivery':currentStage==='ready'?'ready':'order'} size={44} active={!isDone && !isCancelled}/></span>
@@ -565,7 +588,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
               </span>)}
             </div>}
 
-          </section>
+          </section>}
           {((isDelivery && ['picked_up','out_for_delivery','arrived'].includes(currentStage)) || canCancel) &&
             <div className="gf-journey-quick-actions">
               {isDelivery && ['picked_up','out_for_delivery','arrived'].includes(currentStage) &&
@@ -577,7 +600,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
                 }}>🔐 Delivery handover details</button>}
               {canCancel && <button type="button" className="gf-journey-quick-cancel" onClick={handleCancelOrder} disabled={cancelling}>{cancelling?'Cancelling…':'Cancel order'}</button>}
             </div>}
-          {isDelivery && !isCancelled && <DeliveryPulseCard
+          {isDelivery && !isCancelled && journeySheet!=='compact' && <DeliveryPulseCard
             status={order.status}
             assigned={riderAssigned}
             gpsState={gpsState.state}
@@ -585,7 +608,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             onMessage={riderAssigned?()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}:null}
           />}
           {/* Native disclosure keeps the order timeline accessible without hiding the live map. */}
-          <details className="gf-tracking-journey-sheet" open={false}>
+          {(journeySheet==='full' || !isDelivery || isCancelled || isDone) && <details className="gf-tracking-journey-sheet">
             <summary className="gf-tracking-journey-summary">
               <span className="gf-tracking-journey-grip" aria-hidden="true" />
               <span className="gf-tracking-journey-heading">
@@ -608,7 +631,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             {isDelivery && !isCancelled && !isDone && (
               <p className="gf-tracking-journey-note">Progress reflects restaurant and rider updates. Live GPS availability may differ from the current order stage.</p>
             )}
-          </details>
+          </details>}
 
           <details className="gf-journey-auxiliary gf-journey-contacts"><summary>☎ Contact rider or restaurant <span>Calls, messages and help</span></summary><section className="gf-tracking-contact-card" aria-label="Delivery and restaurant contacts">
             <div className="gf-tracking-contact-heading">
