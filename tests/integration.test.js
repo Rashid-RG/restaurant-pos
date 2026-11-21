@@ -264,3 +264,33 @@ describe('Private customer cancellation access (integration)',()=>{
     expect(replay.body.status).toBe('cancelled');
   });
 });
+
+
+describe('Customer handover PIN protection (integration)',()=>{
+  it('only issues a PIN with private tracking access, rejects wrong rider codes, and retains proof requirements',async()=>{
+    const created=await createOnlineOrder();
+    expect(created.orderId).toBeTruthy();
+    const driverLogin=await request(app).post('/api/driver/auth/login')
+      .send({phone:'0771234567',password:'driver123'});
+    expect(driverLogin.status).toBe(200);
+    await dbRun(
+      "UPDATE orders SET diningType='delivery',orderType='delivery',status='out_for_delivery',driverId=? WHERE id=? AND tenant_id=?",
+      [driverLogin.body.driver.id,created.orderId,'default_tenant']
+    );
+    const url=`/api/public/orders/${created.orderId}/handover-pin`;
+    expect((await request(app).post(url).send({})).status).toBe(401);
+    const issued=await request(app).post(url).set('X-Order-Tracking',created.trackingToken).send({});
+    expect(issued.status).toBe(200);
+    expect(issued.body.pin).toMatch(/^[0-9]{6}$/);
+    expect(issued.body.expiresAt).toBeGreaterThan(Date.now());
+    const statusUrl='/api/public/driver/status';
+    const wrong=await request(app).post(statusUrl)
+      .set('Authorization',`Bearer ${driverLogin.body.token}`)
+      .send({orderId:created.orderId,status:'delivered',deliveryPin:issued.body.pin==='000000'?'000001':'000000'});
+    expect(wrong.status).toBe(422);
+    const correctButNoProof=await request(app).post(statusUrl)
+      .set('Authorization',`Bearer ${driverLogin.body.token}`)
+      .send({orderId:created.orderId,status:'delivered',deliveryPin:issued.body.pin});
+    expect(correctButNoProof.status).toBe(400);
+  });
+});
