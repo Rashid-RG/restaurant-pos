@@ -28,8 +28,8 @@ const restoredDriverProfile = () => {
     const profile=JSON.parse(localStorage.getItem(DRIVER_KEY)||'null');
     if(!profile || typeof profile!=='object' || typeof profile.id!=='string' ||
        !profile.id || typeof profile.name!=='string')return null;
-    const {id,name,phone,vehicleType,plateNumber,status}=profile;
-    return {id,name,phone,vehicleType,plateNumber,status};
+    const {id,tenant_id,name,phone,vehicleType,plateNumber,status}=profile;
+    return {id,tenant_id,name,phone,vehicleType,plateNumber,status};
   }catch{return null;}
 };
 
