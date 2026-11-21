@@ -17,7 +17,7 @@ import LocationPicker from '../components/LocationPicker.jsx';
 import CheckoutSheet from '../components/CheckoutSheet.jsx';
 import {locationKey, selectedDeliveryPin} from '../utils/restaurant-fulfilment.js';
 import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
-import {CHECKOUT_STEPS,checkoutStepIssue,checkoutReviewLineAmount} from '../utils/checkout-wizard.js';
+import {CHECKOUT_STEPS,checkoutStepIssue,checkoutReviewLineAmount,smartCheckoutNextStep} from '../utils/checkout-wizard.js';
 
 const ORDER_TYPES = [
   { id: 'dine-in', label: 'Dine In (QR)', icon: '🪑' },
@@ -290,8 +290,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     paymentMethod,cardUnavailable:payHerePaymentDisabled(import.meta.env.MODE,rates.payhereEnabled)
   };
   const wizardIssue=step=>checkoutStepIssue(step,wizardData);
-  const smartIssues=CHECKOUT_STEPS.slice(0,4).map((step,index)=>({step:index,issue:wizardIssue(index)})).filter(entry=>entry.issue);
-  const firstSmartIssue=smartIssues[0]||null;
+  const expressDecision=smartCheckoutNextStep(wizardData);
+  const firstSmartIssue=expressDecision.ready?null:expressDecision;
   const openGuidedStep=step=>{
     if(loading)return;
     setWizardError('');setSmartCheckout(false);setWizardStep(step);
@@ -328,6 +328,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const checkoutReady=!modePaused&&!totalChanged&&!loading&&!pendingCheckout&&canOrder&&deliveryQuoteConfirmed&&
     (!isScheduled||(!!scheduledTimeVal&&!scheduleLoading&&!scheduleError))&&
     (orderType!=='delivery'||subtotal>=minimumOrder);
+  const returnToSmartCheckout=()=>{setWizardError('');setSmartCheckout(true);requestAnimationFrame(()=>wizardTopRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));};
   const wizardAdvance=()=>{
     const issue=wizardIssue(wizardStep);
     if(issue){setWizardError(issue);toast(issue,'warning');return;}
@@ -871,6 +872,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             onClick={()=>moveWizardStep(index)}><span>{index<wizardStep?'✓':index+1}</span><small>{step.label}</small></button>
         ))}
       </nav>}
+      {!smartCheckout&&<button type="button" className="gf-smart-return" onClick={returnToSmartCheckout}>‹ Return to Smart Checkout</button>}
       {wizardError&&<div className="gf-wizard-error" role="alert">{wizardError}<button type="button" onClick={()=>setWizardError('')}>Dismiss</button></div>}
 
 
@@ -1402,7 +1404,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
         </div>}
         <div className="sticky-bar gf-checkout-sticky gf-wizard-sticky">
-          {!smartCheckout&&<button type="button" className="gf-wizard-back" onClick={()=>wizardStep===0?setSmartCheckout(true):moveWizardStep(wizardStep-1)}>{wizardStep===0?'‹ Smart checkout':'‹ Back'}</button>}
+          {!smartCheckout&&<button type="button" className="gf-wizard-back" onClick={()=>wizardStep===0?returnToSmartCheckout():moveWizardStep(wizardStep-1)}>{wizardStep===0?'‹ Smart checkout':'‹ Back'}</button>}
           <div className="gf-checkout-sticky-total"><span>{orderType==='delivery'&&!deliveryQuoteConfirmed?'Delivery fee pending':'Total payable'}</span><strong>Rs. {total.toFixed(2)}</strong></div>
           <button
             type={!smartCheckout&&wizardStep===4?'submit':'button'}
