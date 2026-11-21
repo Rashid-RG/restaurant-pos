@@ -84,6 +84,9 @@ export default function App() {
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [watchId, setWatchId] = useState(null);
   const nativeTrackingRef=useRef(null);
+  // Reject callbacks from tracking sessions stopped by logout, going offline,
+  // permission changes, or a newer GPS session.
+  const locationSessionEpochRef=useRef(0);
   const nativeDriverBuild=import.meta.env.MODE==='native' && Capacitor.isNativePlatform();
   const [lastCoords, setLastCoords] = useState(null);
   const [gpsQuality, setGpsQuality] = useState('not_started');
@@ -189,6 +192,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    locationSessionEpochRef.current+=1;
     // Start device / presence cleanup but never hold visible customer data on
     // screen while background tracking or the network takes time to stop.
     const tracking=nativeTrackingRef.current;
@@ -245,6 +249,7 @@ export default function App() {
         return updated;
       });
       if(response.status==='offline'){
+        locationSessionEpochRef.current+=1;
         // Availability is authoritative: stop both native tracking and browser GPS
         // when going offline, so a background watch cannot keep sending fixes.
         if(watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
@@ -370,7 +375,8 @@ export default function App() {
       return;
     }
     if(nativeDriverBuild){
-      if(isGpsActive){
+      if(isGpsActive || nativeTrackingRef.current){
+        locationSessionEpochRef.current+=1;
         if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
         nativeTrackingRef.current=null;
         setIsGpsActive(false);setGpsQuality('off');setLastCoords(null);
@@ -381,21 +387,35 @@ export default function App() {
         showToast('Go online before starting native location tracking.','warning');return;
       }
       try{
+        const locationEpoch=++locationSessionEpochRef.current;
         const session=createNativeTrackingSession({
           plugin:registerPlugin('BackgroundGeolocation'),
           httpPost:opts=>CapacitorHttp.post(opts),
           apiOrigin:import.meta.env.VITE_DRIVER_NATIVE_API_URL,
           getToken,getActiveOrders:()=>activeOrdersRef.current,
-          onFix:fix=>{setLastCoords(fix);setGpsQuality('good');},
-          onStatus:status=>{if(status==='location_error'||status==='upload_error')
-            setGpsQuality('weak');}
+          onFix:fix=>{
+            if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
+            setLastCoords(fix);setGpsQuality('good');
+          },
+          onStatus:status=>{
+            if(locationSessionEpochRef.current!==locationEpoch) return;
+            if(status==='location_error'||status==='upload_error') setGpsQuality('weak');
+          }
         });
         nativeTrackingRef.current=session;
         setGpsQuality('searching');
         void session.start({onDuty:true,locationConsent:true,
           discoveryConsent:discoveryPilotEnabled&&discoveryConsentRef.current
-        }).then(()=>setIsGpsActive(true)).catch(error=>{
-          nativeTrackingRef.current=null;setGpsQuality('denied');
+        }).then(started=>{
+          if(locationSessionEpochRef.current!==locationEpoch || nativeTrackingRef.current!==session || !getToken() || driverStatusRef.current==='offline'){
+            void session.stop().catch(()=>{});
+            return;
+          }
+          if(started) setIsGpsActive(true);
+          else setGpsQuality('off');
+        }).catch(error=>{
+          if(locationSessionEpochRef.current!==locationEpoch || nativeTrackingRef.current!==session) return;
+          nativeTrackingRef.current=null;setIsGpsActive(false);setGpsQuality('denied');
           showToast(error?.message||'Native location permission unavailable.','error');
         });
       }catch(error){
@@ -405,6 +425,7 @@ export default function App() {
       return;
     }
     if (isGpsActive) {
+      locationSessionEpochRef.current+=1;
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       setIsGpsActive(false);
       setWatchId(null);
@@ -423,10 +444,12 @@ export default function App() {
       showToast('Use HTTPS and enable device location to share a live position.', 'error');
       return;
     }
+    const locationEpoch=++locationSessionEpochRef.current;
     setIsGpsActive(true);
     setGpsQuality('searching');
     showToast('Searching for a reliable device location…', 'info');
     const id = navigator.geolocation.watchPosition((pos) => {
+      if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
       // The OS normally fuses GPS, mobile signals, Wi-Fi and phone sensors.
       const lat = pos.coords.latitude, lng = pos.coords.longitude;
       const accuracyMeters = pos.coords.accuracy;
@@ -471,7 +494,9 @@ export default function App() {
         });
       });
     }, err => {
+      if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
       if (err?.code === 1) {
+        locationSessionEpochRef.current+=1;
         navigator.geolocation.clearWatch(id);
         setWatchId(null);
         setIsGpsActive(false);
