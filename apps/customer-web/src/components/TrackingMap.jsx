@@ -36,12 +36,13 @@ export default function TrackingMap({store,dest,driver,route}) {
     // User gestures stop automatic centering. Never move a marker without a new GPS fix.
     const stopFollowing=()=>setFollowing(false);
     m.on('dragstart',stopFollowing);
-    m.on('zoomstart',stopFollowing);
+    const userZoom=event=>{if(event?.originalEvent)stopFollowing();};
+    m.on('zoomstart',userZoom);
     const timeout=window.setTimeout(()=>m.invalidateSize(),200);
     return()=>{
       window.clearTimeout(timeout);
       if(animation.current!==null){window.cancelAnimationFrame(animation.current);animation.current=null;}
-      m.off('dragstart',stopFollowing);m.off('zoomstart',stopFollowing);
+      m.off('dragstart',stopFollowing);m.off('zoomstart',userZoom);
       m.remove();map.current=null;markers.current={};routeLine.current=null;
       accuracyCircle.current=null;fitted.current=false;driverRef.current=null;
     };
