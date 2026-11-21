@@ -105,6 +105,20 @@ export default function App() {
   const [earningsError,setEarningsError]=useState('');
   const [mapOrder,setMapOrder]=useState(null);
   const [tripSheet,setTripSheet]=useState('half');
+  const tripSheetTouchStart=useRef(null);
+  const onTripSheetTouchStart=event=>{
+    if(event.target.closest('button, a, input, textarea, select')){tripSheetTouchStart.current=null;return;}
+    tripSheetTouchStart.current=event.touches[0]?.clientY??null;
+  };
+  const onTripSheetTouchEnd=event=>{
+    const from=tripSheetTouchStart.current;
+    tripSheetTouchStart.current=null;
+    if(from===null)return;
+    const delta=(event.changedTouches[0]?.clientY??from)-from;
+    if(Math.abs(delta)<55)return;
+    const levels=['compact','half','full'];
+    setTripSheet(current=>levels[Math.min(2,Math.max(0,levels.indexOf(current)+(delta<0?1:-1)))]);
+  };
   const [roadEstimates,setRoadEstimates]=useState({});
   const [roadLoadingId,setRoadLoadingId]=useState(null);
   const roadRequestEpochRef=useRef(0);
@@ -649,7 +663,13 @@ export default function App() {
         body: JSON.stringify({ orderId: order.id, ...coords })
       }))).then(results => {
         if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
-        setGpsUploadStatus(results.every(result=>result.status==='fulfilled')?'accepted':'failed');
+        const allAccepted=results.every(result=>result.status==='fulfilled');
+        if(!allAccepted && lastBroadcastRef.current?.recordedAt===coords.recordedAt) {
+          // Do not throttle a failed upload as though the customer received it.
+          // Retry on the next fresh GPS reading instead of reporting the rider as live.
+          lastBroadcastRef.current=null;
+        }
+        setGpsUploadStatus(allAccepted?'accepted':'failed');
       });
     }, err => {
       if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
@@ -1643,7 +1663,7 @@ export default function App() {
                             geometry={hasFreshLocation && progressStage>1 && driverClock-roadEstimates[ord.id]?.basedOnFixAt<=30000 ? roadEstimates[ord.id]?.geometry : null}/></React.Suspense>}
                         </>}
                       </section>
-                      <section aria-label="Delivery trip details" style={{borderRadius:20,background:'rgba(242,250,245,.07)',border:'1px solid rgba(150,202,169,.25)',padding:'12px',display:'grid',gap:10}}>
+                      <section aria-label="Delivery trip details" onTouchStart={onTripSheetTouchStart} onTouchEnd={onTripSheetTouchEnd} style={{touchAction:'pan-y',borderRadius:20,background:'rgba(242,250,245,.07)',border:'1px solid rgba(150,202,169,.25)',padding:'12px',display:'grid',gap:10}}>
                         <div aria-hidden="true" style={{width:42,height:5,background:'#86a69a',borderRadius:5,margin:'0 auto'}}/>
                         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
                           <div><strong style={{display:'block',fontSize:16}}>{ord.customerName||'Customer delivery'}</strong><small>{nextStep}</small></div>
