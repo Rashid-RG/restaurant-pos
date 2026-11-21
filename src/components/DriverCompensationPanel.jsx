@@ -131,7 +131,7 @@ export default function DriverCompensationPanel({orders=[]}){
         <p className="driver-payout-total">Selected external payment: <strong>{money(selectedPayoutAmount)}</strong></p>
         <label htmlFor="driver-payout-method">External payment method</label>
         <select id="driver-payout-method" value={payoutMethod} onChange={e=>setPayoutMethod(e.target.value)}>
-          <option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option><option value="other">Other verified method</option>
+          <option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option><option value="other">Other external payment method</option>
         </select>
         <label htmlFor="driver-payout-reference">Receipt or transaction reference</label>
         <input id="driver-payout-reference" value={payoutReference} maxLength={140} required minLength={6}
