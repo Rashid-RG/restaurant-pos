@@ -46,6 +46,10 @@ export default function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
     if(order.paymentStatus==='partial'){setError('Ask the restaurant to reconcile this partial payment before completing delivery.');return;}
     if (!hasSignature && !photo) { setError('Add a customer signature or delivery photo.'); return; }
     if (isCash && !cashReceived) { setError('Confirm that you collected the delivery cash.'); return; }
+    if(deliveryPin && !/^\d{6}$/.test(deliveryPin)){
+      setError('The customer handover code must contain exactly six digits.');
+      return;
+    }
     busyRef.current = true; setBusy(true); setError('');
     try {
       await onConfirm(order.id, { signature: hasSignature ? canvasRef.current.toDataURL('image/png') : null, photo, cashReceived, deliveryPin });
