@@ -1159,7 +1159,7 @@ export default function App() {
               {supportError && <p role="alert" className="driver-support-error">{supportError}</p>}
               <div className="driver-support-history">
                 <div className="driver-support-history-head"><strong>My requests</strong><button type="button" className="btn-outline" disabled={supportBusy} onClick={loadDriverSupport}>{supportBusy?'Loading…':'Refresh'}</button></div>
-                {supportHistory.length ? <ul>{supportHistory.map(request=><li key={request.id}><strong>{String(request.category||'other').replace(/_/g,' ')} · {request.status}</strong><span>{request.message}</span></li>)}</ul> : <p>Refresh to view saved requests for this driver.</p>}
+                {supportHistory.length ? <ul>{supportHistory.map(request=><li key={request.id}><strong>{String(request.category||'other').replace(/_/g,' ')} · {String(request.status||'open').replace(/_/g,' ')}</strong><span>{request.message}</span>{request.managerReply && <div className="driver-support-reply"><strong>Restaurant response</strong><span>{request.managerReply}</span><small>{request.repliedAt ? new Date(request.repliedAt).toLocaleString() : ''}</small></div>}</li>)}</ul> : <p>Refresh to view saved requests for this driver.</p>}
               </div>
               <p className="driver-support-emergency">For immediate danger, contact local emergency services directly. A saved support request is not monitored as an emergency channel.</p>
             </section>
