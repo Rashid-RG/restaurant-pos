@@ -1111,13 +1111,35 @@ export default function PlatformAdmin({ embedded = false }) {
         </section>
       )}
 
-      {activeSubTab==='location' && <section className="card"><h2>Delivery location monitoring</h2>
-        {locationError?<p role="alert">{locationError}</p>:!locationReport?<p>Loading restaurant status…</p>:<>
-          <p>Updated {new Date(locationReport.checkedAt).toLocaleTimeString()} · Fresh signals are accurate fixes received in the last 30 seconds.</p>
-          <p>Rider presence: {locationReport.infrastructure?.presenceEnabled?'enabled':'off'} · Storage: {locationReport.infrastructure?.sharedPresence?'Redis configured':'in memory'} · Smart dispatch: {locationReport.infrastructure?.dispatchEnabled?'enabled':'off'} · Road routing: {locationReport.infrastructure?.routingConfigured?'configured':'unconfigured'}</p>
-          <div style={{overflowX:'auto'}}><table><thead><tr>{['Restaurant','Pickup pin','Delivery','Pricing','Areas','Active trips','Fresh signals'].map(x=><th key={x}>{x}</th>)}</tr></thead>
-          <tbody>{locationReport.stores.map(s=><tr key={s.id}><td>{s.name}</td><td>{s.pinSaved?'Saved':'Missing'}</td><td>{s.enabled?'Enabled':'Paused'}</td><td>{s.distanceMode}</td><td>{s.areas}</td><td>{s.trips}</td><td>{s.fresh}</td></tr>)}</tbody></table></div></>}
-        </section>}
+      {activeSubTab==='location' && <section className="card" aria-label="Platform location monitoring">
+        <header style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12}}>
+          <div><h2>Delivery location monitoring</h2><p>Platform-owner overview. Private rider and customer coordinates are never displayed here.</p></div>
+          <button className="btn btn-outline" type="button" onClick={async()=>{try{setLocationError('');setLocationReport(await request('/api/platform/location-monitor'));}catch(error){setLocationError(error.message);}}}>Refresh status</button>
+        </header>
+        {locationError && <p role="alert">{locationError} · Showing the last successful snapshot, if available.</p>}
+        {!locationReport ? <p role="status">Loading restaurant status…</p> : <>
+          <p role="status">Last successful check: {new Date(locationReport.checkedAt).toLocaleString()} · Refreshes every 30 seconds while this tab is open.</p>
+          <div className="platform-stats">
+            {[
+              ['Restaurants',locationReport.stores?.length??0],
+              ['Missing pickup pins',locationReport.stores?.filter(s=>!s.pinSaved).length??0],
+              ['Active delivery trips',locationReport.stores?.reduce((sum,s)=>sum+Number(s.trips||0),0)??0],
+              ['Fresh driver signals',locationReport.stores?.reduce((sum,s)=>sum+Number(s.fresh||0),0)??0]
+            ].map(([label,value])=><article key={label}><span>{label}</span><strong>{value}</strong></article>)}
+          </div>
+          <p>Location infrastructure: rider presence <strong>{locationReport.infrastructure?.presenceEnabled?'enabled':'disabled'}</strong>,
+            shared Redis <strong>{locationReport.infrastructure?.sharedPresence?'configured':'not confirmed'}</strong>,
+            dispatch <strong>{locationReport.infrastructure?.dispatchEnabled?'enabled':'disabled'}</strong>,
+            road routing <strong>{locationReport.infrastructure?.routingConfigured?'configured (health not verified here)':'not configured'}</strong>.</p>
+          <p><small>Fresh signals are reported fixes within 30 seconds. Zero signals can mean no active trips; this is not proof of an outage. Routing configuration does not establish routing availability.</small></p>
+          <div style={{overflowX:'auto'}}><table><thead><tr>{['Restaurant','Pickup pin','Delivery','Distance pricing','Coverage areas','Active trips','Fresh signals','Attention'].map(x=><th key={x}>{x}</th>)}</tr></thead>
+            <tbody>{(locationReport.stores||[]).map(s=><tr key={s.id}>
+              <td>{s.name}</td><td>{s.pinSaved?'Saved':'Missing'}</td><td>{s.enabled?'Enabled':'Paused'}</td><td>{s.distanceMode||'Unknown'}</td>
+              <td>{s.areas??'Unknown'}</td><td>{s.trips??0}</td><td>{s.fresh??0}</td>
+              <td>{!s.pinSaved?'Set pickup pin':Number(s.trips||0)>0 && Number(s.fresh||0)===0?'Check driver GPS':'—'}</td>
+            </tr>)}</tbody></table></div>
+        </>}
+      </section>}
       {activeSubTab === 'promotions' && <PromotionManager platform restaurants={partners} />}
 
       {/* PLATFORM OWNER: aggregate verification status only, never private rider documents. */}
