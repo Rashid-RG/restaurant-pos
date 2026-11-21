@@ -1088,6 +1088,27 @@ async function initTables() {
       )
     `);
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_compensation_rider ON driver_compensation_entries (tenant_id,driverId,approvedAt)');
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_compensation_payouts (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        driverId TEXT NOT NULL,
+        amountCents INTEGER NOT NULL,
+        method TEXT NOT NULL,
+        paymentReference TEXT NOT NULL,
+        recordedBy TEXT NOT NULL,
+        recordedAt BIGINT NOT NULL
+      )
+    `);
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_compensation_payout_items (
+        tenant_id TEXT NOT NULL,
+        orderId TEXT NOT NULL,
+        payoutId TEXT NOT NULL,
+        PRIMARY KEY(tenant_id,orderId)
+      )
+    `);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_compensation_payout_rider ON driver_compensation_payouts (tenant_id,driverId,recordedAt)');
     // Declining a shared available ticket hides it for one rider only.
     // Never cancel or modify the customer's actual order.
     await dbRun(`
@@ -6135,26 +6156,93 @@ app.post('/api/delivery/driver-compensation',authenticateToken,requireRole(['own
 app.get('/api/delivery/driver-compensation',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
   try{
     const entries=await dbAll(
-      'SELECT e.orderId,e.driverId,d.name AS driverName,e.amountCents,e.approvedAt,e.approvedBy FROM driver_compensation_entries e LEFT JOIN drivers d ON d.id=e.driverId AND d.tenant_id=e.tenant_id WHERE e.tenant_id=? ORDER BY e.approvedAt DESC LIMIT 200',
+      'SELECT e.orderId,e.driverId,d.name AS driverName,e.amountCents,e.approvedAt,e.approvedBy,p.payoutId FROM driver_compensation_entries e LEFT JOIN drivers d ON d.id=e.driverId AND d.tenant_id=e.tenant_id LEFT JOIN driver_compensation_payout_items p ON p.tenant_id=e.tenant_id AND p.orderId=e.orderId WHERE e.tenant_id=? ORDER BY e.approvedAt DESC LIMIT 200',
       [req.tenantId]
     );
     return res.set('Cache-Control','no-store').json({currency:'LKR',entries});
   }catch(error){console.error('[Restaurant compensation]',error.message);return res.status(500).json({error:'Could not load compensation records.'});}
 });
+// Manual payout RECORD: explicitly documents an independently completed
+// external cash/bank payment; this API never initiates a money transfer.
+// The unique payout-item key prevents two records for the same earning.
+app.post('/api/delivery/driver-compensation/payouts',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  const driverId=typeof req.body?.driverId==='string'?req.body.driverId.trim():'';
+  const method=String(req.body?.method||'');
+  const paymentReference=typeof req.body?.paymentReference==='string'?req.body.paymentReference.trim():'';
+  const orderIds=req.body?.orderIds;
+  if(!driverId||driverId.length>128||!['cash','bank_transfer','other'].includes(method)||
+     paymentReference.length<6||paymentReference.length>140||!Array.isArray(orderIds)||
+     orderIds.length<1||orderIds.length>100||
+     orderIds.some(id=>typeof id!=='string'||!id||id.length>128)||
+     new Set(orderIds).size!==orderIds.length)
+    return res.status(400).json({error:'Provide a rider, 1–100 unique approved deliveries, payment method and an external payment reference of 6–140 characters.'});
+  let transaction=false;
+  try{
+    await dbRun('BEGIN TRANSACTION');transaction=true;
+    const placeholders=orderIds.map(()=>'?').join(',');
+    const earnings=await dbAll(
+      `SELECT orderId,amountCents FROM driver_compensation_entries WHERE tenant_id=? AND driverId=? AND orderId IN (${placeholders})`,
+      [req.tenantId,driverId,...orderIds]
+    );
+    if(earnings.length!==orderIds.length){
+      await dbRun('ROLLBACK');transaction=false;return res.status(409).json({error:'One or more approved earnings are unavailable for this rider.'});
+    }
+    const existing=await dbGet(
+      `SELECT orderId FROM driver_compensation_payout_items WHERE tenant_id=? AND orderId IN (${placeholders}) LIMIT 1`,
+      [req.tenantId,...orderIds]
+    );
+    if(existing){await dbRun('ROLLBACK');transaction=false;return res.status(409).json({error:'An earnings entry is already recorded as paid. Refresh the ledger.'});}
+    const amountCents=earnings.reduce((sum,e)=>sum+Number(e.amountCents),0);
+    if(!Number.isSafeInteger(amountCents)||amountCents<=0){
+      await dbRun('ROLLBACK');transaction=false;return res.status(422).json({error:'A positive, safe payout amount is required.'});
+    }
+    const id=crypto.randomUUID(),recordedAt=Date.now();
+    await dbRun(
+      'INSERT INTO driver_compensation_payouts (id,tenant_id,driverId,amountCents,method,paymentReference,recordedBy,recordedAt) VALUES (?,?,?,?,?,?,?,?)',
+      [id,req.tenantId,driverId,amountCents,method,paymentReference,req.user?.username||req.user?.id||'Restaurant manager',recordedAt]
+    );
+    for(const orderId of orderIds){
+      await dbRun('INSERT INTO driver_compensation_payout_items (tenant_id,orderId,payoutId) VALUES (?,?,?)',
+        [req.tenantId,orderId,id]);
+    }
+    await dbRun('COMMIT');transaction=false;
+    return res.status(201).set('Cache-Control','no-store').json({record:{id,driverId,amountCents,currency:'LKR',method,paymentReference,recordedAt}});
+  }catch(error){
+    if(transaction)await dbRun('ROLLBACK').catch(()=>{});
+    console.error('[Rider manual payout record]',error.message);
+    return res.status(500).json({error:'Could not record external payout. Refresh the ledger before retrying.'});
+  }
+});
+app.get('/api/delivery/driver-compensation/payouts',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const payouts=await dbAll(
+      'SELECT id,driverId,amountCents,method,paymentReference,recordedBy,recordedAt FROM driver_compensation_payouts WHERE tenant_id=? ORDER BY recordedAt DESC LIMIT 100',
+      [req.tenantId]
+    );
+    return res.set('Cache-Control','no-store').json({currency:'LKR',payouts});
+  }catch(error){console.error('[Rider payout list]',error.message);return res.status(500).json({error:'Could not load payout records.'});}
+});
 app.get('/api/public/driver/earnings',authenticateDriver,async(req,res)=>{
   try{
     const entries=await dbAll(
-      'SELECT orderId,amountCents,approvedAt FROM driver_compensation_entries WHERE tenant_id=? AND driverId=? ORDER BY approvedAt DESC LIMIT 200',
+      'SELECT e.orderId,e.amountCents,e.approvedAt,p.payoutId FROM driver_compensation_entries e LEFT JOIN driver_compensation_payout_items p ON p.tenant_id=e.tenant_id AND p.orderId=e.orderId WHERE e.tenant_id=? AND e.driverId=? ORDER BY e.approvedAt DESC LIMIT 200',
       [req.driver.tenant_id,req.driver.driverId]
     );
     const totals=await dbGet(
       'SELECT COALESCE(SUM(amountCents),0) AS totalCents, COUNT(*) AS entryCount FROM driver_compensation_entries WHERE tenant_id=? AND driverId=?',
       [req.driver.tenant_id,req.driver.driverId]
     );
-    const totalCents=Number(totals?.totalCents||0);
-    if(!Number.isSafeInteger(totalCents)||totalCents<0)throw new Error('Compensation total exceeds safe bounds');
+    const paid=await dbGet(
+      'SELECT COALESCE(SUM(e.amountCents),0) AS paidCents FROM driver_compensation_entries e JOIN driver_compensation_payout_items i ON i.tenant_id=e.tenant_id AND i.orderId=e.orderId WHERE e.tenant_id=? AND e.driverId=?',
+      [req.driver.tenant_id,req.driver.driverId]
+    );
+    const totalCents=Number(totals?.totalCents||0),recordedPaidCents=Number(paid?.paidCents||0);
+    if(!Number.isSafeInteger(totalCents)||totalCents<0||
+       !Number.isSafeInteger(recordedPaidCents)||recordedPaidCents<0||recordedPaidCents>totalCents)
+      throw new Error('Compensation total exceeds safe bounds');
     return res.set('Cache-Control','no-store').json({currency:'LKR',entries,totalApprovedCents:totalCents,totalApprovedDeliveries:Number(totals?.entryCount||0),
-      payoutStatus:'not_integrated',note:'Approved earnings only; payouts are not confirmed or processed by this endpoint.'});
+      recordedPaidCents,outstandingCents:totalCents-recordedPaidCents,
+      payoutStatus:'manager_recorded',note:'Payout records represent external payments declared by restaurant management; no bank transfer is independently verified.'});
   }catch(error){console.error('[Driver earnings]',error.message);return res.status(500).json({error:'Could not load approved driver earnings.'});}
 });
 
