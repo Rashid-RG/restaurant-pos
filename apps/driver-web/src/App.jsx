@@ -71,6 +71,8 @@ export default function App() {
   const [taskTab, setTaskTab] = useState('active');
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [pendingOrderId,setPendingOrderId]=useState(null);
+  const pendingOrderRef=useRef(null);
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [watchId, setWatchId] = useState(null);
   const nativeTrackingRef=useRef(null);
@@ -214,7 +216,13 @@ export default function App() {
         localStorage.setItem(DRIVER_KEY,JSON.stringify(updated));
         return updated;
       });
-      if(next==='offline'){
+      if(response.status==='offline'){
+        // Availability is authoritative: stop both native tracking and browser GPS
+        // when going offline, so a background watch cannot keep sending fixes.
+        if(watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
+        setWatchId(null);
+        lastBroadcastRef.current=null;
+        lastFixRef.current=null;
         if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
         nativeTrackingRef.current=null;
         setIsGpsActive(false);setGpsQuality('off');setLastCoords(null);
@@ -329,6 +337,10 @@ export default function App() {
   };
   // ── GPS ──
   const toggleGps = () => {
+    if (!isGpsActive && driverStatusRef.current === 'offline') {
+      showToast('Go online before sharing location.','warning');
+      return;
+    }
     if(nativeDriverBuild){
       if(isGpsActive){
         if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
@@ -449,16 +461,27 @@ export default function App() {
   };
 
   const handleClaim = async (orderId) => {
+    if(pendingOrderRef.current || driverStatusRef.current === 'offline') return;
+    pendingOrderRef.current=orderId;setPendingOrderId(orderId);
     try {
       await apiFetch('/public/driver/assign', { method: 'POST', body: JSON.stringify({ orderId }) });
       showToast('Delivery claimed! 🚀', 'success');
       fetchDriverOrders();
     } catch (err) {
       showToast(err.message || 'Failed to claim order', 'error');
+    } finally {
+      pendingOrderRef.current=null;setPendingOrderId(null);
     }
   };
 
   const handleUpdateStatus = async (orderId, newStatus, proof = null) => {
+    if(pendingOrderRef.current) {
+      const busyError=new Error('Another delivery update is still processing. Try again after it finishes.');
+      if(newStatus==='delivered') throw busyError;
+      showToast(busyError.message,'warning');
+      return;
+    }
+    pendingOrderRef.current=orderId;setPendingOrderId(orderId);
     try {
       const fix = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords) ? lastCoords : null;
       const result = await apiFetch('/public/driver/status', {
@@ -479,6 +502,8 @@ export default function App() {
     } catch (err) {
       if (newStatus === 'delivered') throw err;
       showToast(err.message || 'Failed to update status', 'error');
+    } finally {
+      pendingOrderRef.current=null;setPendingOrderId(null);
     }
   };
 
@@ -960,7 +985,7 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      <button type="button" className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} disabled={driver.status === 'offline'} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : 'Claim Delivery'}</button>
+                      <button type="button" className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} disabled={driver.status === 'offline' || pendingOrderId !== null} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : pendingOrderId===ord.id ? 'Claiming…' : 'Claim Delivery'}</button>
                     </article>
                     );
                   })}
@@ -1023,13 +1048,13 @@ export default function App() {
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}>💬 WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
                         {['ready', 'picked_up'].includes(ord.status) && (
                           <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem', background: '#3b82f6' }}
-                            onClick={() => handleUpdateStatus(ord.id, 'out_for_delivery')}>
-                            <AnimatedFeatureIcon kind="delivery" size={28} active={false}/> Start Delivery (Out for Delivery)
+                            disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'out_for_delivery')}>
+                            <AnimatedFeatureIcon kind="delivery" size={28} active={false}/> {pendingOrderId===ord.id ? 'Updating delivery…' : 'Start Delivery (Out for Delivery)'}
                           </button>
                         )}
                         {['out_for_delivery', 'arrived'].includes(ord.status) && (
                           <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem' }}
-                            onClick={() => setSelectedDeliveryOrder(ord)}>
+                            disabled={pendingOrderId!==null} onClick={() => setSelectedDeliveryOrder(ord)}>
                             ✓ Mark Delivered (Signature & Proof)
                           </button>
                         )}
