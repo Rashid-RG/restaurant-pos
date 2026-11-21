@@ -1132,11 +1132,12 @@ export default function PlatformAdmin({ embedded = false }) {
             dispatch <strong>{locationReport.infrastructure?.dispatchEnabled?'enabled':'disabled'}</strong>,
             road routing <strong>{locationReport.infrastructure?.routingConfigured?'configured (health not verified here)':'not configured'}</strong>.</p>
           <p><small>Fresh signals are reported fixes within 30 seconds. Zero signals can mean no active trips; this is not proof of an outage. Routing configuration does not establish routing availability.</small></p>
-          <div style={{overflowX:'auto'}}><table><thead><tr>{['Restaurant','Pickup pin','Delivery','Distance pricing','Coverage areas','Active trips','Fresh signals','Attention'].map(x=><th key={x}>{x}</th>)}</tr></thead>
+          <div style={{overflowX:'auto'}}><table><thead><tr>{['Restaurant','Pickup pin','Delivery','Distance pricing','Coverage areas','Active trips','Fresh','Stale','Low accuracy','Missing','Attention'].map(x=><th key={x}>{x}</th>)}</tr></thead>
             <tbody>{(locationReport.stores||[]).map(s=><tr key={s.id}>
               <td>{s.name}</td><td>{s.pinSaved?'Saved':'Missing'}</td><td>{s.enabled?'Enabled':'Paused'}</td><td>{s.distanceMode||'Unknown'}</td>
               <td>{s.areas??'Unknown'}</td><td>{s.trips??0}</td><td>{s.fresh??0}</td>
-              <td>{!s.pinSaved?'Set pickup pin':Number(s.trips||0)>0 && Number(s.fresh||0)===0?'Check driver GPS':'—'}</td>
+              <td>{s.stale??0}</td><td>{s.poorAccuracy??0}</td><td>{s.missing??0}</td>
+              <td>{!s.pinSaved?'Set pickup pin':Number(s.stale||0)>0?'Stale driver GPS':Number(s.poorAccuracy||0)>0?'Check GPS accuracy':Number(s.missing||0)>0?'Check rider assignment / GPS':'—'}</td>
             </tr>)}</tbody></table></div>
         </>}
       </section>}
