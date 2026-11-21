@@ -593,7 +593,7 @@ export default function App() {
           onStatus:status=>{
             if(locationSessionEpochRef.current!==locationEpoch) return;
             if(status==='location_error') setGpsQuality('weak');
-            if(status==='upload_error') setGpsUploadStatus('failed');
+            if(status==='upload_error'){setGpsUploadStatus('failed');setGpsLastAcceptedAt(null);}
             if(status==='upload_success'){setGpsUploadStatus('accepted');setGpsLastAcceptedAt(Date.now());}
             if(status==='off'){setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);}
           }
@@ -611,11 +611,11 @@ export default function App() {
           else setGpsQuality('off');
         }).catch(error=>{
           if(locationSessionEpochRef.current!==locationEpoch || nativeTrackingRef.current!==session) return;
-          nativeTrackingRef.current=null;setIsGpsActive(false);setGpsQuality('denied');
+          nativeTrackingRef.current=null;setIsGpsActive(false);setGpsQuality('denied');setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);
           showToast(error?.message||'Native location permission unavailable.','error');
         });
       }catch(error){
-        setGpsQuality('denied');
+        setGpsQuality('denied');setGpsUploadStatus('idle');setGpsLastAcceptedAt(null);
         showToast(error?.message||'Native GPS is not configured.','error');
       }
       return;
@@ -1246,7 +1246,7 @@ export default function App() {
     : gpsQuality === 'searching' ? 'Finding an accurate location'
     : !hasFreshLocation ? 'Location unavailable or outdated'
     : activeOrders.length && gpsUploadStatus==='failed' ? 'GPS upload failed · customer tracking delayed'
-    : activeOrders.length && !isServerConfirmedLocation ? 'GPS accurate · awaiting server confirmation'
+    : activeOrders.length && !isServerConfirmedLocation ? 'GPS ready · awaiting fresh server confirmation'
     : isServerConfirmedLocation ? 'Location accepted for customer tracking'
     : 'Accurate GPS available · no active delivery to share';
   const locationHelp = gpsQuality === 'denied' ? 'Allow location access in iPhone Settings, then try sharing again.'
