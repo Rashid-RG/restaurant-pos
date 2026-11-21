@@ -6087,8 +6087,8 @@ app.get('/api/public/driver/orders/:orderId/road-eta', authenticateDriver, async
     if(!validRoadPoint(destination))
       return res.set('Cache-Control','no-store').json({available:false,reason:'The customer destination is not mapped.'});
     const fix=await dbGet(
-      'SELECT driverName,lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=? AND tenant_id=?',
-      [orderId,req.driver.tenant_id]
+      'SELECT driverName,lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=?',
+      [orderId]
     );
     const timestamp=Number(fix?.updatedAt),accuracy=Number(fix?.accuracyMeters);
     const belongsToRider=fix && [req.driver.driverId,req.driver.name].includes(fix.driverName);
