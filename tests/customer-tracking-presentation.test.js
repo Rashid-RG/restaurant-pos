@@ -98,6 +98,9 @@ describe('GastroFood real order tracking presentation',()=>{
     expect(validGeoPoint({lat:91,lng:79.85})).toBe(false);
     expect(validGeoPoint({lat:null,lng:79.85})).toBe(false);
     expect(normalizeDriverFix({lat:6.91,lng:79.85,updatedAt:now-6000,accuracyMeters:18},now)?.accuracyMeters).toBe(18);
+    expect(normalizeDriverFix({lat:6.91,lng:79.85,updatedAt:now-6000},now)).toBe(null);
+    expect(normalizeDriverFix({lat:6.91,lng:79.85,updatedAt:now-6000,accuracyMeters:0},now)).toBe(null);
+    expect(normalizeDriverFix({lat:6.91,lng:79.85,updatedAt:now-6000,accuracyMeters:400},now)).toBe(null);
     expect(normalizeDriverFix({lat:6.91,lng:79.85,updatedAt:now-TRACKING_GPS_EXPIRE_MS-1},now)).toBe(null);
     expect(normalizeDriverFix({lat:6.91,lng:79.85,updatedAt:now+11000},now)).toBe(null);
   });
