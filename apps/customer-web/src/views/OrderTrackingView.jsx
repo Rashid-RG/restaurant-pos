@@ -131,13 +131,26 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
     const status=String(order?.status||'').toLowerCase();
     if(!id || type!=='delivery' || ['cancelled','rejected','refunded','partially_refunded','completed','delivered'].includes(status)){setRoadRoute(null);return;}
     let disposed=false;
-    const fetchRoute=()=>apiFetch(`/public/orders/${encodeURIComponent(id)}/road-route`).then(data=>{
-      if(!disposed)setRoadRoute(data?.available?data:null);
-    }).catch(()=>{if(!disposed)setRoadRoute(null);});
+    let pending=false;
+    let routeGeneration=0;
+    const fetchRoute=()=>{
+      // One request at a time avoids older road geometry replacing a newer journey.
+      if(disposed || pending || document.visibilityState==='hidden' || navigator.onLine===false)return;
+      pending=true;
+      const generation=++routeGeneration;
+      apiFetch(`/public/orders/${encodeURIComponent(id)}/road-route`,{cache:'no-store'}).then(data=>{
+        if(!disposed && generation===routeGeneration)setRoadRoute(data?.available===true?data:null);
+      }).catch(()=>{
+        if(!disposed && generation===routeGeneration)setRoadRoute(null);
+      }).finally(()=>{pending=false;});
+    };
     setRoadRoute(null);
     fetchRoute();
-    const timer=setInterval(()=>{if(document.visibilityState==='visible')fetchRoute();},30000);
-    return()=>{disposed=true;clearInterval(timer);};
+    const timer=setInterval(fetchRoute,15000);
+    const resume=()=>{if(document.visibilityState==='visible')fetchRoute();};
+    document.addEventListener('visibilitychange',resume);
+    window.addEventListener('online',fetchRoute);
+    return()=>{disposed=true;clearInterval(timer);document.removeEventListener('visibilitychange',resume);window.removeEventListener('online',fetchRoute);};
   },[order?.id,order?.status,order?.orderType,order?.diningType]);
 
   // ── Poll Dispatch Status every 8 seconds ──
