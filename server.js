@@ -6102,6 +6102,25 @@ app.post('/api/public/driver/availability', authenticateDriver, async (req, res)
 // GET /api/public/driver/orders — Orders assigned to or available for a driver
 // All driver action endpoints require a driver JWT and are scoped to the driver's
 // tenant (Phase 2). The driver id + tenant come from the token, never the request body.
+// Driver's own non-sensitive profile/verification summary. Never return
+// identity documents, passwords, OTPs, private review notes or other riders.
+app.get('/api/public/driver/profile',authenticateDriver,async(req,res)=>{
+  try{
+    const driver=await dbGet(
+      'SELECT id,name,phone,email,vehicleType,plateNumber,status,licenseReviewRequired,licenseVerifiedUntil,licenseVerifiedClass FROM drivers WHERE id=? AND tenant_id=?',
+      [req.driver.driverId,req.driver.tenant_id]
+    );
+    if(!driver)return res.status(404).json({error:'Driver profile unavailable.'});
+    const review=await dbGet(
+      'SELECT review_state FROM driver_manual_reviews WHERE driver_id=? AND tenant_id=?',
+      [req.driver.driverId,req.driver.tenant_id]
+    );
+    return res.set('Cache-Control','no-store').json({profile:{
+      ...driver,manualReviewStatus:review?.review_state||null
+    }});
+  }catch(error){console.error('[Driver profile]',error.message);return res.status(500).json({error:'Could not load driver profile.'});}
+});
+
 app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
   const driverId = req.driver.driverId;
   const t = req.driver.tenant_id;
