@@ -524,6 +524,18 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const currentStage=actualProgress.steps[actualProgress.currentIndex]?.id;
   const heroMessage=trackingHeroMessage(order?.status,trackingMode);
   const gpsState=driverFreshness(driverLoc,nowClock);
+  // Proximity is an informational measurement, never an automatic "arrived"
+  // status. A stale rider fix cannot trigger a nearby indication.
+  const riderNearDestination=(()=>{
+    if(!isDelivery || isDone || isCancelled || !gpsState.visible ||
+       String(order?.status)!=='out_for_delivery')return false;
+    const a={lat:Number(driverLoc?.lat),lng:Number(driverLoc?.lng)};
+    const b={lat:Number(order?.deliveryLat),lng:Number(order?.deliveryLng)};
+    if(!validGeoPoint(a) || !validGeoPoint(b))return false;
+    const rad=Math.PI/180,dl=(b.lat-a.lat)*rad,dg=(b.lng-a.lng)*rad;
+    const h=Math.sin(dl/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dg/2)**2;
+    return 12742000*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)))<=250;
+  })();
   const hasRecentUpdates=lastUpdate && nowClock-lastUpdate<TRACKING_UPDATE_STALE_MS;
   const etaDisplay=trackingEtaMinutes(dynamicETA?.estimatedMinutes) ?? remainingMins;
   const estimateBand = etaDisplay > 0 ? [Math.floor(etaDisplay/5)*5, Math.ceil(etaDisplay/5)*5] : null;
@@ -573,6 +585,10 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
             {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
           </div>
+          {riderNearDestination && <div role="status" aria-live="polite"
+            style={{display:'flex',alignItems:'center',gap:10,padding:'12px 15px',borderRadius:16,background:'#e5f8ed',border:'1px solid #9fdbb7',color:'#145b40',fontWeight:750,margin:'10px 0'}}>
+            <span aria-hidden="true">🛵</span><span>Your rider is near the delivery pin. Please be ready for handover. Arrival is not yet confirmed.</span>
+          </div>}
           {stageAnnouncement && <div className="gf-journey-stage-announcement" role="status" aria-live="polite"><span aria-hidden="true">✓</span> {stageAnnouncement}<button type="button" aria-label="Dismiss order update" onClick={()=>setStageAnnouncement('')}>×</button></div>}
           {/* Map-first journey: position the confirmed rider map before secondary progress details. */}
           {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
