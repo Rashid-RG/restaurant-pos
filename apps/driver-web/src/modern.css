@@ -294,3 +294,13 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-theme-dark .driver-earnings-breakdown>div{background:#21392a!important;border-color:#4a6d54!important;color:var(--text-main)!important}
 .driver-theme-dark .driver-earnings-payout-note,.driver-theme-dark .driver-support-emergency{background:#3b321f!important;color:#f6d79b!important;border-color:#705b36!important}
 @media(max-width:400px){.driver-preferences select{min-width:98px;max-width:44%}}
+
+/* The driver must explicitly retry device-saved, non-final order progress. */
+.driver-offline-queue{display:grid;gap:10px;border:2px solid #d6af5d!important;background:#fff9eb!important}
+.driver-offline-queue h3{font-size:15px;color:#7b511b;margin:0}
+.driver-offline-queue p{font-size:12px;line-height:1.5;color:#6c562d;margin:0}
+.driver-offline-queue ul{list-style:none;padding:0;margin:0;display:grid;gap:7px}
+.driver-offline-queue li{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+.driver-offline-queue li button,.driver-offline-queue>button{min-height:44px}
+.driver-theme-dark .driver-offline-queue{background:#3c301d!important;color:#ffecc1!important;border-color:#ad8341!important}
+.driver-theme-dark .driver-offline-queue h3,.driver-theme-dark .driver-offline-queue p{color:#ffecc1}
