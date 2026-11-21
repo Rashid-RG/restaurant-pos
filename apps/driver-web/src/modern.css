@@ -128,3 +128,14 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-order-search .input-field{flex:1;min-width:0;min-height:44px;background:#fff}
 .driver-order-search button{min-height:44px;flex:0 0 auto}
 @media(max-width:360px){.driver-order-search .input-field{font-size:13px}.driver-order-search button{padding-inline:10px}}
+
+
+/* Verified server-side road routing; no straight-line distance presented as ETA. */
+.driver-road-eta{flex:1 1 100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px;border-radius:12px;border:1px solid #c9ddeb;background:#f5faff}
+.driver-road-eta>div{display:flex;flex:1 1 175px;min-width:0;flex-direction:column;gap:3px}
+.driver-road-eta strong{font-size:12px;color:#214d72}
+.driver-road-eta small{font-size:11px;color:#55758b;line-height:1.4}
+.driver-road-eta button{min-height:44px}
+.driver-road-eta p{flex:1 1 100%;margin:0;font-size:13px;font-weight:750;color:#165e8b;overflow-wrap:anywhere}
+.driver-road-eta .driver-eta-unavailable{font-size:12px;font-weight:500;color:#7c5d2c}
+@media(max-width:380px){.driver-road-eta button{width:100%}}
