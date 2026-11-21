@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {CHECKOUT_STEPS,checkoutStepIssue} from '../apps/customer-web/src/utils/checkout-wizard.js';
+import {CHECKOUT_STEPS,checkoutStepIssue,checkoutReviewLineAmount} from '../apps/customer-web/src/utils/checkout-wizard.js';
 const valid={
  hasItems:true,orderType:'delivery',modePaused:false,kitchenClosed:false,
  isScheduled:false,scheduledTimeVal:null,scheduleLoading:false,scheduleError:'',
@@ -35,4 +35,15 @@ describe('five-stage customer checkout navigation',()=>{
    expect(checkoutStepIssue(3,{...valid,paymentMethod:'payhere'})).toMatch(/not available/);
    expect(checkoutStepIssue(3,{...valid,paymentMethod:'bank_transfer'})).toBe('');
  });
+  it('shows modifier-inclusive cart line totals without changing backend pricing',()=>{
+    const lines=[
+      {price:1800,unitPrice:2050,qty:2},
+      {price:450,unitPrice:450,qty:1}
+    ];
+    expect(checkoutReviewLineAmount(lines[0])).toBe(4100);
+    expect(checkoutReviewLineAmount(lines[1])).toBe(450);
+    expect(lines.reduce((total,line)=>total+checkoutReviewLineAmount(line),0)).toBe(4550);
+    expect(checkoutReviewLineAmount({price:100,qty:-2})).toBe(0);
+    expect(checkoutReviewLineAmount({price:'invalid',qty:1})).toBe(0);
+  });
 });
