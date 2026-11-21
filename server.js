@@ -1120,6 +1120,20 @@ async function initTables() {
         PRIMARY KEY (tenant_id,driverId,orderId)
       )
     `);
+    // One active restaurant-issued offer per delivery. Expiry is checked on
+    // every read and claim; a background worker is not required for correctness.
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_timed_offers (
+        tenant_id TEXT NOT NULL,
+        orderId TEXT NOT NULL,
+        driverId TEXT NOT NULL,
+        issuedAt BIGINT NOT NULL,
+        expiresAt BIGINT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'offered',
+        PRIMARY KEY (tenant_id,orderId)
+      )
+    `);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_timed_offers_rider ON driver_timed_offers (tenant_id,driverId,expiresAt)');
     await dbRun(`
       CREATE TABLE IF NOT EXISTS driver_support_replies (
         requestId TEXT PRIMARY KEY,
@@ -5275,6 +5289,53 @@ app.post('/api/delivery/assign',authenticateToken,requireRole(['owner','manager'
  }catch(error){if(open)await dbRun('ROLLBACK');res.status(500).json({error:errMsg(error)});}
 });
 
+// An individual, time-bounded offer does not preassign the order. If it
+// expires or is declined, the order returns to the shared available pool.
+app.post('/api/delivery/driver-offers',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  const orderId=typeof req.body?.orderId==='string'?req.body.orderId.trim():'';
+  const driverId=typeof req.body?.driverId==='string'?req.body.driverId.trim():'';
+  const seconds=req.body?.durationSeconds;
+  if(!orderId||orderId.length>128||!driverId||driverId.length>128||
+     !Number.isInteger(seconds)||seconds<60||seconds>300)
+    return res.status(400).json({error:'Choose an unassigned order, available rider, and 60–300 second offer duration.'});
+  let opened=false;
+  try{
+    await dbRun('BEGIN TRANSACTION');opened=true;
+    const order=await dbGet(
+      "SELECT id FROM orders WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId='') AND status IN ('pending','preparing','ready')",
+      [orderId,req.tenantId]
+    );
+    const driver=await dbGet("SELECT id FROM drivers WHERE id=? AND tenant_id=? AND status IN ('available','active','busy')",
+      [driverId,req.tenantId]);
+    const declined=await dbGet('SELECT 1 AS blocked FROM driver_order_declines WHERE tenant_id=? AND driverId=? AND orderId=?',
+      [req.tenantId,driverId,orderId]);
+    if(!order||!driver||declined){
+      await dbRun('ROLLBACK');opened=false;return res.status(409).json({error:'Order or rider unavailable, or this rider already declined this order.'});
+    }
+    const now=Date.now(),expiresAt=now+seconds*1000;
+    const existing=await dbGet(
+      'SELECT driverId,expiresAt,status FROM driver_timed_offers WHERE tenant_id=? AND orderId=?',
+      [req.tenantId,orderId]
+    );
+    if(existing?.status==='offered' && Number(existing.expiresAt)>now){
+      await dbRun('ROLLBACK');opened=false;return res.status(409).json({error:'This order already has an active individual offer.'});
+    }
+    const result=await dbRun(
+      "INSERT INTO driver_timed_offers (tenant_id,orderId,driverId,issuedAt,expiresAt,status) VALUES (?,?,?,?,?,'offered') ON CONFLICT(tenant_id,orderId) DO UPDATE SET driverId=excluded.driverId,issuedAt=excluded.issuedAt,expiresAt=excluded.expiresAt,status='offered' WHERE driver_timed_offers.status!='offered' OR driver_timed_offers.expiresAt<=?",
+      [req.tenantId,orderId,driverId,now,expiresAt,now]
+    );
+    if(result.changes!==1){await dbRun('ROLLBACK');opened=false;return res.status(409).json({error:'Offer changed. Refresh dispatch.'});}
+    await writeAuditLog(req.user.id,req.user.username,'issue_driver_offer',
+      `Offer for order ${orderId} to rider ${driverId} until ${expiresAt}`);
+    await dbRun('COMMIT');opened=false;
+    return res.status(201).set('Cache-Control','no-store').json({orderId,driverId,issuedAt:now,expiresAt});
+  }catch(error){
+    if(opened)await dbRun('ROLLBACK').catch(()=>{});
+    console.error('[Driver timed offer]',error.message);
+    return res.status(500).json({error:'Could not issue a timed offer.'});
+  }
+});
+
 // Restaurant dispatch reassignment before pickup only. Explicit previous
 // assignment is required to protect against stale manager screens.
 app.post('/api/delivery/reassign',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
@@ -6182,8 +6243,8 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
     );
     const eligibility = await dbGet('SELECT status FROM drivers WHERE id=? AND tenant_id=?', [driverId,t]);
     const unassigned = eligibility && eligibility.status!=='offline' ? await dbAll(
-      "SELECT * FROM orders WHERE tenant_id = ? AND (diningType = 'delivery' OR orderType = 'delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending', 'preparing', 'ready') AND NOT EXISTS (SELECT 1 FROM driver_order_declines dec WHERE dec.tenant_id=orders.tenant_id AND dec.driverId=? AND dec.orderId=orders.id) ORDER BY timestamp DESC",
-      [t,driverId]
+      "SELECT orders.*, CASE WHEN off.status='offered' AND off.expiresAt>? AND off.driverId=? THEN off.expiresAt ELSE NULL END AS offerExpiresAt FROM orders LEFT JOIN driver_timed_offers off ON off.tenant_id=orders.tenant_id AND off.orderId=orders.id WHERE orders.tenant_id=? AND (orders.diningType='delivery' OR orders.orderType='delivery') AND (orders.driverId IS NULL OR orders.driverId='') AND orders.status IN ('pending','preparing','ready') AND NOT EXISTS (SELECT 1 FROM driver_order_declines dec WHERE dec.tenant_id=orders.tenant_id AND dec.driverId=? AND dec.orderId=orders.id) AND (off.orderId IS NULL OR off.status!='offered' OR off.expiresAt<=? OR off.driverId=?) ORDER BY orders.timestamp DESC",
+      [Date.now(),driverId,t,driverId,Date.now(),driverId]
     ) : [];
     const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
     const zoneSetting = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [t, 'timeZone']);
@@ -6469,6 +6530,10 @@ app.post('/api/public/driver/decline',authenticateDriver,async(req,res)=>{
       'INSERT INTO driver_order_declines (tenant_id,driverId,orderId,declinedAt) VALUES (?,?,?,?) ON CONFLICT(tenant_id,driverId,orderId) DO NOTHING',
       [tenantId,driverId,orderId,Date.now()]
     );
+    await dbRun(
+      "UPDATE driver_timed_offers SET status='declined' WHERE tenant_id=? AND orderId=? AND driverId=? AND status='offered'",
+      [tenantId,orderId,driverId]
+    );
     return res.set('Cache-Control','no-store').json({success:true,orderId});
   }catch(error){console.error('[Driver decline]',error.message);return res.status(500).json({error:'Could not decline this delivery.'});}
 });
@@ -6486,6 +6551,14 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
     if (!order || order.tenant_id !== t) return res.status(404).json({ error: 'Order not found.' });
     const declined=await dbGet('SELECT 1 AS declined FROM driver_order_declines WHERE tenant_id=? AND driverId=? AND orderId=?',[t,driverId,orderId]);
     if(declined)return res.status(409).json({error:'You declined this offer. Restaurant dispatch can assign it manually if necessary.'});
+    const activeOffer=await dbGet(
+      "SELECT driverId,expiresAt FROM driver_timed_offers WHERE tenant_id=? AND orderId=? AND status='offered' AND expiresAt>?",
+      [t,orderId,Date.now()]
+    );
+    if(activeOffer && activeOffer.driverId!==driverId)
+      return res.status(409).json({error:'This delivery has a current offer for another rider.'});
+    if(activeOffer && Number(activeOffer.expiresAt)<=Date.now())
+      return res.status(409).json({error:'This individual offer has expired. Refresh available deliveries.'});
     const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
     if (claimed.changes !== 1) {
       // Network recovery: an acknowledged or lost response must not turn
