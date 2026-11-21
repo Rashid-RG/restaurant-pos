@@ -1060,6 +1060,21 @@ async function initTables() {
       )
     `);
 
+    // Additive, tenant-scoped GastroDriver support requests.
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_support_requests (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        driverId TEXT NOT NULL,
+        category TEXT NOT NULL,
+        message TEXT NOT NULL,
+        orderId TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        createdAt BIGINT NOT NULL
+      )
+    `);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_support_tenant_time ON driver_support_requests (tenant_id,createdAt)');
+
     // 26. Driver-Customer In-App Chat Table (Uber Eats-grade live delivery chat)
     await dbRun(`
       CREATE TABLE IF NOT EXISTS driver_customer_chats (
@@ -6059,6 +6074,37 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
 
 // Financial visibility is read-only; no earnings or payout numbers are invented.
 // Cash in hand is not the driver's compensation. Only confirmed deliveries count.
+// Rider support: authenticated and scoped by JWT tenant and driver identity.
+app.get('/api/public/driver/support',authenticateDriver,async(req,res)=>{
+  try {
+    const rows=await dbAll(
+      'SELECT id,category,message,orderId,status,createdAt FROM driver_support_requests WHERE tenant_id=? AND driverId=? ORDER BY createdAt DESC LIMIT 30',
+      [req.driver.tenant_id,req.driver.driverId]
+    );
+    return res.set('Cache-Control','no-store').json({requests:rows});
+  }catch(error){console.error('[Driver support list]',error.message);return res.status(500).json({error:'Support requests unavailable.'});}
+});
+app.post('/api/public/driver/support',authenticateDriver,async(req,res)=>{
+  const category=String(req.body?.category||'');
+  const message=String(req.body?.message||'').trim();
+  const orderId=req.body?.orderId==null?'':String(req.body.orderId).trim();
+  if(!['delivery','payment','safety','account','other'].includes(category) ||
+     message.length<12 || message.length>1000 || orderId.length>128)
+    return res.status(400).json({error:'Choose a category and enter 12–1000 characters; order reference is optional.'});
+  try{
+    if(orderId){
+      const assigned=await dbGet('SELECT id FROM orders WHERE id=? AND tenant_id=? AND driverId=?',[orderId,req.driver.tenant_id,req.driver.driverId]);
+      if(!assigned)return res.status(400).json({error:'Order reference is not assigned to this rider.'});
+    }
+    const id=crypto.randomUUID(),createdAt=Date.now();
+    await dbRun(
+      'INSERT INTO driver_support_requests (id,tenant_id,driverId,category,message,orderId,status,createdAt) VALUES (?,?,?,?,?,?,?,?)',
+      [id,req.driver.tenant_id,req.driver.driverId,category,message,orderId||null,'open',createdAt]
+    );
+    return res.status(201).set('Cache-Control','no-store').json({request:{id,category,message,orderId:orderId||null,status:'open',createdAt}});
+  }catch(error){console.error('[Driver support submission]',error.message);return res.status(500).json({error:'Could not save the support request.'});}
+});
+
 app.get('/api/public/driver/cash-summary', authenticateDriver, async (req, res) => {
   try {
     const rows=await dbAll(
