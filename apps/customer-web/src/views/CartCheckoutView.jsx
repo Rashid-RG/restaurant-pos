@@ -209,8 +209,14 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           setDeliveryQuote({key:activeQuoteKey,status:'unavailable',data:null});
         }
       })
-      .catch(() => {
-        if (!disposed) setDeliveryQuote({key:activeQuoteKey,status:'unavailable',data:null});
+      .catch(error => {
+        if (disposed) return;
+        const reason = error?.code === 'STORE_DELIVERY_LOCATION_MISSING'
+          ? 'Restaurant delivery map pin is missing. The owner must set the real shop coordinates in POS → Online Store.'
+          : error?.code === 'CUSTOMER_DELIVERY_LOCATION_INVALID'
+          ? 'Select a valid customer delivery map pin.'
+          : error?.message || 'Could not verify the delivery fee. Check your connection and retry.';
+        setDeliveryQuote({key:activeQuoteKey,status:'unavailable',data:{error:reason}});
       });
     return () => {disposed=true;};
   }, [orderType,activeQuoteKey]);
@@ -1192,7 +1198,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 ) : (
                   <div role="status" className="gf-checkout-delivery-quote-status">
                     <strong>{!activeQuoteKey ? 'Select a map pin to check delivery' : deliveryQuote.key===activeQuoteKey && deliveryQuote.status==='unavailable' ? 'Delivery quote unavailable' : 'Checking delivery fee and eligibility…'}</strong>
-                    <span>No delivery fee is confirmed yet. The restaurant will validate the final charges before accepting your order.</span>
+                    <span>{deliveryQuote.key===activeQuoteKey && deliveryQuote.data?.error ? deliveryQuote.data.error : !activeQuoteKey ? 'Choose your exact delivery location to receive a fee quote.' : 'No delivery fee is confirmed yet. Please verify the restaurant and customer map pins before ordering.'}</span>
                   </div>
                 )}
               </div>
