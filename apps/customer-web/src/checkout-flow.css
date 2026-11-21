@@ -69,3 +69,42 @@
 .gf-checkout-fee-details[open]>summary{border-bottom:1px solid #e0ede3}
 .gf-checkout-fee-content{padding:10px 12px 12px}
 .gf-checkout-fee-content>div{margin-bottom:5px}
+
+/* Progressive checkout: one task per screen, no forced tall single-page form. */
+.gf-checkout-flow .gf-wizard-progress{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;padding:8px 5px;margin:2px 0 12px;background:#f0f7f2;border:1px solid #e0eee4;border-radius:16px;scroll-margin-top:15px}
+.gf-wizard-progress-item{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:5px;border:0;background:transparent;color:#758a7c;min-width:0;min-height:51px;padding:4px 2px;border-radius:12px;cursor:pointer}
+.gf-wizard-progress-item>span{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid #d6e3d9;background:#fff;color:#668475;font-size:12px;font-weight:900}
+.gf-wizard-progress-item small{font-size:10px;font-weight:700;white-space:nowrap;letter-spacing:-.01em}
+.gf-wizard-progress-item.is-active{background:#fff;color:#116c4c;box-shadow:0 3px 12px #0a64431a}
+.gf-wizard-progress-item.is-active>span{border-color:#0b7854;color:#fff;background:#0b7854}
+.gf-wizard-progress-item.is-complete>span{background:#d4f4de;border-color:#a6d9b8;color:#137d55}
+.gf-wizard-progress-item:disabled{cursor:default;opacity:.8}
+.gf-wizard-progress-item:focus-visible{outline:3px solid #0b7854;outline-offset:1px}
+.gf-checkout-flow .gf-wizard-stage{animation:gf-checkout-in .22s ease both;min-height:115px}
+.gf-wizard-stage-heading{margin:0 0 12px}
+.gf-wizard-stage-heading h3{margin:0 0 4px;font-size:18px;font-weight:900;color:#153f2c;letter-spacing:-.03em}
+.gf-wizard-stage-heading p{margin:0;color:#678272;font-size:12px}
+.gf-wizard-cart-items{display:flex;flex-direction:column;gap:7px;margin:0 0 12px}
+.gf-wizard-cart-item{display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #dcece0;border-radius:14px;background:#fff}
+.gf-wizard-cart-emoji{flex:0 0 39px;height:39px;width:39px;display:grid;place-items:center;border-radius:12px;background:#eaf7ef;font-size:20px}
+.gf-wizard-cart-item-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.gf-wizard-cart-item-main strong{color:#1d4232;font-size:12px;font-weight:850;overflow-wrap:anywhere}
+.gf-wizard-cart-item-main small{color:#688373;font-size:10px}
+.gf-wizard-cart-item>strong{font-size:12px;color:#0d6447;white-space:nowrap}
+.gf-wizard-cart-subtotal{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #ddebe1;padding:13px 4px;font-size:13px;font-weight:750;color:#446855}
+.gf-wizard-cart-subtotal strong{font-size:17px;color:#096947}
+.gf-wizard-final-note{padding:15px;margin-bottom:12px;border:1px solid #c9e6d2;background:linear-gradient(125deg,#f1faf3,#e4f5ec);border-radius:16px}
+.gf-wizard-final-note>strong{color:#0b6a48;font-size:14px}
+.gf-wizard-final-note p{margin:7px 0 12px;line-height:1.45;color:#527662;font-size:11px}
+.gf-wizard-final-note>div{display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:12px;border-top:1px solid #d4e9da}
+.gf-wizard-final-note>div span{color:#678070}
+.gf-wizard-final-note>div strong{text-align:right;color:#235a3f}
+.gf-wizard-error{display:flex;align-items:center;gap:10px;background:#fff3ef;border:1px solid #f1c4b5;border-radius:13px;padding:10px 12px;font-size:12px;color:#9d402b;margin:6px 0 12px}
+.gf-wizard-error button{border:0;background:transparent;color:#9d402b;font-size:11px;font-weight:850;margin-left:auto;cursor:pointer}
+.gf-checkout-flow .gf-wizard-sticky{z-index:120}
+.gf-checkout-flow .gf-wizard-sticky .gf-wizard-back{border:1px solid #cfe2d3;background:#f7faf8;color:#336649;padding:10px;flex:0 0 auto!important;min-height:45px;border-radius:12px;font-size:12px;font-weight:800}
+.gf-checkout-flow .gf-wizard-sticky .gf-wizard-next{flex:1}
+.gf-checkout-flow .gf-wizard-sticky-total{min-width:95px}
+@keyframes gf-checkout-in{from{opacity:.2;transform:translateY(7px)}to{opacity:1;transform:none}}
+@media(max-width:380px){.gf-checkout-flow .gf-wizard-progress{padding:6px 2px;gap:1px}.gf-wizard-progress-item small{font-size:9px}.gf-checkout-flow .gf-wizard-sticky{gap:6px;padding-inline:8px!important}.gf-checkout-flow .gf-wizard-sticky .gf-wizard-back{padding:8px}.gf-checkout-sticky-total{min-width:83px}.gf-checkout-sticky-total strong{font-size:13px}}
+@media(prefers-reduced-motion:reduce){.gf-checkout-flow .gf-wizard-stage{animation:none!important}}
