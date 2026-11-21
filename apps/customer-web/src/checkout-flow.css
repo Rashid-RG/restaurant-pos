@@ -61,3 +61,11 @@
 .gf-checkout-location-summary button{flex:0 0 auto;border:1px solid #acd7bd;color:#0b704d;background:white;border-radius:11px;padding:9px 11px;font-size:11px;font-weight:800}
 .gf-checkout-location-picker{margin-top:7px}
 .gf-checkout-flow .gf-checkout-location-picker .leaflet-container{max-height:35dvh;min-height:205px}
+
+.gf-checkout-fee-details{border:1px solid #d9e9dd;background:#f7fbf8;border-radius:13px;overflow:hidden;margin:6px 0}
+.gf-checkout-fee-details>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;padding:12px;min-height:43px;font-size:12px;color:#285640;font-weight:780}
+.gf-checkout-fee-details>summary::-webkit-details-marker{display:none}
+.gf-checkout-fee-details>summary strong{color:#0b7350;font-size:12px}
+.gf-checkout-fee-details[open]>summary{border-bottom:1px solid #e0ede3}
+.gf-checkout-fee-content{padding:10px 12px 12px}
+.gf-checkout-fee-content>div{margin-bottom:5px}
