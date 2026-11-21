@@ -1233,10 +1233,16 @@ export default function App() {
               {approvedEarnings && !earningsLoading && <>
                 <strong className="driver-approved-total">Rs. {(approvedEarnings.totalApprovedCents/100).toFixed(2)}</strong>
                 <small>{approvedEarnings.totalApprovedDeliveries||0} approved deliveries · LKR</small>
-                <ul>{approvedEarnings.entries.slice(0,20).map(entry=><li key={entry.orderId}><span>Order #{String(entry.orderId).slice(-8)}</span><strong>Rs. {(entry.amountCents/100).toFixed(2)}</strong></li>)}</ul>
+                {Number.isSafeInteger(approvedEarnings.recordedPaidCents) && Number.isSafeInteger(approvedEarnings.outstandingCents) && (
+                  <div className="driver-earnings-breakdown">
+                    <div><span>Manager-recorded external payouts</span><strong>Rs. {(approvedEarnings.recordedPaidCents/100).toFixed(2)}</strong></div>
+                    <div><span>Outstanding approved earnings</span><strong>Rs. {(approvedEarnings.outstandingCents/100).toFixed(2)}</strong></div>
+                  </div>
+                )}
+                <ul>{approvedEarnings.entries.slice(0,20).map(entry=><li key={entry.orderId}><span>Order #{String(entry.orderId).slice(-8)} · {entry.payoutId?'Manager-recorded paid':'Approved, not yet recorded paid'}</span><strong>Rs. {(entry.amountCents/100).toFixed(2)}</strong></li>)}</ul>
                 {!approvedEarnings.entries.length && <p>No delivery compensation approved yet. Ask your restaurant manager about your agreed rate.</p>}
               </>}
-              <p className="driver-earnings-payout-note">Payouts have not been integrated or confirmed. Approved earnings are not proof of payment.</p>
+              <p className="driver-earnings-payout-note">GastroFlow does not transfer money. A recorded payout means your restaurant manager declared an external payment and saved a reference; it does not independently verify a bank or cash transfer. Contact your manager about discrepancies.</p>
             </section>
             <section className="driver-settlement card" aria-label="Driver cash settlement">
               <div className="driver-settlement-head">
