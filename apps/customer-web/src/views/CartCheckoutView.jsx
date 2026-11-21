@@ -68,13 +68,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   },[isScheduled,orderType,scheduleVersion]);
 
   // Delivery & prep time settings from DB
-  const [deliveryFee, setDeliveryFee] = useState(0);
   const [minimumOrder, setMinimumOrder] = useState(0);
   const [storePrepTime, setStorePrepTime] = useState({});
   const [tipPercent, setTipPercent] = useState(0);   // 0 | 5 | 10 | 15 | 'custom'
   const [customTip, setCustomTip] = useState('');
   // Dynamic delivery zone fee breakdown from server
-  const [deliveryFeeBreakdown, setDeliveryFeeBreakdown] = useState(null);
   const [deliveryQuote, setDeliveryQuote] = useState({key:null,status:'needs-location',data:null});
 
   // Promo & Loyalty
@@ -173,10 +171,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   }, [canOrder, store?.tenantId, cartIds]);
 
   useEffect(() => {
-    setDeliveryFee(Number(store?.deliveryFee || 0));
     setMinimumOrder(Number(store?.minimumOrder || 0));
     if (store?.prepTime) setStorePrepTime(store.prepTime);
-  }, [store?.tenantId, store?.deliveryFee, store?.minimumOrder, store?.prepTime]);
+  }, [store?.tenantId, store?.minimumOrder, store?.prepTime]);
 
   // Only show a delivery quote for the selected restaurant, pinned location
   // and current subtotal. Ignore late results from superseded requests.
@@ -191,25 +188,18 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const deliveryQuoteConfirmed=deliveryQuoteReady({type:orderType,key:activeQuoteKey,quote:deliveryQuote});
   useEffect(() => {
     if (orderType !== 'delivery' || !activeQuoteKey) {
-      setDeliveryFeeBreakdown(null);
-      setDeliveryFee(0);
       setDeliveryQuote({key:activeQuoteKey,status:'needs-location',data:null});
       return;
     }
     let disposed=false;
     setDeliveryQuote({key:activeQuoteKey,status:'checking',data:null});
-    setDeliveryFeeBreakdown(null);
-    setDeliveryFee(0);
     apiFetch(`/public/delivery-fee?lat=${encodeURIComponent(geoLocation.lat)}&lng=${encodeURIComponent(geoLocation.lng)}&subtotal=${encodeURIComponent(subtotal)}`)
       .then(data => {
         if (disposed) return;
         if (data?.isOutOfRange === true) {
           setDeliveryQuote({key:activeQuoteKey,status:'out-of-range',data});
-          setDeliveryFeeBreakdown(data);
         } else if (validDeliveryQuote(data)) {
           setDeliveryQuote({key:activeQuoteKey,status:'ready',data});
-          setDeliveryFeeBreakdown(data);
-          setDeliveryFee(data.totalFee);
         } else {
           setDeliveryQuote({key:activeQuoteKey,status:'unavailable',data:null});
         }
@@ -226,7 +216,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     return () => {disposed=true;};
   }, [orderType,activeQuoteKey]);
 
-  const visibleDeliveryBreakdown = deliveryQuote.key===activeQuoteKey ? deliveryFeeBreakdown : null;
+  const visibleDeliveryBreakdown = orderType === 'delivery' && activeQuoteKey && deliveryQuote.key === activeQuoteKey &&
+    (deliveryQuote.status === 'ready' || deliveryQuote.status === 'out-of-range') ? deliveryQuote.data : null;
 
   // Totals calculations
   const loyaltyAvailable = customer?.loyaltyPoints || 0;
@@ -250,7 +241,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const tax = money((subtotal - discountTotal + serviceCharge) * taxRate);
   
   // Dynamic delivery fee addition
-  const activeDeliveryFee = orderType === 'delivery' && deliveryQuoteConfirmed ? deliveryFee : 0;
+  const activeDeliveryFee = orderType === 'delivery' && deliveryQuoteConfirmed ? visibleDeliveryBreakdown.totalFee : 0;
   // Tip: preset percentage of subtotal, or a custom amount. The server re-prices authoritatively.
   const tipAmount = tipPercent === 'custom'
     ? Math.max(0, Number(customTip) || 0)
@@ -1187,7 +1178,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                     </div>
                     {visibleDeliveryBreakdown.distanceCharge > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                        <span>📏 Distance Charge ({(visibleDeliveryBreakdown.distanceKm - (visibleDeliveryBreakdown.freeRadius || 2)).toFixed(1)} km × Rs. {Math.round(visibleDeliveryBreakdown.distanceCharge / Math.max(0.1, visibleDeliveryBreakdown.distanceKm - (visibleDeliveryBreakdown.freeRadius || 2)))})</span>
+                        <span>📏 Distance Charge ({(visibleDeliveryBreakdown.distanceKm - (visibleDeliveryBreakdown.freeRadius ?? 2)).toFixed(1)} km × Rs. {Math.round(visibleDeliveryBreakdown.distanceCharge / Math.max(0.1, visibleDeliveryBreakdown.distanceKm - (visibleDeliveryBreakdown.freeRadius ?? 2)))})</span>
                         <span>Rs. {visibleDeliveryBreakdown.distanceCharge}</span>
                       </div>
                     )}
