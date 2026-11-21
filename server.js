@@ -5545,14 +5545,19 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
    if((await getTenantMeta(tenant.id)).status!=='active')continue;
    const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','onlineCoverPhoto','address','storeOpen','onlinePickupEnabled','onlineDeliveryEnabled','onlineOrderHours','timeZone','storeLat','storeLng','restaurantLat','restaurantLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
    const ratings=await dbGet('SELECT AVG(rating) AS rating,COUNT(*) AS count FROM feedbacks WHERE tenant_id=? AND rating BETWEEN 1 AND 5',[tenant.id]);
-   const latitude=settings.storeLat || settings.restaurantLat;
-   const longitude=settings.storeLng || settings.restaurantLng;
-   const storeLat=latitude ? Number(latitude) : null,storeLng=longitude ? Number(longitude) : null;
-   const configuredLocation=Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
-   let quote=null;if(lat!=null&&configuredLocation&&settings.onlineDeliveryEnabled!=='false')quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
+   // A text address cannot be used as a delivery pin. Keep valid legacy per-tenant pins.
+   const latitude=settings.storeLat !== undefined && settings.storeLat !== '' ? settings.storeLat : settings.restaurantLat;
+   const longitude=settings.storeLng !== undefined && settings.storeLng !== '' ? settings.storeLng : settings.restaurantLng;
+   const storeLat=latitude == null || latitude === '' ? null : Number(latitude);
+   const storeLng=longitude == null || longitude === '' ? null : Number(longitude);
+   const configuredLocation=storeLat!==null&&storeLng!==null&&Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
+   const deliveryEnabled=settings.onlineDeliveryEnabled!=='false';
+   let quote=null;
+   if(lat!=null&&lng!=null&&configuredLocation&&deliveryEnabled)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
+   const deliveryIssue=!deliveryEnabled?'delivery_disabled':!configuredLocation?'store_pin_missing':lat==null||lng==null?'customer_pin_required':quote?.isOutOfRange?'outside_delivery_radius':quote?'none':'quote_unavailable';
    const hours=onlineHours(settings);
    const withinHours=hours.includes(Date.now());
-   stores.push({coverPhoto:settings.onlineCoverPhoto||null,opensAt:settings.storeOpen==='true'&&!withinHours?hours.opens:null,timeZone:settings.timeZone||'Asia/Colombo',id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true'&&withinHours,pickupEnabled:settings.onlinePickupEnabled!=='false',deliveryEnabled:settings.onlineDeliveryEnabled!=='false',isDeliverable:settings.onlineDeliveryEnabled==='false'?false:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
+   stores.push({coverPhoto:settings.onlineCoverPhoto||null,opensAt:settings.storeOpen==='true'&&!withinHours?hours.opens:null,timeZone:settings.timeZone||'Asia/Colombo',id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true'&&withinHours,pickupEnabled:settings.onlinePickupEnabled!=='false',deliveryEnabled,deliveryIssue,isDeliverable:!deliveryEnabled?false:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
   }
   res.set('Cache-Control', 'no-store').json(stores);
  }catch(error){res.status(500).json({error:errMsg(error)});}
