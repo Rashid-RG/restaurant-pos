@@ -48,3 +48,5 @@
 @media(max-width:620px){.gf-modern-tracking{padding:9px 12px 102px!important}.gf-journey-focus{padding:15px!important;margin-top:6px!important}.gf-journey-focus-icon{flex-basis:53px;width:53px;height:53px}.gf-journey-focus h1{font-size:19px}.gf-journey-map-body .tm-map{height:29dvh!important;min-height:210px}.gf-journey-auxiliary>summary{padding:14px}}
 @media(prefers-reduced-motion:reduce){.gf-journey-focus *, .gf-journey-map-shell *, .gf-journey-auxiliary *{animation:none!important;transition:none!important}}
 @media print{.gf-journey-focus,.gf-journey-map-shell,.gf-journey-auxiliary.gf-journey-contacts{display:none!important}.gf-journey-receipt{display:block!important}.gf-journey-receipt>.customer-order-receipt{display:block!important}}
+
+.gf-map-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.gf-map-actions button{border:1px solid #cee7d6;border-radius:12px;background:#effaf2;color:#0b6845;font-size:11px;font-weight:800;padding:8px 10px}.gf-map-actions button[aria-pressed=true]{background:#0a6b4e;color:white;border-color:#0a6b4e}
