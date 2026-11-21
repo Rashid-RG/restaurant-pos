@@ -62,11 +62,25 @@ export default function DeliveryMap({destination, fix, geometry}) {
       view.on('load', () => {setReady(true); setFailed(false);});
       // Manual navigation always takes priority over camera follow mode.
       view.on('dragstart',()=>setFollowing(false));
+      // MapLibre's canvas needs an explicit resize when the trip panel moves.
+      const resize=()=>{if(map.current===view)view.resize();};
+      const observer=typeof ResizeObserver!=='undefined'
+        ? new ResizeObserver(resize) : null;
+      observer?.observe(container.current);
+      window.addEventListener('resize',resize);
+      const onVisible=()=>{if(document.visibilityState==='visible')resize();};
+      document.addEventListener('visibilitychange',onVisible);
+      view.__gfDisposeResize=()=>{
+        observer?.disconnect();
+        window.removeEventListener('resize',resize);
+        document.removeEventListener('visibilitychange',onVisible);
+      };
       view.on('error', event => {if (event?.error) console.warn('Delivery map tile or style error:', event.error.message);});
     } catch {
       setFailed(true);
     }
     return () => {
+      view?.__gfDisposeResize?.();
       view?.remove();
       map.current = null;
       destinationMarker.current = null;
