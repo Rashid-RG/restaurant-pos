@@ -71,6 +71,9 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
   const [cashSummary,setCashSummary]=useState(null);
+  const [approvedEarnings,setApprovedEarnings]=useState(null);
+  const [earningsLoading,setEarningsLoading]=useState(false);
+  const [earningsError,setEarningsError]=useState('');
   const [roadEstimates,setRoadEstimates]=useState({});
   const [roadLoadingId,setRoadLoadingId]=useState(null);
   const roadRequestEpochRef=useRef(0);
@@ -80,6 +83,21 @@ export default function App() {
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
   const [driverScreen,setDriverScreen]=useState('home');
+  useEffect(()=>{
+    if(driverScreen!=='earnings'||!driver?.id)return;
+    let cancelled=false;
+    const driverId=driver.id;
+    setEarningsLoading(true);setEarningsError('');
+    apiFetch('/public/driver/earnings',{cache:'no-store'}).then(data=>{
+      if(cancelled||driverStatusIdentityRef.current!==driverId)return;
+      if(data.currency!=='LKR'||!Number.isSafeInteger(data.totalApprovedCents)||data.totalApprovedCents<0||
+         !Array.isArray(data.entries))throw new Error('Unexpected approved earnings data.');
+      setApprovedEarnings(data);
+    }).catch(error=>{
+      if(!cancelled)setEarningsError(error.message||'Could not load earnings.');
+    }).finally(()=>{if(!cancelled)setEarningsLoading(false);});
+    return()=>{cancelled=true;};
+  },[driver?.id,driverScreen]);
   // Preferences belong to the authenticated rider on this device.
   const [soundAlertsEnabled,setSoundAlertsEnabled]=useState(true);
   useEffect(()=>{
@@ -258,6 +276,7 @@ export default function App() {
     setRoadEstimates({});setRoadLoadingId(null);
     cashRequestVersionRef.current+=1; // Invalidates any in-flight result from the previous rider.
     setCashSummary(null);setCashLoading(false);setCashDetailsOpen(false);setCashError('');
+    setApprovedEarnings(null);setEarningsLoading(false);setEarningsError('');
     activeOrdersRef.current = [];
     prevUnassignedCountRef.current = 0;
     dispatchAbortRef.current?.cancel();dispatchAbortRef.current=null;
@@ -1206,7 +1225,19 @@ export default function App() {
             </>}
             {driverScreen === 'earnings' && <>
             <h2 className="driver-screen-heading">Cash &amp; earnings</h2>
-            <div className="driver-earnings-notice"><Wallet size={20}/><p><strong>Driver earnings and payouts are not yet available.</strong> Customer cash is shown separately and must not be confused with your wages or commission.</p></div>
+            <section className="driver-approved-earnings card" aria-label="Restaurant-approved rider earnings">
+              <h3>Approved delivery earnings</h3>
+              <p>Only amounts explicitly approved by your restaurant appear here. Customer cash and delivery fees are not your wages.</p>
+              {earningsLoading && <p role="status">Loading approved earnings…</p>}
+              {earningsError && <p role="alert" className="driver-cash-error">{earningsError}</p>}
+              {approvedEarnings && !earningsLoading && <>
+                <strong className="driver-approved-total">Rs. {(approvedEarnings.totalApprovedCents/100).toFixed(2)}</strong>
+                <small>{approvedEarnings.totalApprovedDeliveries||0} approved deliveries · LKR</small>
+                <ul>{approvedEarnings.entries.slice(0,20).map(entry=><li key={entry.orderId}><span>Order #{String(entry.orderId).slice(-8)}</span><strong>Rs. {(entry.amountCents/100).toFixed(2)}</strong></li>)}</ul>
+                {!approvedEarnings.entries.length && <p>No delivery compensation approved yet. Ask your restaurant manager about your agreed rate.</p>}
+              </>}
+              <p className="driver-earnings-payout-note">Payouts have not been integrated or confirmed. Approved earnings are not proof of payment.</p>
+            </section>
             <section className="driver-settlement card" aria-label="Driver cash settlement">
               <div className="driver-settlement-head">
                 <div><strong>Cash settlement</strong><p>Collected customer cash, not driver earnings or payout.</p></div>
