@@ -1,4 +1,5 @@
 import { resolveCustomerImageUrl } from '../utils/native-image-url.js';
+import './ReorderFavorites.css';
 import {startStoreUpdates} from '../utils/live-store.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
