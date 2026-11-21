@@ -6559,7 +6559,7 @@ app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
       return res.status(409).json({error:'This delivery has a current offer for another rider.'});
     if(activeOffer && Number(activeOffer.expiresAt)<=Date.now())
       return res.status(409).json({error:'This individual offer has expired. Refresh available deliveries.'});
-    const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready')", [driverId, orderId, t]);
+    const claimed = await dbRun("UPDATE orders SET driverId = ? WHERE id = ? AND tenant_id = ? AND (diningType='delivery' OR orderType='delivery') AND (driverId IS NULL OR driverId = '') AND status IN ('pending','preparing','ready') AND NOT EXISTS (SELECT 1 FROM driver_timed_offers off WHERE off.tenant_id=orders.tenant_id AND off.orderId=orders.id AND off.status='offered' AND off.expiresAt>? AND off.driverId!=?)", [driverId, orderId, t, Date.now(), driverId]);
     if (claimed.changes !== 1) {
       // Network recovery: an acknowledged or lost response must not turn
       // this driver's already-saved assignment into a false conflict.
