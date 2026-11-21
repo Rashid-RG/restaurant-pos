@@ -1066,7 +1066,15 @@ export default function App() {
                     : ord.deliveryAddress?.trim()
                       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ord.deliveryAddress)}`
                       : null;
-                  const progressStage = ord.status === 'delivered' ? 3 : ['out_for_delivery', 'arrived'].includes(ord.status) ? 2 : 1;
+                  const progressStage = ord.status === 'delivered' ? 4
+                    : ['out_for_delivery', 'arrived'].includes(ord.status) ? 3
+                    : ord.status === 'picked_up' ? 2 : 1;
+                  const nextStep = ord.status === 'ready' ? 'Confirm collection from the restaurant before starting delivery.'
+                    : ord.status === 'picked_up' ? 'Order collected. Start the trip when leaving the restaurant.'
+                    : ord.status === 'out_for_delivery' ? 'Deliver to the customer and capture proof at handover.'
+                    : ord.status === 'arrived' ? 'Confirm the handover with the required delivery proof.'
+                    : ord.status === 'delivered' ? 'This delivery has been completed.'
+                    : 'Wait until the restaurant marks the order ready for pickup.';
 
                   return (
                     <article key={ord.id} className="card driver-delivery-card" style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1078,8 +1086,9 @@ export default function App() {
                       </div>
 
                       <ol className="driver-progress-steps" aria-label="Delivery progress">
-                        {['Ready for pickup', 'On the way', 'Delivered'].map((label, index) => <li key={label} className={progressStage >= index + 1 ? 'complete' : ''} aria-current={progressStage === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}
+                        {['Ready', 'Picked up', 'On the way', 'Delivered'].map((label, index) => <li key={label} className={progressStage >= index + 1 ? 'complete' : ''} aria-current={progressStage === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}
                       </ol>
+                      <div className="driver-next-step"><strong>Next step</strong><span>{nextStep}</span></div>
                       <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div>👤 <strong>{ord.customerName || 'Customer'}</strong></div>
                         <div>📞 <strong>{customerPhone}</strong></div>
@@ -1089,12 +1098,18 @@ export default function App() {
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to destination for order ${String(ord.id).slice(-4)}`}>🧭 Navigate</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
+                        {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to customer drop-off for order ${String(ord.id).slice(-4)}`}>🧭 Customer drop-off</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}>💬 WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
-                        {['ready', 'picked_up'].includes(ord.status) && (
-                          <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem', background: '#3b82f6' }}
+                        {ord.status === 'ready' && (
+                          <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem' }}
+                            disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'picked_up')}>
+                            {pendingOrderId===ord.id ? 'Confirming pickup…' : '✓ Confirm order picked up'}
+                          </button>
+                        )}
+                        {ord.status === 'picked_up' && (
+                          <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem', background: '#2563eb' }}
                             disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'out_for_delivery')}>
-                            <AnimatedFeatureIcon kind="delivery" size={28} active={false}/> {pendingOrderId===ord.id ? 'Updating delivery…' : 'Start Delivery (Out for Delivery)'}
+                            <AnimatedFeatureIcon kind="delivery" size={28} active={false}/> {pendingOrderId===ord.id ? 'Updating delivery…' : 'Start delivery'}
                           </button>
                         )}
                         {['out_for_delivery', 'arrived'].includes(ord.status) && (
