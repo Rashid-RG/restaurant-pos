@@ -15,3 +15,35 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 
 @media(max-width:600px){.driver-controls-card{flex-wrap:wrap;gap:14px}.driver-controls-card>div:first-child{flex:1 1 100%;min-width:0}.driver-controls-actions{display:grid!important;grid-template-columns:44px minmax(0,1fr) 44px;width:100%}.driver-controls-actions button{white-space:nowrap;min-width:44px}.driver-controls-actions>.btn-emerald{width:100%}}
 @media(max-width:360px){.driver-welcome{padding:22px 18px}.driver-welcome h1{font-size:26px;line-height:1.18}}
+
+
+/* GastroDriver 2.0: iPhone-first dashboard and action layout. */
+.driver-welcome-compact{padding:20px 22px!important;margin-bottom:14px!important}
+.driver-welcome-compact h1{font-size:clamp(23px,5.3vw,30px)!important;line-height:1.17!important;margin:10px 0!important}
+.driver-welcome-compact p{font-size:13px!important;line-height:1.5!important;margin:0 0 10px!important}
+.driver-quick-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 12px}
+.driver-quick-nav button{min-width:0;min-height:58px;border:1px solid #d5e4db;border-radius:13px;background:#fff;color:#275e49;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;cursor:pointer;padding:10px 5px}
+.driver-quick-nav button strong{background:#e7f5ec;border-radius:50%;min-width:23px;height:23px;display:inline-grid;place-items:center;font-variant-numeric:tabular-nums}
+.driver-quick-nav button:focus-visible,.driver-task-nav button:focus-visible{outline:3px solid #0a8462;outline-offset:2px}
+#driver-tasks{scroll-margin-top:96px}
+.driver-controls-card{min-width:0;max-width:100%;box-sizing:border-box;flex-wrap:wrap!important;gap:12px!important}
+.driver-controls-card>div:first-child{min-width:0;flex:1 1 100%;overflow-wrap:anywhere}
+.driver-controls-actions{display:flex!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start;gap:8px!important;width:100%;min-width:0}
+.driver-controls-actions>label{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
+.driver-controls-actions>.btn-emerald{flex:1 1 160px;min-width:0!important;max-width:100%;white-space:normal!important;overflow-wrap:anywhere;text-align:center}
+.driver-controls-actions>.btn-outline{flex:0 0 auto}
+.driver-controls-actions button{min-height:44px;box-sizing:border-box}
+.driver-metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.driver-metrics>div{min-width:0;padding:13px 10px}
+.driver-task-nav{position:relative;scroll-margin-top:90px}
+@media(max-width:600px){
+ .driver-header{padding-top:calc(10px + env(safe-area-inset-top))!important}
+ .driver-controls-actions{display:flex!important;grid-template-columns:none!important}
+ .driver-controls-actions>.btn-emerald{width:auto!important}
+ .driver-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .driver-metrics small{font-size:10px;line-height:1.35;display:block}
+ .driver-metrics strong{font-size:22px}
+ .driver-welcome-compact{padding:18px!important}
+ .driver-task-nav{margin-top:16px}
+}
+@media(max-width:380px){.driver-quick-nav button{font-size:11px}.driver-metrics>div{padding:12px 7px}}
