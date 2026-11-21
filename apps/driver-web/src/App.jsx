@@ -71,6 +71,79 @@ function isRushHour(timeZone = 'Asia/Colombo') {
   return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
 }
 
+function DriverChatDialog({order,onClose}) {
+  const dialogRef=useRef(null);
+  const [messages,setMessages]=useState([]);
+  const [draft,setDraft]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const bottomRef=useRef(null);
+  useEffect(()=>{
+    const dialog=dialogRef.current;
+    dialog?.showModal();
+    const close=event=>{event.preventDefault();onClose();};
+    dialog?.addEventListener('cancel',close);
+    return()=>{dialog?.removeEventListener('cancel',close);if(dialog?.open)dialog.close();};
+  },[onClose]);
+  useEffect(()=>{
+    let disposed=false;
+    const refresh=async()=>{
+      if(document.visibilityState==='hidden' || navigator.onLine===false)return;
+      try{
+        const data=await apiFetch(`/orders/${encodeURIComponent(order.id)}/driver-chat`,{cache:'no-store'});
+        if(!disposed && Array.isArray(data))setMessages(data.slice(-150));
+      }catch(e){if(!disposed)setError('Chat could not refresh. Check your connection.');}
+    };
+    void refresh();
+    const timer=window.setInterval(refresh,8000);
+    window.addEventListener('online',refresh);
+    const visible=()=>{if(document.visibilityState==='visible')void refresh();};
+    document.addEventListener('visibilitychange',visible);
+    return()=>{
+      disposed=true;window.clearInterval(timer);
+      window.removeEventListener('online',refresh);
+      document.removeEventListener('visibilitychange',visible);
+    };
+  },[order.id]);
+  useEffect(()=>{bottomRef.current?.scrollIntoView({block:'end',behavior:'auto'});},[messages.length]);
+  const send=async event=>{
+    event.preventDefault();
+    const message=draft.trim();
+    if(!message||busy)return;
+    setBusy(true);setError('');
+    try{
+      await apiFetch(`/orders/${encodeURIComponent(order.id)}/driver-chat`,{
+        method:'POST',body:JSON.stringify({message})
+      });
+      setDraft('');
+      const data=await apiFetch(`/orders/${encodeURIComponent(order.id)}/driver-chat`,{cache:'no-store'});
+      if(Array.isArray(data))setMessages(data.slice(-150));
+    }catch(e){setError(e.message||'Message not sent. Please retry.');}
+    finally{setBusy(false);}
+  };
+  return <dialog ref={dialogRef} aria-label="Message customer"
+    style={{width:'min(100% - 24px,480px)',maxHeight:'min(85dvh,720px)',boxSizing:'border-box',border:0,borderRadius:22,padding:0,background:'var(--surface-card,#fff)',color:'var(--text-main,#0f172a)',boxShadow:'0 24px 90px rgba(0,0,0,.3)'}}>
+    <div style={{display:'flex',flexDirection:'column',maxHeight:'min(85dvh,720px)'}}>
+      <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'16px 18px',borderBottom:'1px solid var(--border-color,#ddd)'}}>
+        <div><strong>Message customer</strong><small style={{display:'block',marginTop:3}}>Order #{String(order.id).slice(-6).toUpperCase()} · Delivery-only chat</small></div>
+        <button type="button" className="btn-outline" onClick={onClose} aria-label="Close customer chat">Close</button>
+      </header>
+      <div style={{minHeight:160,flex:1,overflowY:'auto',padding:'14px 16px',display:'grid',alignContent:'start',gap:10}}>
+        {!messages.length&&<p>Messages for this delivery will appear here.</p>}
+        {messages.map((msg,i)=><div key={msg.id||i} style={{maxWidth:'88%',justifySelf:msg.senderType==='driver'?'end':'start',padding:'10px 12px',borderRadius:14,background:msg.senderType==='driver'?'#d5f6e2':'#edf1f4',color:'#173b2f',overflowWrap:'anywhere'}}>
+          <small style={{display:'block',marginBottom:3}}>{msg.senderType==='driver'?'You':msg.senderName||'Customer'}</small>{msg.message}
+        </div>)}
+        <span ref={bottomRef}/>
+      </div>
+      {error&&<p role="alert" style={{color:'#b91c1c',padding:'0 16px',fontSize:12}}>{error}</p>}
+      <form onSubmit={send} style={{display:'flex',gap:8,padding:'14px 16px max(14px,env(safe-area-inset-bottom))',borderTop:'1px solid var(--border-color,#ddd)'}}>
+        <input className="input-field" aria-label="Message customer" value={draft} onChange={e=>setDraft(e.target.value)} maxLength={1000} placeholder="Write a message…" style={{flex:1,minWidth:0}}/>
+        <button className="btn-emerald" type="submit" disabled={busy||!draft.trim()}>{busy?'Sending…':'Send'}</button>
+      </form>
+    </div>
+  </dialog>;
+}
+
 export default function App() {
   const [driver, setDriver] = useState(restoredDriverProfile);
   const [pendingOfflineUpdates,setPendingOfflineUpdates]=useState([]);
@@ -266,6 +339,7 @@ export default function App() {
   const lastFixRef = useRef(null);
   const [toastMsg, setToastMsg] = useState(null);
   const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState(null);
+  const [driverChatOrder,setDriverChatOrder]=useState(null);
   const [proofPreview, setProofPreview] = useState(null);
 
   // Bug 1 fix: ref always holds current activeOrders so GPS watchPosition
@@ -1765,6 +1839,7 @@ export default function App() {
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to ${navigatingToPickup ? 'pickup' : 'customer drop-off'} for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> {navigatingToPickup ? 'Restaurant pickup' : 'Customer drop-off'}</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}><MessageCircle size={17} aria-hidden="true"/> WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
+                        <button type="button" className="driver-order-action driver-order-contact" onClick={()=>setDriverChatOrder(ord)}><MessageCircle size={17} aria-hidden="true"/> In-app chat</button>
                         {hasDropCoordinates && ['picked_up','out_for_delivery','arrived'].includes(ord.status) && (
                           <div className="driver-road-eta">
                             <div><strong>Road travel estimate</strong><small>Road routing only · not a traffic-aware arrival guarantee</small></div>
@@ -1834,6 +1909,8 @@ export default function App() {
             </nav>
           </div>
         )}
+
+        {driverChatOrder && <DriverChatDialog key={driverChatOrder.id} order={driverChatOrder} onClose={()=>setDriverChatOrder(null)}/>}
 
         {/* Proof of Delivery Signature & Photo Modal */}
         {selectedDeliveryOrder && (
