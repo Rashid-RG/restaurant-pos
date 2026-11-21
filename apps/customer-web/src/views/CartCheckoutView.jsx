@@ -13,6 +13,7 @@ import { getActiveTenant } from '../utils/tenant.js';
 import { canUseHostedPayHereGateway, payHerePaymentDisabled } from '../utils/native-payment-policy.js';
 import { Store, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/LocationPicker.jsx';
+import CheckoutSheet from '../components/CheckoutSheet.jsx';
 import {locationKey, selectedDeliveryPin} from '../utils/restaurant-fulfilment.js';
 import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
 import {CHECKOUT_STEPS,checkoutStepIssue} from '../utils/checkout-wizard.js';
@@ -49,6 +50,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [notes, setNotes] = useState('');
   const [wizardStep,setWizardStep]=useState(0);
   const [wizardError,setWizardError]=useState('');
+  const [activeSheet,setActiveSheet]=useState(null);
+  useEffect(()=>{setActiveSheet(null);},[wizardStep]);
   const wizardTopRef=useRef(null);
 
   // Scheduling states
@@ -909,6 +912,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               onClick={() => {
                 setIsScheduled(false);
                 setScheduledTimeVal(null);
+                setActiveSheet(null);
               }}
             >
               🚀 {t('scheduleNow')}
@@ -919,14 +923,20 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               style={{ flex: 1, padding: 10, fontSize: '0.8rem' }}
               onClick={() => {
                 setIsScheduled(true);
+                setActiveSheet('schedule');
               }}
             >
               📅 {t('scheduleLater')}
             </button>
           </div>
 
-          {isScheduled && (
-            <div className="form-group" style={{ marginTop: 12 }}>
+          {isScheduled&&<button type="button" className="gf-checkout-option-trigger gf-checkout-schedule-summary" onClick={()=>setActiveSheet('schedule')}>
+            <span>📅 {scheduledTimeVal?new Date(scheduledTimeVal).toLocaleString(undefined,{timeZone:store?.timeZone||'Asia/Colombo',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Choose available time'}</span>
+            <strong>{scheduleError?'Unavailable':scheduleLoading?'Checking…':'Edit ›'}</strong>
+          </button>}
+          <CheckoutSheet open={activeSheet==='schedule'} onClose={()=>setActiveSheet(null)}
+            title="Schedule your order" description="Select a real available slot at this restaurant.">
+            <div className="form-group gf-checkout-sheet-field">
               <p role="status" style={{fontSize:'.8rem',color:'var(--text-muted)'}}>{scheduleLoading?t('scheduleLoading'):scheduleError || (scheduleAvailability.length ? t('scheduleConfirm') : t('scheduleFull'))}</p>
               <label>{t('chooseSchedule')}</label>
               <select 
@@ -941,7 +951,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 ))}
               </select>
             </div>
-          )}
+          </CheckoutSheet>
         </div>
 
         </div>}
@@ -1028,8 +1038,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>}
         {wizardStep===3&&<div className="gf-wizard-stage" aria-label="Payment and optional extras">
                 {/* Promo Codes & Loyalty Points */}
-        <details className="form-section checkout-options gf-checkout-panel gf-checkout-offers">
-          <summary>🏷️ Offers & loyalty {appliedPromo?'· Promo applied':''}</summary>
+        <button type="button" className="gf-checkout-option-trigger" onClick={()=>setActiveSheet('offers')}>
+          <span>🏷️ Offers & loyalty</span><strong>{appliedPromo?'Promo applied':redeemPoints?'Points applied':'View offers ›'}</strong>
+        </button>
+        <CheckoutSheet open={activeSheet==='offers'} onClose={()=>setActiveSheet(null)}
+          title="Offers & loyalty" description="Redeem a valid restaurant offer or available loyalty points.">
           
           {/* Promo Input */}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -1072,7 +1085,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               </label>
             </div>
           )}
-        </details>
+        </CheckoutSheet>
 
         {/* Payment Methods */}
         <section id="gf-checkout-payment" className="form-section gf-checkout-panel gf-checkout-payment">
@@ -1100,21 +1113,27 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </section>
 
         {/* Special Instructions Notes */}
-        <details className="form-section checkout-options gf-checkout-panel gf-checkout-notes">
-          <summary>📝 Special instructions {notes.trim()?'· Added':''}</summary>
+        <button type="button" className="gf-checkout-option-trigger" onClick={()=>setActiveSheet('notes')}>
+          <span>📝 Special instructions</span><strong>{notes.trim()?'Added':'Optional ›'}</strong>
+        </button>
+        <CheckoutSheet open={activeSheet==='notes'} onClose={()=>setActiveSheet(null)}
+          title="Special instructions" description="Tell the restaurant about preparation or handover preferences.">
           <textarea 
             className="form-control" 
             rows={2} 
             placeholder="E.g., Please make the curry extra spicy, deliver after 6 PM, etc."
             value={notes}
             onChange={e => setNotes(e.target.value)}
-            style={{ resize: 'none', marginTop: 8 }}
+            style={{ resize: 'vertical', marginTop: 8 }}
           />
-        </details>
+        </CheckoutSheet>
 
         {/* Tip the team */}
-        <details className="form-section checkout-options gf-checkout-panel gf-checkout-tip">
-          <summary>💚 {t.addTip} {tipAmount>0?'· Rs. '+tipAmount.toFixed(2):'· Optional'}</summary>
+        <button type="button" className="gf-checkout-option-trigger" onClick={()=>setActiveSheet('tip')}>
+          <span>💚 {t.addTip}</span><strong>{tipAmount>0?'Rs. '+tipAmount.toFixed(2):'Optional ›'}</strong>
+        </button>
+        <CheckoutSheet open={activeSheet==='tip'} onClose={()=>setActiveSheet(null)}
+          title={t.addTip} description="Entirely optional. The restaurant verifies final order amounts.">
           <p style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: -4, marginBottom: 12 }}>{t.tipNote}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
             {[0, 5, 10, 15].map(pct => (
@@ -1147,7 +1166,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               style={{ marginTop: 10 }}
             />
           )}
-        </details>
+        </CheckoutSheet>
 
         </div>}
         {wizardStep===0&&<div className="gf-wizard-stage">
