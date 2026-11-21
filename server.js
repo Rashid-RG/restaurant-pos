@@ -30,7 +30,7 @@ import {rankDispatchRiders} from './lib/delivery/smart-dispatch.js';
 import {createRedisRiderPresence} from './lib/delivery/redis-rider-presence.js';
 import {createRedisRespClient} from './lib/delivery/redis-resp-client.js';
 import {createRiderPresenceRouter} from './routes/rider-presence.js';
-import { haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
+import { coordinatePair, restaurantPickupPin, haversineDistanceKm, createDeliveryFeeCalculator, createPeakHourService } from './lib/delivery/index.js';
 import { isValidSriLankanPhone, isValidAddress, generateStrongPassword, generateSecurePin, createPasswordResetIssuer, createPasswordResetResolver, createCustomerLoginLookup, createRegistrationOtpVerifier, createCustomerRegistrationDuplicates, isCustomerRegistrationUniqueConflict } from './lib/identity/index.js';
 import { createCustomerOtpLoginLookup } from './lib/identity/customer-otp-login.js';
 import { buildTenantOtpSmsMessage } from './lib/identity/otp-message.js';
@@ -1621,8 +1621,6 @@ async function seedDatabase(tenantId) {
       { key: 'deliveryPeakSurcharge', value: '50' },    // LKR 50 peak hour surcharge
       { key: 'deliveryRainSurcharge', value: '75' },    // LKR 75 bad weather surcharge
       { key: 'deliveryFreeThreshold', value: '3000' },  // Free delivery for orders > LKR 3000
-      { key: 'storeLat', value: '6.9271' },             // Colombo 03 default
-      { key: 'storeLng', value: '79.8612' },            // Colombo 03 default
       { key: 'driverDispatchMode', value: 'hybrid' },   // 'auto' | 'manual' | 'hybrid'
       { key: 'isRainyWeather', value: 'false' },        // Manual admin toggle
       { key: 'autoDispatchTimeoutSec', value: '180' },  // 3 min auto-dispatch timeout
@@ -2716,8 +2714,17 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
       return res.status(400).json({ error: 'No settings provided.' });
     }
 
+    const savesPin = Object.hasOwn(body, 'storeLat') && Object.hasOwn(body, 'storeLng');
+    if (savesPin) {
+      const pin = coordinatePair(body.storeLat, body.storeLng);
+      if (!pin) return res.status(400).json({ error: 'Choose a valid restaurant pickup entrance.' });
+      await dbRun(
+        "INSERT INTO settings (tenant_id,key,value) VALUES (?,'storeLat',?),(?,'storeLng',?) ON CONFLICT (tenant_id,key) DO UPDATE SET value=excluded.value",
+        [tenantId, String(pin.lat), tenantId, String(pin.lng)]
+      );
+    }
     for (const [k, v] of settingsEntries) {
-      await setSetting(tenantId, k, v);
+      if (!(savesPin && (k === 'storeLat' || k === 'storeLng'))) await setSetting(tenantId, k, v);
       notifyPublicStore({ type: 'settings_updated', key: k, value: v }, tenantId);
       if (k === 'storeOpen') notifyPublicStore({ type: 'store_update', storeOpen: v === 'true' }, tenantId);
       notifyPOS({ type: 'settings_updated', key: k, value: v }, tenantId);
@@ -3565,15 +3572,14 @@ async function autoDispatchDriver(orderId, tenantId = 'default_tenant') {
     if (!order || !order.deliveryLat || !order.deliveryLng) return;
 
     // Never rank drivers relative to fabricated default store coordinates.
-    const dispatchStore = await getSettingsMap(tenantId, ['storeLat', 'storeLng']);
-    const storeLat = Number(dispatchStore.storeLat);
-    const storeLng = Number(dispatchStore.storeLng);
-    if(!dispatchStore.storeLat||!dispatchStore.storeLng||!Number.isFinite(storeLat)||!Number.isFinite(storeLng)||
-      Math.abs(storeLat)>90||Math.abs(storeLng)>180){
+    const dispatchStore = await getSettingsMap(tenantId, ['storeLat','storeLng','restaurantLat','restaurantLng']);
+    const pickup = restaurantPickupPin(dispatchStore);
+    if (!pickup) {
       notifyPOS({type:'dispatch_escalation',orderId,reason:'Restaurant pickup location needs configuration',customerName:order.customerName},tenantId);
       return;
     }
 
+    const { lat: storeLat, lng: storeLng } = pickup;
     const smartDispatchEnabled=process.env.GASTROFLOW_SMART_DISPATCH_PILOT==='true' &&
       process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true';
     let driversWithDistance;
@@ -3713,9 +3719,7 @@ app.get('/api/public/orders/:id/road-route',publicApiLimiter,async(req,res)=>{
       }
     }
     if(!from){
-      const settings=await getSettingsMap(tenantId,['storeLat','storeLng']);
-      const store={lat:settings.storeLat,lng:settings.storeLng};
-      if(validRoadPoint(store))from=store;
+      from = restaurantPickupPin(await getSettingsMap(tenantId, ['storeLat','storeLng','restaurantLat','restaurantLng']));
     }
     if(!validRoadPoint(from))return res.json({available:false,reason:'no_origin_pin'});
     const key=[tenantId,order.id,order.driverId||'unassigned',String(order.status||'').toLowerCase(),startingPoint,Number(from.lat).toFixed(4),Number(from.lng).toFixed(4),Number(to.lat).toFixed(4),Number(to.lng).toFixed(4)].join(':');
@@ -3762,17 +3766,16 @@ app.get('/api/public/orders/:id/dispatch-status', publicApiLimiter, async (req, 
     if (order.driverId) {
       // Get driver last-known GPS ping
       const ping = await dbGet(
-        'SELECT lat, lng, updatedAt FROM driver_locations WHERE driverName = ? ORDER BY updatedAt DESC LIMIT 1',
-        [order.driverId]
+        'SELECT lat, lng, updatedAt FROM driver_locations WHERE orderId = ? AND driverName = ?',
+        [order.id, order.driverId]
       );
 
       // Get store coordinates to calculate driver's distance to store
-      const settings = await getSettingsMap(tenantId, ['storeLat', 'storeLng', 'storeName']);
-      const storeLat = parseFloat(settings.storeLat || 6.9271);
-      const storeLng = parseFloat(settings.storeLng || 79.8612);
-
+      const pickup = restaurantPickupPin(await getSettingsMap(tenantId, ['storeLat','storeLng','restaurantLat','restaurantLng']));
       if (ping) {
-        distanceToStoreKm = Math.round(haversineDistanceKm(ping.lat, ping.lng, storeLat, storeLng) * 10) / 10;
+        if (pickup && coordinatePair(ping.lat, ping.lng)) {
+          distanceToStoreKm = Math.round(haversineDistanceKm(ping.lat, ping.lng, pickup.lat, pickup.lng) * 10) / 10;
+        }
         const pingAge = Date.now() - Number(ping.updatedAt || 0);
         // BUG-006 fix: do NOT return raw GPS coordinates — only derived distance
         driverInfo = {
@@ -5546,18 +5549,15 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
    const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','onlineCoverPhoto','address','storeOpen','onlinePickupEnabled','onlineDeliveryEnabled','onlineOrderHours','timeZone','storeLat','storeLng','restaurantLat','restaurantLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
    const ratings=await dbGet('SELECT AVG(rating) AS rating,COUNT(*) AS count FROM feedbacks WHERE tenant_id=? AND rating BETWEEN 1 AND 5',[tenant.id]);
    // A text address cannot be used as a delivery pin. Keep valid legacy per-tenant pins.
-   const latitude=settings.storeLat !== undefined && settings.storeLat !== '' ? settings.storeLat : settings.restaurantLat;
-   const longitude=settings.storeLng !== undefined && settings.storeLng !== '' ? settings.storeLng : settings.restaurantLng;
-   const storeLat=latitude == null || latitude === '' ? null : Number(latitude);
-   const storeLng=longitude == null || longitude === '' ? null : Number(longitude);
-   const configuredLocation=storeLat!==null&&storeLng!==null&&Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
+   const pickup = restaurantPickupPin(settings);
+   const configuredLocation = Boolean(pickup);
    const deliveryEnabled=settings.onlineDeliveryEnabled!=='false';
    let quote=null;
    if(lat!=null&&lng!=null&&configuredLocation&&deliveryEnabled)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
    const deliveryIssue=!deliveryEnabled?'delivery_disabled':!configuredLocation?'store_pin_missing':lat==null||lng==null?'customer_pin_required':quote?.isOutOfRange?'outside_delivery_radius':quote?'none':'quote_unavailable';
    const hours=onlineHours(settings);
    const withinHours=hours.includes(Date.now());
-   stores.push({coverPhoto:settings.onlineCoverPhoto||null,opensAt:settings.storeOpen==='true'&&!withinHours?hours.opens:null,timeZone:settings.timeZone||'Asia/Colombo',id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true'&&withinHours,pickupEnabled:settings.onlinePickupEnabled!=='false',deliveryEnabled,deliveryIssue,isDeliverable:!deliveryEnabled?false:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
+   stores.push({coverPhoto:settings.onlineCoverPhoto||null,opensAt:settings.storeOpen==='true'&&!withinHours?hours.opens:null,timeZone:settings.timeZone||'Asia/Colombo',id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:pickup?.lat??null,lng:pickup?.lng??null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true'&&withinHours,pickupEnabled:settings.onlinePickupEnabled!=='false',deliveryEnabled,deliveryIssue,isDeliverable:!deliveryEnabled?false:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
   }
   res.set('Cache-Control', 'no-store').json(stores);
  }catch(error){res.status(500).json({error:errMsg(error)});}
@@ -6325,12 +6325,7 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
     ) : [];
     const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
     const zoneSetting = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [t, 'timeZone']);
-    const pickupSettings=await getSettingsMap(t,['storeLat','storeLng']);
-    const validPickup=pickupSettings.storeLat!=null && pickupSettings.storeLng!=null &&
-      String(pickupSettings.storeLat).trim()!=='' && String(pickupSettings.storeLng).trim()!=='' &&
-      validRoadPoint({lat:pickupSettings.storeLat,lng:pickupSettings.storeLng}) &&
-      !(Number(pickupSettings.storeLat)===0&&Number(pickupSettings.storeLng)===0);
-    const pickupLocation=validPickup ? {lat:Number(pickupSettings.storeLat),lng:Number(pickupSettings.storeLng)} : null;
+    const pickupLocation = restaurantPickupPin(await getSettingsMap(t, ['storeLat','storeLng','restaurantLat','restaurantLng']));
     const timeZone = restaurantTimeZone({ timeZone: zoneSetting?.value });
     const today = dateAtRestaurant(new Date(), timeZone);
     const [dayStart, dayEnd] = restaurantDayBounds(today, timeZone);
@@ -6960,6 +6955,7 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
     }
     res.set('Cache-Control', 'no-store');
     const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone', 'onlinePickupEnabled', 'onlineDeliveryEnabled', 'onlineOrderHours', 'pickupInstructions']);
+    const pickup = restaurantPickupPin(s);
     res.json({
       tenantId,
       name: s.businessName || s.restaurantName || tenant.name,
@@ -6978,8 +6974,8 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       deliveryFee: Number(s.deliveryFee || 0),
       minimumOrder: Number(s.minimumOrder || 0),
       timeZone: (() => { try { return new Intl.DateTimeFormat('en-US', { timeZone: s.timeZone || 'Asia/Colombo' }).resolvedOptions().timeZone; } catch { return 'Asia/Colombo'; } })(),
-      lat: (s.storeLat || s.restaurantLat) ? Number(s.storeLat || s.restaurantLat) : null,
-      lng: (s.storeLng || s.restaurantLng) ? Number(s.storeLng || s.restaurantLng) : null,
+      lat: pickup?.lat ?? null,
+      lng: pickup?.lng ?? null,
       vapidPublicKey: pushConfigured() ? process.env.VAPID_PUBLIC_KEY : null
     });
   } catch (err) {

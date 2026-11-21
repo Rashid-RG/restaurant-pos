@@ -1,3 +1,4 @@
+import { coordinatePair, restaurantPickupPin } from '../../lib/delivery/geo-distance.js';
 import SubscriptionBilling from './SubscriptionBilling';
 import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
@@ -22,12 +23,68 @@ const SETTINGS_SECTIONS = [
 const COMMON_TIME_ZONES = ['Asia/Colombo', 'Asia/Qatar', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'America/New_York'];
 const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedValuesOf?.('timeZone') || [])])].sort();
 
+function PickupPinEditor({ settings, savePickupPin }) {
+  const saved = restaurantPickupPin(settings);
+  const [draft, setDraft] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const point = draft ?? { lat: saved?.lat ?? '', lng: saved?.lng ?? '' };
+  const pin = coordinatePair(point.lat, point.lng);
+
+  function locate() {
+    if (!navigator.geolocation) {
+      setMessage('GPS is unavailable. Enter the coordinates of the pickup entrance.');
+      return;
+    }
+    setBusy(true);
+    setMessage('Finding your current location…');
+    navigator.geolocation.getCurrentPosition(position => {
+      setDraft({ lat: position.coords.latitude.toFixed(6), lng: position.coords.longitude.toFixed(6) });
+      setMessage('GPS accuracy about ' + Math.round(position.coords.accuracy) + ' m. Check the entrance before saving.');
+      setBusy(false);
+    }, () => {
+      setMessage('GPS could not locate the shop. Enter its entrance coordinates manually.');
+      setBusy(false);
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  }
+
+  async function save() {
+    if (!pin || busy) return;
+    setBusy(true);
+    try {
+      await savePickupPin(pin);
+      setDraft(null);
+      setMessage('Pickup entrance saved.');
+    } catch (error) {
+      setMessage(error.message || 'Could not save the pickup entrance. Please retry.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div style={{ padding: 16, border: '1px solid var(--border-color)', borderRadius: 12 }}>
+    <h4>Restaurant pickup entrance</h4>
+    <p>{saved ? 'Saved pin: ' + saved.lat + ', ' + saved.lng : 'Save the pickup entrance to enable delivery distance checks.'}</p>
+    <p>Use GPS while standing at the pickup entrance, or enter its coordinates.</p>
+    <div style={{ display: 'flex', gap: 8 }}>
+      {['lat','lng'].map(axis => <label key={axis}>{axis === 'lat' ? 'Latitude' : 'Longitude'}
+        <input type="number" step="any" className="form-input" disabled={busy} value={point[axis]}
+          onChange={event => { setDraft({ ...point, [axis]: event.target.value }); setMessage(''); }} />
+      </label>)}
+    </div>
+    <button type="button" className="btn btn-secondary" disabled={busy} onClick={locate}>Use GPS at the shop</button>
+    <button type="button" className="btn btn-primary" disabled={busy || !draft || !pin} onClick={save}>Confirm and save entrance</button>
+    <p role="status">{message || (draft && !pin ? 'Enter a valid latitude and longitude.' : '')}</p>
+  </div>;
+}
+
 export default function Settings({ initialSubTab = null } = {}) {
   const {
     currentUser,
     setActiveTab,
     settings,
     updateSetting,
+    savePickupPin,
     menuItems,
     saveMenuItem,
     deleteMenuItem,
@@ -1527,40 +1584,7 @@ export default function Settings({ initialSubTab = null } = {}) {
 
                   {/* Store Location & Weather Controls */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-                    <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
-                      <h4 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>📍 Store GPS Location</h4>
-                      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ fontSize: '10px', fontWeight: 600 }}>Latitude</label>
-                          <input type="number" step="any" min="-90" max="90" className="form-input"
-                            placeholder="Set actual restaurant latitude"
-                            defaultValue={settings?.storeLat ?? ''}
-                            onBlur={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>90) { showToast('Enter valid latitude coordinates for the real shop.', 'error'); return; } await updateSetting('storeLat', value); }} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ fontSize: '10px', fontWeight: 600 }}>Longitude</label>
-                          <input type="number" step="any" min="-180" max="180" className="form-input"
-                            placeholder="Set actual restaurant longitude"
-                            defaultValue={settings?.storeLng ?? ''}
-                            onBlur={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>180) { showToast('Enter valid longitude coordinates for the real shop.', 'error'); return; } await updateSetting('storeLng', value); }} />
-                        </div>
-                      </div>
-                      <p style={{fontSize:12,margin:'8px 0',color:'var(--text-muted)'}} role="status">
-                        {settings?.storeLat != null && settings?.storeLat !== '' && settings?.storeLng != null && settings?.storeLng !== '' && Number.isFinite(Number(settings.storeLat)) && Number.isFinite(Number(settings.storeLng))
-                          ? 'Restaurant coordinates saved. Delivery is checked against the customer’s exact map pin.'
-                          : 'Restaurant map pin not saved. Delivery will remain unconfirmed until the real shop coordinates are set; the address text alone is not a delivery pin.'}
-                      </p>
-                      <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
-                        onClick={() => {
-                          if ('geolocation' in navigator) {
-                            navigator.geolocation.getCurrentPosition(async (pos) => {
-                              await updateSetting('storeLat', pos.coords.latitude.toFixed(4));
-                              await updateSetting('storeLng', pos.coords.longitude.toFixed(4));
-                              showToast(`📍 Store location set to ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`, 'success');
-                            }, () => showToast('Could not detect location. Please enter manually.', 'warning'));
-                          }
-                        }}>📡 Use Current GPS Location</button>
-                    </div>
+                    <PickupPinEditor key={currentUser?.tenant_id} settings={settings} savePickupPin={savePickupPin} />
 
                     <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
                       <h4 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>🌤️ Weather & Live Controls</h4>

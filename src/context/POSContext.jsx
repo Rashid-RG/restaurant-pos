@@ -733,6 +733,15 @@ export const POSProvider = ({ children }) => {
     return saved;
   };
 
+  const savePickupPin = async ({ lat, lng }) => {
+    const expectedTenantId = currentUser?.tenant_id;
+    if (!expectedTenantId) throw new Error('Sign in to the restaurant before saving its pickup pin.');
+    const values = { storeLat: String(lat), storeLng: String(lng) };
+    const saved = await db.put('settings', { ...values, expectedTenantId });
+    if (saved?.tenantId !== expectedTenantId) throw new Error('Restaurant session changed. Refresh before editing.');
+    setSettings(previous => ({ ...previous, ...values }));
+  };
+
   // Category CRUD
   const saveCategory = async (cat) => {
     await db.put('categories', cat);
@@ -1196,6 +1205,7 @@ export const POSProvider = ({ children }) => {
 
         // Settings Actions
         updateSetting,
+        savePickupPin,
 
         // CRUD utilities
         saveCategory,
