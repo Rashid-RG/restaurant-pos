@@ -6776,7 +6776,7 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
 // POST /api/public/orders/:id/cancel — Customer cancels their own order.
 // The tracking middleware requires private confirmation access or an owning account.
 // Only allowed while the order is still 'pending' (kitchen has not accepted it yet).
-app.post('/api/public/orders/:id/cancel',publicApiLimiter,async(req,res)=>{
+app.post('/api/public/orders/:id/cancel',publicApiLimiter,createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}),async(req,res)=>{
  const orderId=req.params.id,tenantId=await resolvePublicTenant(req);let open=false;
  try{
   await dbRun('BEGIN TRANSACTION');open=true;
