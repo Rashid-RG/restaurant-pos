@@ -663,10 +663,13 @@ export default function App() {
         body: JSON.stringify({ orderId: order.id, ...coords })
       }))).then(results => {
         if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
+        // Network responses can finish out of order. Never let an older upload
+        // overwrite the acceptance status of a newer GPS fix.
+        if(lastBroadcastRef.current?.recordedAt!==coords.recordedAt) return;
         const allAccepted=results.every(result=>result.status==='fulfilled');
-        if(!allAccepted && lastBroadcastRef.current?.recordedAt===coords.recordedAt) {
-          // Do not throttle a failed upload as though the customer received it.
-          // Retry on the next fresh GPS reading instead of reporting the rider as live.
+        if(!allAccepted) {
+          // An unsuccessful upload is not a successful heartbeat.
+          // A subsequent fresh device fix may attempt another upload.
           lastBroadcastRef.current=null;
         }
         setGpsUploadStatus(allAccepted?'accepted':'failed');
