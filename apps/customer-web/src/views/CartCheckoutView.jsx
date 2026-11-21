@@ -595,7 +595,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   };
 
   return (
-    <div className="checkout-view fade-in" style={{ padding: '16px 12px', paddingBottom: 'calc(var(--bottom-bar) + var(--sa-bottom) + 96px)' }}>
+    <div className="checkout-view fade-in gf-checkout-flow" style={{ padding: '16px 12px', paddingBottom: 'calc(var(--bottom-bar) + var(--sa-bottom) + 96px)' }}>
       <section className="customer-checkout-restaurant" aria-label="Restaurant fulfilling your order">
         <div className="customer-checkout-restaurant-icon"><Store size={24}/></div>
         <div className="customer-checkout-restaurant-details">
@@ -775,14 +775,17 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
       )}
 
-      <div className="checkout-review-summary">
-        <div><h2>Checkout</h2><span>{ORDER_TYPES.find(type => type.id === orderType)?.label}</span></div>
-        <div><small>{orderType === 'delivery' && !deliveryQuoteConfirmed ? 'Before delivery fee' : 'Order total'}</small><strong>Rs. {total.toLocaleString('en-LK')}</strong></div>
+      <div className="checkout-review-summary gf-checkout-overview">
+        <div><small className="gf-checkout-overline">YOUR ORDER</small><h2>Review & checkout</h2><span>{items.reduce((sum,item)=>sum+Number(item.qty||0),0)} items · {ORDER_TYPES.find(type => type.id === orderType)?.label}</span></div>
+        <div><small>{orderType === 'delivery' && !deliveryQuoteConfirmed ? 'Before delivery fee' : 'Estimated total'}</small><strong>Rs. {total.toLocaleString('en-LK')}</strong></div>
       </div>
+      <nav className="gf-checkout-steps" aria-label="Checkout sections">
+        <a href="#gf-checkout-fulfilment">1 · Fulfilment</a><a href="#gf-checkout-contact">2 · Details</a><a href="#gf-checkout-payment">3 · Payment</a>
+      </nav>
 
 
-      {items.length > 0 && <button type="button" className="btn btn-ghost" onClick={() => setCartOpen(true)}>
-        Review and edit cart items
+      {items.length > 0 && <button type="button" className="gf-checkout-cart-edit" onClick={() => setCartOpen(true)}>
+        <span>🛒 {items.reduce((sum,item)=>sum+Number(item.qty||0),0)} items in your cart</span><strong>Edit items ›</strong>
       </button>}
       {items.length === 0 ? <section className="form-section">
         <h3>Your cart is empty</h3>
@@ -790,8 +793,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       </section> : <form onSubmit={handlePlaceOrder}>
         
         {/* Order Type Choice */}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Order Type</h3>
+        <div id="gf-checkout-fulfilment" className="form-section gf-checkout-panel gf-checkout-fulfilment">
+          <div className="gf-checkout-panel-heading"><span className="gf-checkout-step-number">1</span><div><h3>How would you like your order?</h3><p>Choose delivery, pickup or dine-in</p></div></div>
           
           {store?.withinHours === false && <p role="status">{t('kitchenClosed')}</p>}
           {orderType === 'takeaway' && store?.pickupInstructions && <p><strong>{t('collectInstructions')}</strong> · {store.pickupInstructions}</p>}
@@ -835,8 +838,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
 
         {/* Scheduled Delivery/Pickup */}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Order Scheduling</h3>
+        <div className="form-section gf-checkout-panel gf-checkout-scheduling">
+          <div className="gf-checkout-panel-heading"><span aria-hidden="true">🕒</span><div><h3>When do you want it?</h3><p>{isScheduled?'Choose a confirmed restaurant time slot':'As soon as possible, or schedule for later'}</p></div></div>
           
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button 
@@ -882,48 +885,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           )}
         </div>
 
-        {/* Real Smart Upsell & Cross-Sell Suggestions */}
-        {canOrder && realRecommendations.length > 0 && (
-          <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-            <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>🥤</span> Add something extra
-            </h3>
-            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
-              Available dishes from {store?.name || 'this restaurant'}:
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
-              {realRecommendations.map(up => (
-                <div key={up.id} style={{ padding: 10, background: 'rgba(0,0,0,0.02)', borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                  <div>
-                    <div className="customer-smart-item-media">
-                       {up.imageUrl ? <img src={up.imageUrl} alt={up.name} loading="lazy"/> : <span aria-hidden="true">{up.emoji || '🍽️'}</span>}
-                     </div>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{up.name}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 800, marginTop: 2 }}>LKR {Number(up.price || 0).toFixed(2)}</div>
-                    {up.allergens && (
-                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>⚠️ {up.allergens}</div>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    style={{ marginTop: 8, padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, borderRadius: 8, width: '100%', cursor: 'pointer' }}
-                    onClick={() => {
-                      if (!canOrder) return;
-                      addItem(up);
-                      toast && toast(`Added ${up.name} to your order! ➕`, 'success');
-                    }}
-                  >
-                    ➕ Add
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Contact Info</h3>
+        <section id="gf-checkout-contact" className="form-section gf-checkout-panel gf-checkout-contact">
+          <div className="gf-checkout-panel-heading"><span className="gf-checkout-step-number">2</span><div><h3>Your contact & delivery details</h3><p>Used to confirm your order and reach you if needed</p></div></div>
           
           <div className="form-group" style={{ marginTop: 10 }}>
             <label>Name</label>
@@ -992,11 +955,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               />
             </div>
           )}
-        </div>
+        </section>
 
         {/* Promo Codes & Loyalty Points */}
-        <details className="form-section checkout-options" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <summary>Offers & loyalty</summary>
+        <details className="form-section checkout-options gf-checkout-panel gf-checkout-offers">
+          <summary>🏷️ Offers & loyalty {appliedPromo?'· Promo applied':''}</summary>
           
           {/* Promo Input */}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -1042,8 +1005,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </details>
 
         {/* Payment Methods */}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>{t('paymentMethod')}</h3>
+        <section id="gf-checkout-payment" className="form-section gf-checkout-panel gf-checkout-payment">
+          <div className="gf-checkout-panel-heading"><span className="gf-checkout-step-number">3</span><div><h3>{t('paymentMethod')}</h3><p>Choose an available payment option</p></div></div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
             {LOCAL_PAYMENTS.map(p => (
               <label 
@@ -1064,11 +1027,11 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               </label>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* Special Instructions Notes */}
-        <details className="form-section checkout-options" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
-          <summary>Special instructions</summary>
+        <details className="form-section checkout-options gf-checkout-panel gf-checkout-notes">
+          <summary>📝 Special instructions {notes.trim()?'· Added':''}</summary>
           <textarea 
             className="form-control" 
             rows={2} 
@@ -1080,8 +1043,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </details>
 
         {/* Tip the team */}
-        <details className="form-section checkout-options">
-          <summary>{t.addTip}</summary>
+        <details className="form-section checkout-options gf-checkout-panel gf-checkout-tip">
+          <summary>💚 {t.addTip} {tipAmount>0?'· Rs. '+tipAmount.toFixed(2):'· Optional'}</summary>
           <p style={{ fontSize: '0.78rem', color: 'var(--text-3)', marginTop: -4, marginBottom: 12 }}>{t.tipNote}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
             {[0, 5, 10, 15].map(pct => (
@@ -1127,8 +1090,47 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           </div>
         )}
 
+        {/* Real Smart Upsell & Cross-Sell Suggestions */}
+        {canOrder && realRecommendations.length > 0 && (
+          <details className="form-section gf-checkout-panel gf-checkout-extras">
+            <summary>🥤 Add something extra <span>Optional · ${realRecommendations.length} suggestions</span></summary>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
+              Available dishes from {store?.name || 'this restaurant'}:
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+              {realRecommendations.map(up => (
+                <div key={up.id} style={{ padding: 10, background: 'rgba(0,0,0,0.02)', borderRadius: 10, border: '1px solid var(--border-color)', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div>
+                    <div className="customer-smart-item-media">
+                       {up.imageUrl ? <img src={up.imageUrl} alt={up.name} loading="lazy"/> : <span aria-hidden="true">{up.emoji || '🍽️'}</span>}
+                     </div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-1)', marginTop: 4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{up.name}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--brand)', fontWeight: 800, marginTop: 2 }}>LKR {Number(up.price || 0).toFixed(2)}</div>
+                    {up.allergens && (
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 2 }}>⚠️ {up.allergens}</div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    style={{ marginTop: 8, padding: '4px 8px', fontSize: '0.75rem', fontWeight: 700, borderRadius: 8, width: '100%', cursor: 'pointer' }}
+                    onClick={() => {
+                      if (!canOrder) return;
+                      addItem(up);
+                      toast && toast(`Added ${up.name} to your order! ➕`, 'success');
+                    }}
+                  >
+                    ➕ Add
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
         {/* Bill Summary */}
-        <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 20, border: '1px solid var(--border-color)', fontSize: '0.88rem' }}>
+        <section className="form-section gf-checkout-panel gf-checkout-bill" aria-label="Order cost breakdown">
           <div className="customer-bill-merchant"><span>RESTAURANT BILL</span>
             <strong>{store?.name || 'Restaurant not selected'}</strong>
             {store?.address && <small>{store.address}</small>}
@@ -1227,19 +1229,20 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             </div>
             <div className="customer-bill-brand">Powered by <strong>GastroFlow</strong> · Developed by <strong>{platformPublisher}</strong></div>
           </div>
-        </div>
+        </section>
 
         <div className="customer-offline-checkout-note" role="status">
           <strong>{t('offlineSafe')}</strong> · {t('offlineSafeHelp')}
         </div>
-        <div className="sticky-bar">
+        <div className="sticky-bar gf-checkout-sticky">
+          <div className="gf-checkout-sticky-total"><span>{orderType==='delivery'&&!deliveryQuoteConfirmed?'Delivery fee pending':'Total payable'}</span><strong>Rs. {total.toFixed(2)}</strong></div>
           <button
             type="submit"
             className="btn btn-brand"
             disabled={modePaused || totalChanged || loading || !!pendingCheckout || !canOrder || !deliveryQuoteConfirmed || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
-            {loading ? `⏳ ${t.processing}` : orderType==='delivery' && !deliveryQuoteConfirmed ? 'Confirm delivery location and fee' : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}
+            {loading ? `⏳ ${t.processing}` : orderType==='delivery' && !deliveryQuoteConfirmed ? 'Confirm location & delivery fee' : `Continue · ${t.placeOrder}`}
           </button>
         </div>
       </form>}
