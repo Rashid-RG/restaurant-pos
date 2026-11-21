@@ -11,6 +11,7 @@ import {shouldSendDriverFix,validDriverFix} from './utils/gps-transmission.js';
 import {Capacitor,CapacitorHttp,registerPlugin} from '@capacitor/core';
 import {createNativeTrackingSession} from '../../driver-native/src/background-tracker.js';
 import {createDispatchRequestGate,createDispatchTimeout,latestDispatchTickets} from './utils/dispatch-sync.js';
+import {offerSecondsRemaining,offerExpired} from './utils/offer-clock.js';
 
 
 // ── Auth token storage ──
@@ -1342,8 +1343,8 @@ export default function App() {
                 <div style={{ display: 'grid', gap: 12 }}>
                   {filteredAvailableOrders.map(ord => {
                     const offerExpiry=Number(ord.offerExpiresAt)||null;
-                    const secondsLeft=offerExpiry?Math.max(0,Math.ceil((offerExpiry-driverClock)/1000)):null;
-                    const timedOfferExpired=secondsLeft!==null&&secondsLeft===0;
+                    const secondsLeft=offerSecondsRemaining(offerExpiry,driverClock);
+                    const timedOfferExpired=offerExpired(offerExpiry,driverClock);
                     // Pickup proximity requires the restaurant's configured pin.
                     // This is straight-line distance, not an OSRM driving ETA.
                     const pickupKm = (isGpsActive && gpsQuality==='good' && validDriverFix(lastCoords,driverClock) && pickupLocation)
