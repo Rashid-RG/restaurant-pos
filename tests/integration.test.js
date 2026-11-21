@@ -239,3 +239,28 @@ describe('SaaS plan limits + usage metering', () => {
     expect(item.imageUrl).toBe(customDataUrl);
   });
 });
+
+
+describe('Private customer cancellation access (integration)',()=>{
+  it('rejects a stranger, an unrelated order token, and accepts the owning token',async()=>{
+    const first=await createOnlineOrder();
+    const second=await createOnlineOrder();
+    expect(first.orderId).toBeTruthy();
+    expect(first.trackingToken).toBeTruthy();
+    expect(second.trackingToken).toBeTruthy();
+    const url=`/api/public/orders/${first.orderId}/cancel`;
+    const stranger=await request(app).post(url).send({});
+    expect([401,403]).toContain(stranger.status);
+    const unrelated=await request(app).post(url)
+      .set('X-Order-Tracking',second.trackingToken).send({});
+    expect([401,403]).toContain(unrelated.status);
+    const privateCancel=await request(app).post(url)
+      .set('X-Order-Tracking',first.trackingToken).send({});
+    expect(privateCancel.status).toBe(200);
+    expect(privateCancel.body.status).toBe('cancelled');
+    const replay=await request(app).post(url)
+      .set('X-Order-Tracking',first.trackingToken).send({});
+    expect(replay.status).toBe(200);
+    expect(replay.body.status).toBe('cancelled');
+  });
+});
