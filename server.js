@@ -6261,11 +6261,21 @@ app.get('/api/public/driver/earnings',authenticateDriver,async(req,res)=>{
       'SELECT COALESCE(SUM(e.amountCents),0) AS paidCents FROM driver_compensation_entries e JOIN driver_compensation_payout_items i ON i.tenant_id=e.tenant_id AND i.orderId=e.orderId WHERE e.tenant_id=? AND e.driverId=?',
       [req.driver.tenant_id,req.driver.driverId]
     );
+    const zone=await dbGet('SELECT value FROM settings WHERE tenant_id=? AND key=?',[req.driver.tenant_id,'timeZone']);
+    const tz=restaurantTimeZone({timeZone:zone?.value});
+    const today=dateAtRestaurant(new Date(),tz);
+    const [dayStart,dayEnd]=restaurantDayBounds(today,tz);
+    const sevenDaysAgo=Date.now()-7*24*60*60*1000;
+    const period=await dbGet(
+      'SELECT COALESCE(SUM(CASE WHEN approvedAt>=? AND approvedAt<? THEN amountCents ELSE 0 END),0) AS todayCents,COALESCE(SUM(CASE WHEN approvedAt>=? THEN amountCents ELSE 0 END),0) AS last7DaysCents FROM driver_compensation_entries WHERE tenant_id=? AND driverId=?',
+      [dayStart,dayEnd,sevenDaysAgo,req.driver.tenant_id,req.driver.driverId]
+    );
     const totalCents=Number(totals?.totalCents||0),recordedPaidCents=Number(paid?.paidCents||0);
-    if(!Number.isSafeInteger(totalCents)||totalCents<0||
-       !Number.isSafeInteger(recordedPaidCents)||recordedPaidCents<0||recordedPaidCents>totalCents)
-      throw new Error('Compensation total exceeds safe bounds');
+    const todayApprovedCents=Number(period?.todayCents||0),last7DaysApprovedCents=Number(period?.last7DaysCents||0);
+    if([totalCents,recordedPaidCents,todayApprovedCents,last7DaysApprovedCents].some(v=>!Number.isSafeInteger(v)||v<0)||
+       recordedPaidCents>totalCents)throw new Error('Compensation total exceeds safe bounds');
     return res.set('Cache-Control','no-store').json({currency:'LKR',entries,totalApprovedCents:totalCents,totalApprovedDeliveries:Number(totals?.entryCount||0),
+      todayApprovedCents,last7DaysApprovedCents,timeZone:tz,
       recordedPaidCents,outstandingCents:totalCents-recordedPaidCents,
       payoutStatus:'manager_recorded',note:'Payout records represent external payments declared by restaurant management; no bank transfer is independently verified.'});
   }catch(error){console.error('[Driver earnings]',error.message);return res.status(500).json({error:'Could not load approved driver earnings.'});}
