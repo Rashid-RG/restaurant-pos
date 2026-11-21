@@ -430,7 +430,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
       return {
         ...r,
-        distanceKm: Number.isFinite(dist) ? dist : null,
+        distanceKm: Number.isFinite(r.distanceKm) ? r.distanceKm : Number.isFinite(dist) ? dist : null,
         isDeliverable: r.isDeliverable,
         deliveryFee: fee,
         feeBreakdown: null,
@@ -445,7 +445,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     const knownStores = updated.filter(store => Number.isFinite(store.distanceKm));
     const closest = [...knownStores].sort((a, b) => a.distanceKm - b.distanceKm)[0] || null;
     setNearestStore(closest);
-    const outsideAllKnownZones = updated.length > 0 && updated.every(store => store.isDeliverable === false);
+    const outsideAllKnownZones = updated.length > 0 && updated.every(store => store.deliveryIssue === 'outside_delivery_radius');
     setIsOutOfCoverage(outsideAllKnownZones);
     // Non-blocking alert: never automatically open a full-screen modal on load.
     setShowOutOfCoverageModal(false);
@@ -877,6 +877,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         <div className="gastrofood-discovery-empty" role="status">
           <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏪</div>
           <h4>{!loadError && deliveryOnly && !hasActiveFilters ? t(!hasPreciseLocation ? 'deliveryNeedsPin' : !current ? 'checkingDelivery' : 'noDeliveryHere') : emptyState.title}</h4>
+          {deliveryOnly && current && restaurants.some(r => r.deliveryIssue === 'quote_unavailable') && <p>Delivery quote temporarily unavailable. Check again shortly.</p>}
           {deliveryOnly && current && pendingDeliverySetup.length > 0 && (
             <p>Delivery is not confirmed because {pendingDeliverySetup.map(r => r.name).join(', ')} has not saved a restaurant map pin. The restaurant owner must set its actual coordinates in POS → Workspace Settings → Online Store. Pickup is still available where enabled.</p>
           )}

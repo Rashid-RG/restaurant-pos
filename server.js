@@ -2678,6 +2678,11 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
       return res.status(400).json({ error: 'Invalid online store status.' });
     }
 
+    const distanceMode = body.key === 'deliveryDistanceMode' ? body.value : body.deliveryDistanceMode;
+    if (distanceMode !== undefined && !['radius','road'].includes(distanceMode)) {
+      return res.status(400).json({error:'Choose road or straight-line pricing.'});
+    }
+
     const coverPhoto = body.key === 'onlineCoverPhoto' ? body.value : body.onlineCoverPhoto;
     if (coverPhoto !== undefined && coverPhoto !== '' && (typeof coverPhoto !== 'string' || coverPhoto.length > 2048 || !URL.canParse(coverPhoto) || new URL(coverPhoto).protocol !== 'https:')) {
       return res.status(400).json({error:'Enter an HTTPS photo URL.'});
@@ -3558,7 +3563,7 @@ app.post('/api/customer/loyalty/redeem', authenticateCustomer, async (req, res) 
 const isPeakHour = createPeakHourService({ getSettingsMap });
 
 // ── Server-authoritative delivery fee calculator ──
-const calculateDeliveryFee = createDeliveryFeeCalculator({ getSettingsMap, isPeakHour });
+const calculateDeliveryFee = createDeliveryFeeCalculator({ getSettingsMap, isPeakHour, getRoadRoute: points => fetchRoadRoute({ ...points, forPricing: true }) });
 
 // ── Hybrid Auto-Dispatch Engine ──
 // Finds nearest available driver using Haversine from their last GPS ping.
@@ -3981,6 +3986,22 @@ app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: errMsg(err), ...(err.code ? { code: err.code } : {}) });
+  }
+});
+
+// Preview the authenticated restaurant's coverage and pricing without creating an order.
+app.post('/api/settings/delivery-test', authenticateToken, requireRole(['owner','manager']), async (req,res) => {
+  res.set('Cache-Control','no-store');
+  const tenantId = req.tenantId;
+  const {lat,lng,subtotal,expectedTenantId} = req.body || {};
+  if (!tenantId || tenantId !== expectedTenantId) return res.status(409).json({error:'Restaurant session changed.'});
+  if (!Number.isFinite(subtotal) || subtotal < 0) return res.status(400).json({error:'Enter a valid food subtotal.'});
+  try {
+    await requireOnlineMode(tenantId,'delivery');
+    const result = await calculateDeliveryFee(lat,lng,subtotal,tenantId);
+    res.json(result);
+  } catch(error) {
+    res.status(error.status || 500).json({error:errMsg(error),code:error.code});
   }
 });
 
@@ -5553,7 +5574,10 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
    const configuredLocation = Boolean(pickup);
    const deliveryEnabled=settings.onlineDeliveryEnabled!=='false';
    let quote=null;
-   if(lat!=null&&lng!=null&&configuredLocation&&deliveryEnabled)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
+   if(lat!=null&&lng!=null&&configuredLocation&&deliveryEnabled) {
+     try { quote=await calculateDeliveryFee(lat,lng,0,tenant.id); }
+     catch(error) { if(error.code !== 'DELIVERY_ROUTE_UNAVAILABLE') throw error; }
+   }
    const deliveryIssue=!deliveryEnabled?'delivery_disabled':!configuredLocation?'store_pin_missing':lat==null||lng==null?'customer_pin_required':quote?.isOutOfRange?'outside_delivery_radius':quote?'none':'quote_unavailable';
    const hours=onlineHours(settings);
    const withinHours=hours.includes(Date.now());
@@ -5941,9 +5965,10 @@ const createPublicOrder = async (req, res) => {
     let deliveryFee = 0;
     let deliveryDistanceKm = null;
     let deliveryEtaMinutes = null;
+    let freeDeliveryThreshold = null;
     if (type === 'delivery') {
       if (typeof deliveryLat === 'number' && typeof deliveryLng === 'number') {
-        // Calculate real distance-based fee using Haversine
+        // Calculate coverage and pricing once for this order attempt.
         const feeResult = await calculateDeliveryFee(deliveryLat, deliveryLng, 0, tenantId); // subtotal not known yet; checked after billing
         if (feeResult.isOutOfRange) {
           return res.status(400).json({
@@ -5952,7 +5977,8 @@ const createPublicOrder = async (req, res) => {
         }
         deliveryDistanceKm = feeResult.distanceKm;
         deliveryEtaMinutes = feeResult.etaMinutes;
-        deliveryFee = feeResult.totalFee; // will be recalculated after billing for free-threshold check
+        deliveryFee = feeResult.totalFee;
+        freeDeliveryThreshold = feeResult.freeThreshold;
       } else {
         return res.status(422).json({
           error: 'Select a precise delivery address pin to verify this restaurant’s delivery area and fee.',
@@ -5966,15 +5992,9 @@ const createPublicOrder = async (req, res) => {
     // Calculate billing totals securely on the server (passing delivery fee + tip)
     const bill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, deliveryFee, tenantId,{orderType:type,customerAccountId});
 
-    // Re-check delivery fee with actual subtotal for free-delivery threshold
-    if (type === 'delivery' && typeof deliveryLat === 'number' && typeof deliveryLng === 'number') {
-      const finalFeeResult = await calculateDeliveryFee(deliveryLat, deliveryLng, bill.subtotal, tenantId);
-      if (finalFeeResult.isFreeDelivery) {
-        deliveryFee = 0; // Free delivery for high-value orders!
-        // Recalculate bill with zero delivery fee
-        const freeBill = await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, 0, tenantId,{orderType:type,customerAccountId});
-        Object.assign(bill, freeBill);
-      }
+    if (type === 'delivery' && Number.isFinite(freeDeliveryThreshold) && bill.subtotal >= freeDeliveryThreshold && deliveryFee > 0) {
+      deliveryFee = 0;
+      Object.assign(bill, await resolveAndCalculateBill(items, null, 0, loyaltyPointsToRedeem, tipAmount, promoCode, 0, tenantId,{orderType:type,customerAccountId}));
     }
 
     if (type === 'delivery' && bill.subtotal < minimumOrder) {

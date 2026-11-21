@@ -208,6 +208,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         if (disposed) return;
         const reason = error?.code === 'STORE_DELIVERY_LOCATION_MISSING'
           ? 'Restaurant delivery map pin is missing. The owner must set the real shop coordinates in POS → Online Store.'
+          : error?.code === 'DELIVERY_ROUTE_UNAVAILABLE'
+          ? 'Delivery quote temporarily unavailable. Please retry shortly.'
           : error?.code === 'CUSTOMER_DELIVERY_LOCATION_INVALID'
           ? 'Select a valid customer delivery map pin.'
           : error?.message || 'Could not verify the delivery fee. Check your connection and retry.';
@@ -1170,7 +1172,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 ) : visibleDeliveryBreakdown ? (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-3)', marginBottom: 4 }}>
-                      <span>📍 Distance: {visibleDeliveryBreakdown.distanceKm} km</span>
+                      <span>📍 {visibleDeliveryBreakdown.distanceMode === 'road' ? 'Road distance' : 'Straight-line distance'}: {visibleDeliveryBreakdown.distanceKm} km</span>
                       <span>⏱️ ETA: ~{visibleDeliveryBreakdown.etaMinutes} min</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>

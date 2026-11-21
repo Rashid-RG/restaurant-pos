@@ -30,6 +30,7 @@ export default function LocationPicker({ value, onChange, toast }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
+  const accuracyCircleRef = useRef(null);
   const debounceRef = useRef(null);
   const commitSequenceRef = useRef(0);
   const addressSearchGateRef = useRef(createAddressSearchGate());
@@ -39,9 +40,14 @@ export default function LocationPicker({ value, onChange, toast }) {
   const [locating, setLocating] = useState(false);
 
   // Reverse-geocode a coordinate and push the result up.
-  async function commit(lat, lng, knownLabel) {
+  async function commit(lat, lng, knownLabel, accuracy) {
     const sequence=++commitSequenceRef.current;
     if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return;
+    accuracyCircleRef.current?.remove();
+    accuracyCircleRef.current = null;
+    if (mapRef.current && Number.isFinite(accuracy) && accuracy > 0) {
+      accuracyCircleRef.current = L.circle([lat, lng], { radius: accuracy, interactive: false, weight: 1, fillOpacity: 0.12 }).addTo(mapRef.current);
+    }
     const fallback=knownLabel || `Pinned location (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
     // Store the chosen coordinate immediately; geocoding must never block the pin.
     onChange?.({lat,lng,label:fallback});
@@ -84,7 +90,7 @@ export default function LocationPicker({ value, onChange, toast }) {
     if (hasPin) moveMarker(value.lat, value.lng, false);
     // Leaflet needs a size recalc when mounted inside a sheet/animated container.
     const resizeTimer = setTimeout(() => map.invalidateSize(), 200);
-    return () => { clearTimeout(resizeTimer); map.remove(); mapRef.current = null; markerRef.current = null; };
+    return () => { clearTimeout(resizeTimer); map.remove(); mapRef.current = null; markerRef.current = null; accuracyCircleRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -161,7 +167,7 @@ export default function LocationPicker({ value, onChange, toast }) {
       const fix=await acquireBestLocation();
       if (request !== commitSequenceRef.current) return;
       moveMarker(fix.lat,fix.lng,true);
-      await commit(fix.lat,fix.lng);
+      await commit(fix.lat,fix.lng,null,fix.accuracy);
       toast?.(`Location accuracy approximately ${fix.accuracy} metres. Verify the pin before placing an order.`,'info');
     } catch(error) {
       if (request !== commitSequenceRef.current) return;

@@ -1,4 +1,5 @@
 import { coordinatePair, restaurantPickupPin } from '../../lib/delivery/geo-distance.js';
+import { db } from '../database/db';
 import SubscriptionBilling from './SubscriptionBilling';
 import React, { useState, useEffect } from 'react';
 import PlatformAdmin from './PlatformAdmin';
@@ -22,6 +23,51 @@ const SETTINGS_SECTIONS = [
 
 const COMMON_TIME_ZONES = ['Asia/Colombo', 'Asia/Qatar', 'Asia/Dubai', 'Asia/Riyadh', 'Asia/Kolkata', 'Europe/London', 'America/New_York'];
 const TIME_ZONE_OPTIONS = [...new Set([...COMMON_TIME_ZONES, ...(Intl.supportedValuesOf?.('timeZone') || [])])].sort();
+
+function DeliveryAddressTest({ tenantId, settings, updateSetting }) {
+  const [address, setAddress] = useState({ lat: '', lng: '', subtotal: '' });
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const point = coordinatePair(address.lat, address.lng);
+  const subtotal = Number(address.subtotal);
+  const mode = settings?.deliveryDistanceMode === 'road' ? 'road' : 'radius';
+
+  async function testAddress() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const quote = await db.put('settings/delivery-test', { ...point, subtotal, expectedTenantId: tenantId });
+      const basis = quote.distanceMode === 'road' ? 'by road' : 'straight-line';
+      setMessage(quote.isOutOfRange
+        ? `Outside the delivery limit of ${quote.maxRadiusKm} km (${quote.distanceKm} km ${basis}).`
+        : `Within coverage · ${quote.distanceKm} km ${basis} · Delivery fee Rs. ${quote.totalFee}`);
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function changeMode(value) {
+    setBusy(true);
+    setMessage('');
+    try { await updateSetting('deliveryDistanceMode', value); }
+    catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  return <section style={{ padding: 16, border: '1px solid var(--border-color)', borderRadius: 12 }}>
+    <h4>Test delivery address</h4>
+    <label>Distance for coverage and fees
+      <select className="form-input" value={mode} disabled={busy} onChange={e => changeMode(e.target.value)}>
+        <option value="radius">Straight-line distance</option><option value="road">Road distance (OSRM)</option>
+      </select>
+    </label>
+    <p>Road pricing requires an available routing service. Enter the customer entrance coordinates to preview coverage and fees.</p>
+    {Object.entries({lat:'Customer latitude',lng:'Customer longitude',subtotal:'Food subtotal (Rs.)'}).map(([key,label]) =>
+      <label key={key}>{label}<input className="form-input" type="number" step="any" disabled={busy}
+        value={address[key]} onChange={e => {setAddress({...address,[key]:e.target.value});setMessage('');}} /></label>)}
+    <button type="button" className="btn btn-secondary" disabled={busy || !point || !address.subtotal.trim() || !Number.isFinite(subtotal) || subtotal < 0} onClick={testAddress}>Test delivery address</button>
+    <p role="status">{message}</p>
+  </section>;
+}
 
 function PickupPinEditor({ settings, savePickupPin }) {
   const saved = restaurantPickupPin(settings);
@@ -1585,6 +1631,7 @@ export default function Settings({ initialSubTab = null } = {}) {
                   {/* Store Location & Weather Controls */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px', marginBottom: '16px' }}>
                     <PickupPinEditor key={currentUser?.tenant_id} settings={settings} savePickupPin={savePickupPin} />
+                    <DeliveryAddressTest key={"test-" + currentUser?.tenant_id} tenantId={currentUser?.tenant_id} settings={settings} updateSetting={updateSetting} />
 
                     <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
                       <h4 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '8px' }}>🌤️ Weather & Live Controls</h4>
