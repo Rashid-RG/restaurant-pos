@@ -1,5 +1,5 @@
 import React, {useEffect,useRef,useState} from 'react';
-import LiveMapControls from '../../../../shared/ui/LiveMapControls.jsx';
+import {LocateFixed} from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -42,7 +42,7 @@ export default function TrackingMap({store,dest,driver,route,gpsState}) {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
       maxZoom:19,attribution:'© OpenStreetMap contributors'
     }).addTo(m);
-    L.control.zoom({position:'bottomleft'}).addTo(m);
+
     map.current=m;
     // User gestures stop automatic centering. Never move a marker without a new GPS fix.
     const stopFollowing=()=>setFollowing(false);
@@ -124,10 +124,10 @@ export default function TrackingMap({store,dest,driver,route,gpsState}) {
     const from=valid(driver)?driver:valid(store)?store:null;
     if(points || (from&&valid(dest))){
       const ends=points || [[from.lat,from.lng],[dest.lat,dest.lng]];
-      if(!routeLine.current)routeLine.current=L.polyline(ends,{color:'#0c8a63',weight:hasRoad?5:2,opacity:hasRoad?.85:.6,dashArray:hasRoad?null:'3,9'}).addTo(m);
+      if(!routeLine.current)routeLine.current=L.polyline(ends,{color:'#171b25',weight:hasRoad?4:2,opacity:hasRoad?.85:.6,dashArray:hasRoad?null:'3,9'}).addTo(m);
       else {
         routeLine.current.setLatLngs(ends);
-        routeLine.current.setStyle({weight:hasRoad?5:2,opacity:hasRoad?.85:.6,dashArray:hasRoad?null:'3,9'});
+        routeLine.current.setStyle({weight:hasRoad?4:2,opacity:hasRoad?.85:.6,dashArray:hasRoad?null:'3,9'});
       }
     }else if(routeLine.current){m.removeLayer(routeLine.current);routeLine.current=null;}
 
@@ -166,22 +166,10 @@ export default function TrackingMap({store,dest,driver,route,gpsState}) {
     else if(points.length===1)m.setView([points[0].lat,points[0].lng],14);
   };
 
-  return <section className="customer-delivery-map gf-modern-live-map" aria-label="Live delivery journey" style={{position:'relative',overflow:'hidden',borderRadius:24,boxShadow:'0 16px 42px rgba(14,50,37,.12)'}}>
-    <div style={{position:'relative'}}>
-      <div ref={el} className="tm-map" role="img" aria-label="Map showing restaurant, destination and latest confirmed rider GPS fix" style={{height:'min(57vh,520px)',minHeight:350,width:'100%'}}/>
-      <div style={{position:'absolute',top:12,left:12,right:64,zIndex:500,pointerEvents:'none'}}>
-        <div role="status" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 14px',borderRadius:18,color:'#153c32',background:'rgba(255,255,255,.96)',boxShadow:'0 7px 22px rgba(0,0,0,.12)',fontSize:13,fontWeight:750}}>
-          <span aria-hidden="true" style={{height:9,width:9,borderRadius:'50%',background:gpsState.state==='fresh'?'#13986a':'#e1a449'}}/>
-          {gpsState.label}
-        </div>
-      </div>
-      <LiveMapControls hasFix={valid(driver)} following={followRider}
-        onCenter={()=>locateRider(false)} onFollow={()=>followRider?setFollowing(false):locateRider(true)} onOverview={showJourney}/>
-      <div style={{position:'absolute',bottom:24,left:56,right:12,zIndex:500,pointerEvents:'none'}}>
-        <span style={{display:'inline-block',maxWidth:'95%',padding:'9px 12px',borderRadius:14,background:'rgba(255,255,255,.94)',color:'#214a40',fontSize:12,fontWeight:650,boxShadow:'0 3px 12px rgba(0,0,0,.1)'}}>
-          {roadPoints?'Road route':valid(driver)||valid(store)?'Road route unavailable · dotted line shows direct distance':'Waiting for route endpoints'}
-        </span>
-      </div>
-    </div>
-  </section>;
+  return <>
+    <div ref={el} className="tm-map" aria-label="Delivery route map"/>
+    <span className="gf-trip-map-state">{gpsState.state==='fresh' && roadPoints ? '' : [gpsState.label, !roadPoints && (valid(driver)||valid(store))?'Direct line · road route unavailable':''].filter(Boolean).join(' · ')}</span>
+    <button type="button" className="gf-trip-center" aria-label={followRider?'Show entire route':valid(driver)?'Recenter and follow rider':'Show entire route'}
+      aria-pressed={followRider} onClick={()=>valid(driver)&&!followRider?locateRider(true):showJourney()}><LocateFixed size={19}/></button>
+  </>;
 }

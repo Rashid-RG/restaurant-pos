@@ -1,0 +1,38 @@
+dialog.gf-trip-screen {
+  box-sizing:border-box; inset:0; margin:auto; padding:0; border:0; width:min(100%,470px);
+  height:min(100dvh,880px); max-width:none; max-height:none; border-radius:22px;
+  background:#fff; color:#171717; overflow:auto; overscroll-behavior:contain;
+  font-family:Inter,system-ui,sans-serif; color-scheme:light;
+}
+.gf-trip-screen::backdrop {background:#101418a6}
+.gf-trip-layout {display:flex;flex-direction:column;min-height:100%}
+.gf-trip-map {flex:1 0 auto;position:relative;isolation:isolate;min-height:220px;background:#e4e7e5}
+.gf-trip-map .tm-map {position:absolute;inset:0;width:100%;height:100%;border-radius:0}
+.gf-trip-map .leaflet-tile-pane {filter:saturate(.42) contrast(.89) brightness(1.05)}
+.gf-trip-map button,.gf-trip-contacts button,.gf-trip-contacts a {border:0;color:#191919;cursor:pointer;font:inherit}
+.gf-trip-close,.gf-trip-help,.gf-trip-center {position:absolute;z-index:600;display:inline-flex;align-items:center;justify-content:center;background:#fff;border-radius:30px;box-shadow:0 1px 6px #0002;min-height:42px}
+.gf-trip-close,.gf-trip-help {top:max(10px,env(safe-area-inset-top))}
+.gf-trip-close {left:12px;width:42px}
+.gf-trip-help {right:12px;padding:0 14px;gap:5px}
+.gf-trip-center {right:12px;bottom:29px;width:44px}
+.gf-trip-panel {position:relative;z-index:1;box-sizing:border-box;margin-top:-8px;background:#fff;border-radius:14px 14px 0 0;padding:22px 14px max(14px,env(safe-area-inset-bottom));text-align:center}
+.gf-trip-panel h2 {margin:0;color:#151515;font-size:18px;font-weight:750;line-height:1.28}
+.gf-trip-eta {margin:6px 0 13px;font-size:17px;color:#454545}
+.gf-trip-progress {display:flex;gap:5px}
+.gf-trip-progress span {height:4px;flex:1;background:#ebebeb}
+.gf-trip-progress span[data-reached=true] {background:#986d1d}
+.gf-trip-note {margin:13px 0 19px;font-size:13px;line-height:1.5;color:#646464}
+.gf-trip-note button {border:0;background:none;text-decoration:underline;font:inherit;color:#222;padding:2px;cursor:pointer}
+.gf-trip-rider {display:flex;align-items:center;min-height:52px;text-align:left}
+.gf-trip-portrait,.gf-trip-bike {display:grid;place-items:center;border-radius:50%;color:#333;width:46px;height:46px;background:#eee}
+.gf-trip-bike {background:#fff;margin-left:-7px;color:#4f412d}
+.gf-trip-rider div {margin-left:14px;min-width:0}
+.gf-trip-rider strong,.gf-trip-rider small {display:block;text-transform:uppercase;overflow-wrap:anywhere;color:#181818}
+.gf-trip-contacts {display:grid;grid-template-columns:44px 1fr;gap:8px;margin-top:15px}
+.gf-trip-contacts a,.gf-trip-contacts button {display:flex;align-items:center;justify-content:center;background:#f1f1f1;border-radius:24px;min-height:44px}
+.gf-trip-contacts button:last-child {justify-content:flex-start;padding:0 15px}
+.gf-trip-contacts button:disabled {opacity:.48;cursor:default}
+.gf-trip-screen :focus-visible {outline:3px solid #80621f;outline-offset:-3px}
+@media(max-width:600px){dialog.gf-trip-screen {width:100%;height:100dvh;border-radius:0}}
+.gf-trip-map-state:not(:empty) {position:absolute;bottom:26px;left:10px;max-width:calc(100% - 80px);z-index:500;background:#fffffff2;border-radius:8px;padding:5px 8px;color:#484848;font-size:11px;line-height:1.35;pointer-events:none}
+.gf-trip-map .leaflet-control-attribution {margin-bottom:9px}

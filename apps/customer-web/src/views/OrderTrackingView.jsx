@@ -6,7 +6,7 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { selectTrackableOrders } from '../utils/gastromate-tracking.js';
-import TrackingMap from '../components/TrackingMap.jsx';
+import CustomerTripScreen from '../components/CustomerTripScreen.jsx';
 import RiderChatSheet from '../components/RiderChatSheet.jsx';
 import DeliveryPulseCard from '../components/DeliveryPulseCard.jsx';
 import {contactLinks} from '../utils/contact-actions.js';
@@ -78,7 +78,6 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const [dynamicETA, setDynamicETA] = useState(null);
   const [roadRoute,setRoadRoute]=useState(null);
   const [driverChatOpen, setDriverChatOpen] = useState(false);
-  const [mapExpanded,setMapExpanded]=useState(true);
   const [journeySheet,setJourneySheet]=useState('compact');
   const journeyTouchStart=useRef(null);
   const onJourneyTouchStart=event=>{
@@ -541,6 +540,13 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const estimateBand = etaDisplay > 0 ? [Math.floor(etaDisplay/5)*5, Math.ceil(etaDisplay/5)*5] : null;
   const deliveryEstimate = estimateBand && estimateBand[0] !== estimateBand[1]
     ? estimateBand.join('–') + ' min · estimate' : etaDisplay > 0 ? 'About ' + etaDisplay + ' min' : 'Awaiting updated ETA';
+  // Anchor the clock to a confirmed order estimate or a measured rider fix.
+  const roadMinutes=roadRoute?.startingPoint==='rider' && gpsState.state==='fresh' && currentStage==='out_for_delivery' && trackingEtaMinutes(roadRoute?.travelMinutes);
+  const orderMinutes=trackingEtaMinutes(order?.etaMinutes);
+  const orderedAt=Number(order?.acceptedAt || order?.timestamp);
+  const arrivalAt=roadMinutes ? driverLoc.updatedAt+roadMinutes*60000
+    : orderMinutes && orderedAt>0 ? orderedAt+orderMinutes*60000 : Number(dynamicETA?.estimatedDeliveryTime) || null;
+  const arrivalLabel=arrivalAt>nowClock ? 'Estimated arrival '+new Date(arrivalAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : null;
   const restaurantContact=contactLinks(order?.storePhone || storeInfo?.phone);
   const riderAssigned=isDelivery && !isCancelled && !isDone && Boolean(order?.driver?.id || order?.driverId || dispatchStatus?.driverId);
   const riderContact=riderAssigned ? contactLinks(order?.driver?.phone || order?.driverPhone) : null;
@@ -585,21 +591,13 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
           {stageAnnouncement && <div className="gf-journey-stage-announcement" role="status" aria-live="polite"><span aria-hidden="true">✓</span> {stageAnnouncement}<button type="button" aria-label="Dismiss order update" onClick={()=>setStageAnnouncement('')}>×</button></div>}
           {/* Map-first journey: position the confirmed rider map before secondary progress details. */}
           {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
-            <div className="gf-journey-map-shell">
-              <button type="button" className="gf-journey-map-toggle" aria-expanded={mapExpanded} onClick={()=>setMapExpanded(v=>!v)}>
-                <span>{actualProgress.steps[actualProgress.currentIndex]?.label || 'Delivery in progress'}{etaDisplay>0 && <small className="gf-map-header-eta">{deliveryEstimate}</small>}</span><span>{mapExpanded?'Hide map ↑':'Show map ↓'}</span>
-              </button>
-              {mapExpanded&&<div className="gf-journey-map-body">
-                <TrackingMap
-                  store={storeInfo && validGeoPoint({lat:storeInfo.lat,lng:storeInfo.lng})?{lat:Number(storeInfo.lat),lng:Number(storeInfo.lng)}:null}
-                  dest={{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)}}
-                  driver={gpsState.visible?driverLoc:null}
-                  gpsState={gpsState}
-                  route={gpsState.visible?roadRoute:null}
-                />
-
-              </div>}
-            </div>}
+            <CustomerTripScreen key={order.id} order={order} store={storeInfo && validGeoPoint(storeInfo)?{lat:Number(storeInfo.lat),lng:Number(storeInfo.lng)}:null}
+              dest={{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)}} driver={gpsState.visible?driverLoc:null}
+              route={roadRoute?.startingPoint==='restaurant' || gpsState.visible ? roadRoute : null} gpsState={gpsState} chatOpen={driverChatOpen} step={actualProgress.steps[actualProgress.currentIndex]}
+              index={actualProgress.currentIndex} steps={actualProgress.steps} assigned={riderAssigned} riderName={displayRiderName}
+              contact={riderContact} arrival={arrivalLabel} late={arrivalAt>0 && arrivalAt<=nowClock}
+              onDetails={()=>setJourneySheet('full')} onHelp={()=>onSupport(customer ? order.id : null)}
+              onMessage={()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}}/>}
           {isDelivery&&!isCancelled&&!isDone&&<section aria-label="Delivery journey details" onTouchStart={onJourneyTouchStart} onTouchEnd={onJourneyTouchEnd} style={{touchAction:'pan-y',borderRadius:'24px 24px 18px 18px',background:'var(--card-bg, #fff)',padding:'14px 16px',margin:'12px 0',boxShadow:'0 12px 32px rgba(16,56,42,.10)'}}>
             <div aria-hidden="true" style={{width:44,height:5,borderRadius:9,background:'#b7c9c0',margin:'0 auto 10px'}}/>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:10}}>
