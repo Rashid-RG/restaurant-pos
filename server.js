@@ -5344,6 +5344,17 @@ app.post('/api/delivery/driver-offers',authenticateToken,requireRole(['owner','m
   }
 });
 
+// Active individual offers visible only to staff in the same restaurant.
+app.get('/api/delivery/driver-offers',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const offers=await dbAll(
+      "SELECT orderId,driverId,issuedAt,expiresAt FROM driver_timed_offers WHERE tenant_id=? AND status='offered' AND expiresAt>? ORDER BY expiresAt ASC LIMIT 150",
+      [req.tenantId,Date.now()]
+    );
+    return res.set('Cache-Control','no-store').json({offers});
+  }catch(error){console.error('[Active rider offers]',error.message);return res.status(500).json({error:'Could not load active rider offers.'});}
+});
+
 // Allows dispatch to release a still-pending individual offer back to the
 // shared marketplace, without cancelling a customer order.
 app.post('/api/delivery/driver-offers/cancel',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
