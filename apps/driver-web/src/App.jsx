@@ -2,7 +2,7 @@ import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
 import './rider-wizard.css';
 import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
-import { Bike, House, ClipboardList, Wallet, UserRound } from 'lucide-react';
+import { Bike, House, ClipboardList, Wallet, UserRound, Navigation, MapPin, PackageCheck } from 'lucide-react';
 import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
@@ -1036,8 +1036,22 @@ export default function App() {
           /* ── Rider dashboard ── */
           <div className="driver-workspace">
             {driverScreen === 'home' && <>
-            <section className="driver-welcome driver-welcome-compact"><span>GASTRODRIVER · TODAY</span><h1>Ready to ride, {driver.name?.split(' ')[0]}?</h1><p>Your deliveries and pickup opportunities, all in one place.</p><ConnectionStatus compact/></section>
+            <section className="driver-welcome driver-welcome-compact driver-home-greeting"><span>GASTRODRIVER · TODAY</span><h1>Hi, {driver.name?.split(' ')[0]}.</h1></section>
             <div className="card" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}><div><strong>{driver.status === 'offline' ? 'Offline — no new delivery offers' : 'Online — available for dispatch'}</strong><div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5 }}>Current deliveries remain assigned even when you stop accepting new work.</div></div><button type="button" className="btn-emerald" onClick={updateAvailability} disabled={availabilityLoading}>{availabilityLoading ? 'Updating…' : driver.status === 'offline' ? 'Go online' : 'Go offline'}</button></div>
+            <section className="driver-home-focus" aria-label="Current delivery">
+              <div className="driver-home-focus-header"><strong>{activeOrders.length ? 'Current delivery' : 'Your next delivery'}</strong><span>{activeOrders.length ? `${activeOrders.length} assigned` : 'No active jobs'}</span></div>
+              {activeOrders.length > 0 ? <>
+                <div className="driver-home-order-line"><span>Order #{String(activeOrders[0].id).slice(-4).toUpperCase()}</span><strong>{String(activeOrders[0].status||'assigned').replace(/_/g,' ')}</strong></div>
+                <p className="driver-home-destination"><MapPin size={17} aria-hidden="true"/>{activeOrders[0].deliveryAddress || 'Customer destination not yet provided'}</p>
+                <div className="driver-home-focus-actions">
+                  <button type="button" className="btn-emerald" onClick={()=>goToDriverScreen('orders','active')}><PackageCheck size={18} aria-hidden="true"/> Open delivery</button>
+                  <button type="button" className="btn-outline" onClick={()=>goToDriverScreen('orders','available')}>Other pickups</button>
+                </div>
+              </> : <>
+                <p className="driver-home-destination">Assigned deliveries appear here when you accept a pickup.</p>
+                <button type="button" className="btn-emerald" onClick={()=>goToDriverScreen('orders','available')}><Navigation size={17} aria-hidden="true"/> Browse available pickups ({availableOrders.length})</button>
+              </>}
+            </section>
             <nav className="driver-quick-nav" aria-label="Quick delivery actions">
               <button type="button" onClick={()=>goToDriverScreen('orders','active')}>My route <strong>{activeOrders.length}</strong></button>
               <button type="button" onClick={()=>goToDriverScreen('orders','available')}>Available <strong>{availableOrders.length}</strong></button>
@@ -1122,9 +1136,8 @@ export default function App() {
             )}
 
             </>}
-            {(driverScreen === 'home' || driverScreen === 'orders') && <>
-            {driverScreen === 'home' && <div className="driver-section-header"><h2>Current deliveries</h2><button type="button" className="btn-outline" onClick={()=>goToDriverScreen('orders','available')}>Find pickups</button></div>}
-            {driverScreen === 'orders' && <h2 className="driver-screen-heading">My deliveries</h2>}
+            {driverScreen === 'orders' && <>
+            <h2 className="driver-screen-heading">My deliveries</h2>
             {driverScreen === 'orders' && <div id="driver-tasks" className="driver-task-nav" role="tablist" aria-label="Delivery view">{[['active', 'My route'], ['available', 'Available'], ['history', 'Completed']].map(([id, label]) => <button key={id} role="tab" aria-selected={taskTab === id} onClick={() => setTaskTab(id)}>{label}</button>)}</div>}
             {driverScreen === 'orders' && <div className="driver-order-search"><label htmlFor="driver-order-search-input">Find a delivery</label><div><input id="driver-order-search-input" className="input-field" type="search" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} placeholder="Order number, customer or address" autoComplete="off"/>{orderSearch && <button type="button" className="btn-outline" onClick={()=>setOrderSearch('')}>Clear</button>}</div></div>}
             {/* Available to claim */}
