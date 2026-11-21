@@ -16,7 +16,7 @@ import LocationPicker from '../components/LocationPicker.jsx';
 import CheckoutSheet from '../components/CheckoutSheet.jsx';
 import {locationKey, selectedDeliveryPin} from '../utils/restaurant-fulfilment.js';
 import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
-import {CHECKOUT_STEPS,checkoutStepIssue} from '../utils/checkout-wizard.js';
+import {CHECKOUT_STEPS,checkoutStepIssue,checkoutReviewLineAmount} from '../utils/checkout-wizard.js';
 
 const ORDER_TYPES = [
   { id: 'dine-in', label: 'Dine In (QR)', icon: '🪑' },
@@ -848,7 +848,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               <div className="gf-wizard-cart-emoji" aria-hidden="true">{item.emoji||'🍽️'}</div>
               <div className="gf-wizard-cart-item-main"><strong>{item.name}</strong>
                 <small>Qty {item.qty||1}{item.notes?' · Special instructions added':''}</small></div>
-              <strong>Rs. {(Number(item.unitPrice??item.price??0)*Number(item.qty||1)).toFixed(2)}</strong>
+              <strong>Rs. {checkoutReviewLineAmount(item).toFixed(2)}</strong>
             </div>)}
           </div>
           <div className="gf-wizard-cart-subtotal"><span>Food subtotal</span><strong>Rs. {subtotal.toFixed(2)}</strong></div>
