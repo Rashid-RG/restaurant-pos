@@ -65,6 +65,12 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const streamHealthyRef=useRef(false);
   const lastSnapshotRef=useRef(null);
   const [connectionWarning,setConnectionWarning]=useState('');
+  const [stageAnnouncement,setStageAnnouncement]=useState('');
+  useEffect(()=>{
+    if(!stageAnnouncement)return;
+    const timer=window.setTimeout(()=>setStageAnnouncement(''),4500);
+    return ()=>window.clearTimeout(timer);
+  },[stageAnnouncement]);
 
   // Uber Eats-grade Dynamic ETA & Live Driver Chat states
   const [dynamicETA, setDynamicETA] = useState(null);
@@ -206,8 +212,9 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
     }
     const data = { ...orderRef.current, ...update, items: Array.isArray(items) ? items : [] };
     if (orderRef.current?.status && data.status !== orderRef.current.status) {
-      playCustomerChime();
-      toast(`🔔 Order Status Updated: ${String(data.status).toUpperCase()}`, 'info');
+      const stage=trackingProgress(data.status, String(data.orderType||data.diningType||'').toLowerCase()==='delivery'?'delivery':'takeaway');
+      const label=stage.terminal?'Order closed':stage.done?'Order completed':stage.steps[stage.currentIndex]?.label||'Order updated';
+      setStageAnnouncement(label);
     }
     orderRef.current = data;
     setOrder(data);
@@ -230,7 +237,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
     if (activeTrackedIdRef.current !== id) {
       activeTrackedIdRef.current=id;
       driverFixRef.current=null;orderRef.current=null;lastSnapshotRef.current=null;
-      setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setRoadRoute(null);
+      setDriverLoc(null);setDriverLastSeen(null);setDispatchStatus(null);setDynamicETA(null);setRoadRoute(null);setStageAnnouncement('');
       setDriverChatOpen(false);setDriverMessages([]);setRemainingMins(null);
     }
     if(!silent)setLoading(true);
@@ -518,6 +525,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
             {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
           </div>
+          {stageAnnouncement && <div className="gf-journey-stage-announcement" role="status" aria-live="polite"><span aria-hidden="true">✓</span> {stageAnnouncement}<button type="button" aria-label="Dismiss order update" onClick={()=>setStageAnnouncement('')}>×</button></div>}
           <section className="gf-journey-focus" aria-label="Current order progress" aria-live="off">
             <div className="gf-journey-focus-heading">
               <span className="gf-journey-focus-icon" aria-hidden="true"><AnimatedFeatureIcon kind={currentStage==='preparing'?'cooking':isDelivery&&['picked_up','out_for_delivery','arrived'].includes(currentStage)?'delivery':currentStage==='ready'?'ready':'order'} size={44} active={!isDone && !isCancelled}/></span>
