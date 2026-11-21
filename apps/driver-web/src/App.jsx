@@ -1779,6 +1779,12 @@ export default function App() {
                                 : roadEstimates[ord.id]?.message || 'Checking for a current road estimate.'}</p>}
                           </div>
                         )}
+                      </div>
+                      {['ready','picked_up','out_for_delivery','arrived'].includes(ord.status) && (
+                        <section className="driver-sticky-trip-action" aria-label="Next delivery action"
+                          style={{position:'sticky',bottom:'calc(72px + env(safe-area-inset-bottom, 0px))',zIndex:12,padding:'11px 12px',margin:'4px -8px 0',borderRadius:18,background:'var(--surface-card, #fff)',border:'1px solid var(--border-color, #e2e8f0)',boxShadow:'0 -6px 25px rgba(11,42,33,.12)'}}>
+                          <small style={{display:'block',marginBottom:7,color:'var(--text-muted)',fontWeight:700}}>ORDER #{String(ord.id).slice(-4).toUpperCase()} · NEXT STEP</small>
+                          <div style={{display:'grid'}}>
                         {ord.status === 'ready' && (
                           <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem' }}
                             disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'picked_up')}>
@@ -1803,11 +1809,14 @@ export default function App() {
                             <CircleCheck size={18} aria-hidden="true"/> Complete handover
                           </button>
                         )}
+                          </div>
+                          {pendingOrderId!==null && <small role="status" style={{display:'block',marginTop:7}}>Saving order update… please don't repeat the action.</small>}
+                        </section>
+                      )}
                         {ord.status === 'delivered' && (ord.proofSavedAt ? <button className="btn-outline" onClick={async () => {
                           try { setProofPreview(await apiFetch(`/public/driver/orders/${encodeURIComponent(ord.id)}/proof`)); }
                           catch (error) { showToast(error.message, 'error'); }
                         }}>View saved proof</button> : <span>Legacy delivery: no proof recorded</span>)}
-                      </div>
                     </article>
                   );
                 })}
