@@ -1093,7 +1093,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         {/* Real Smart Upsell & Cross-Sell Suggestions */}
         {canOrder && realRecommendations.length > 0 && (
           <details className="form-section gf-checkout-panel gf-checkout-extras">
-            <summary>🥤 Add something extra <span>Optional · ${realRecommendations.length} suggestions</span></summary>
+            <summary>🥤 Add something extra <span>Optional · {realRecommendations.length} suggestions</span></summary>
             <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 10px' }}>
               Available dishes from {store?.name || 'this restaurant'}:
             </p>
