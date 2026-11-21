@@ -1,4 +1,4 @@
-import React, {useEffect,useRef} from 'react';
+import React, {useEffect,useRef,useState} from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -21,6 +21,9 @@ export default function TrackingMap({store,dest,driver,route}) {
   const el=useRef(null),map=useRef(null),markers=useRef({});
   const routeLine=useRef(null),accuracyCircle=useRef(null),animation=useRef(null);
   const fitted=useRef(false),driverRef=useRef(null);
+  const [followRider,setFollowRider]=useState(false);
+  const followingRef=useRef(false);
+  const setFollowing=value=>{followingRef.current=value;setFollowRider(value);};
 
   useEffect(()=>{
     if(map.current||!el.current)return;
@@ -30,10 +33,15 @@ export default function TrackingMap({store,dest,driver,route}) {
       maxZoom:19,attribution:'© OpenStreetMap contributors'
     }).addTo(m);
     map.current=m;
+    // User gestures stop automatic centering. Never move a marker without a new GPS fix.
+    const stopFollowing=()=>setFollowing(false);
+    m.on('dragstart',stopFollowing);
+    m.on('zoomstart',stopFollowing);
     const timeout=window.setTimeout(()=>m.invalidateSize(),200);
     return()=>{
       window.clearTimeout(timeout);
       if(animation.current!==null){window.cancelAnimationFrame(animation.current);animation.current=null;}
+      m.off('dragstart',stopFollowing);m.off('zoomstart',stopFollowing);
       m.remove();map.current=null;markers.current={};routeLine.current=null;
       accuracyCircle.current=null;fitted.current=false;driverRef.current=null;
     };
@@ -78,6 +86,10 @@ export default function TrackingMap({store,dest,driver,route}) {
         };
         animation.current=window.requestAnimationFrame(animate);
       }else marker.setLatLng([next.lat,next.lng]);
+      if(followingRef.current && distance<=500){
+        // Camera follows only measured positions; never interpolate beyond the latest fix.
+        m.panTo([next.lat,next.lng],{animate:true,duration:.6});
+      }
     }
 
     const hasRoad=route?.available===true && route.geometry?.type==='LineString' && Array.isArray(route.geometry.coordinates) && route.geometry.coordinates.length>=2;
@@ -112,15 +124,26 @@ export default function TrackingMap({store,dest,driver,route}) {
 
   const locateRider=()=>{
     const p=driverRef.current;
-    if(map.current&&valid(p))map.current.flyTo([p.lat,p.lng],Math.max(14,map.current.getZoom()),{duration:.65});
+    if(!map.current||!valid(p))return;
+    setFollowing(true);
+    map.current.flyTo([p.lat,p.lng],Math.max(14,map.current.getZoom()),{duration:.65});
+  };
+  const showJourney=()=>{
+    setFollowing(false);
+    const m=map.current;
+    if(!m)return;
+    const points=[store,dest,driverRef.current].filter(valid);
+    if(points.length>1)m.fitBounds(L.latLngBounds(points.map(p=>[p.lat,p.lng])).pad(.18),{maxZoom:16});
+    else if(points.length===1)m.setView([points[0].lat,points[0].lng],14);
   };
 
   return <div className="customer-delivery-map gf-modern-live-map">
     <div className="gf-map-toolbar">
       <span className="gf-map-label">Delivery map · last confirmed GPS</span>
-      <button type="button" onClick={locateRider} disabled={!valid(driver)} aria-label="Center map on latest rider location">◎ Locate rider</button>
+      <div className="gf-map-actions"><button type="button" onClick={showJourney} aria-label="Fit map to delivery journey">Route</button>
+      <button type="button" onClick={followRider?()=>setFollowing(false):locateRider} disabled={!valid(driver)} aria-pressed={followRider} aria-label={followRider?'Stop following rider':'Follow rider from confirmed GPS'}>{followRider?'● Following':'◎ Follow rider'}</button></div>
     </div>
     <div ref={el} className="tm-map" role="img" aria-label="Map showing restaurant, destination and latest rider GPS fix"/>
-    <small className="customer-map-note">Marker movement is smoothed between received fixes, not predicted. {route?.available?'The solid line follows routing data and is not live traffic guidance.':'The dotted line shows straight-line proximity, not a road route.'} Location and accuracy depend on the rider's phone.</small>
+    <small className="customer-map-note">Marker animates only between received GPS fixes, never predicted. {route?.available?'The solid line follows routing data and is not live traffic guidance.':'The dotted line shows straight-line proximity, not a road route.'} Location and accuracy depend on the rider's phone.</small>
   </div>;
 }
