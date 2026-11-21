@@ -14,3 +14,16 @@
 .driver-compensation-records p{font-size:12px;color:var(--text-muted)}
 .driver-compensation-error{color:#b42318;font-size:13px}.driver-compensation-success{color:#176542;font-size:13px}
 @media(max-width:600px){.driver-compensation-panel form{grid-template-columns:1fr}.driver-compensation-panel form button{grid-column:span 1}.driver-compensation-panel-heading>button{width:100%}}
+
+.driver-compensation-payout{display:grid;gap:10px;padding:14px;border:1px solid var(--border-color);background:var(--bg-card);border-radius:12px}
+.driver-compensation-payout h4{margin:0;font-size:15px}
+.driver-compensation-payout>p{margin:0;font-size:12px;line-height:1.5;color:var(--text-muted)}
+.driver-compensation-payout form{display:flex;flex-direction:column;gap:10px}
+.driver-compensation-payout form label{font-size:12px;font-weight:700}
+.driver-compensation-payout .driver-payout-orders{border:1px solid var(--border-color);border-radius:11px;padding:12px;display:grid;gap:10px;min-width:0;max-height:210px;overflow-y:auto}
+.driver-payout-orders legend{font-size:12px;font-weight:700;padding:0 5px}
+.driver-payout-orders label{display:flex;align-items:center;gap:9px;overflow-wrap:anywhere}
+.driver-payout-orders input{width:20px;height:20px;flex:0 0 auto}
+.driver-compensation-payout .driver-payout-total{margin:2px 0;color:var(--text-main)}
+.driver-compensation-payout ul{list-style:none;display:grid;gap:8px;margin:0;padding:0;font-size:12px}
+.driver-compensation-payout li{padding:10px;background:var(--bg-secondary,#f2f5f3);border-radius:8px;overflow-wrap:anywhere}
