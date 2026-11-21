@@ -495,7 +495,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const serviceLabels = restaurant => {
     const state = deliveryState(restaurant, hasPreciseLocation, current);
     return <div className="store-services">
-      <span data-available={state === 'available'}>{t({available:'deliveryAvailableHere',outside:'deliveryOutside',address:'deliveryNeedsPin',unknown:'deliveryUnconfirmed',closed:'deliveryPaused'}[state])}</span>
+      <span data-available={state === 'available'}>{restaurant.deliveryIssue === 'store_pin_missing' ? 'Delivery setup pending · restaurant pin missing' : t({available:'deliveryAvailableHere',outside:'deliveryOutside',address:'deliveryNeedsPin',unknown:'deliveryUnconfirmed',closed:'deliveryPaused'}[state])}</span>
       <span data-available={restaurant.isOpen && restaurant.pickupEnabled !== false && !loadError}>{t(loadError ? 'pickupUnconfirmed' : restaurant.isOpen && restaurant.pickupEnabled !== false ? 'pickupAvailableHere' : 'pickupPaused')}</span>
     </div>;
   };
@@ -515,6 +515,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
   const openCount = restaurants.filter(acceptsOnlineOrders).length;
   const deliverableCount = restaurants.filter(r => acceptsOnlineOrders(r) && r.isDeliverable === true).length;
+  const pendingDeliverySetup = restaurants.filter(r => acceptsOnlineOrders(r) && r.deliveryIssue === 'store_pin_missing');
+  const deliveryOutsideRange = restaurants.filter(r => acceptsOnlineOrders(r) && r.deliveryIssue === 'outside_delivery_radius');
+
 
 
   return (
@@ -874,6 +877,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         <div className="gastrofood-discovery-empty" role="status">
           <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏪</div>
           <h4>{!loadError && deliveryOnly && !hasActiveFilters ? t(!hasPreciseLocation ? 'deliveryNeedsPin' : !current ? 'checkingDelivery' : 'noDeliveryHere') : emptyState.title}</h4>
+          {deliveryOnly && current && pendingDeliverySetup.length > 0 && (
+            <p>Delivery is not confirmed because {pendingDeliverySetup.map(r => r.name).join(', ')} has not saved a restaurant map pin. The restaurant owner must set its actual coordinates in POS → Workspace Settings → Online Store. Pickup is still available where enabled.</p>
+          )}
+          {deliveryOnly && current && pendingDeliverySetup.length === 0 && deliveryOutsideRange.length > 0 && (
+            <p>Your selected delivery pin is outside the configured delivery radius for {deliveryOutsideRange.map(r => r.name).join(', ')}. Choose a closer exact map pin or order pickup.</p>
+          )}
           {deliveryOnly && !loadError && !hasActiveFilters ? <button type="button" onClick={() => setSelectedMode('pickup')}>{t('showPickup')}</button> : <p>{emptyState.description}</p>}
           {(hasActiveFilters || sortBy !== 'recommendation') && <button type="button" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);}}>Clear filters</button>}
           {!hasActiveFilters && <button type="button" onClick={()=>fetchRestaurants()}>Try again</button>}
