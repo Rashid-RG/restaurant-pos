@@ -68,6 +68,10 @@ export default function App() {
   const [activeOrders, setActiveOrders] = useState([]);
   const [history, setHistory] = useState([]);
   const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
+  const [cashSummary,setCashSummary]=useState(null);
+  const [cashLoading,setCashLoading]=useState(false);
+  const [cashError,setCashError]=useState('');
+  const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -196,6 +200,7 @@ export default function App() {
     // same device does not briefly see the previous driver's orders.
     setActiveOrders([]);
     setAvailableOrders([]);
+    setCashSummary(null);setCashDetailsOpen(false);setCashError('');
     activeOrdersRef.current = [];
     prevUnassignedCountRef.current = 0;
     dispatchAbortRef.current?.cancel();dispatchAbortRef.current=null;
@@ -460,6 +465,23 @@ export default function App() {
     setWatchId(id);
   };
 
+  const loadCashSummary = async () => {
+    if(cashLoading || !driver) return;
+    setCashLoading(true);setCashError('');
+    try {
+      const result=await apiFetch('/public/driver/cash-summary',{cache:'no-store'});
+      const centsFields=['cashReceivedCents','cashHandoverPendingCents','cashHandedOverCents'];
+      if(result.currency!=='LKR' || !centsFields.every(key=>Number.isSafeInteger(result[key]) && result[key]>=0)
+        || !Number.isSafeInteger(result.deliveredCodOrders) || result.deliveredCodOrders<0) {
+        throw new Error('The settlement figures could not be verified. Please retry.');
+      }
+      setCashSummary(result);
+    } catch(error) {
+      setCashError(error.message || 'Could not retrieve cash settlement.');
+      setCashSummary(null);
+    } finally {setCashLoading(false);}
+  };
+
   const handleClaim = async (orderId) => {
     if(pendingOrderRef.current || driverStatusRef.current === 'offline') return;
     pendingOrderRef.current=orderId;setPendingOrderId(orderId);
@@ -497,6 +519,7 @@ export default function App() {
         })
       });
       if (newStatus === 'delivered' && !result.proof?.savedAt) throw new Error('No saved proof receipt was returned. Refresh to check this delivery.');
+      if(newStatus==='delivered') setCashSummary(null); // Settlement must be reloaded after cash delivery.
       showToast(newStatus === 'delivered' ? 'Delivery completed. Proof saved.' : 'Delivery status updated.', 'success');
       fetchDriverOrders();
     } catch (err) {
@@ -940,6 +963,28 @@ export default function App() {
               </div>
             </div>
 
+            <section className="driver-settlement card" aria-label="Driver cash settlement">
+              <div className="driver-settlement-head">
+                <div><strong>Cash settlement</strong><p>Collected customer cash, not driver earnings or payout.</p></div>
+                <button type="button" className="btn-outline" aria-expanded={cashDetailsOpen} aria-controls="driver-cash-details" onClick={() => {
+                  const next=!cashDetailsOpen;setCashDetailsOpen(next);
+                  if(next) void loadCashSummary();
+                }}>{cashDetailsOpen ? 'Hide details' : 'View cash details'}</button>
+              </div>
+              {cashDetailsOpen && <div id="driver-cash-details">
+                {cashLoading && <p role="status">Loading verified cash figures…</p>}
+                {cashError && <p role="alert" className="driver-cash-error">{cashError}</p>}
+                {cashSummary && !cashLoading && <>
+                  <div className="driver-cash-grid">
+                    <div><small>Received from customers</small><strong>Rs. {(cashSummary.cashReceivedCents/100).toFixed(2)}</strong></div>
+                    <div><small>Pending manager handover</small><strong>Rs. {(cashSummary.cashHandoverPendingCents/100).toFixed(2)}</strong></div>
+                    <div><small>Already handed over</small><strong>Rs. {(cashSummary.cashHandedOverCents/100).toFixed(2)}</strong></div>
+                  </div>
+                  <p className="driver-cash-footnote">{cashSummary.deliveredCodOrders} confirmed cash deliveries. Figures show recorded settlement state, not payment to the driver.</p>
+                </>}
+                <button type="button" className="btn-outline driver-cash-refresh" disabled={cashLoading} onClick={loadCashSummary}>{cashLoading ? 'Refreshing…' : 'Refresh cash summary'}</button>
+              </div>}
+            </section>
             {/* COD cash summary */}
             {cashToHandover > 0 && (
               <div className="card" style={{ marginTop: 16, padding: 14, background: '#fffbeb', border: '1px solid #fde68a' }}>
