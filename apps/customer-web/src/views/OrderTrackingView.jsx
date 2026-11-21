@@ -7,6 +7,7 @@ import { useLang } from '../context/LanguageContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { selectTrackableOrders } from '../utils/gastromate-tracking.js';
 import TrackingMap from '../components/TrackingMap.jsx';
+import DeliveryPulseCard from '../components/DeliveryPulseCard.jsx';
 import {contactLinks} from '../utils/contact-actions.js';
 import { canUseHostedOrderStream, canUseHostedWebPush } from '../utils/native-tracking-policy.js';
 import { shouldRefreshNativeTrackingOnResume } from '../utils/native-tracking-resume.js';
@@ -546,11 +547,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
                 {i<actualProgress.currentIndex||isDone?'✓':i===actualProgress.currentIndex?'●':'·'}
               </span>)}
             </div>}
-            {isDelivery && !isDone && !isCancelled&&<div className="gf-journey-gps-state" role="status">
-              <span aria-hidden="true">🛵</span>
-              <span>{!riderAssigned?'Waiting for rider assignment':gpsState.label}</span>
-              {riderAssigned&&<button type="button" onClick={()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}}>Message rider</button>}
-            </div>}
+
           </section>
           {((isDelivery && ['picked_up','out_for_delivery','arrived'].includes(currentStage)) || canCancel) &&
             <div className="gf-journey-quick-actions">
@@ -563,6 +560,13 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
                 }}>🔐 Delivery handover details</button>}
               {canCancel && <button type="button" className="gf-journey-quick-cancel" onClick={handleCancelOrder} disabled={cancelling}>{cancelling?'Cancelling…':'Cancel order'}</button>}
             </div>}
+          {isDelivery && !isCancelled && <DeliveryPulseCard
+            status={order.status}
+            assigned={riderAssigned}
+            gpsState={gpsState.state}
+            etaMinutes={isDone?null:etaDisplay}
+            onMessage={riderAssigned?()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}:null}
+          />}
           {/* An explicit map toggle avoids a long, forced-scrolling page. */}
           {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
             <div className="gf-journey-map-shell">
