@@ -160,22 +160,22 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     }
   }, [boundTable]);
 
-  // Load saved addresses and cards if customer logged in
+  // Profile responses must never cross a tenant/customer switch after
+  // an in-flight request finishes. No address data is copied to web storage.
   useEffect(() => {
-    if (customer) {
+    let active=true;
+    const requestedTenant=getActiveTenant();
+    setSavedAddresses([]);setSavedCards([]);setSelectedSavedAddressId('');
+    if(customer){
       apiFetch('/customer/addresses')
-        .then(data => {setSavedAddresses(Array.isArray(data)?data:[]);})
-        .catch(() => {setSavedAddresses([]);});
-
+        .then(data=>{if(active&&getActiveTenant()===requestedTenant)setSavedAddresses(Array.isArray(data)?data:[]);})
+        .catch(()=>{if(active)setSavedAddresses([]);});
       apiFetch('/customer/cards')
-        .then(data => setSavedCards(data || []))
-        .catch(() => {});
-    } else {
-      setSavedAddresses([]);setSavedCards([]);setSelectedSavedAddressId('');
+        .then(data=>{if(active&&getActiveTenant()===requestedTenant)setSavedCards(Array.isArray(data)?data:[]);})
+        .catch(()=>{if(active)setSavedCards([]);});
     }
-
-    // Store settings are loaded from the live, tenant-verified storefront.
-  }, [customer]);
+    return()=>{active=false;};
+  },[customer]);
 
   // No recommendations from closed, offline or wrong-tenant stores.
   const [realRecommendations, setRealRecommendations] = useState([]);
