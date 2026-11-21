@@ -722,7 +722,8 @@ export default function App() {
           lng: fix?.lng,
           signature: proof?.signature,
           deliveryPhoto: proof?.photo,
-          cashReceived: proof?.cashReceived
+          cashReceived: proof?.cashReceived,
+          deliveryPin: proof?.deliveryPin
         })
       });
       if (newStatus === 'delivered' && !result.proof?.savedAt) throw new Error('No saved proof receipt was returned. Refresh to check this delivery.');
