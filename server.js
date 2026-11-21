@@ -5170,7 +5170,7 @@ app.post('/api/driver/auth/login', authLimiter, validateRequest(driverLoginSchem
     );
     res.json({
       token,
-      driver: { id: driver.id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicleType, plateNumber: driver.plateNumber, status: driver.status }
+      driver: { id: driver.id, tenant_id: driver.tenant_id, name: driver.name, phone: driver.phone, vehicleType: driver.vehicleType, plateNumber: driver.plateNumber, status: driver.status }
     });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
