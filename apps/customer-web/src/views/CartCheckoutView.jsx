@@ -1065,8 +1065,9 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           </div>
 
           {appliedPromo && (
-            <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--success)', fontWeight: 700 }}>
-              ✓ Code {appliedPromo.code} applied!
+            <div className="gf-checkout-applied-promo" role="status">
+              <span>✓ Code {appliedPromo.code} applied</span>
+              <button type="button" onClick={()=>{setAppliedPromo(null);setPromoCode('');}}>Remove</button>
             </div>
           )}
 
