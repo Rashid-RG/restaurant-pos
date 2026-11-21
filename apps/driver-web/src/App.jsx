@@ -73,6 +73,7 @@ export default function App() {
   const [cashError,setCashError]=useState('');
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
+  const [orderSearch,setOrderSearch]=useState('');
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pendingOrderId,setPendingOrderId]=useState(null);
@@ -800,6 +801,14 @@ export default function App() {
   // them was a logic error that could produce wrong totals if status semantics change.
   const cashToHandover = Number(summary.cashToHandover || 0);
   const visibleOrders = taskTab === 'history' ? history : activeOrders;
+  const matchesOrderSearch = (order) => {
+    const needle=orderSearch.trim().toLocaleLowerCase();
+    if(!needle) return true;
+    return [order.id,order.customerName,order.deliveryAddress,order.status]
+      .some(value=>String(value ?? '').toLocaleLowerCase().includes(needle));
+  };
+  const filteredOrders=visibleOrders.filter(matchesOrderSearch);
+  const filteredAvailableOrders=availableOrders.filter(matchesOrderSearch);
   const dispatchFresh = !dispatchSyncError && dispatchLastSynced !== null
     && driverClock - dispatchLastSynced <= 25000;
   const dispatchHealthLabel = dispatchSyncError ? 'Dispatch connection interrupted'
@@ -1008,15 +1017,16 @@ export default function App() {
             )}
 
             <div id="driver-tasks" className="driver-task-nav" role="tablist" aria-label="Delivery view">{[['active', 'My route'], ['available', 'Available'], ['history', 'Completed']].map(([id, label]) => <button key={id} role="tab" aria-selected={taskTab === id} onClick={() => setTaskTab(id)}>{label}</button>)}</div>
+            <div className="driver-order-search"><label htmlFor="driver-order-search-input">Find a delivery</label><div><input id="driver-order-search-input" className="input-field" type="search" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} placeholder="Order number, customer or address" autoComplete="off"/>{orderSearch && <button type="button" className="btn-outline" onClick={()=>setOrderSearch('')}>Clear</button>}</div></div>
             {/* Available to claim */}
-            {taskTab === 'available' && availableOrders.length === 0 && <div className="driver-empty"><strong>You’re all caught up.</strong>Available pickups will appear here automatically.</div>}
-            {taskTab === 'available' && availableOrders.length > 0 && (
+            {taskTab === 'available' && filteredAvailableOrders.length === 0 && <div className="driver-empty"><strong>{orderSearch.trim() ? 'No matching pickups.' : 'You’re all caught up.'}</strong>{orderSearch.trim() ? 'Try a different order number or clear your search.' : 'Available pickups will appear here automatically.'}</div>}
+            {taskTab === 'available' && filteredAvailableOrders.length > 0 && (
               <>
                 <h3 style={{ fontSize: '1.0rem', fontWeight: 800, color: 'var(--text-main)', marginTop: 24, marginBottom: 12 }}>
-                  🟢 Available to Claim ({availableOrders.length})
+                  🟢 Available to Claim ({filteredAvailableOrders.length})
                 </h3>
                 <div style={{ display: 'grid', gap: 12 }}>
-                  {availableOrders.map(ord => {
+                  {filteredAvailableOrders.map(ord => {
                     // Calculate driver-to-destination distance
                     const dropKm = (isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords, driverClock) && Number.isFinite(Number(ord.deliveryLat)) && Number.isFinite(Number(ord.deliveryLng)) && ord.deliveryLat != null && ord.deliveryLng != null)
                       ? haversineKm(lastCoords.lat, lastCoords.lng, Number(ord.deliveryLat), Number(ord.deliveryLng))
@@ -1053,17 +1063,17 @@ export default function App() {
 
             {taskTab !== 'available' && <>
             <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-main)', marginTop: 24, marginBottom: 12 }}>
-              {taskTab === 'history' ? 'Completed deliveries' : 'My route'} ({visibleOrders.length})
+              {taskTab === 'history' ? 'Completed deliveries' : 'My route'} ({filteredOrders.length})
             </h3>
 
-            {visibleOrders.length === 0 ? (
+            {filteredOrders.length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
                 <div style={{ fontSize: '2.4rem', marginBottom: 8 }}>📭</div>
-                <p style={{ margin: 0, fontSize: '0.92rem', fontWeight: 600 }}>{taskTab === 'history' ? 'Completed deliveries will appear here.' : 'No active deliveries. Check Available for your next pickup.'}</p>
+                <p style={{ margin: 0, fontSize: '0.92rem', fontWeight: 600 }}>{orderSearch.trim() ? 'No deliveries match your search. Clear the search to see all orders.' : taskTab === 'history' ? 'Completed deliveries will appear here.' : 'No active deliveries. Check Available for your next pickup.'}</p>
               </div>
             ) : (
               <div style={{ display: 'grid', gap: 16 }}>
-                {visibleOrders.map(ord => {
+                {filteredOrders.map(ord => {
                   const itemsStr = Array.isArray(ord.items) ? ord.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : 'Delivery Items';
                   const customerPhone = ord.customerPhone || 'N/A';
                   // Never offer a contact link for a missing or malformed customer number.
