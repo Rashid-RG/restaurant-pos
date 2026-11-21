@@ -76,3 +76,20 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-location-health.good .driver-location-health-head span{color:#18714e}
 .driver-location-health p{font-size:12px;line-height:1.55;margin:5px 0 0;color:#536b5b}
 .driver-controls-actions>.btn-emerald{line-height:1.35}
+
+
+/* Read-only, server-verified cash handover. Never label customer cash as earnings. */
+.driver-settlement{padding:16px!important}
+.driver-settlement-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.driver-settlement-head>div{flex:1 1 180px;min-width:0}
+.driver-settlement-head strong{font-size:15px;color:#143e30}
+.driver-settlement-head p{margin:5px 0 0;color:#63766a;line-height:1.4;font-size:12px}
+.driver-settlement-head button{min-height:44px}
+.driver-cash-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:14px 0 8px}
+.driver-cash-grid>div{padding:12px 10px;background:#f4faf6;border:1px solid #dceee3;border-radius:12px;min-width:0}
+.driver-cash-grid small{display:block;color:#63766a;font-size:11px;line-height:1.4;margin-bottom:8px}
+.driver-cash-grid strong{display:block;overflow-wrap:anywhere;color:#175d43;font-size:15px;font-variant-numeric:tabular-nums}
+.driver-cash-footnote{font-size:12px;color:#65756b;line-height:1.5}
+.driver-cash-error{font-size:12px;color:#a52727}
+.driver-cash-refresh{min-height:44px;margin-top:6px}
+@media(max-width:430px){.driver-cash-grid{grid-template-columns:1fr}.driver-cash-grid>div{display:flex;justify-content:space-between;align-items:center;gap:12px}.driver-cash-grid small{margin:0;flex:1}.driver-cash-grid strong{text-align:right}}
