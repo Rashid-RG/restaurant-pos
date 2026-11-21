@@ -51,3 +51,10 @@
 .discovery-filters summary::after { content: '▾'; margin-inline-start: auto; }
 .discovery-filters[open] summary::after { transform: rotate(180deg); }
 .discovery-filters summary small { color: var(--brand); }
+
+.store-mode-switch { display:flex; gap:4px; padding:4px; border-radius:14px; background:var(--surface-2); margin-block:12px 4px; }
+.store-mode-switch button { flex:1; min-height:44px; font:inherit; font-weight:700; border:0; border-radius:10px; color:var(--text-1); background:transparent; cursor:pointer; }
+.store-mode-switch button[aria-pressed=true] { background:#176849; color:white; }
+.store-services { display:flex; flex-wrap:wrap; gap:6px; margin-block:8px; }
+.store-services span { padding:4px 8px; border-radius:6px; color:var(--text-muted); background:var(--surface-2); font-size:.76rem; font-weight:650; }
+.store-services span[data-available=true] { background:#e2f4e9; color:#195c39; }

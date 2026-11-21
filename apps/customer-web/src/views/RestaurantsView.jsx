@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './restaurants-mobile.css';
+import {deliveryState, locationKey} from '../utils/restaurant-fulfilment.js';
 import { createPortal } from 'react-dom';
 import { MapPin, Search, SlidersHorizontal, ArrowUpRight, RefreshCw, Star, Clock3, Bike, CheckCircle2, AlertCircle, ShoppingBag } from 'lucide-react';
 import L from 'leaflet';
@@ -45,7 +46,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const [isOutOfCoverage, setIsOutOfCoverage] = useState(false);
   const [showOutOfCoverageModal, setShowOutOfCoverageModal] = useState(false);
   const [openOnly, setOpenOnly] = useState(false);
-  const [deliveryOnly, setDeliveryOnly] = useState(false);
+  const [selectedMode, setSelectedMode] = useState(null);
+  const [quotedLocation, setQuotedLocation] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [dismissedCoverage, setDismissedCoverage] = useState(false);
   const [userAccuracy, setUserAccuracy] = useState(null);
@@ -308,6 +310,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       setNearestStore(null);
       setIsOutOfCoverage(false);
       localStorage.removeItem('gastroflow_user_coords');
+      fetchRestaurants(null);
     }
 
     setDeliveryLocation(manualAddr);
@@ -377,7 +380,11 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         const saved = JSON.parse(localStorage.getItem('gastroflow_user_coords') || 'null');
         if (saved && Number.isFinite(saved.lat) && Number.isFinite(saved.lng)) lastCoords = saved;
       } catch (_) {}
-      fetchRestaurants(lastCoords);
+      const address = localStorage.getItem('gastroflow_delivery_address');
+      const coords = lastCoords || resolveCoordsForAddress(address);
+      setDeliveryLocation(address || 'Choose delivery location');
+      setUserCoords(coords);
+      fetchRestaurants(coords);
     };
     const interval = window.setInterval(reload, 45000);
     window.addEventListener('focus', reload);
@@ -406,8 +413,6 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
     const updated = uniqueRaw.map((r, idx) => {
       const dist = distances[idx];
-      const radius = Number(r.deliveryRadiusKm) > 0 ? Number(r.deliveryRadiusKm) : 15;
-      const inRange = Number.isFinite(dist) ? dist <= radius : null;
       const fee = r.deliveryFee;
       // ETA is supplied by the restaurant; never infer a fake driving time.
       const isOpenNow = acceptsOnlineOrders(r); // missing state must not be shown as open
@@ -417,7 +422,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       return {
         ...r,
         distanceKm: Number.isFinite(dist) ? dist : null,
-        isDeliverable: inRange,
+        isDeliverable: r.isDeliverable,
         deliveryFee: fee,
         feeBreakdown: null,
         deliveryTime: r.deliveryTime,
@@ -428,53 +433,36 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
     setRestaurants(updated);
 
-    const deliverableStores = updated.filter(s => s.isDeliverable);
     const knownStores = updated.filter(store => Number.isFinite(store.distanceKm));
     const closest = [...knownStores].sort((a, b) => a.distanceKm - b.distanceKm)[0] || null;
     setNearestStore(closest);
-    const outsideAllKnownZones = knownStores.length > 0 && deliverableStores.length === 0;
+    const outsideAllKnownZones = updated.length > 0 && updated.every(store => store.isDeliverable === false);
     setIsOutOfCoverage(outsideAllKnownZones);
     // Non-blocking alert: never automatically open a full-screen modal on load.
     setShowOutOfCoverageModal(false);
     setDismissedCoverage(false);
   };
 
-  const fetchRestaurants = async (overrideCoords = null) => {
+  const fetchRestaurants = async (overrideCoords = userCoords) => {
     const requestId=++restaurantsFetchRef.current;
     // Background polling/focus/GPS updates must not replace populated cards with a spinner.
     if (!hasLoadedRestaurantsRef.current) setLoading(true);
-    setLoadError('');
     try {
-      const coords = overrideCoords || userCoords;
+      const coords = overrideCoords;
       const q = coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng) ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
       const data = await apiFetch(`/public/restaurants${q}`);
       if(requestId!==restaurantsFetchRef.current)return;
       const storeList = deduplicateStores(data || []).map(store => ({ ...store, isOpen: acceptsOnlineOrders(store), isOpenNow: acceptsOnlineOrders(store) }));
+      setLoadError('');
+      setQuotedLocation(locationKey(coords));
       setRestaurants(storeList);
       hasLoadedRestaurantsRef.current = true;
 
-      if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
+      if (locationKey(coords) && storeList.length) {
         processStoreProximity(coords.lat, coords.lng, storeList);
       } else {
-        const savedAddr = localStorage.getItem('gastroflow_delivery_address');
-        let resolved = resolveCoordsForAddress(savedAddr);
-        if (!resolved && savedAddr && savedAddr !== 'Choose delivery location' && savedAddr !== 'Detecting Location...') {
-          try {
-            const result=await apiFetch(`/public/geocode?q=${encodeURIComponent(savedAddr)}`);
-            if(Array.isArray(result)&&result[0]){
-              const lat=Number(result[0].lat),lng=Number(result[0].lng);
-              if(Number.isFinite(lat)&&Number.isFinite(lng))resolved={lat,lng};
-            }
-          } catch (_) {}
-        }
-        if(requestId!==restaurantsFetchRef.current)return;
-        if (resolved) {
-          setUserCoords(resolved);
-          processStoreProximity(resolved.lat, resolved.lng, storeList);
-        } else {
-          setNearestStore(null);
-          setIsOutOfCoverage(false);
-        }
+        setNearestStore(null);
+        setIsOutOfCoverage(false);
       }
 
     } catch (err) {
@@ -485,23 +473,36 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
     }
   };
 
+  const savedLocationSource = (() => { try { return JSON.parse(localStorage.getItem('gastroflow_user_coords'))?.source; } catch { return null; } })();
+  const key = locationKey(userCoords);
+  const hasPreciseLocation = Boolean(key && ['gps','geocoded-address','manual-pin'].includes(savedLocationSource));
+  const current = !loadError && quotedLocation === key;
+  const mode = selectedMode || (hasPreciseLocation ? 'delivery' : 'pickup');
+  const deliveryOnly = mode === 'delivery';
+  const serviceLabels = restaurant => {
+    const state = deliveryState(restaurant, hasPreciseLocation, current);
+    return <div className="store-services">
+      <span data-available={state === 'available'}>{t({available:'deliveryAvailableHere',outside:'deliveryOutside',address:'deliveryNeedsPin',unknown:'deliveryUnconfirmed',closed:'deliveryPaused'}[state])}</span>
+      <span data-available={restaurant.isOpen && !loadError}>{t(loadError ? 'pickupUnconfirmed' : restaurant.isOpen ? 'pickupAvailableHere' : 'pickupPaused')}</span>
+    </div>;
+  };
   const filtered = sortRestaurants(deduplicateStores(
     restaurants.filter(r => {
       const matchesSearch = matchesRestaurantQuery(r, search);
       const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
       const matchesOpen = !openOnly || acceptsOnlineOrders(r);
-      const matchesDelivery = !deliveryOnly || r.isDeliverable === true;
+      const matchesDelivery = mode === 'all' || (!loadError && (deliveryOnly
+        ? deliveryState(r, hasPreciseLocation, current) === 'available' : acceptsOnlineOrders(r)));
       return matchesSearch && matchesCuisine && matchesOpen && matchesDelivery;
     })
-  ), sortBy);
+  ), sortBy === 'recommendation' && mode === 'pickup' && key ? 'distance' : sortBy);
 
   const emptyState = restaurantEmptyState({loading, failed:Boolean(loadError), total:restaurants.length, search, cuisine:activeCuisine, openOnly, deliveryOnly});
-  const hasActiveFilters = Boolean(search.trim() || activeCuisine !== 'all' || openOnly || deliveryOnly);
+  const hasActiveFilters = Boolean(search.trim() || activeCuisine !== 'all' || openOnly);
 
   const openCount = restaurants.filter(acceptsOnlineOrders).length;
   const deliverableCount = restaurants.filter(r => acceptsOnlineOrders(r) && r.isDeliverable === true).length;
-  const savedLocationSource=(()=>{try{return JSON.parse(localStorage.getItem('gastroflow_user_coords')||'null')?.source}catch{return null}})();
-  const hasPreciseLocation = Boolean(userCoords && Number.isFinite(userCoords.lat) && Number.isFinite(userCoords.lng) && ['gps','geocoded-address','manual-pin'].includes(savedLocationSource));
+
 
   return (
     <div className="restaurants-view gastrofood-discovery" style={{ padding: '16px', maxWidth: 1120, margin: '0 auto', paddingBottom: 96, fontFamily: 'inherit' }}>
@@ -685,12 +686,12 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
       <header className="discovery-heading">
         <h1>Nearby restaurants</h1>
-        {!loading && !loadError && <p>{openCount} accepting orders{hasPreciseLocation && ` · ${deliverableCount} in delivery range`}</p>}
+        {!loading && !loadError && <p>{openCount} accepting orders{hasPreciseLocation && current && ` · ${deliverableCount} in delivery range`}</p>}
       </header>
 
       {loadError && <div className="stores-error" role="alert"><AlertCircle size={18}/>{loadError}<button type="button" onClick={()=>fetchRestaurants()}><RefreshCw size={15}/> Retry</button></div>}
 
-      {nearestStore && isOutOfCoverage && !dismissedCoverage && (
+      {deliveryOnly && current && hasPreciseLocation && nearestStore && isOutOfCoverage && !dismissedCoverage && (
         <div className="stores-coverage-inline" role="status">
           <AlertCircle size={21}/>
           <div><strong>Delivery not available at this address</strong><span>Explore restaurants for pickup, or choose another delivery pin.</span></div>
@@ -704,14 +705,20 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
         <input type="search" enterKeyHint="search" autoComplete="off" aria-label="Search restaurants, cuisines or areas" placeholder="Search restaurants, cuisines or areas…" value={search} onChange={e=>setSearch(e.target.value)}/>
         {search && <button type="button" aria-label="Clear search" onClick={()=>setSearch('')}>×</button>}
       </div>
+      <div className="store-mode-switch" role="group" aria-label="Restaurant order mode">
+        {['delivery','pickup','all'].map(value => <button key={value} type="button" aria-pressed={mode === value}
+          onClick={() => {setSelectedMode(value); if (value === 'delivery' && !hasPreciseLocation) setShowLocationModal(true);}}>
+          {t({delivery:'modeDelivery',pickup:'modePickup',all:'modeAllStores'}[value])}
+        </button>)}
+      </div>
       <details className="discovery-filters">
         <summary><SlidersHorizontal size={17}/> Filters and sort
-          {(openOnly || deliveryOnly || activeCuisine !== 'all' || sortBy !== 'recommendation') && <small>Applied</small>}
+          {(openOnly || activeCuisine !== 'all' || sortBy !== 'recommendation') && <small>Applied</small>}
         </summary>
       <div className="stores-quick-filters" role="group" aria-label="Availability filters">
         <button type="button" aria-pressed={openOnly} className={openOnly?'active':''} onClick={()=>setOpenOnly(v=>!v)}><CheckCircle2 size={17}/> Open now</button>
-        <button type="button" aria-pressed={deliveryOnly} className={deliveryOnly?'active':''} disabled={!hasPreciseLocation} title={!hasPreciseLocation?'Select your location first':'Only stores that can deliver to your location'} onClick={()=>setDeliveryOnly(v=>!v)}><Bike size={17}/> Delivers here</button>
-        {(hasActiveFilters || sortBy !== 'recommendation') && <button type="button" className="gastrofood-clear-filters" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);setSortBy('recommendation');}} aria-label="Clear all restaurant filters">Clear all</button>}
+
+        {(hasActiveFilters || sortBy !== 'recommendation') && <button type="button" className="gastrofood-clear-filters" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setSortBy('recommendation');}} aria-label="Clear all restaurant filters">Clear all</button>}
       </div>
 
       {/* Discovery sorting — available restaurants always appear first. */}
@@ -779,7 +786,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       </details>
 
       {/* Restaurants confirmed open and deliverable at the selected location. */}
-      {sortBy === 'recommendation' && !loading && recommendedOpenStores(filtered, hasPreciseLocation).length > 0 && (
+      {deliveryOnly && current && sortBy === 'recommendation' && !loading && recommendedOpenStores(filtered, hasPreciseLocation).length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -815,6 +822,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                   </span>
                 </div>
                 <div style={{ padding: 12 }}>
+                  {serviceLabels(r)}
                   <h4 style={{ margin: '0 0 2px', fontSize: '0.92rem', fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {r.name}
                   </h4>
@@ -851,9 +859,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       ) : filtered.length === 0 ? (
         <div className="gastrofood-discovery-empty" role="status">
           <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏪</div>
-          <h4>{emptyState.title}</h4>
-          <p>{emptyState.description}</p>
-          {(hasActiveFilters || sortBy !== 'recommendation') && <button type="button" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);setDeliveryOnly(false);}}>Clear filters</button>}
+          <h4>{!loadError && deliveryOnly && !hasActiveFilters ? t(!hasPreciseLocation ? 'deliveryNeedsPin' : !current ? 'checkingDelivery' : 'noDeliveryHere') : emptyState.title}</h4>
+          {deliveryOnly && !loadError && !hasActiveFilters ? <button type="button" onClick={() => setSelectedMode('pickup')}>{t('showPickup')}</button> : <p>{emptyState.description}</p>}
+          {(hasActiveFilters || sortBy !== 'recommendation') && <button type="button" onClick={() => {setSearch('');setActiveCuisine('all');setOpenOnly(false);}}>Clear filters</button>}
           {!hasActiveFilters && <button type="button" onClick={()=>fetchRestaurants()}>Try again</button>}
         </div>
       ) : (
@@ -899,7 +907,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                     background: 'rgba(15,23,42,0.88)',
                     color: '#fff', padding: '3px 10px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800, backdropFilter: 'blur(4px)'
                   }}>
-                    📍 {r.distanceKm} km straight-line · {r.isDeliverable ? 'Estimated nearby' : 'Beyond estimated radius'}
+                    📍 {r.distanceKm} km straight-line
                   </span>
                 )}
 
@@ -929,6 +937,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                   {r.cuisine}{r.location ? ` · 📍 ${r.location}` : ''}
                 </div>
 
+                {serviceLabels(r)}
                 {/* AI Score Badge */}
                 {acceptsOnlineOrders(r) && hasPreciseLocation && r.isDeliverable === true && r.recommendationScore > 0 && (
                   <div style={{ marginBottom: 8 }}>
@@ -946,9 +955,9 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 {/* Delivery Stats Bar */}
                 <div style={{ display: 'flex', gap: 10, fontSize: '0.76rem', color: 'var(--text-1)', fontWeight: 600, borderTop: '1px solid var(--border-color)', paddingTop: 10, flexWrap: 'wrap' }}>
                   <span>⏱️ {r.deliveryTime || 'Confirm at checkout'}</span>
-                  <span title={r.feeBreakdown ? `Base: LKR ${r.feeBreakdown.base} + Distance: LKR ${r.feeBreakdown.distFee}${r.feeBreakdown.isRush ? ' × 1.3 (Peak)' : ''}` : ''}>
+                  {deliveryState(r,hasPreciseLocation,current)==='available' && <span title={r.feeBreakdown ? `Base: LKR ${r.feeBreakdown.base} + Distance: LKR ${r.feeBreakdown.distFee}${r.feeBreakdown.isRush ? ' × 1.3 (Peak)' : ''}` : ''}>
                     🚚 {restaurantDeliveryText(r, hasPreciseLocation)}
-                  </span>
+                  </span>}
                   {r.minOrder != null && <span style={{ color: 'var(--text-muted)' }}>Min order: LKR {r.minOrder}</span>}
                 </div>
               </div>

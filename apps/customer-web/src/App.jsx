@@ -235,7 +235,7 @@ function InstallPrompt() {
 function InnerApp({ switchRestaurant }) {
   const [view, setView] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('tenant') ? 'store-menu' : 'menu';
+    return params.get('tenant') ? 'store-menu' : 'restaurants';
   });
   const [trackingOrderId, setTrackingOrderId] = useState(null);
   const [aiCustomize, setAiCustomize] = useState(null);
@@ -281,7 +281,7 @@ function InnerApp({ switchRestaurant }) {
       const p = new URLSearchParams(window.location.search);
       setAiCustomize(null);
       if (p.get('tenant') && p.get('tenant') !== getActiveTenant()) switchRestaurant(p.get('tenant'));
-      const v = p.get('view') || p.get('page') || 'menu';
+      const v = p.get('view') || p.get('page') || (p.get('tenant') ? 'store-menu' : 'restaurants');
       setView(v === 'menu' && p.get('tenant') ? 'store-menu' : v);
       setTrackingOrderId(v === 'track' ? p.get('track') : null);
     };
