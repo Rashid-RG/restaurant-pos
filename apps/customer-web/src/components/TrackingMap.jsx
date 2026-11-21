@@ -138,13 +138,29 @@ export default function TrackingMap({store,dest,driver,route}) {
     else if(points.length===1)m.setView([points[0].lat,points[0].lng],14);
   };
 
-  return <div className="customer-delivery-map gf-modern-live-map">
-    <div className="gf-map-toolbar">
-      <span className="gf-map-label">Delivery map · last confirmed GPS</span>
-      <div className="gf-map-actions"><button type="button" onClick={showJourney} aria-label="Fit map to delivery journey">Route</button>
-      <button type="button" onClick={followRider?()=>setFollowing(false):locateRider} disabled={!valid(driver)} aria-pressed={followRider} aria-label={followRider?'Stop following rider':'Follow rider from confirmed GPS'}>{followRider?'● Following':'◎ Follow rider'}</button></div>
+  return <section className="customer-delivery-map gf-modern-live-map" aria-label="Live delivery journey" style={{position:'relative',overflow:'hidden',borderRadius:24,boxShadow:'0 16px 42px rgba(14,50,37,.12)'}}>
+    <div style={{position:'relative'}}>
+      <div ref={el} className="tm-map" role="img" aria-label="Map showing restaurant, destination and latest confirmed rider GPS fix" style={{height:'min(57vh,520px)',minHeight:350,width:'100%'}}/>
+      <div style={{position:'absolute',top:12,left:12,right:64,zIndex:500,pointerEvents:'none'}}>
+        <div role="status" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 14px',borderRadius:18,color:'#153c32',background:'rgba(255,255,255,.96)',boxShadow:'0 7px 22px rgba(0,0,0,.12)',fontSize:13,fontWeight:750}}>
+          <span aria-hidden="true" style={{height:9,width:9,borderRadius:'50%',background:valid(driver)?'#13986a':'#e1a449'}}/>
+          {valid(driver)?'Last confirmed rider GPS':'Waiting for rider location'}
+        </div>
+      </div>
+      <div className="gf-map-actions" style={{position:'absolute',right:12,top:68,zIndex:500,display:'flex',flexDirection:'column',gap:9}}>
+        <button type="button" onClick={showJourney} aria-label="Show entire delivery route" style={{border:0,borderRadius:15,padding:'12px 13px',background:'#fff',color:'#174b3b',boxShadow:'0 5px 18px rgba(0,0,0,.16)',fontWeight:800}}>⌖ <span className="sr-only">Route overview</span></button>
+        <button type="button" onClick={followRider?()=>setFollowing(false):locateRider} disabled={!valid(driver)} aria-pressed={followRider} aria-label={followRider?'Stop following rider':'Follow confirmed rider location'} style={{border:0,borderRadius:15,padding:'12px 13px',background:followRider?'#087653':'#fff',color:followRider?'#fff':'#174b3b',boxShadow:'0 5px 18px rgba(0,0,0,.16)',opacity:valid(driver)?1:.55,fontWeight:800}}>◎</button>
+      </div>
+      <div style={{position:'absolute',bottom:12,left:12,right:12,zIndex:500,pointerEvents:'none'}}>
+        <span style={{display:'inline-block',maxWidth:'95%',padding:'9px 12px',borderRadius:14,background:'rgba(255,255,255,.94)',color:'#214a40',fontSize:12,fontWeight:650,boxShadow:'0 3px 12px rgba(0,0,0,.1)'}}>
+          {route?.available===true?'Road route · not live traffic':valid(driver)?'Road route unavailable · approximate direct distance':'Location updates appear after the rider enables sharing'}
+        </span>
+      </div>
     </div>
-    <div ref={el} className="tm-map" role="img" aria-label="Map showing restaurant, destination and latest rider GPS fix"/>
-    <small className="customer-map-note">Marker animates only between received GPS fixes, never predicted. {route?.available?'The solid line follows routing data and is not live traffic guidance.':'The dotted line shows straight-line proximity, not a road route.'} Location and accuracy depend on the rider's phone.</small>
-  </div>;
+    <div className="gf-map-toolbar" style={{padding:'12px 16px',display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
+      <span className="gf-map-label" style={{fontWeight:800}}>Delivery journey</span>
+      <span style={{fontSize:12,color:'#56756a'}}>{followRider?'● Following rider':valid(driver)?'Rider location available':'Awaiting live GPS'}</span>
+    </div>
+    <small className="customer-map-note" style={{display:'block',padding:'0 16px 14px'}}>Positions reflect the latest confirmed GPS. Movement between fixes is visual interpolation only; road ETA is not live traffic prediction.</small>
+  </section>;
 }
