@@ -748,27 +748,33 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
         )}
       </div>
 
-      {/* Personalized Menu suggestions based on history */}
+      {/* Current menu IDs are matched to previous orders, so the card uses
+          the current tenant's real item image, price and modifier workflow. */}
       {customer && personalRecs.length > 0 && (
-        <div style={{ padding: '16px 16px 0' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 10, color: 'var(--text-1)' }}>{t.personalizedTitle}</h3>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
+        <section className="gf-reorder-section" aria-label={t.personalizedTitle}>
+          <h3>{t.personalizedTitle}</h3>
+          <div className="gf-reorder-list">
             {personalRecs.map(item => (
-              <div key={item.id} style={{ minWidth: 200, background: 'var(--bg-card)', padding: 12, borderRadius: 12, border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '1.5rem' }}>{item.emoji}</span>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand)' }}>Rs. {item.price}</span>
-                  </div>
-                  <div style={{ fontWeight: 700, fontSize: '0.88rem', marginTop: 8 }}>{item.name}</div>
+              <article key={item.id} className="gf-reorder-card">
+                <div className="gf-reorder-image" aria-label={`Picture of ${item.name}`}>
+                  {item.imageUrl ? <img
+                    src={resolveCustomerImageUrl(item.imageUrl,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})}
+                    alt={item.name}
+                    loading="lazy"
+                    onError={event=>{event.currentTarget.style.display='none';event.currentTarget.parentNode.textContent=item.emoji||'🍽️';}}
+                  /> : <span aria-hidden="true">{item.emoji||'🍽️'}</span>}
                 </div>
-                <button className="btn btn-brand" style={{ padding: '4px 8px', fontSize: '0.75rem', marginTop: 10 }} onClick={() => handleItemAddClick(item)}>
-                  ＋ Quick Add
-                </button>
-              </div>
+                <div className="gf-reorder-info">
+                  <strong className="gf-reorder-name">{item.name}</strong>
+                  <span className="gf-reorder-price">Rs. {Number(item.price||0).toLocaleString('en-LK')}</span>
+                  <button type="button" className="gf-reorder-add" onClick={() => handleItemAddClick(item)}>
+                    + Quick add
+                  </button>
+                </div>
+              </article>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {/* Category Pills Strip */}
