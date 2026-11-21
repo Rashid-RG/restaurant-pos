@@ -119,3 +119,12 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-dispatch-sync button:disabled{opacity:.65;cursor:wait}
 .driver-delivery-card button:disabled{cursor:not-allowed;opacity:.65}
 @media(max-width:380px){.driver-dispatch-sync button{width:100%}}
+
+
+/* Quick filtering without hiding the original assigned/available delivery records. */
+.driver-order-search{display:flex;flex-direction:column;gap:7px;margin:0 0 16px}
+.driver-order-search label{color:#315d45;font-weight:750;font-size:12px}
+.driver-order-search>div{display:flex;align-items:center;gap:8px;min-width:0}
+.driver-order-search .input-field{flex:1;min-width:0;min-height:44px;background:#fff}
+.driver-order-search button{min-height:44px;flex:0 0 auto}
+@media(max-width:360px){.driver-order-search .input-field{font-size:13px}.driver-order-search button{padding-inline:10px}}
