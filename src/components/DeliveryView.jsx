@@ -5,6 +5,7 @@ import { restaurantTimeZone } from '../utils/restaurant-time';
 import RiderRecruitmentPanel from './RiderRecruitmentPanel';
 import './RiderVerificationCenter.css';
 import ProtectedRiderEvidenceViewer from './ProtectedRiderEvidenceViewer';
+import DriverSupportInbox from './DriverSupportInbox';
 
 export default function DeliveryView({verificationOnly=false}) {
   const { orders, showToast, settings,currentUser } = usePOS();
@@ -550,6 +551,7 @@ export default function DeliveryView({verificationOnly=false}) {
           </table>{!auditRows.length&&<p style={{fontSize:13,color:'var(--text-muted)'}}>No manual reviews recorded.</p>}</div>
         </section>}
         {!verificationOnly && <>
+        {canReview && <DriverSupportInbox/>}
         {/* 1. Register New Delivery Driver Form */}
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px' }}>
           <h3 style={{ margin: '0 0 14px', fontSize: '1rem', fontWeight: 800 }}>➕ Register New Fleet Driver</h3>
