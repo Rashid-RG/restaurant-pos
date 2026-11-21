@@ -215,3 +215,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-support-reply strong{color:#176244;font-size:12px}
 .driver-support-reply span{line-height:1.5}
 .driver-support-reply small{font-size:11px;color:#62786a}
+
+/* Shared restaurant offers have rider-specific accept and decline actions. */
+.driver-offer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.driver-offer-actions button{min-width:0;min-height:48px;padding:10px 12px!important;font-size:13px;line-height:1.35;overflow-wrap:anywhere}
+@media(max-width:340px){.driver-offer-actions{grid-template-columns:1fr}}
