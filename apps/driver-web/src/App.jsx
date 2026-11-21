@@ -559,7 +559,7 @@ export default function App() {
       showToast('Enable live location before sharing nearby availability.','warning');}
   };
   // ── GPS ──
-  const toggleGps = () => {
+  const toggleGps = (retryWebLocation=false) => {
     if (!isGpsActive && driverStatusRef.current === 'offline') {
       showToast('Go online before sharing location.','warning');
       return;
@@ -617,7 +617,19 @@ export default function App() {
       }
       return;
     }
-    if (isGpsActive) {
+    if (retryWebLocation && isGpsActive) {
+      // A stale web watch needs a new subscription, not another stop/start tap.
+      // Supersede the old callback session before clearing it.
+      locationSessionEpochRef.current+=1;
+      if(watchId!==null)navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
+      lastFixRef.current=null;
+      lastBroadcastRef.current=null;
+      setLastCoords(null);
+      setGpsUploadStatus('idle');
+      setGpsQuality('searching');
+    }
+    if (isGpsActive && !retryWebLocation) {
       locationSessionEpochRef.current+=1;
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
       setIsGpsActive(false);
@@ -1465,7 +1477,7 @@ export default function App() {
                     disabled={!isGpsActive||driver?.status==='offline'} />
                   Visible to restaurant dispatch while on duty
                 </label>}
-                <button onClick={toggleGps} className="btn-emerald"
+                <button onClick={()=>toggleGps()} className="btn-emerald"
                   style={{ padding: '8px 14px', borderRadius: 20, fontSize: '0.8rem', background: isGpsActive ? '#10b981' : '#64748b' }}>
                   <MapPin size={18} aria-hidden="true"/><span>{isGpsActive ? (hasFreshLocation ? (isServerConfirmedLocation ? 'Location sharing confirmed' : 'GPS ready · verifying upload') : 'Location on · no reliable fix') : 'Share location'}</span>
                 </button>
@@ -1567,7 +1579,14 @@ export default function App() {
                   <div><strong style={{display:'block',fontSize:15}}>{isServerConfirmedLocation?'Live GPS sharing confirmed':'Delivery location needs attention'}</strong>
                     <small style={{display:'block',marginTop:3,color:'#536c61'}}>{locationLabel}</small></div>
                 </div>
-                <button type="button" onClick={toggleGps} disabled={driverStatusRef.current==='offline'&&!isGpsActive}
+                {!nativeDriverBuild && isGpsActive && !hasFreshLocation && (
+                  <button type="button" onClick={()=>toggleGps(true)}
+                    aria-label="Restart device GPS location subscription"
+                    style={{border:'1px solid #be933d',borderRadius:14,padding:'12px 14px',background:'transparent',color:'inherit',fontWeight:800}}>
+                    Retry GPS
+                  </button>
+                )}
+                <button type="button" onClick={()=>toggleGps()} disabled={driverStatusRef.current==='offline'&&!isGpsActive}
                   aria-label={isGpsActive?'Stop sharing delivery location':'Enable delivery location sharing'}
                   style={{border:0,borderRadius:14,padding:'12px 16px',background:isGpsActive?'#244c3e':'#087653',color:'white',fontWeight:800,cursor:'pointer'}}>
                   {isGpsActive?'Stop GPS':'Enable GPS'}
