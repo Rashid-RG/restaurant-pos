@@ -30,6 +30,6 @@ Replace the vertically stacked, duplicated order-status cards with one customer-
 - npm test, npm run check and npm run build:all, plus customer staging quality workflows, must pass on the exact release commit.
 
 ## Implementation checkpoint 2026-11-21
-- **Code committed:** compact progress hero, one expandable canonical timeline, expandable contact/receipt, map toggle, responsive styling, rider follow/recenter controls and real-GPS-only marker interpolation. Removed the duplicate hero and dispatch card that displayed competing ETA text.
+- **Code committed:** compact progress hero, one expandable canonical timeline, expandable contact/receipt, map toggle, responsive styling, rider follow/recenter controls and real-GPS-only marker interpolation. Removed the duplicate hero and dispatch card that displayed competing ETA text. Added compact in-page confirmed stage announcements (replacing intrusive status toast), and secure handover/cancellation quick actions.
 - **Still pending:** device-by-device mobile UI audit, driver native background tracking on physical iPhone, actual GPS field trip, production-compatible routing and dynamic ETA validation, notifications UX audit, accessibility review, screenshot regressions, and full GitHub CI on the final commit.
 - **No deployment.** Do not claim full Uber-style continuous rider tracking on iPhone until native background mode and server upload have been demonstrated on physical hardware.
