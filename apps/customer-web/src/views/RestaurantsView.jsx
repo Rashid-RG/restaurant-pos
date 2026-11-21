@@ -25,6 +25,15 @@ const CUISINE_CATEGORIES = [
   { id: 'desserts', label: 'Desserts', icon: '🍰' }
 ];
 
+function RestaurantCover({restaurant}) {
+  return <>
+    <span aria-hidden="true" style={{fontSize:'3rem'}}>{restaurant.emoji || '🍽️'}</span>
+    {restaurant.coverPhoto && <img key={restaurant.coverPhoto} src={restaurant.coverPhoto} alt="" loading="lazy" referrerPolicy="no-referrer"
+      style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}
+      onError={event => { event.currentTarget.hidden = true; }} />}
+  </>;
+}
+
 export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }) {
   const { t, dict } = useLang();
   const [restaurants, setRestaurants] = useState([]);
@@ -479,11 +488,15 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
   const current = !loadError && quotedLocation === key;
   const mode = selectedMode || (hasPreciseLocation ? 'delivery' : 'pickup');
   const deliveryOnly = mode === 'delivery';
+  function openStore(restaurant, selected = mode) {
+    const orderType = selected === 'delivery' ? 'delivery' : selected === 'pickup' ? 'takeaway' : null;
+    onSelectRestaurant?.(restaurant, null, orderType);
+  }
   const serviceLabels = restaurant => {
     const state = deliveryState(restaurant, hasPreciseLocation, current);
     return <div className="store-services">
       <span data-available={state === 'available'}>{t({available:'deliveryAvailableHere',outside:'deliveryOutside',address:'deliveryNeedsPin',unknown:'deliveryUnconfirmed',closed:'deliveryPaused'}[state])}</span>
-      <span data-available={restaurant.isOpen && !loadError}>{t(loadError ? 'pickupUnconfirmed' : restaurant.isOpen ? 'pickupAvailableHere' : 'pickupPaused')}</span>
+      <span data-available={restaurant.isOpen && restaurant.pickupEnabled !== false && !loadError}>{t(loadError ? 'pickupUnconfirmed' : restaurant.isOpen && restaurant.pickupEnabled !== false ? 'pickupAvailableHere' : 'pickupPaused')}</span>
     </div>;
   };
   const filtered = sortRestaurants(deduplicateStores(
@@ -492,7 +505,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       const matchesCuisine = activeCuisine === 'all' || r.cuisineTag === activeCuisine;
       const matchesOpen = !openOnly || acceptsOnlineOrders(r);
       const matchesDelivery = mode === 'all' || (!loadError && (deliveryOnly
-        ? deliveryState(r, hasPreciseLocation, current) === 'available' : acceptsOnlineOrders(r)));
+        ? deliveryState(r, hasPreciseLocation, current) === 'available' : acceptsOnlineOrders(r) && r.pickupEnabled !== false));
       return matchesSearch && matchesCuisine && matchesOpen && matchesDelivery;
     })
   ), sortBy === 'recommendation' && mode === 'pickup' && key ? 'distance' : sortBy);
@@ -666,7 +679,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <button
-                onClick={() => { setShowOutOfCoverageModal(false); onSelectRestaurant && onSelectRestaurant(nearestStore); }}
+                disabled={!nearestStore.isOpen || nearestStore.pickupEnabled === false}
+                onClick={() => { setShowOutOfCoverageModal(false); openStore(nearestStore, 'pickup'); }}
                 style={{ width: '100%', padding: '14px', borderRadius: 14, background: 'var(--brand-gradient)', color: '#fff', border: 'none', fontWeight: 800, fontSize: '0.92rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(255,107,53,0.4)' }}
               >
                 <span>{t('orderSelfPickup') || '🏬 Order for Self-Pickup / Takeaway Instead'}</span>
@@ -787,7 +801,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
 
       {/* Restaurants confirmed open and deliverable at the selected location. */}
       {deliveryOnly && current && sortBy === 'recommendation' && !loading && recommendedOpenStores(filtered, hasPreciseLocation).length > 0 && (
-        <div style={{ marginBottom: 20 }}>
+        <div className="discovery-featured" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-1)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>Open restaurants near your location</span>
@@ -802,8 +816,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 role="button"
                 tabIndex={0}
                 aria-label={`Browse featured restaurant ${r.name}`}
-                onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelectRestaurant?.(r)}}}
-                onClick={() => onSelectRestaurant && onSelectRestaurant(r)}
+                onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openStore(r)}}}
+                onClick={() => openStore(r)}
                 style={{
                   minWidth: 220,
                   maxWidth: 220,
@@ -816,7 +830,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                 }}
               >
                 <div style={{ height: 100, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontSize: '3rem' }}>{r.emoji || '🏬'}</span>
+                  <RestaurantCover restaurant={r} />
                   <span style={{ position: 'absolute', top: 8, left: 8, background: '#24664f', color: '#fff', padding: '2px 8px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 800 }}>
                     Open for orders
                   </span>
@@ -840,7 +854,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
       )}
 
       {/* Restaurants List Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div className="discovery-list-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-1)' }}>
           {sortBy === 'fastest' ? 'Restaurants by preparation estimate' :
            sortBy === 'rating' ? '⭐ Highest Rated Restaurants' :
@@ -873,8 +887,8 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
               role="button"
               tabIndex={0}
               aria-label={`Browse menu at ${r.name}. ${acceptsOnlineOrders(r) ? 'Accepting orders' : 'Currently closed'}.`}
-              onKeyDown={e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelectRestaurant?.(r);} }}
-              onClick={() => onSelectRestaurant && onSelectRestaurant(r)}
+              onKeyDown={e => { if(e.key==='Enter'||e.key===' '){e.preventDefault();openStore(r);} }}
+              onClick={() => openStore(r)}
               style={{
                 background: 'var(--surface-1)',
                 borderRadius: 16,
@@ -887,7 +901,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
             >
               {/* Banner Cover Image / Banner */}
               <div className="gf-mobile-restaurant-banner" style={{ height: 130, background: r.bannerGradient || 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: '4rem' }}>{r.emoji || '🏬'}</span>
+                <RestaurantCover restaurant={r} />
 
                 {/* Top-left: Promo or Personalization Badge */}
                 {r.promoVerified === true && r.promoBadge ? (
@@ -907,14 +921,14 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
                     background: 'rgba(15,23,42,0.88)',
                     color: '#fff', padding: '3px 10px', borderRadius: 10, fontSize: '0.7rem', fontWeight: 800, backdropFilter: 'blur(4px)'
                   }}>
-                    📍 {r.distanceKm} km straight-line
+                    📍 {r.distanceKm.toFixed(1)} km straight-line
                   </span>
                 )}
 
                 {/* Top-right: Open/Closed + Rush Hour */}
                 <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                   <span style={{ background: r.isOpenNow ? 'rgba(0,0,0,0.65)' : 'rgba(239,68,68,0.9)', color: '#fff', padding: '3px 9px', borderRadius: 10, fontSize: '0.68rem', fontWeight: 700, backdropFilter: 'blur(4px)' }}>
-                    {acceptsOnlineOrders(r) ? 'Accepting orders' : 'Closed · Browse menu'}
+                    {acceptsOnlineOrders(r) ? 'Accepting orders' : r.opensAt ? 'Opens at ' + r.opensAt + ' · ' + r.timeZone : 'Closed · Browse menu'}
                   </span>
                   {r.feeBreakdown?.isRush && (
                     <span style={{ background: 'rgba(245,158,11,0.9)', color: '#fff', padding: '2px 8px', borderRadius: 8, fontSize: '0.65rem', fontWeight: 800 }}>

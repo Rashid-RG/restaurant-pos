@@ -1315,6 +1315,39 @@ export default function Settings({ initialSubTab = null } = {}) {
                       >
                         {settings?.storeOpen === 'true' ? '🔴 Pause Online Orders' : '🟢 Open Online Store'}
                       </button>
+                      <fieldset style={{marginTop:16, display:'grid', gap:8}}>
+                        <legend>Online ordering</legend>
+                        <label>Daily hours in restaurant time
+                          <input key={settings?.onlineOrderHours || 'always'} placeholder="09:00-22:00" defaultValue={settings?.onlineOrderHours || ''}
+                            onBlur={event => {
+                              const hours = event.target.value.trim();
+                              if (hours !== (settings?.onlineOrderHours || '')) {
+                                const input = event.target;
+                                updateSetting('onlineOrderHours', hours).catch(error => {
+                                  input.value = settings?.onlineOrderHours || '';
+                                  showToast(error.message, 'error');
+                                });
+                              }
+                            }} />
+                          <small>Leave empty for all hours. Overnight hours are supported.</small>
+                        </label>
+                        <label>Restaurant cover photo URL
+                          <input type="url" placeholder="https://…" defaultValue={settings?.onlineCoverPhoto || ''}
+                            key={settings?.onlineCoverPhoto || 'no-photo'} onBlur={event => {
+                              const url = event.target.value.trim();
+                              if (url !== (settings?.onlineCoverPhoto || '')) updateSetting('onlineCoverPhoto', url).catch(error => showToast(error.message, 'error'));
+                            }} />
+                        </label>
+                        <label>Pickup instructions
+                          <input placeholder="e.g. Collect at the front counter" defaultValue={settings?.pickupInstructions || ''}
+                            key={settings?.pickupInstructions || 'empty'} maxLength={200}
+                            onBlur={event => updateSetting('pickupInstructions', event.target.value.trim())} />
+                        </label>
+                        {[['onlinePickupEnabled','Accept pickup'],['onlineDeliveryEnabled','Accept delivery']].map(([key,label]) => (
+                          <label key={key}><input type="checkbox" checked={settings?.[key] !== 'false'}
+                            onChange={event => updateSetting(key, String(event.target.checked))} /> {label}</label>
+                        ))}
+                      </fieldset>
                     </div>
 
                     <div style={{ flex: 1, minWidth: '200px', padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>

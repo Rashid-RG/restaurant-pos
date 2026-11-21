@@ -1338,3 +1338,12 @@ html { background: var(--surface-2); }
 .gf-modern-tracking .gf-route-summary span {
   font-size:.73rem;color:#426b55;
 }
+
+@media (max-width: 600px) {
+  /* The ranked grid already includes the featured restaurants. */
+  .gastrofood-discovery .discovery-featured { display: none; }
+  .gastrofood-discovery .discovery-list-heading { display: none !important; }
+  .gastrofood-discovery .gf-mobile-restaurant-banner { height: 82px !important; }
+  .gastrofood-discovery .discovery-filters { margin-bottom: 8px; }
+  .gastrofood-discovery .restaurants-location-row { margin-bottom: 6px !important; }
+}

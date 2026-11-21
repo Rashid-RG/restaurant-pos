@@ -72,6 +72,32 @@ describe('Online storefront SaaS tenant isolation', () => {
     expect(stores.find(store => store.id === tenantB).isOpen).toBe(false);
   });
 
+  it('honors pickup pauses across discovery, slots and checkout for only the selected restaurant', async () => {
+    const toggle = value => request(app).post('/api/settings').set(auth('qa_store_owner_A', tenantA))
+      .send({key:'onlinePickupEnabled',value});
+    expect((await toggle('false')).status).toBe(200);
+    try {
+      const listing = (await request(app).get('/api/public/restaurants')).body;
+      expect(listing.find(row => row.id === tenantA).pickupEnabled).toBe(false);
+      expect(listing.find(row => row.id === tenantB).pickupEnabled).toBe(true);
+      const slots = await request(app).get('/api/public/schedule/slots').query({tenantId:tenantA,type:'takeaway'});
+      expect(slots.status).toBe(409);
+      const order = await checkout(tenantA,'qa_store_item_A');
+      expect(order.body.code).toBe('ORDER_MODE_PAUSED');
+    } finally { await toggle('true'); }
+  });
+
+  it('asks for fresh consent when fees change with unchanged item prices', async () => {
+    const result = await request(app).post('/api/public/orders').set('X-Tenant-Id',tenantA).send({
+      items:[{menuItemId:'qa_store_item_A',quantity:1}],orderType:'takeaway',customerName:'Test buyer',
+      customerPhone:'0771234567',paymentMethod:'cash',expectedSubtotal:500,expectedTotal:1,
+      checkoutProof:await testCheckoutProof(dbRun,tenantA,'0771234567')
+    });
+    expect(result.status).toBe(409);
+    expect(result.body.code).toBe('ORDER_TOTAL_CHANGED');
+    expect((await dbGet('SELECT COUNT(*) AS count FROM orders WHERE tenant_id=?',[tenantA])).count).toBe(0);
+  });
+
   it('A accepts its own real customer orders while B stays closed', async () => {
     const a = await checkout(tenantA, 'qa_store_item_A');
     expect(a.status, a.text).toBe(201);

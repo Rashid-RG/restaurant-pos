@@ -12,6 +12,7 @@ import { getActiveTenant } from '../utils/tenant.js';
 import { canUseHostedPayHereGateway, payHerePaymentDisabled } from '../utils/native-payment-policy.js';
 import { Store, AlertCircle } from 'lucide-react';
 import LocationPicker from '../components/LocationPicker.jsx';
+import {selectedDeliveryPin} from '../utils/restaurant-fulfilment.js';
 import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
 
 const ORDER_TYPES = [
@@ -32,20 +33,24 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const { customer, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
 
-  const [orderType, setOrderType] = useState('takeaway');
+  const [orderType, setOrderType] = useState(() => sessionStorage.getItem('gastroflow_order_mode:' + getActiveTenant()) === 'delivery' ? 'delivery' : 'takeaway');
   const [name, setName] = useState(customer?.name || '');
   const [phone, setPhone] = useState(customer?.phone || '');
   const [email, setEmail] = useState(customer?.email || '');
   const [address, setAddress] = useState('');
   // Real geocoded delivery location (lat/lng) chosen on the map picker.
-  const [geoLocation, setGeoLocation] = useState(null); // { lat, lng, label }
+  const [geoLocation, setGeoLocation] = useState(selectedDeliveryPin);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [notes, setNotes] = useState('');
 
   // Scheduling states
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledTimeVal, setScheduledTimeVal] = useState(null);
+  useEffect(() => {
+    if (store?.withinHours === false) setIsScheduled(true);
+  }, [store?.withinHours]);
   const [scheduleAvailability,setScheduleAvailability]=useState([]);
+  const [scheduleVersion,setScheduleVersion]=useState(0);
   const [scheduleLoading,setScheduleLoading]=useState(false);
   const [scheduleError,setScheduleError]=useState('');
   useEffect(()=>{
@@ -58,7 +63,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       .catch(err=>{if(!cancelled){setScheduleAvailability([]);setScheduledTimeVal(null);setScheduleError(err.message||'Scheduled times are unavailable.')}})
       .finally(()=>{if(!cancelled)setScheduleLoading(false)});
     return ()=>{cancelled=true};
-  },[isScheduled,orderType]);
+  },[isScheduled,orderType,scheduleVersion]);
 
   // Delivery & prep time settings from DB
   const [deliveryFee, setDeliveryFee] = useState(0);
@@ -80,6 +85,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [savedCards, setSavedCards] = useState([]);
 
   // States
+  const [totalChanged, setTotalChanged] = useState(false);
   const [loading, setLoading] = useState(false);
   const checkoutGuard = useRef(createSubmissionGuard());
   const otpGuard = useRef(createSubmissionGuard());
@@ -127,8 +133,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       apiFetch('/customer/addresses')
         .then(data => {
           setSavedAddresses(data || []);
-          const def = data?.find(a => a.isDefault === 1);
-          if (def) setAddress(def.addressLine);
+
         })
         .catch(() => {});
 
@@ -177,6 +182,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     tenantId:store?.tenantId || getActiveTenant(),
     lat:geoLocation?.lat,lng:geoLocation?.lng,subtotal
   });
+  const modePaused = orderType === 'delivery' && store?.deliveryEnabled === false || orderType === 'takeaway' && store?.pickupEnabled === false;
   const deliveryQuoteConfirmed=deliveryQuoteReady({type:orderType,key:activeQuoteKey,quote:deliveryQuote});
   useEffect(() => {
     if (orderType !== 'delivery' || !activeQuoteKey) {
@@ -302,7 +308,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   // The map picker sets both the human-readable address and the real coordinates.
   const handlePickLocation = (loc) => {
     setGeoLocation(loc);
-    if (loc?.label) setAddress(loc.label);
+    setAddress('');
   };
 
   const executeOrderPlacement = () => checkoutGuard.current.run(async () => {
@@ -330,13 +336,14 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           customerPhone: phone.trim(),
           customerEmail: email.trim() || customer?.email || null,
           checkoutProof: otpProofRef.current,
-          deliveryAddress: orderType === 'delivery' ? (geoLocation?.label || address.trim()) : null,
+          deliveryAddress: orderType === 'delivery' ? [geoLocation?.label, address.trim()].filter(Boolean).join(', ') : null,
           deliveryLat: orderType === 'delivery' && geoLocation ? geoLocation.lat : null,
           deliveryLng: orderType === 'delivery' && geoLocation ? geoLocation.lng : null,
           loyaltyPointsToRedeem,
           promoCode: appliedPromo?.code || null,
           scheduledTime: isScheduled ? scheduledTimeVal : null,
           tip: tipAmount,
+          expectedTotal: total,
           expectedSubtotal: Math.round(subtotal*100)/100,
           paymentMethod: paymentMethod === 'payhere' ? 'online_pending' : paymentMethod === 'bank_transfer' ? 'bank_transfer' : 'cash'
         };
@@ -411,10 +418,15 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         onOrderPlaced && onOrderPlaced(data.orderId);
       }
     } catch (err) {
-      if(err?.code==='MENU_PRICE_CHANGED'){
+      if (['MENU_PRICE_CHANGED','ORDER_TOTAL_CHANGED','ORDER_MODE_PAUSED','OUTSIDE_ONLINE_HOURS','SLOT_FULL'].includes(err?.code)){
         // This rejection happens before the server creates an order. The
         // previous checkout key must not block the customer's revised cart.
         finishRecovery();
+        if (err.code === 'SLOT_FULL' || err.code === 'OUTSIDE_ONLINE_HOURS') setScheduleVersion(version => version + 1);
+        if (err.code === 'ORDER_TOTAL_CHANGED') {
+          setTotalChanged(true);
+        }
+        refreshStore();
       }
       toast(err.message || 'Failed to place order', 'error');
     } finally {
@@ -427,6 +439,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     e.preventDefault();
     return otpGuard.current.run(async () => {
     if(typeof navigator!=='undefined' && navigator.onLine===false){toast('You are offline. Your cart is saved on this device; reconnect before placing an order. No order was submitted.','warning');return;}
+    if (totalChanged || modePaused) return;
     if (pendingCheckout) { toast('Recover your previous checkout or start a separate order first.', 'warning'); return; }
     if (items.length === 0) { toast('Your cart is empty!', 'error'); return; }
     if (!canOrder) { toast('Restaurant availability cannot be confirmed. Your cart is saved.', 'warning'); return; }
@@ -776,6 +789,10 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         <div className="form-section" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-color)' }}>
           <h3 style={{ marginTop: 0, fontSize: '1.05rem', fontWeight: 700 }}>Order Type</h3>
           
+          {store?.withinHours === false && <p role="status">{t('kitchenClosed')}</p>}
+          {orderType === 'takeaway' && store?.pickupInstructions && <p><strong>{t('collectInstructions')}</strong> · {store.pickupInstructions}</p>}
+          {modePaused && <p role="status">{t('modePausedHere')}</p>}
+          {totalChanged && <p role="alert">{t('priceChangedHere')} <button type="button" className="btn btn-outline" onClick={() => window.location.reload()}>{t('reviewPrices')}</button></p>}
           {boundTable ? (
             <div style={{ background: 'rgba(0,0,0,0.02)', padding: '10px 14px', borderRadius: 8, fontSize: '0.88rem', fontWeight: 700, color: 'var(--brand)', marginTop: 8 }}>
               🪑 QR BOUND: Dine-In (Table {boundTable.toUpperCase()})
@@ -788,7 +805,12 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   type="button" 
                   className={`btn ${orderType === o.id ? 'btn-brand' : 'btn-outline'}`}
                   style={{ flex: 1, padding: '10px 4px', fontSize: '0.78rem', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}
-                  onClick={() => setOrderType(o.id)}
+                  disabled={o.id === 'delivery' && store?.deliveryEnabled === false || o.id === 'takeaway' && store?.pickupEnabled === false}
+                  aria-pressed={orderType === o.id}
+                  onClick={() => {
+                    setOrderType(o.id);
+                    sessionStorage.setItem('gastroflow_order_mode:' + getActiveTenant(), o.id);
+                  }}
                 >
                   <span style={{ fontSize: '1.3rem' }}>{o.icon}</span>
                   <strong>{o.label}</strong>
@@ -815,6 +837,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button 
               type="button" 
+              disabled={store?.withinHours === false}
               className={`btn ${!isScheduled ? 'btn-brand' : 'btn-outline'}`}
               style={{ flex: 1, padding: 10, fontSize: '0.8rem' }}
               onClick={() => {
@@ -848,7 +871,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               >
                 {!scheduledTimeVal && <option value="">{t('chooseSchedule')}</option>}
                 {scheduleAvailability.map(slot => (
-                  <option key={slot.timestamp} value={slot.timestamp}>{new Date(slot.timestamp).toLocaleString()} · {t('spotsLeft',{count:slot.available})}</option>
+                  <option key={slot.timestamp} value={slot.timestamp}>{new Date(slot.timestamp).toLocaleString(undefined, {timeZone: store?.timeZone || 'Asia/Colombo', month:'short', day:'numeric', hour:'numeric', minute:'2-digit',timeZoneName:'short'})} · {t('spotsLeft',{count:slot.available})}</option>
                 ))}
               </select>
             </div>
@@ -925,7 +948,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   onChange={e => {
                     const sel = savedAddresses.find(a => a.id === e.target.value);
                     if (sel) {
-                      setAddress(sel.addressLine);
+                      setAddress('');
                       if (typeof sel.lat === 'number' && Number.isFinite(sel.lat) && typeof sel.lng === 'number' && Number.isFinite(sel.lng)) {
                         setGeoLocation({ lat: sel.lat, lng: sel.lng, label: sel.addressLine });
                       } else {
@@ -1198,7 +1221,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           <button
             type="submit"
             className="btn btn-brand"
-            disabled={loading || !!pendingCheckout || !canOrder || !deliveryQuoteConfirmed || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
+            disabled={modePaused || totalChanged || loading || !!pendingCheckout || !canOrder || !deliveryQuoteConfirmed || (isScheduled && (!scheduledTimeVal || scheduleLoading || !!scheduleError)) || (orderType === 'delivery' && subtotal < minimumOrder)}
             style={{ fontSize: '1rem', fontWeight: 700 }}
           >
             {loading ? `⏳ ${t.processing}` : orderType==='delivery' && !deliveryQuoteConfirmed ? 'Confirm delivery location and fee' : `🍽️ ${t.placeOrder} · Rs. ${total.toFixed(0)}`}

@@ -6,6 +6,7 @@ import { apiFetch } from '../utils/api.js';
 import { useCart } from '../context/CartContext.jsx';
 import { isMenuItemAvailable, maxMenuItemQuantity } from '../utils/menu-selection.js';
 import { getActiveTenant } from '../utils/tenant.js';
+import { selectedDeliveryPin } from '../utils/restaurant-fulfilment.js';
 import { prepareGastroBatch } from '../utils/gastromate-batch.js';
 import { gastroVoiceLocale, gastroSpeechText, gastroVoiceForLocale } from '../utils/gastromate-voice.js';
 import './gastromate-mascot.css';
@@ -225,12 +226,16 @@ export default function GastroAiConcierge({ onNavigate, cartItems = [] }) {
     setTyping(true);
 
     try {
+      const orderType = sessionStorage.getItem('gastroflow_order_mode:' + tenantAtRequest);
+      const pin = orderType === 'delivery' ? selectedDeliveryPin() : null;
       const res = await apiFetch('/ai/chat', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: JSON.stringify({
           message: queryText,
           language: lang,
+          orderType,
+          deliveryPin: pin ? {lat:pin.lat, lng:pin.lng} : null,
           cartItems,
           history: messages.filter(m => m.id !== 'welcome' && (m.sender === 'user' || m.sender === 'ai'))
             .slice(-8).map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: String(m.text || '').slice(0, 600) }))

@@ -45,6 +45,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
   const [personalRecs, setPersonalRecs] = useState([]);
 
   // Modifiers Dialog State
+  const [previousPrice, setPreviousPrice] = useState(null);
   const [editingLine, setEditingLine] = useState(null);
   const [customizerItem, setCustomizerItem] = useState(null);
   const [customizerQty, setCustomizerQty] = useState(1);
@@ -363,16 +364,19 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
     setCustomizerItem(item);
     setCustomizerQty(requestedQty);
     setCustomizerNotes(aiCustomize?.previousNotes || '');
-    const choices = (item.modifiers || []).filter(option => line?.selectedModifiers?.some(previous =>
-      String(previous.id) === String(option.id) && previous.groupName === option.groupName));
+    setPreviousPrice(aiCustomize?.reorder && !line ? aiCustomize.previousPrice : null);
+    const previousChoices = line?.selectedModifiers || aiCustomize?.previousModifiers || [];
+    const choices = (item.modifiers || []).filter(option => previousChoices.some(previous =>
+      String(previous.id) === String(option.id)));
     setSelectedModifiers(choices);
-    if (line && choices.length < (line.selectedModifiers || []).length)
+    if (choices.length < previousChoices.length)
       toast('Some previous options are unavailable. Review the current choices.', 'warning');
     setShowCustomizerModal(true);
   }, [loading, menu.items, menu.storeOpen, menu.offlineSnapshot, aiCustomize]);
 
   // Open Customizer
   const handleItemAddClick = (item) => {
+    setPreviousPrice(null);
     if (!isMenuItemAvailable(item)) { toast('This item is currently unavailable.', 'warning'); return; }
     if (menu.storeOpen !== true || menu.offlineSnapshot) {
       toast('This restaurant is not accepting online orders.', 'warning'); return;
@@ -912,6 +916,7 @@ export default function MenuView({ onNavigate, onOrderPlaced, toast, aiCustomize
             </div>
 
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              {Number.isFinite(previousPrice) && <p role="status">{t('previousPrice')} · Rs. {previousPrice.toFixed(2)}. {t('currentChoice')} · Rs. {menuItemTotal(customizerItem,1,selectedModifiers)?.toFixed(2)}</p>}
               {customizerItem.imageUrl ? <img className="customer-customizer-image" src={resolveCustomerImageUrl(customizerItem.imageUrl,{nativeBuild:import.meta.env.MODE==='native',configuredOrigin:import.meta.env.VITE_NATIVE_API_ORIGIN})} alt={customizerItem.name} onError={e=>{e.currentTarget.style.display='none'}} /> : <span style={{ fontSize: '3rem' }}>{customizerItem.emoji || '🍽️'}</span>}
               <h4 style={{ margin: '8px 0 4px', fontSize: '1.05rem', fontWeight: 700 }}>{customizerItem.name}</h4>
               {availableCustomizerQty < 1 && <p role="status" className="gf-menu-remaining-stock">Stock limit reached for this item in your cart.</p>}

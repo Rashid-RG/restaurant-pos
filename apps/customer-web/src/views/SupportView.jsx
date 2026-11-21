@@ -4,12 +4,12 @@ import { apiFetch } from '../utils/api.js';
 import { useLang } from '../context/LanguageContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 
-export default function SupportView({ store, onBack, toast = () => {} }) {
+export default function SupportView({ store, initialOrderId, onBack, toast = () => {} }) {
   const { t } = useLang();
   const { customer } = useCustomerAuth();
 
   const [issueCategory, setIssueCategory] = useState('order_delay');
-  const [orderIdInput, setOrderIdInput] = useState('');
+  const [orderIdInput, setOrderIdInput] = useState(customer ? initialOrderId || '' : '');
   const [nameInput, setNameInput] = useState(customer?.name || '');
   const [phoneInput, setPhoneInput] = useState(customer?.phone || '');
   const [emailInput, setEmailInput] = useState(customer?.email || '');
@@ -240,6 +240,9 @@ export default function SupportView({ store, onBack, toast = () => {} }) {
             </select>
           </div>
 
+          {customer && <label>{t('orderReference')}
+            <input className="form-control" value={orderIdInput} onChange={event => setOrderIdInput(event.target.value)} />
+          </label>}
           {!customer && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>

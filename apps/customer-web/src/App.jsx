@@ -308,7 +308,7 @@ function InnerApp({ switchRestaurant }) {
       const url = new URL(window.location.href);
       url.searchParams.set('view', v);
       // Once the customer navigates away, refresh must open the current screen.
-      for (const param of ['legal','policies','page','customize','qty']) url.searchParams.delete(param);
+      for (const param of ['legal','policies','page','customize','qty','supportOrder']) url.searchParams.delete(param);
       if (v !== 'track') url.searchParams.delete('track');
       if (v !== 'account') url.searchParams.delete('reset');
       Object.entries(extraParams).forEach(([k, val]) => {
@@ -320,10 +320,13 @@ function InnerApp({ switchRestaurant }) {
   };
 
 
-  function openRestaurant(restaurant, dish) {
+  function openRestaurant(restaurant, dish, orderType = null) {
     if (!restaurant?.id) return;
     if (totalItems && restaurant.id !== getActiveTenant() &&
         !window.confirm(`Open ${restaurant.name}? Your current cart will stay with its restaurant.`)) return;
+    const preferenceKey = 'gastroflow_order_mode:' + restaurant.id;
+    if (orderType) sessionStorage.setItem(preferenceKey, orderType);
+    else sessionStorage.removeItem(preferenceKey);
     navigate('store-menu', {tenant: restaurant.id, group: null, track: null, customize: dish?.id, qty: dish ? 1 : null});
     switchRestaurant(restaurant.id);
   }
@@ -332,7 +335,7 @@ function InnerApp({ switchRestaurant }) {
     const tenant = getActiveTenant();
     navigate('store-menu', {tenant, group: null, customize: item.menuItemId, qty: 1});
     setAiCustomize({itemId: String(item.menuItemId), tenantId: tenant, quantity: item.quantity,
-      previousNotes: item.notes || '', cartLine, reorder: true, requestId: Date.now()});
+      previousNotes: item.notes || '', previousModifiers: item.selectedModifiers || [], previousPrice: item.price, cartLine, reorder: true, requestId: Date.now()});
   }
 
   // Redirect to the standalone GastroDriver PWA. Dev: customer runs on :3001, driver on :3002.
@@ -441,9 +444,9 @@ function InnerApp({ switchRestaurant }) {
         {view === 'menu' && <MarketplaceMenu onChooseStore={openRestaurant} />}
         {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} aiCustomize={aiCustomize} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
-        {view === 'track' && <OrderTrackingView onSelectOrder={track => navigate('track', {track})} orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
+        {view === 'track' && <OrderTrackingView onSupport={id => navigate('support', {supportOrder:id})} onSelectOrder={track => navigate('track', {track})} orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView onReviewDish={reviewPastDish} toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
-        {view === 'support' && <SupportView store={store} onBack={() => navigate('menu')} toast={toast} />}
+        {view === 'support' && <SupportView initialOrderId={new URLSearchParams(window.location.search).get('supportOrder')} store={store} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'legal' && <LegalPoliciesView store={store} onSupport={() => navigate('support')} onBack={() => navigate('menu')} />}
 
         {view === 'restaurants' && (

@@ -13,7 +13,7 @@ import { shouldRefreshNativeTrackingOnResume } from '../utils/native-tracking-re
 import {trackingProgress,trackingHeroMessage,trackingEtaMinutes,normalizeDriverFix,isNewerDriverFix,driverFreshness,validGeoPoint,shouldClearRiderMarker,shouldRefreshOnStreamReconnect,shouldPollTrackingSnapshot,TRACKING_UPDATE_STALE_MS,createTrackingSnapshotGate} from '../utils/tracking-presentation.js';
 import {shouldRetainTrackedOrder,shouldClearTrackedOrder} from '../../../driver-web/src/utils/dispatch-sync.js';
 
-export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toast = () => {} }) {
+export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, onBack, toast = () => {} }) {
   const { t, dict: tr } = useLang();
   const isPackagedNative = import.meta.env.MODE === 'native';
   const {customer, getToken} = useCustomerAuth();
@@ -73,11 +73,14 @@ export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toas
 
   // Fetch dynamic ETA
   useEffect(() => {
+    let active = true;
+    setDynamicETA(null);
     if (order && order.id) {
       apiFetch(`/public/orders/${order.id}/eta`)
-        .then(setDynamicETA)
+        .then(result => { if (active) setDynamicETA(result); })
         .catch(() => {});
     }
+    return () => { active = false; };
   }, [order?.id, order?.status]);
 
   // Optional dedicated routing provider: refresh only for active deliveries.
@@ -452,6 +455,9 @@ export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toas
   const gpsState=driverFreshness(driverLoc,nowClock);
   const hasRecentUpdates=lastUpdate && nowClock-lastUpdate<TRACKING_UPDATE_STALE_MS;
   const etaDisplay=trackingEtaMinutes(dynamicETA?.estimatedMinutes) ?? remainingMins;
+  const estimateBand = etaDisplay > 0 ? [Math.floor(etaDisplay/5)*5, Math.ceil(etaDisplay/5)*5] : null;
+  const deliveryEstimate = estimateBand && estimateBand[0] !== estimateBand[1]
+    ? estimateBand.join('–') + ' min · estimate' : etaDisplay > 0 ? 'About ' + etaDisplay + ' min' : 'Awaiting updated ETA';
   const restaurantContact=contactLinks(order?.storePhone || storeInfo?.phone);
   const riderAssigned=isDelivery && !isCancelled && !isDone && Boolean(order?.driver?.id || order?.driverId || dispatchStatus?.driverId);
   const riderContact=riderAssigned ? contactLinks(order?.driver?.phone || order?.driverPhone) : null;
@@ -498,7 +504,7 @@ export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toas
             <section className="gf-track-map-first" aria-label="Your delivery journey">
               <div className="gf-track-map-first-heading">
                 <div><span className="gf-track-map-eyebrow">YOUR DELIVERY JOURNEY</span><h2>Follow your order</h2></div>
-                <span className="gf-track-map-eta">{etaDisplay !== null ? `About ${etaDisplay} min · estimate` : 'ETA pending'}</span>
+                <span className="gf-track-map-eta">{etaDisplay !== null ? deliveryEstimate : 'ETA pending'}</span>
               </div>
               <div className="gf-track-map-surface">
                 <TrackingMap
@@ -507,7 +513,7 @@ export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toas
                   driver={gpsState.visible ? driverLoc : null}
                   route={roadRoute}
                 />
-                <div className="gf-track-gps-status" role="status">{gpsState.label}</div>
+                <div className="gf-track-gps-status" role="status">{gpsState.label}{driverLastSeen && <small> · Last fix {new Date(driverLastSeen).toLocaleTimeString()}</small>}</div>
               </div>
               {roadRoute?.available ? <div className="gf-route-summary" role="status"><strong>{roadRoute.distanceKm.toFixed(1)} km by road</strong><span>About {roadRoute.travelMinutes} min estimated driving · {roadRoute.startingPoint==='rider'?'from latest rider fix':'from restaurant'} · excludes traffic and preparation time</span></div> : <p className="gf-track-road-unavailable">Road routing unavailable; the map may show straight-line proximity only.</p>}
             </section>
@@ -535,6 +541,7 @@ export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toas
                   <h1 className="uber-hero-title">
                     {heroMessage}
                   </h1>
+                  {isTakeaway && storeInfo?.pickupInstructions && <p>{storeInfo.pickupInstructions}</p>}
                   {etaDisplay !== null && <p className="gf-tracking-eta-note">Approx. {etaDisplay} min · {isDelivery ? 'Delivery estimate' : 'Restaurant estimate'}</p>}
 
                 </div>
@@ -643,6 +650,7 @@ export default function OrderTrackingView({ orderId, onSelectOrder, onBack, toas
               </div>
             </div>
             {isDelivery && !riderAssigned && !isDone && !isCancelled && <p className="gf-tracking-contact-note">Rider contact options will appear after a confirmed assignment.</p>}
+            <button type="button" className="btn btn-outline" onClick={() => onSupport(customer ? order.id : null)}>{t('supportThisOrder')}</button>
             <button className="gf-tracking-share-button" type="button" onClick={() => {
               const text = `Order ${order.id} · ${order.storeName || storeInfo?.name || 'GastroFlow restaurant'}`;
               if (navigator.share) {

@@ -310,6 +310,7 @@ export default function ProfileView({ toast, resetToken, onResetHandled, onBack,
                       {item.name} ×{item.quantity} · {item.menuItemId ? 'Review dish' : 'Unavailable'}
                     </button>
                     {Number.isFinite(item.price) && <small style={{display:'block'}}>Previously Rs. {item.price.toLocaleString('en-LK')} each</small>}
+                    {item.selectedModifiers?.length > 0 && <small style={{display:'block'}}>{t('previousChoices')} · {item.selectedModifiers.map(option => option.name).join(', ')}</small>}
                     {item.notes && <small>Previous note · {item.notes}</small>}
                   </div>)}
                 </details>}

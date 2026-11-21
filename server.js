@@ -1,3 +1,4 @@
+import {onlineHours, validOnlineHours} from './lib/online-hours.js';
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {initOrderStatusEmail,deliverPendingStageEmails} from './lib/order-status-email.js';
 import {loadVerifiedDispatchPings} from './lib/driver-dispatch.js';
@@ -2080,6 +2081,12 @@ const tenantSettingsStore=createTenantSettingsStore({dbGet,dbAll,dbRun});
 async function getSetting(tenantId,key,fallback=undefined) {
   return tenantSettingsStore.getSetting(tenantId,key,fallback);
 }
+async function requireOnlineMode(tenantId, type) {
+  const key = {delivery: 'onlineDeliveryEnabled', takeaway: 'onlinePickupEnabled'}[type];
+  if (key && await getSetting(tenantId, key) === 'false') {
+    throw Object.assign(new Error('The restaurant paused this order type. Choose another option.'), {status: 409, code: 'ORDER_MODE_PAUSED'});
+  }
+}
 async function getSettingAny(tenantId,keys,fallback=undefined) {
   return tenantSettingsStore.getSettingAny(tenantId,keys,fallback);
 }
@@ -2571,10 +2578,18 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
     if (!tenantId || (body.expectedTenantId && String(body.expectedTenantId) !== tenantId)) {
       return res.status(409).json({ error: 'Restaurant session mismatch. Reload your workspace and sign in again.', code: 'TENANT_MISMATCH' });
     }
-    if (body.key === 'storeOpen' && !['true', 'false'].includes(String(body.value))) {
+    if (['storeOpen','onlinePickupEnabled','onlineDeliveryEnabled'].includes(body.key) && !['true', 'false'].includes(String(body.value))) {
       return res.status(400).json({ error: 'Invalid online store status.' });
     }
 
+    const coverPhoto = body.key === 'onlineCoverPhoto' ? body.value : body.onlineCoverPhoto;
+    if (coverPhoto !== undefined && coverPhoto !== '' && (typeof coverPhoto !== 'string' || coverPhoto.length > 2048 || !URL.canParse(coverPhoto) || new URL(coverPhoto).protocol !== 'https:')) {
+      return res.status(400).json({error:'Enter an HTTPS photo URL.'});
+    }
+    const hours = body.key === 'onlineOrderHours' ? body.value : body.onlineOrderHours;
+    if (hours !== undefined && !validOnlineHours(hours)) {
+      return res.status(400).json({error: 'Enter daily opening and closing times in HH:mm-HH:mm format.'});
+    }
     // Validate tenant-local time zone before persisting either update form.
     const requestedZone = body.key === 'timeZone' ? body.value : body.timeZone;
     if (requestedZone !== undefined) {
@@ -2596,8 +2611,7 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
 
     // 2. Bulk settings update: { businessName, address, phone, logoUrl, ... }
     const settingsEntries = Object.entries(body).filter(([k]) => !['tenant_id','tenantId','id','expectedTenantId'].includes(k));
-    const requestedStoreStatus = settingsEntries.find(([k]) => k === 'storeOpen');
-    if (requestedStoreStatus && !['true','false'].includes(String(requestedStoreStatus[1]))) {
+    if (settingsEntries.some(([key, value]) => ['storeOpen','onlinePickupEnabled','onlineDeliveryEnabled'].includes(key) && !['true','false'].includes(String(value)))) {
       return res.status(400).json({ error: 'Invalid online store status.' });
     }
     if (settingsEntries.length === 0) {
@@ -3392,13 +3406,22 @@ app.post('/api/customer/cards', authenticateCustomer, async (req, res) => {
 app.get('/api/customer/orders', authenticateCustomer, async (req, res) => {
   try {
     const orders = await dbAll(
-      `SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, source, deliveryAddress, invoiceNumber
+      `SELECT id, diningType, orderType, subtotal, tax, total, status, timestamp, paymentMethod, source, deliveryAddress, invoiceNumber, items AS snapshot
        FROM orders WHERE customerAccountId = ? AND tenant_id = ? ORDER BY timestamp DESC LIMIT 50`,
       [req.customer.id, req.customer.tenant_id]
     );
-    const result = await Promise.all(orders.map(async (o) => {
-      const items = await dbAll('SELECT menuItemId, name, quantity, price, notes FROM order_items WHERE orderId = ?', [o.id]);
-      return { ...o, items };
+    const result = await Promise.all(orders.map(async ({snapshot,...order}) => {
+      let lines = null;
+      try { lines = JSON.parse(snapshot); } catch { /* Older orders use normalized rows below. */ }
+      if (order.source === 'online' && Array.isArray(lines) && lines.length && lines.every(line => line?.id && Number.isFinite(line.unitPrice))) {
+        const items = lines.map(line => ({
+          menuItemId:line.id,name:line.name,quantity:line.quantity,price:line.unitPrice,notes:line.notes,
+          selectedModifiers:(Array.isArray(line.selectedModifiers) ? line.selectedModifiers : []).map(({id,name}) => ({id,name}))
+        }));
+        return {...order,items};
+      }
+      const items = await dbAll('SELECT menuItemId, name, quantity, price, notes FROM order_items WHERE orderId = ? AND tenant_id = ?', [order.id,req.customer.tenant_id]);
+      return { ...order, items };
     }));
     res.json(result);
   } catch (err) {
@@ -3852,6 +3875,7 @@ app.get('/api/public/delivery-fee', publicApiLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Invalid lat/lng values.' });
     }
     const tenantId = await resolvePublicTenant(req);
+    await requireOnlineMode(tenantId, 'delivery');
     const result = await calculateDeliveryFee(customerLat, customerLng, parseFloat(subtotal || 0), tenantId);
     res.json(result);
   } catch (err) {
@@ -3897,9 +3921,10 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
     if (storeMeta.status !== 'active') return res.status(404).json({ error: 'Restaurant unavailable.' });
     const storeOpen = (await getSetting(tenantId, 'storeOpen')) === 'true';
     const storeName = await getSettingAny(tenantId, ['restaurantName', 'businessName'], 'This restaurant');
-    const publicFacts = await getSettingsMap(tenantId, ['address', 'phone', 'defaultPrepTime']);
+    const publicFacts = await getSettingsMap(tenantId, ['address', 'phone', 'defaultPrepTime','onlineOrderHours','timeZone','onlinePickupEnabled','onlineDeliveryEnabled']);
+    const acceptingNow = storeOpen && onlineHours(publicFacts).includes(Date.now());
     const storeAnswer = gastroStoreAnswer(message, {
-      name: storeName, storeOpen,
+      name: storeName, storeOpen: acceptingNow,
       address: publicFacts.address, phone: publicFacts.phone,
       prepMinutes: publicFacts.defaultPrepTime
     });
@@ -3908,7 +3933,23 @@ app.post('/api/ai/chat', publicApiLimiter, async (req, res) => {
     // never send sensitive allergy details to the model or assert allergen safety.
     const foodSafety = gastroFoodSafetyAnswer(message, responseLanguage);
     if (foodSafety) return res.json(foodSafety);
-    if (!storeOpen) return res.json({ reply: gastroMessage(responseLanguage, 'closed'), recommendedItems: [], suggestions: ['Browse Menu', 'Contact Human Support'], action: null });
+    if (!acceptingNow) return res.json({ reply: gastroMessage(responseLanguage, 'closed'), recommendedItems: [], suggestions: ['Browse Menu', 'Contact Human Support'], action: null });
+    const mode = req.body.orderType;
+    let unavailable = '';
+    if (mode === 'delivery') {
+      const pin = req.body.deliveryPin;
+      if (publicFacts.onlineDeliveryEnabled === 'false') unavailable = 'Delivery is paused at this restaurant.';
+      else if (!Number.isFinite(pin?.lat) || Math.abs(pin.lat)>90 || !Number.isFinite(pin?.lng) || Math.abs(pin.lng)>180) unavailable = 'Confirm your delivery pin to find available dishes.';
+      else {
+        try {
+          const quote = await calculateDeliveryFee(pin.lat,pin.lng,0,tenantId);
+          if (quote.isOutOfRange) unavailable = 'This pin is outside the restaurant’s delivery area.';
+        } catch { unavailable = 'Delivery coverage could not be confirmed. Check your address in Restaurants.'; }
+      }
+    } else if (mode === 'takeaway' && publicFacts.onlinePickupEnabled === 'false') {
+      unavailable = 'Pickup is paused at this restaurant.';
+    }
+    if (unavailable) return res.json({reply:unavailable,recommendedItems:[],suggestions:['Browse Menu'],action:null});
     const menuItems = await dbAll('SELECT id, name, price, category, emoji, description, dietaryTags, stock, isAvailable FROM menu_items WHERE tenant_id = ? AND (isAvailable = 1 OR isAvailable IS NULL) AND (stock IS NULL OR stock > 0)', [tenantId]);
     const baseFee = (await getSetting(tenantId, 'deliveryBaseFee')) || '99';
     const freeThreshold = (await getSetting(tenantId, 'deliveryFreeThreshold')) || '3000';
@@ -5248,14 +5289,16 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
   if((lat!=null||lng!=null)&&(!Number.isFinite(lat)||Math.abs(lat)>90||!Number.isFinite(lng)||Math.abs(lng)>180))return res.status(400).json({error:'Invalid location.'});
   for(const tenant of tenants){
    if((await getTenantMeta(tenant.id)).status!=='active')continue;
-   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','address','storeOpen','storeLat','storeLng','restaurantLat','restaurantLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
+   const settings=await getSettingsMap(tenant.id,['businessName','restaurantName','cuisine','cuisineTag','onlineCoverPhoto','address','storeOpen','onlinePickupEnabled','onlineDeliveryEnabled','onlineOrderHours','timeZone','storeLat','storeLng','restaurantLat','restaurantLng','deliveryMaxRadiusKm','deliveryFee','deliveryPrepTime','defaultPrepTime','minimumOrder']);
    const ratings=await dbGet('SELECT AVG(rating) AS rating,COUNT(*) AS count FROM feedbacks WHERE tenant_id=? AND rating BETWEEN 1 AND 5',[tenant.id]);
    const latitude=settings.storeLat || settings.restaurantLat;
    const longitude=settings.storeLng || settings.restaurantLng;
    const storeLat=latitude ? Number(latitude) : null,storeLng=longitude ? Number(longitude) : null;
    const configuredLocation=Number.isFinite(storeLat)&&Number.isFinite(storeLng)&&Math.abs(storeLat)<=90&&Math.abs(storeLng)<=180;
-   let quote=null;if(lat!=null&&configuredLocation)quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
-   stores.push({id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true',isDeliverable:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
+   let quote=null;if(lat!=null&&configuredLocation&&settings.onlineDeliveryEnabled!=='false')quote=await calculateDeliveryFee(lat,lng,0,tenant.id);
+   const hours=onlineHours(settings);
+   const withinHours=hours.includes(Date.now());
+   stores.push({coverPhoto:settings.onlineCoverPhoto||null,opensAt:settings.storeOpen==='true'&&!withinHours?hours.opens:null,timeZone:settings.timeZone||'Asia/Colombo',id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:configuredLocation?storeLat:null,lng:configuredLocation?storeLng:null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true'&&withinHours,pickupEnabled:settings.onlinePickupEnabled!=='false',deliveryEnabled:settings.onlineDeliveryEnabled!=='false',isDeliverable:settings.onlineDeliveryEnabled==='false'?false:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
   }
   res.set('Cache-Control', 'no-store').json(stores);
  }catch(error){res.status(500).json({error:errMsg(error)});}
@@ -5533,6 +5576,7 @@ app.get('/api/public/schedule/slots', publicApiLimiter, async(req,res)=>{
     // final order transaction independently revalidates acceptance and capacity.
     if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')!=='true')
       return res.status(409).set('Cache-Control','no-store').json({error:'This restaurant is not accepting scheduled orders right now.'});
+    await requireOnlineMode(tenantId, type);
     const prep=Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30));
     const capacity=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
     const now=Date.now();
@@ -5544,12 +5588,13 @@ app.get('/api/public/schedule/slots', publicApiLimiter, async(req,res)=>{
         AND status NOT IN ('cancelled','rejected','refunded')
       GROUP BY scheduledTime`,[tenantId,type,futureSlots[0],futureSlots[futureSlots.length-1]+SLOT_MS]);
     const counts=new Map(booked.map(row=>[Number(row.scheduledTime),Number(row.count)]));
-    const slots=futureSlots.map(when=>{
+    const hours=onlineHours(await getSettingsMap(tenantId,['onlineOrderHours','timeZone']));
+    const slots=futureSlots.filter(when=>hours.includes(when)).map(when=>{
       const reserved=counts.get(when)||0;
       return {timestamp:when,available:Math.max(0,capacity-reserved),full:reserved>=capacity};
     });
     res.set('Cache-Control','no-store').json({slots,capacity,prepMinutes:prep,limitDays:2});
-  } catch(e){res.status(500).json({error:'Could not load scheduled times.'});}
+  } catch(e){res.status(e.status || 500).json({error:e.status ? e.message : 'Could not load scheduled times.'});}
 });
 
 // POST /api/public/orders
@@ -5691,6 +5736,11 @@ const createPublicOrder = async (req, res) => {
       }
     }
 
+    if (Object.hasOwn(req.body, 'expectedTotal') && (!Number.isFinite(req.body.expectedTotal) ||
+        Math.round(req.body.expectedTotal * 100) !== Math.round(bill.total * 100))) {
+      return res.status(409).json({code: 'ORDER_TOTAL_CHANGED', error: 'The payable total changed. Review the updated fees and discounts before ordering.'});
+    }
+
     const requestedSchedule = scheduledTime == null ? {valid:true,scheduled:false} : validateSchedule(scheduledTime,Date.now(),Math.max(15,Math.min(180,Number(await getSetting(tenantId,type==='delivery'?'deliveryPrepTime':type==='dine-in'?'dineInPrepTime':'takeawayPrepTime'))||30)));
     if(!requestedSchedule.valid)return res.status(400).json({error:requestedSchedule.error});
     const orderId = `ord_online_${crypto.randomUUID()}`;
@@ -5703,6 +5753,11 @@ const createPublicOrder = async (req, res) => {
       if(concurrentReplay){await dbRun('COMMIT');return res.set('Cache-Control','no-store').set('Idempotency-Replayed','true').json({...publicOrderConfirmation(concurrentReplay),trackingToken:makeTrackingAccess(concurrentReplay.id,tenantId)});}
 
       if((await getTenantMeta(tenantId)).status!=='active'||await getSetting(tenantId,'storeOpen')!=='true')throw Object.assign(Error('This restaurant is not accepting new orders.'),{status:409});
+      await requireOnlineMode(tenantId, type);
+      const hours = onlineHours(await getSettingsMap(tenantId,['onlineOrderHours','timeZone']));
+      if (!hours.includes(requestedSchedule.scheduled ? requestedSchedule.when : Date.now())) {
+        throw Object.assign(new Error('Choose a time within the restaurant’s opening hours.'), {status:409, code:'OUTSIDE_ONLINE_HOURS'});
+      }
       if (!isAlreadyVerified && !await consumeOrderProof({dbRun,tenantId,checkoutProof,customerPhone:cleanPhone,customerEmail})) {
         throw Object.assign(Error('Verify your phone or email before placing this order. Request a new code if needed.'),{status:403,code:'CHECKOUT_OTP_REQUIRED'});
       }
@@ -5710,7 +5765,7 @@ const createPublicOrder = async (req, res) => {
       if(requestedSchedule.scheduled){
         const limit=scheduleCapacity(await getSetting(tenantId,'scheduledOrdersPerSlot'));
         const row=await dbGet("SELECT COUNT(*) AS count FROM orders WHERE tenant_id=? AND source='online' AND orderType=? AND scheduledTime=? AND status NOT IN ('cancelled','rejected','refunded')",[tenantId,type,requestedSchedule.when]);
-        if(Number(row?.count||0)>=limit)throw Object.assign(Error('This scheduled time is fully booked. Please select another time.'),{status:409});
+        if(Number(row?.count||0)>=limit)throw Object.assign(Error('This scheduled time is fully booked. Please select another time.'),{status:409,code:'SLOT_FULL'});
       }
       if(req.groupCart){
         const claimed=await dbRun("UPDATE group_carts SET status='checked_out',orderId=?,updatedAt=? WHERE id=? AND tenant_id=? AND status='active' AND items=? AND hostHash=? AND expiresAt>?",[orderId,Date.now(),req.groupCart.id,tenantId,req.groupCart.items,req.groupCart.hostHash,Date.now()]);
@@ -5831,7 +5886,7 @@ const createPublicOrder = async (req, res) => {
       throw e;
     }
   } catch (err) {
-    res.status(err.status||500).json({ error: err.status&&err.status<500?err.message:errMsg(err) });
+    res.status(err.status||500).json({ error: err.status&&err.status<500?err.message:errMsg(err), ...(err.status && err.code ? {code:err.code} : {}) });
   }
 };
 
@@ -5893,11 +5948,15 @@ app.get('/api/stream/store', publicApiLimiter, async (req, res) => {
   // Send current store state as the first event so a (re)connecting client
   // immediately knows the live open/closed state without an extra HTTP round-trip.
   try {
-    const s = await getSettingsMap(res._tenantId, ['storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
+    const s = await getSettingsMap(res._tenantId, ['onlinePickupEnabled','onlineDeliveryEnabled','onlineOrderHours','timeZone','pickupInstructions','storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime']);
     res.write(`data: ${JSON.stringify({
       tenantId: res._tenantId,
       type: 'store_init',
       storeOpen: s.storeOpen === 'true',
+      withinHours: onlineHours(s).includes(Date.now()),
+      pickupInstructions: s.pickupInstructions || '',
+      pickupEnabled: s.onlinePickupEnabled !== 'false',
+      deliveryEnabled: s.onlineDeliveryEnabled !== 'false',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
@@ -6283,13 +6342,17 @@ app.get('/api/public/store-info', publicApiLimiter, async (req, res) => {
       return res.status(404).json({ error: 'Restaurant unavailable.', code: 'STORE_UNAVAILABLE' });
     }
     res.set('Cache-Control', 'no-store');
-    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone']);
+    const s = await getSettingsMap(tenantId, ['businessName', 'restaurantName', 'address', 'phone', 'storeOpen', 'defaultPrepTime', 'dineInPrepTime', 'takeawayPrepTime', 'deliveryPrepTime', 'storeLat', 'storeLng', 'restaurantLat', 'restaurantLng', 'deliveryFee', 'minimumOrder', 'timeZone', 'onlinePickupEnabled', 'onlineDeliveryEnabled', 'onlineOrderHours', 'pickupInstructions']);
     res.json({
       tenantId,
       name: s.businessName || s.restaurantName || tenant.name,
       address: s.address || '',
       phone: s.phone || '',
       storeOpen: s.storeOpen === 'true',
+      withinHours: onlineHours(s).includes(Date.now()),
+      pickupInstructions: s.pickupInstructions || '',
+      pickupEnabled: s.onlinePickupEnabled !== 'false',
+      deliveryEnabled: s.onlineDeliveryEnabled !== 'false',
       prepTime: {
         dineIn: Number(s.dineInPrepTime || s.defaultPrepTime || 15),
         takeaway: Number(s.takeawayPrepTime || s.defaultPrepTime || 20),
