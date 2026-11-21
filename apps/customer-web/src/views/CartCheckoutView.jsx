@@ -827,7 +827,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
             onClick={()=>moveWizardStep(index)}><span>{index<wizardStep?'✓':index+1}</span><small>{step.label}</small></button>
         ))}
       </nav>
-      {wizardError&&<div className="gf-wizard-error" role="alert">{wizardError}<button type="button" onClick={()=>setWizardError('')}>Dismiss</button></div>
+      {wizardError&&<div className="gf-wizard-error" role="alert">{wizardError}<button type="button" onClick={()=>setWizardError('')}>Dismiss</button></div>}
 
 
 
