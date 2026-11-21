@@ -914,14 +914,12 @@ export default function App() {
                 <div style={{ display: 'grid', gap: 12 }}>
                   {availableOrders.map(ord => {
                     // Calculate driver-to-destination distance
-                    const dropKm = (isGpsActive && validDriverFix(lastCoords,driverClock) && ord.deliveryLat && ord.deliveryLng)
-                      ? haversineKm(lastCoords.lat, lastCoords.lng, ord.deliveryLat, ord.deliveryLng)
-                      : (ord.deliveryLat && ord.deliveryLng)
-                        ? haversineKm(STORE_LAT, STORE_LNG, ord.deliveryLat, ord.deliveryLng)
-                        : null;
+                    const dropKm = (isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords, driverClock) && Number.isFinite(Number(ord.deliveryLat)) && Number.isFinite(Number(ord.deliveryLng)) && ord.deliveryLat != null && ord.deliveryLng != null)
+                      ? haversineKm(lastCoords.lat, lastCoords.lng, Number(ord.deliveryLat), Number(ord.deliveryLng))
+                      : null;
 
                     return (
-                    <div key={ord.id} className="card" style={{ margin: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <article key={ord.id} className="card driver-delivery-card" style={{ margin: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                           <div style={{ fontWeight: 800, fontSize: '1rem' }}>Order #{ord.id.slice(-4).toUpperCase()}</div>
@@ -930,6 +928,7 @@ export default function App() {
                           </div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                          {dropKm === null && <span className="driver-distance-unavailable">Distance unavailable until accurate GPS and delivery coordinates are ready</span>}
                           {dropKm !== null && (
                             <span style={{ background: dropKm <= 5 ? '#10b98122' : '#f59e0b22', color: dropKm <= 5 ? '#10b981' : '#f59e0b', border: `1px solid ${dropKm <= 5 ? '#10b981' : '#f59e0b'}44`, padding: '2px 8px', borderRadius: 8, fontSize: '0.72rem', fontWeight: 800 }}>
                               🗺️ {dropKm} km drop
@@ -940,8 +939,8 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      <button className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} onClick={() => handleClaim(ord.id)}>Claim Delivery</button>
-                    </div>
+                      <button type="button" className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} disabled={driver.status === 'offline'} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : 'Claim Delivery'}</button>
+                    </article>
                     );
                   })}
                 </div>
@@ -963,17 +962,23 @@ export default function App() {
                 {visibleOrders.map(ord => {
                   const itemsStr = Array.isArray(ord.items) ? ord.items.map(i => `${i.quantity}x ${i.name}`).join(', ') : 'Delivery Items';
                   const customerPhone = ord.customerPhone || 'N/A';
-                  // Bug 7 fix: convert Sri Lankan local prefix 0771... → +94771...
-                  // The previous regex stripped '+' which made +94 numbers work,
-                  // but left 07x numbers without a country code — WhatsApp couldn't resolve them.
-                  const waPhone = customerPhone.replace(/[\s-]/g, '').replace(/^0/, '+94');
-                  const waLink = `https://wa.me/${waPhone}?text=Hi%20${encodeURIComponent(ord.customerName || 'Customer')},%20I%20am%20your%20GastroFlow%20rider%20for%20Order%20%23${ord.id.slice(-4).toUpperCase()}`;
-                  const navLink = (ord.deliveryLat && ord.deliveryLng)
-                    ? `https://www.google.com/maps/dir/?api=1&destination=${ord.deliveryLat},${ord.deliveryLng}`
-                    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ord.deliveryAddress || '')}`;
+                  // Never offer a contact link for a missing or malformed customer number.
+                  const phoneRaw = String(customerPhone).replace(/[\s().-]/g, '');
+                  const internationalPhone = phoneRaw.startsWith('0') ? '94' + phoneRaw.slice(1) : phoneRaw.replace(/^\+/, '');
+                  const waPhone = /^\d{8,15}$/.test(internationalPhone) ? internationalPhone : null;
+                  const waLink = waPhone ? `https://wa.me/${waPhone}?text=${encodeURIComponent(`Hi ${ord.customerName || 'Customer'}, I am your GastroFlow rider for Order #${String(ord.id).slice(-4).toUpperCase()}`)}` : null;
+                  const hasDropCoordinates = ord.deliveryLat != null && ord.deliveryLng != null
+                    && Number.isFinite(Number(ord.deliveryLat)) && Number.isFinite(Number(ord.deliveryLng))
+                    && Math.abs(Number(ord.deliveryLat)) <= 90 && Math.abs(Number(ord.deliveryLng)) <= 180;
+                  const navLink = hasDropCoordinates
+                    ? `https://www.google.com/maps/dir/?api=1&destination=${Number(ord.deliveryLat)},${Number(ord.deliveryLng)}`
+                    : ord.deliveryAddress?.trim()
+                      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ord.deliveryAddress)}`
+                      : null;
+                  const progressStage = ord.status === 'delivered' ? 3 : ['out_for_delivery', 'arrived'].includes(ord.status) ? 2 : 1;
 
                   return (
-                    <div key={ord.id} className="card" style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <article key={ord.id} className="card driver-delivery-card" style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--text-main)' }}>Order #{ord.id.slice(-4).toUpperCase()}</span>
                         <span style={{ background: ord.status === 'delivered' ? '#d1fae5' : ord.status === 'out_for_delivery' ? '#dbeafe' : '#fef3c7', color: ord.status === 'delivered' ? '#065f46' : ord.status === 'out_for_delivery' ? '#1e40af' : '#92400e', padding: '4px 10px', borderRadius: 12, fontWeight: 800, fontSize: '0.75rem', textTransform: 'uppercase' }}>
@@ -981,6 +986,9 @@ export default function App() {
                         </span>
                       </div>
 
+                      <ol className="driver-progress-steps" aria-label="Delivery progress">
+                        {['Ready for pickup', 'On the way', 'Delivered'].map((label, index) => <li key={label} className={progressStage >= index + 1 ? 'complete' : ''} aria-current={progressStage === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}
+                      </ol>
                       <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div>👤 <strong>{ord.customerName || 'Customer'}</strong></div>
                         <div>📞 <strong>{customerPhone}</strong></div>
@@ -990,14 +998,8 @@ export default function App() {
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <a href={navLink} target="_blank" rel="noopener noreferrer"
-                          style={{ flex: '1 1 45%', background: '#3b82f6', color: '#fff', padding: 10, borderRadius: 10, textDecoration: 'none', textAlign: 'center', fontWeight: 700, fontSize: '0.82rem' }}>
-                          🧭 Navigate
-                        </a>
-                        <a href={waLink} target="_blank" rel="noopener noreferrer"
-                          style={{ flex: '1 1 45%', background: '#25D366', color: '#fff', padding: 10, borderRadius: 10, textDecoration: 'none', textAlign: 'center', fontWeight: 700, fontSize: '0.82rem' }}>
-                          💬 WhatsApp
-                        </a>
+                        {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to destination for order ${String(ord.id).slice(-4)}`}>🧭 Navigate</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
+                        {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}>💬 WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
                         {['ready', 'picked_up'].includes(ord.status) && (
                           <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem', background: '#3b82f6' }}
                             onClick={() => handleUpdateStatus(ord.id, 'out_for_delivery')}>
@@ -1015,7 +1017,7 @@ export default function App() {
                           catch (error) { showToast(error.message, 'error'); }
                         }}>View saved proof</button> : <span>Legacy delivery: no proof recorded</span>)}
                       </div>
-                    </div>
+                    </article>
                   );
                 })}
               </div>
