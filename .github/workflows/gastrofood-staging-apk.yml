@@ -3,6 +3,10 @@ name: GastroFlow Food Android signed staging APK
 # Explicit release approval. Do not publish on every code push.
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/production-readiness]
+    paths:
+      - .github/workflows/gastrofood-staging-apk.yml
 
 permissions:
   contents: read
@@ -117,7 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           bash ./gradlew --no-daemon --stacktrace --console=plain \
-            -PfoodStagingVersionCode=$((10000 + GITHUB_RUN_NUMBER)) assembleStaging
+            -PfoodStagingVersionCode=$((10000 + GITHUB_RUN_NUMBER)) assembleStaging bundleStaging
 
       - name: Verify staging package, version and signing certificate
         shell: bash
@@ -153,5 +157,13 @@ jobs:
         with:
           name: GastroFlow-Food-Staging-Signed-${{ github.run_number }}
           path: apps/customer-web/android/app/build/outputs/apk/staging/app-staging.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Save signed Food bundle for Play internal testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: GastroFlow-Food-Staging-Play-${{ github.run_number }}
+          path: apps/customer-web/android/app/build/outputs/bundle/staging/*.aab
           if-no-files-found: error
           retention-days: 30
