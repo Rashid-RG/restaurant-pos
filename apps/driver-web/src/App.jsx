@@ -1068,7 +1068,7 @@ export default function App() {
                       : null;
                   const progressStage = ord.status === 'delivered' ? 4
                     : ['out_for_delivery', 'arrived'].includes(ord.status) ? 3
-                    : ord.status === 'picked_up' ? 2 : 1;
+                    : ord.status === 'picked_up' ? 2 : ord.status === 'ready' ? 1 : 0;
                   const nextStep = ord.status === 'ready' ? 'Confirm collection from the restaurant before starting delivery.'
                     : ord.status === 'picked_up' ? 'Order collected. Start the trip when leaving the restaurant.'
                     : ord.status === 'out_for_delivery' ? 'Deliver to the customer and capture proof at handover.'
