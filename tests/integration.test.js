@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import path from 'path';
 import os from 'os';
 import { testCheckoutProof } from './checkout-proof-fixture.js';
+import { makeTrackingAccess } from '../lib/orders/tracking.js';
 
 const TMP_DB = path.join(os.tmpdir(), `gastroflow_it_${Date.now()}_${Math.random().toString(36).slice(2)}.db`);
 process.env.DATABASE_FILE = TMP_DB;
@@ -241,10 +242,27 @@ describe('SaaS plan limits + usage metering', () => {
 });
 
 
+// Security regression fixtures intentionally avoid the shared seeded menu.
+// Previous checkout tests consume its finite inventory, so a later test must
+// not depend on remaining stock. No production order is created or changed.
+async function makePrivateTrackingFixture(){
+  const id='ord_security_'+crypto.randomUUID();
+  const tenantId='default_tenant',now=Date.now();
+  await dbRun(
+    "INSERT INTO orders (id,tenant_id,diningType,orderType,status,timestamp,items,total,paymentMethod,paymentStatus) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    [id,tenantId,'takeaway','takeaway','pending',now,'[]',0,'cash','unpaid']
+  );
+  await dbRun(
+    'INSERT INTO order_inventory_state (orderId,tenant_id,requirements,revision,updatedAt) VALUES (?,?,?,?,?)',
+    [id,tenantId,'{}',1,now]
+  );
+  return {orderId:id,trackingToken:makeTrackingAccess(id,tenantId)};
+}
+
 describe('Private customer cancellation access (integration)',()=>{
   it('rejects a stranger, an unrelated order token, and accepts the owning token',async()=>{
-    const first=await createOnlineOrder();
-    const second=await createOnlineOrder();
+    const first=await makePrivateTrackingFixture();
+    const second=await makePrivateTrackingFixture();
     expect(first.orderId).toBeTruthy();
     expect(first.trackingToken).toBeTruthy();
     expect(second.trackingToken).toBeTruthy();
@@ -268,7 +286,7 @@ describe('Private customer cancellation access (integration)',()=>{
 
 describe('Customer handover PIN protection (integration)',()=>{
   it('only issues a PIN with private tracking access, rejects wrong rider codes, and retains proof requirements',async()=>{
-    const created=await createOnlineOrder();
+    const created=await makePrivateTrackingFixture();
     expect(created.orderId).toBeTruthy();
     const driverLogin=await request(app).post('/api/driver/auth/login')
       .send({phone:'0771234567',password:'driver123'});
