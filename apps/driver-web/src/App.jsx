@@ -1191,10 +1191,22 @@ export default function App() {
     activeOrders.some(order=>order.id===liveRouteOrderId && ['picked_up','out_for_delivery','arrived'].includes(order.status));
   useEffect(()=>{
     if(!showLiveRoute)return;
-    const refresh=()=>{if(!document.hidden && navigator.onLine!==false)routeRequest.current(liveRouteOrderId);};
+    const refresh=()=>{
+      if(document.visibilityState!=='visible' || navigator.onLine===false)return;
+      routeRequest.current(liveRouteOrderId);
+    };
     refresh();
     const timer=setInterval(refresh,20000);
-    return ()=>clearInterval(timer);
+    // An active trip should recover route estimates when connectivity returns
+    // or the phone browser resumes from the background.
+    const resume=()=>{if(document.visibilityState==='visible')refresh();};
+    window.addEventListener('online',refresh);
+    document.addEventListener('visibilitychange',resume);
+    return ()=>{
+      clearInterval(timer);
+      window.removeEventListener('online',refresh);
+      document.removeEventListener('visibilitychange',resume);
+    };
   },[showLiveRoute,liveRouteOrderId]);
   const locationLabel = gpsQuality === 'denied' ? 'Location permission denied'
     : !isGpsActive ? 'Location sharing is off'
