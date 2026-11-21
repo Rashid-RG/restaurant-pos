@@ -6117,11 +6117,17 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
     ) : [];
     const completed = await dbAll("SELECT orders.*, (SELECT savedAt FROM delivery_proofs WHERE delivery_proofs.orderId = orders.id AND delivery_proofs.tenant_id = orders.tenant_id) AS proofSavedAt FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' ORDER BY timestamp DESC LIMIT 100", [t, driverId]);
     const zoneSetting = await dbGet('SELECT value FROM settings WHERE tenant_id = ? AND key = ?', [t, 'timeZone']);
+    const pickupSettings=await getSettingsMap(t,['storeLat','storeLng']);
+    const validPickup=pickupSettings.storeLat!=null && pickupSettings.storeLng!=null &&
+      String(pickupSettings.storeLat).trim()!=='' && String(pickupSettings.storeLng).trim()!=='' &&
+      validRoadPoint({lat:pickupSettings.storeLat,lng:pickupSettings.storeLng}) &&
+      !(Number(pickupSettings.storeLat)===0&&Number(pickupSettings.storeLng)===0);
+    const pickupLocation=validPickup ? {lat:Number(pickupSettings.storeLat),lng:Number(pickupSettings.storeLng)} : null;
     const timeZone = restaurantTimeZone({ timeZone: zoneSetting?.value });
     const today = dateAtRestaurant(new Date(), timeZone);
     const [dayStart, dayEnd] = restaurantDayBounds(today, timeZone);
     const cash = await dbGet("SELECT COALESCE(SUM(total),0) AS amount FROM orders WHERE tenant_id = ? AND driverId = ? AND status = 'delivered' AND paymentMethod IN ('cash','cod') AND COALESCE(cashCollected,0) = 0", [t, driverId]);
-    res.json({ assigned: assigned || [], unassigned: unassigned || [], completed, timeZone, summary: { completedToday: completed.filter(order => Number(order.timestamp) >= dayStart && Number(order.timestamp) < dayEnd).length, cashToHandover: cash?.amount || 0 } });
+    res.json({ assigned: assigned || [], unassigned: unassigned || [], completed, timeZone, pickupLocation, summary: { completedToday: completed.filter(order => Number(order.timestamp) >= dayStart && Number(order.timestamp) < dayEnd).length, cashToHandover: cash?.amount || 0 } });
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
