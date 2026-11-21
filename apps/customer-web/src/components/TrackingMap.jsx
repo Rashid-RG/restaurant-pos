@@ -38,9 +38,21 @@ export default function TrackingMap({store,dest,driver,route}) {
     m.on('dragstart',stopFollowing);
     const userZoom=event=>{if(event?.originalEvent)stopFollowing();};
     m.on('zoomstart',userZoom);
-    const timeout=window.setTimeout(()=>m.invalidateSize(),200);
+    const invalidate=()=>{if(map.current===m)m.invalidateSize({pan:false});};
+    const timeout=window.setTimeout(invalidate,200);
+    // Expanding the journey sheet, rotating the phone, or restoring Safari
+    // can change the map viewport without triggering Leaflet's own resize.
+    const observer=typeof ResizeObserver!=='undefined'
+      ? new ResizeObserver(invalidate) : null;
+    if(observer)observer.observe(el.current);
+    window.addEventListener('resize',invalidate);
+    const onVisible=()=>{if(document.visibilityState==='visible')invalidate();};
+    document.addEventListener('visibilitychange',onVisible);
     return()=>{
       window.clearTimeout(timeout);
+      observer?.disconnect();
+      window.removeEventListener('resize',invalidate);
+      document.removeEventListener('visibilitychange',onVisible);
       if(animation.current!==null){window.cancelAnimationFrame(animation.current);animation.current=null;}
       m.off('dragstart',stopFollowing);m.off('zoomstart',userZoom);
       m.remove();map.current=null;markers.current={};routeLine.current=null;
