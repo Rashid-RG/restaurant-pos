@@ -848,7 +848,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               <div className="gf-wizard-cart-emoji" aria-hidden="true">{item.emoji||'🍽️'}</div>
               <div className="gf-wizard-cart-item-main"><strong>{item.name}</strong>
                 <small>Qty {item.qty||1}{item.notes?' · Special instructions added':''}</small></div>
-              <strong>Rs. {(Number(item.price||0)*Number(item.qty||1)).toFixed(2)}</strong>
+              <strong>Rs. {(Number(item.unitPrice??item.price??0)*Number(item.qty||1)).toFixed(2)}</strong>
             </div>)}
           </div>
           <div className="gf-wizard-cart-subtotal"><span>Food subtotal</span><strong>Rs. {subtotal.toFixed(2)}</strong></div>
