@@ -104,6 +104,7 @@ export default function App() {
   const [earningsLoading,setEarningsLoading]=useState(false);
   const [earningsError,setEarningsError]=useState('');
   const [mapOrder,setMapOrder]=useState(null);
+  const [tripSheet,setTripSheet]=useState('half');
   const [roadEstimates,setRoadEstimates]=useState({});
   const [roadLoadingId,setRoadLoadingId]=useState(null);
   const roadRequestEpochRef=useRef(0);
@@ -1642,14 +1643,24 @@ export default function App() {
                             geometry={hasFreshLocation && progressStage>1 && driverClock-roadEstimates[ord.id]?.basedOnFixAt<=30000 ? roadEstimates[ord.id]?.geometry : null}/></React.Suspense>}
                         </>}
                       </section>
-                      <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div className="driver-order-detail"><User size={16} aria-hidden="true"/><strong>{ord.customerName || 'Customer'}</strong></div>
-                        <div className="driver-order-detail"><Phone size={16} aria-hidden="true"/><strong>{customerPhone}</strong></div>
-                        <div className="driver-order-detail"><MapPin size={16} aria-hidden="true"/><strong>{ord.deliveryAddress || 'Destination unavailable'}</strong></div>
-                        <div className="driver-order-detail" style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}><Package size={16} aria-hidden="true"/><span>{itemsStr}</span></div>
-                        <div>{ord.paymentStatus === 'paid' ? 'Payment verified' : ['cash', 'cod'].includes(ord.paymentMethod) ? 'Cash to collect' : 'Awaiting payment confirmation'}: <strong style={{ color: 'var(--brand-emerald)', fontSize: '1rem' }}>Rs. {Number(ord.total).toFixed(2)}</strong> ({ord.paymentMethod || 'Unknown method'})</div>
-                      </div>
-
+                      <section aria-label="Delivery trip details" style={{borderRadius:20,background:'rgba(242,250,245,.07)',border:'1px solid rgba(150,202,169,.25)',padding:'12px',display:'grid',gap:10}}>
+                        <div aria-hidden="true" style={{width:42,height:5,background:'#86a69a',borderRadius:5,margin:'0 auto'}}/>
+                        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                          <div><strong style={{display:'block',fontSize:16}}>{ord.customerName||'Customer delivery'}</strong><small>{nextStep}</small></div>
+                          <strong style={{whiteSpace:'nowrap',fontSize:17}}>Rs. {Number(ord.total).toFixed(2)}</strong>
+                        </div>
+                        <div role="group" aria-label="Trip details sheet size" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:5,padding:5,background:'rgba(100,160,125,.18)',borderRadius:14}}>
+                          {[['compact','Summary'],['half','Details'],['full','Full trip']].map(([value,label])=>
+                            <button key={value} type="button" aria-pressed={tripSheet===value} onClick={()=>setTripSheet(value)}
+                              style={{border:0,borderRadius:10,padding:'10px 3px',fontWeight:800,fontSize:12,background:tripSheet===value?'#087653':'transparent',color:tripSheet===value?'#fff':'inherit'}}>{label}</button>)}
+                        </div>
+                        {tripSheet!=='compact'&&<div style={{display:'grid',gap:8}}>
+                          <div className="driver-order-detail"><MapPin size={16} aria-hidden="true"/><span>{ord.deliveryAddress||'Destination unavailable'}</span></div>
+                          <div className="driver-order-detail"><Phone size={16} aria-hidden="true"/><span>{customerPhone}</span></div>
+                          <div>{ord.paymentStatus==='paid'?'Payment verified':['cash','cod'].includes(ord.paymentMethod)?'Cash to collect':'Payment not confirmed'}: <strong>Rs. {Number(ord.total).toFixed(2)}</strong></div>
+                          {tripSheet==='full'&&<div className="driver-order-detail"><Package size={16} aria-hidden="true"/><span>{itemsStr}</span></div>}
+                        </div>}
+                      </section>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to ${navigatingToPickup ? 'pickup' : 'customer drop-off'} for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> {navigatingToPickup ? 'Restaurant pickup' : 'Customer drop-off'}</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}><MessageCircle size={17} aria-hidden="true"/> WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
