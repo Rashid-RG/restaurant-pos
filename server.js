@@ -1074,6 +1074,15 @@ async function initTables() {
       )
     `);
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_support_tenant_time ON driver_support_requests (tenant_id,createdAt)');
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_support_replies (
+        requestId TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        message TEXT NOT NULL,
+        responder TEXT NOT NULL,
+        createdAt BIGINT NOT NULL
+      )
+    `);
 
     // 26. Driver-Customer In-App Chat Table (Uber Eats-grade live delivery chat)
     await dbRun(`
@@ -6078,7 +6087,7 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
 app.get('/api/public/driver/support',authenticateDriver,async(req,res)=>{
   try {
     const rows=await dbAll(
-      'SELECT id,category,message,orderId,status,createdAt FROM driver_support_requests WHERE tenant_id=? AND driverId=? ORDER BY createdAt DESC LIMIT 30',
+      'SELECT r.id,r.category,r.message,r.orderId,r.status,r.createdAt,p.message AS managerReply,p.createdAt AS repliedAt FROM driver_support_requests r LEFT JOIN driver_support_replies p ON p.requestId=r.id AND p.tenant_id=r.tenant_id WHERE r.tenant_id=? AND r.driverId=? ORDER BY r.createdAt DESC LIMIT 30',
       [req.driver.tenant_id,req.driver.driverId]
     );
     return res.set('Cache-Control','no-store').json({requests:rows});
@@ -6103,6 +6112,40 @@ app.post('/api/public/driver/support',authenticateDriver,async(req,res)=>{
     );
     return res.status(201).set('Cache-Control','no-store').json({request:{id,category,message,orderId:orderId||null,status:'open',createdAt}});
   }catch(error){console.error('[Driver support submission]',error.message);return res.status(500).json({error:'Could not save the support request.'});}
+});
+
+// Restaurant-only support inbox. No cross-tenant header can override JWT scope.
+app.get('/api/delivery/driver-support',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const requests=await dbAll(
+      'SELECT r.id,r.driverId,d.name AS driverName,r.category,r.message,r.orderId,r.status,r.createdAt,p.message AS managerReply,p.responder,p.createdAt AS repliedAt FROM driver_support_requests r LEFT JOIN drivers d ON d.id=r.driverId AND d.tenant_id=r.tenant_id LEFT JOIN driver_support_replies p ON p.requestId=r.id AND p.tenant_id=r.tenant_id WHERE r.tenant_id=? ORDER BY r.createdAt DESC LIMIT 100',
+      [req.tenantId]
+    );
+    return res.set('Cache-Control','no-store').json({requests});
+  }catch(error){console.error('[Restaurant rider support]',error.message);return res.status(500).json({error:'Could not load rider support requests.'});}
+});
+app.patch('/api/delivery/driver-support/:id',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  const id=String(req.params.id||'');
+  const status=String(req.body?.status||'');
+  const reply=String(req.body?.reply||'').trim();
+  if(!id || id.length>128 || !['open','in_progress','resolved'].includes(status) ||
+     reply.length>1000 || (status==='resolved' && reply.length<5))
+    return res.status(400).json({error:'Choose a valid status and provide a response when resolving.'});
+  let started=false;
+  try{
+    await dbRun('BEGIN TRANSACTION');started=true;
+    const request=await dbGet('SELECT id FROM driver_support_requests WHERE id=? AND tenant_id=?',[id,req.tenantId]);
+    if(!request){await dbRun('ROLLBACK');started=false;return res.status(404).json({error:'Request not found.'});}
+    await dbRun('UPDATE driver_support_requests SET status=? WHERE id=? AND tenant_id=?',[status,id,req.tenantId]);
+    if(reply){
+      await dbRun(
+        'INSERT INTO driver_support_replies (requestId,tenant_id,message,responder,createdAt) VALUES (?,?,?,?,?) ON CONFLICT(requestId) DO UPDATE SET message=excluded.message,responder=excluded.responder,createdAt=excluded.createdAt WHERE tenant_id=excluded.tenant_id',
+        [id,req.tenantId,reply,req.user?.username||'Restaurant manager',Date.now()]
+      );
+    }
+    await dbRun('COMMIT');started=false;
+    return res.set('Cache-Control','no-store').json({success:true,id,status});
+  }catch(error){if(started)await dbRun('ROLLBACK').catch(()=>{});console.error('[Rider support update]',error.message);return res.status(500).json({error:'Could not update rider support request.'});}
 });
 
 app.get('/api/public/driver/cash-summary', authenticateDriver, async (req, res) => {
