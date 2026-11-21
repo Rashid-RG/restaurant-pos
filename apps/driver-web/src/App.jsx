@@ -1066,13 +1066,14 @@ export default function App() {
                     : ord.deliveryAddress?.trim()
                       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ord.deliveryAddress)}`
                       : null;
-                  const progressStage = ord.status === 'delivered' ? 4
-                    : ['out_for_delivery', 'arrived'].includes(ord.status) ? 3
+                  const progressStage = ord.status === 'delivered' ? 5
+                    : ord.status === 'arrived' ? 4
+                    : ord.status === 'out_for_delivery' ? 3
                     : ord.status === 'picked_up' ? 2 : ord.status === 'ready' ? 1 : 0;
                   const nextStep = ord.status === 'ready' ? 'Confirm collection from the restaurant before starting delivery.'
                     : ord.status === 'picked_up' ? 'Order collected. Start the trip when leaving the restaurant.'
-                    : ord.status === 'out_for_delivery' ? 'Deliver to the customer and capture proof at handover.'
-                    : ord.status === 'arrived' ? 'Confirm the handover with the required delivery proof.'
+                    : ord.status === 'out_for_delivery' ? 'Once you reach the customer, confirm arrival before handover.'
+                    : ord.status === 'arrived' ? 'You are at the destination. Collect any required payment and save delivery proof.'
                     : ord.status === 'delivered' ? 'This delivery has been completed.'
                     : 'Wait until the restaurant marks the order ready for pickup.';
 
@@ -1086,7 +1087,7 @@ export default function App() {
                       </div>
 
                       <ol className="driver-progress-steps" aria-label="Delivery progress">
-                        {['Ready', 'Picked up', 'On the way', 'Delivered'].map((label, index) => <li key={label} className={progressStage >= index + 1 ? 'complete' : ''} aria-current={progressStage === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}
+                        {['Ready', 'Picked up', 'On the way', 'Arrived', 'Delivered'].map((label, index) => <li key={label} className={progressStage >= index + 1 ? 'complete' : ''} aria-current={progressStage === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}
                       </ol>
                       <div className="driver-next-step"><strong>Next step</strong><span>{nextStep}</span></div>
                       <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1112,10 +1113,16 @@ export default function App() {
                             <AnimatedFeatureIcon kind="delivery" size={28} active={false}/> {pendingOrderId===ord.id ? 'Updating delivery…' : 'Start delivery'}
                           </button>
                         )}
-                        {['out_for_delivery', 'arrived'].includes(ord.status) && (
-                          <button className="btn-emerald" style={{ flex: '1 1 100%', padding: 10, fontSize: '0.82rem' }}
+                        {ord.status === 'out_for_delivery' && (
+                          <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem', background: '#2563eb' }}
+                            disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'arrived')}>
+                            {pendingOrderId===ord.id ? 'Confirming arrival…' : '📍 Confirm arrived at customer'}
+                          </button>
+                        )}
+                        {ord.status === 'arrived' && (
+                          <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem' }}
                             disabled={pendingOrderId!==null} onClick={() => setSelectedDeliveryOrder(ord)}>
-                            ✓ Mark Delivered (Signature & Proof)
+                            ✓ Complete handover (Signature & Proof)
                           </button>
                         )}
                         {ord.status === 'delivered' && (ord.proofSavedAt ? <button className="btn-outline" onClick={async () => {
