@@ -173,10 +173,26 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const fetchDriverMessages = async (id) => {
     if (!id) return;
     try {
-      const data = await apiFetch(`/orders/${id}/driver-chat`);
-      setDriverMessages(data || []);
-    } catch (_) {}
+      const data = await apiFetch(`/orders/${encodeURIComponent(id)}/driver-chat`,{cache:'no-store'});
+      // A delayed chat response from a previous order must never be shown
+      // under the next order, even when switching tracked deliveries quickly.
+      if(String(activeTrackedIdRef.current||'')!==String(id))return;
+      if(Array.isArray(data))setDriverMessages(data.slice(-150));
+    } catch (_) {
+      // Keep already retrieved messages visible during temporary disconnects.
+    }
   };
+  useEffect(()=>{
+    if(!driverChatOpen || !order?.id)return;
+    const id=order.id;
+    const refresh=()=>{if(document.visibilityState==='visible' && navigator.onLine!==false)void fetchDriverMessages(id);};
+    refresh();
+    const timer=window.setInterval(refresh,8000);
+    const onVisible=()=>{if(document.visibilityState==='visible')refresh();};
+    window.addEventListener('online',refresh);
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{window.clearInterval(timer);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',onVisible);};
+  },[driverChatOpen,order?.id]);
 
   const handleSendDriverMsg = async (e) => {
     e.preventDefault();
@@ -192,7 +208,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
         })
       });
       setDriverInputMsg('');
-      fetchDriverMessages(order.id);
+      void fetchDriverMessages(order.id);
     } catch (err) {
       toast(err.message || 'Failed to send message to driver', 'error');
     } finally {
