@@ -93,8 +93,15 @@ export default function TrackingMap({store,dest,driver,route}) {
       }
     }
 
-    const hasRoad=route?.available===true && route.geometry?.type==='LineString' && Array.isArray(route.geometry.coordinates) && route.geometry.coordinates.length>=2;
-    const points=hasRoad ? route.geometry.coordinates.map(c=>[c[1],c[0]]) : null;
+    // Route geometry is external data: reject malformed coordinates before
+    // giving them to Leaflet, and avoid a large accidental browser render.
+    const coordinates=route?.geometry?.coordinates;
+    const hasRoad=route?.available===true && route.geometry?.type==='LineString' &&
+      Array.isArray(coordinates) && coordinates.length>=2 && coordinates.length<=10000 &&
+      coordinates.every(c=>Array.isArray(c) && c.length>=2 &&
+        Number.isFinite(c[0]) && Number.isFinite(c[1]) &&
+        Math.abs(c[0])<=180 && Math.abs(c[1])<=90);
+    const points=hasRoad ? coordinates.map(c=>[c[1],c[0]]) : null;
     const from=valid(driver)?driver:valid(store)?store:null;
     if(points || (from&&valid(dest))){
       const ends=points || [[from.lat,from.lng],[dest.lat,dest.lng]];
