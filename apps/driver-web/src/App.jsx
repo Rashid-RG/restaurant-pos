@@ -91,6 +91,22 @@ export default function App() {
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
   const [driverScreen,setDriverScreen]=useState('home');
+  const [ownDriverProfile,setOwnDriverProfile]=useState(null);
+  const [profileLoading,setProfileLoading]=useState(false);
+  const [profileError,setProfileError]=useState('');
+  useEffect(()=>{
+    if(driverScreen!=='profile'||!driver?.id)return;
+    let cancelled=false;
+    const id=driver.id;
+    setProfileLoading(true);setProfileError('');
+    apiFetch('/public/driver/profile',{cache:'no-store'}).then(data=>{
+      if(cancelled||driverStatusIdentityRef.current!==id)return;
+      if(!data.profile||data.profile.id!==id)throw new Error('Invalid driver profile response.');
+      setOwnDriverProfile(data.profile);
+    }).catch(error=>{if(!cancelled)setProfileError(error.message||'Could not load profile.');})
+      .finally(()=>{if(!cancelled)setProfileLoading(false);});
+    return()=>{cancelled=true;};
+  },[driver?.id,driverScreen]);
   useEffect(()=>{
     if(driverScreen!=='earnings'||!driver?.id)return;
     let cancelled=false;
@@ -274,6 +290,7 @@ export default function App() {
     setSummary({ completedToday: 0, cashToHandover: 0 });
     setTaskTab('active');
     setDriverScreen('home');
+    setOwnDriverProfile(null);setProfileLoading(false);setProfileError('');
     supportRequestEpochRef.current+=1;
     setSupportCategory('delivery');setSupportMessage('');setSupportOrderId('');
     setSupportHistory([]);setSupportError('');setSupportBusy(false);
@@ -1167,6 +1184,24 @@ export default function App() {
             </>}
             {driverScreen === 'profile' && <>
             <h2 className="driver-screen-heading">Profile &amp; location</h2>
+            <section className="card driver-verification-summary" aria-label="My rider verification">
+              <h3>Account &amp; licence verification</h3>
+              {profileLoading && <p role="status">Checking your restaurant verification record…</p>}
+              {profileError && <p role="alert" className="driver-cash-error">{profileError}</p>}
+              {ownDriverProfile && <>
+                <dl>
+                  <div><dt>Account</dt><dd>{ownDriverProfile.status||'Not available'}</dd></div>
+                  <div><dt>Application review</dt><dd>{ownDriverProfile.manualReviewStatus||'No manual review on record'}</dd></div>
+                  <div><dt>Licence</dt><dd>{ownDriverProfile.licenseReviewRequired
+                    ? (ownDriverProfile.licenseVerifiedUntil && Number(ownDriverProfile.licenseVerifiedUntil)>Date.now() ? 'Manager verified' : 'Review required or expired')
+                    : 'No outstanding licence review requirement on record'}</dd></div>
+                  {ownDriverProfile.licenseVerifiedUntil && <div><dt>Licence verified until</dt><dd>{new Date(Number(ownDriverProfile.licenseVerifiedUntil)).toLocaleDateString()}</dd></div>}
+                  {ownDriverProfile.licenseVerifiedClass && <div><dt>Verified class</dt><dd>{ownDriverProfile.licenseVerifiedClass}</dd></div>}
+                  {ownDriverProfile.email && <div><dt>Registered email</dt><dd>{ownDriverProfile.email}</dd></div>}
+                </dl>
+                <p>Restaurant management controls approval and document reviews. Sensitive identity files are not shown here.</p>
+              </>}
+            </section>
             <section className="card driver-preferences" aria-label="Driver notification preferences">
               <h3>Notification preferences</h3>
               <label><span><strong>Delivery alert sound</strong><small>Play an audible alert when new pickup offers appear while the app is open. Phone silent-mode rules still apply.</small></span>
