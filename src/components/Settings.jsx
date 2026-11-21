@@ -1534,15 +1534,15 @@ export default function Settings({ initialSubTab = null } = {}) {
                           <label style={{ fontSize: '10px', fontWeight: 600 }}>Latitude</label>
                           <input type="number" step="any" min="-90" max="90" className="form-input"
                             placeholder="Set actual restaurant latitude"
-                            value={settings?.storeLat ?? ''}
-                            onChange={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>90) return; await updateSetting('storeLat', value); }} />
+                            defaultValue={settings?.storeLat ?? ''}
+                            onBlur={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>90) { showToast('Enter valid latitude coordinates for the real shop.', 'error'); return; } await updateSetting('storeLat', value); }} />
                         </div>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '10px', fontWeight: 600 }}>Longitude</label>
                           <input type="number" step="any" min="-180" max="180" className="form-input"
                             placeholder="Set actual restaurant longitude"
-                            value={settings?.storeLng ?? ''}
-                            onChange={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>180) return; await updateSetting('storeLng', value); }} />
+                            defaultValue={settings?.storeLng ?? ''}
+                            onBlur={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>180) { showToast('Enter valid longitude coordinates for the real shop.', 'error'); return; } await updateSetting('storeLng', value); }} />
                         </div>
                       </div>
                       <p style={{fontSize:12,margin:'8px 0',color:'var(--text-muted)'}} role="status">
