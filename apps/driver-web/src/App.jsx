@@ -129,6 +129,24 @@ export default function App() {
     if(!driver?.id){setSoundAlertsEnabled(true);return;}
     setSoundAlertsEnabled(localStorage.getItem(`gastrodriver:sound:${driver.id}`)!=='off');
   },[driver?.id]);
+  const [accessibility,setAccessibility]=useState({largeText:false,highContrast:false,reducedMotion:false});
+  useEffect(()=>{
+    if(!driver?.id){setAccessibility({largeText:false,highContrast:false,reducedMotion:false});return;}
+    try{
+      const settings=JSON.parse(localStorage.getItem(`gastrodriver:accessibility:${driver.id}`)||'{}');
+      setAccessibility({
+        largeText:settings.largeText===true,
+        highContrast:settings.highContrast===true,
+        reducedMotion:settings.reducedMotion===true
+      });
+    }catch{setAccessibility({largeText:false,highContrast:false,reducedMotion:false});}
+  },[driver?.id]);
+  const changeAccessibility=(name,enabled)=>{
+    if(!driver?.id)return;
+    const next={...accessibility,[name]:enabled};
+    localStorage.setItem(`gastrodriver:accessibility:${driver.id}`,JSON.stringify(next));
+    setAccessibility(next);
+  };
   const toggleSoundAlerts=()=>{
     if(!driver?.id)return;
     const next=!soundAlertsEnabled;
@@ -1046,7 +1064,7 @@ export default function App() {
     : `Last fix ${Math.max(0,Math.round((driverClock-lastCoords.recordedAt)/1000))} seconds ago · ±${Math.round(lastCoords.accuracyMeters)} m accuracy`;
 
   return (
-    <div className="driver-app-shell"><ConnectionStatus/>
+    <div className={`driver-app-shell ${accessibility.largeText?'driver-large-text':''} ${accessibility.highContrast?'driver-high-contrast':''} ${accessibility.reducedMotion?'driver-reduced-motion':''}`}><ConnectionStatus/>
       <SystemUpdatePrompt />
 
 
@@ -1220,6 +1238,18 @@ export default function App() {
                 <input type="checkbox" checked={soundAlertsEnabled} onChange={toggleSoundAlerts} aria-label="Enable delivery alert sounds"/>
               </label>
               <p>Preferences are saved for this rider on this device. Native background push notifications require separate device permission and Firebase configuration.</p>
+            </section>
+            <section className="card driver-preferences" aria-label="Driver accessibility settings">
+              <h3>Accessibility</h3>
+              {[
+                ['largeText','Larger text','Increase text size across driver cards and actions.'],
+                ['highContrast','High contrast','Strengthen card borders and labels for easier reading.'],
+                ['reducedMotion','Reduce motion','Disable decorative animations and smooth transitions.']
+              ].map(([name,label,help])=><label key={name}>
+                <span><strong>{label}</strong><small>{help}</small></span>
+                <input type="checkbox" checked={accessibility[name]}
+                  onChange={event=>changeAccessibility(name,event.target.checked)} aria-label={label}/>
+              </label>)}
             </section>
             <div className={`driver-location-health ${hasFreshLocation ? 'good' : 'needs-attention'}`} role="status" aria-live="polite"><div className="driver-location-health-head"><strong>Location health</strong><span>{locationLabel}</span></div><p>{locationHelp}</p></div>
             </>}
