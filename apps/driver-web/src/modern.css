@@ -243,3 +243,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-earnings-breakdown{display:grid;gap:8px;margin:6px 0}
 .driver-earnings-breakdown>div{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;padding:11px;background:#f3f9f5;border:1px solid #d8e9dc;border-radius:10px;font-size:12px}
 .driver-earnings-breakdown strong{font-variant-numeric:tabular-nums}
+
+.driver-pickup-distance{display:inline-flex;align-items:center;gap:5px;padding:7px 10px;border:1px solid #b4d8c6;background:#e8f7ed;border-radius:10px;color:#176c47;font-size:11px;font-weight:750;text-align:right;line-height:1.35}
+.driver-pickup-distance svg{flex:0 0 auto}
