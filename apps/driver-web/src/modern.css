@@ -173,3 +173,17 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-home-focus-actions{display:flex;gap:9px;flex-wrap:wrap}
 .driver-home-focus-actions button,.driver-home-focus>.btn-emerald{min-height:46px;display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:1 1 150px}
 @media(max-width:420px){.driver-home-focus{padding:12px}.driver-home-focus-actions button{font-size:12px}}
+
+
+/* Consistent iconography and properly sized profile / delivery controls. */
+.driver-profile-name{display:flex;align-items:center;gap:9px;font-weight:800;font-size:17px;color:var(--text-main);min-width:0;overflow-wrap:anywhere}
+.driver-profile-name svg{flex:0 0 auto;color:#148058}
+.driver-controls-actions button{display:inline-flex!important;align-items:center;justify-content:center;gap:7px;min-height:44px;white-space:normal;line-height:1.35}
+.driver-controls-actions button svg{flex:0 0 auto}
+.driver-order-detail{display:flex;align-items:flex-start;gap:8px;min-width:0;overflow-wrap:anywhere}
+.driver-order-detail svg{flex:0 0 auto;margin-top:2px;color:#5b7a67}
+.driver-order-action{gap:7px;line-height:1.4}
+.driver-order-action svg{flex:0 0 auto}
+.driver-delivery-card button.btn-emerald{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;line-height:1.4}
+.driver-delivery-card button.btn-emerald svg{flex:0 0 auto}
+@media(max-width:390px){.driver-controls-actions button{flex:1 1 120px}.driver-controls-actions button span{overflow-wrap:anywhere}}
