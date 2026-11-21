@@ -1,18 +1,11 @@
 name: GastroDriver signed Android staging
 on:
-  push:
-    branches: [codex/production-readiness]
-    paths:
-      - .github/workflows/driver-android-staging.yml
-      - apps/driver-native/**
-      - apps/driver-web/src/**
-      - apps/driver-web/vite.config.js
-      - shared/ui/**
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   android:
+    if: github.ref == 'refs/heads/codex/production-readiness'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:

@@ -3,10 +3,6 @@ name: GastroFlow Food Android signed staging APK
 # Explicit release approval. Do not publish on every code push.
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/production-readiness]
-    paths:
-      - .github/workflows/gastrofood-staging-apk.yml
 
 permissions:
   contents: read
