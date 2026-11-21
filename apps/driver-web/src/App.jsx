@@ -1493,6 +1493,21 @@ export default function App() {
             </>}
             {driverScreen === 'orders' && <>
             <h2 className="driver-screen-heading">My deliveries</h2>
+            <section role="status" aria-label="Live rider location health" style={{margin:'10px 0 16px',padding:'14px 16px',borderRadius:20,background:hasFreshLocation&&isServerConfirmedLocation?'#e9fbf2':'#fff8e8',border:'1px solid '+(hasFreshLocation&&isServerConfirmedLocation?'#b5e9d0':'#f2dab0'),color:'#153c32'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <span aria-hidden="true" style={{display:'inline-block',width:10,height:10,borderRadius:'50%',background:isServerConfirmedLocation?'#159865':'#df9c32'}}/>
+                  <div><strong style={{display:'block',fontSize:15}}>{isServerConfirmedLocation?'Live GPS sharing confirmed':'Delivery location needs attention'}</strong>
+                    <small style={{display:'block',marginTop:3,color:'#536c61'}}>{locationLabel}</small></div>
+                </div>
+                <button type="button" onClick={toggleGps} disabled={driverStatusRef.current==='offline'&&!isGpsActive}
+                  aria-label={isGpsActive?'Stop sharing delivery location':'Enable delivery location sharing'}
+                  style={{border:0,borderRadius:14,padding:'12px 16px',background:isGpsActive?'#244c3e':'#087653',color:'white',fontWeight:800,cursor:'pointer'}}>
+                  {isGpsActive?'Stop GPS':'Enable GPS'}
+                </button>
+              </div>
+              {!isServerConfirmedLocation&&<p style={{margin:'9px 0 0',fontSize:12,lineHeight:1.5,color:'#6b5a3e'}}>{locationHelp} Customer tracking only works after this phone shares a fresh location accepted by the server.</p>}
+            </section>
             {pendingOfflineUpdates.length>0 && <section className="card driver-offline-queue" aria-label="Saved offline progress updates">
               <h3>Progress waiting for server confirmation ({pendingOfflineUpdates.length})</h3>
               <p>These are saved on this device only. They do not change restaurant or customer order status until the server accepts them. Final handover evidence is never stored in this queue.</p>
