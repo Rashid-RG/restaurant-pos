@@ -80,6 +80,20 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const [driverChatOpen, setDriverChatOpen] = useState(false);
   const [mapExpanded,setMapExpanded]=useState(true);
   const [journeySheet,setJourneySheet]=useState('compact');
+  const journeyTouchStart=useRef(null);
+  const onJourneyTouchStart=event=>{
+    if(event.target.closest('button, a, input, textarea, select')){journeyTouchStart.current=null;return;}
+    journeyTouchStart.current=event.touches[0]?.clientY??null;
+  };
+  const onJourneyTouchEnd=event=>{
+    const from=journeyTouchStart.current;
+    journeyTouchStart.current=null;
+    if(from===null)return;
+    const delta=(event.changedTouches[0]?.clientY??from)-from;
+    if(Math.abs(delta)<55)return;
+    const levels=['compact','half','full'];
+    setJourneySheet(current=>levels[Math.min(2,Math.max(0,levels.indexOf(current)+(delta<0?1:-1)))]);
+  };
   useEffect(()=>{setJourneySheet('compact');},[order?.id]);
   const receiptDetailsRef=useRef(null);
   const [driverMessages, setDriverMessages] = useState([]);
@@ -547,7 +561,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
 
               </div>}
             </div>}
-          {isDelivery&&!isCancelled&&!isDone&&<section aria-label="Delivery journey details" style={{borderRadius:'24px 24px 18px 18px',background:'var(--card-bg, #fff)',padding:'14px 16px',margin:'12px 0',boxShadow:'0 12px 32px rgba(16,56,42,.10)'}}>
+          {isDelivery&&!isCancelled&&!isDone&&<section aria-label="Delivery journey details" onTouchStart={onJourneyTouchStart} onTouchEnd={onJourneyTouchEnd} style={{touchAction:'pan-y',borderRadius:'24px 24px 18px 18px',background:'var(--card-bg, #fff)',padding:'14px 16px',margin:'12px 0',boxShadow:'0 12px 32px rgba(16,56,42,.10)'}}>
             <div aria-hidden="true" style={{width:44,height:5,borderRadius:9,background:'#b7c9c0',margin:'0 auto 10px'}}/>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:10}}>
               <div><strong style={{display:'block',fontSize:17}}>{actualProgress.steps[actualProgress.currentIndex]?.label || 'Delivery in progress'}</strong>
