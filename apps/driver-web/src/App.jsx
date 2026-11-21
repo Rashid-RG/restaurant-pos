@@ -124,7 +124,7 @@ function DriverChatDialog({order,onClose}) {
     finally{setBusy(false);}
   };
   return <dialog ref={dialogRef} aria-label="Message customer"
-    style={{width:'min(100% - 24px,480px)',maxHeight:'min(85dvh,720px)',boxSizing:'border-box',border:0,borderRadius:22,padding:0,background:'var(--surface-card,#fff)',color:'var(--text-main,#0f172a)',boxShadow:'0 24px 90px rgba(0,0,0,.3)'}}>
+    style={{width:'min(calc(100% - 24px), 480px)',maxHeight:'min(85dvh,720px)',boxSizing:'border-box',border:0,borderRadius:22,padding:0,background:'var(--surface-card,#fff)',color:'var(--text-main,#0f172a)',boxShadow:'0 24px 90px rgba(0,0,0,.3)'}}>
     <div style={{display:'flex',flexDirection:'column',maxHeight:'min(85dvh,720px)'}}>
       <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'16px 18px',borderBottom:'1px solid var(--border-color,#ddd)'}}>
         <div><strong>Message customer</strong><small style={{display:'block',marginTop:3}}>Order #{String(order.id).slice(-6).toUpperCase()} · Delivery-only chat</small></div>
