@@ -1074,6 +1074,20 @@ async function initTables() {
       )
     `);
     await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_support_tenant_time ON driver_support_requests (tenant_id,createdAt)');
+    // Explicit manager-approved compensation, never inferred from customer
+    // cash or restaurant delivery fees. No pre-existing order is rewritten.
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS driver_compensation_entries (
+        orderId TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        driverId TEXT NOT NULL,
+        amountCents INTEGER NOT NULL,
+        approvedBy TEXT NOT NULL,
+        approvedAt BIGINT NOT NULL,
+        PRIMARY KEY(tenant_id,orderId)
+      )
+    `);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_driver_compensation_rider ON driver_compensation_entries (tenant_id,driverId,approvedAt)');
     // Declining a shared available ticket hides it for one rider only.
     // Never cancel or modify the customer's actual order.
     await dbRun(`
@@ -6090,6 +6104,54 @@ app.get('/api/public/driver/orders', authenticateDriver, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: errMsg(err) });
   }
+});
+
+// A restaurant owner or manager explicitly approves compensation for a
+// completed delivery. This is independent of the amount paid by customers.
+// Entries cannot be silently overwritten, adjusted or marked paid.
+app.post('/api/delivery/driver-compensation',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  const orderId=typeof req.body?.orderId==='string'?req.body.orderId.trim():'';
+  const amountCents=req.body?.amountCents;
+  if(!orderId||orderId.length>128||!Number.isSafeInteger(amountCents)||amountCents<0||amountCents>10000000)
+    return res.status(400).json({error:'Choose a completed delivery and a valid compensation amount in LKR cents.'});
+  try{
+    const order=await dbGet(
+      "SELECT id,driverId FROM orders WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND status='delivered' AND driverId IS NOT NULL AND driverId!=''",
+      [orderId,req.tenantId]
+    );
+    if(!order)return res.status(404).json({error:'A completed delivery with an assigned rider is required.'});
+    const entry={
+      orderId,tenant_id:req.tenantId,driverId:order.driverId,amountCents,
+      approvedBy:req.user?.username||req.user?.id||'Restaurant manager',approvedAt:Date.now()
+    };
+    const inserted=await dbRun(
+      'INSERT INTO driver_compensation_entries (orderId,tenant_id,driverId,amountCents,approvedBy,approvedAt) VALUES (?,?,?,?,?,?) ON CONFLICT(tenant_id,orderId) DO NOTHING',
+      [entry.orderId,entry.tenant_id,entry.driverId,entry.amountCents,entry.approvedBy,entry.approvedAt]
+    );
+    if(inserted.changes!==1)return res.status(409).json({error:'Compensation was already recorded for this delivery; contact the restaurant owner for corrections.'});
+    return res.status(201).set('Cache-Control','no-store').json({entry:{orderId,driverId:entry.driverId,amountCents,currency:'LKR',approvedAt:entry.approvedAt}});
+  }catch(error){console.error('[Driver compensation approval]',error.message);return res.status(500).json({error:'Could not approve driver compensation.'});}
+});
+app.get('/api/delivery/driver-compensation',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  try{
+    const entries=await dbAll(
+      'SELECT e.orderId,e.driverId,d.name AS driverName,e.amountCents,e.approvedAt,e.approvedBy FROM driver_compensation_entries e LEFT JOIN drivers d ON d.id=e.driverId AND d.tenant_id=e.tenant_id WHERE e.tenant_id=? ORDER BY e.approvedAt DESC LIMIT 200',
+      [req.tenantId]
+    );
+    return res.set('Cache-Control','no-store').json({currency:'LKR',entries});
+  }catch(error){console.error('[Restaurant compensation]',error.message);return res.status(500).json({error:'Could not load compensation records.'});}
+});
+app.get('/api/public/driver/earnings',authenticateDriver,async(req,res)=>{
+  try{
+    const entries=await dbAll(
+      'SELECT orderId,amountCents,approvedAt FROM driver_compensation_entries WHERE tenant_id=? AND driverId=? ORDER BY approvedAt DESC LIMIT 200',
+      [req.driver.tenant_id,req.driver.driverId]
+    );
+    const totalCents=entries.reduce((sum,e)=>sum+Number(e.amountCents||0),0);
+    if(!Number.isSafeInteger(totalCents))throw new Error('Compensation total exceeds safe bounds');
+    return res.set('Cache-Control','no-store').json({currency:'LKR',entries,totalApprovedCents:totalCents,
+      payoutStatus:'not_integrated',note:'Approved earnings only; payouts are not confirmed or processed by this endpoint.'});
+  }catch(error){console.error('[Driver earnings]',error.message);return res.status(500).json({error:'Could not load approved driver earnings.'});}
 });
 
 // Financial visibility is read-only; no earnings or payout numbers are invented.
