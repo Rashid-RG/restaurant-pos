@@ -1532,17 +1532,24 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '10px', fontWeight: 600 }}>Latitude</label>
-                          <input type="number" step="0.0001" className="form-input"
-                            defaultValue={settings?.storeLat || '6.9271'}
-                            onBlur={async (e) => await updateSetting('storeLat', e.target.value)} />
+                          <input type="number" step="any" min="-90" max="90" className="form-input"
+                            placeholder="Set actual restaurant latitude"
+                            value={settings?.storeLat ?? ''}
+                            onChange={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>90) return; await updateSetting('storeLat', value); }} />
                         </div>
                         <div style={{ flex: 1 }}>
                           <label style={{ fontSize: '10px', fontWeight: 600 }}>Longitude</label>
-                          <input type="number" step="0.0001" className="form-input"
-                            defaultValue={settings?.storeLng || '79.8612'}
-                            onBlur={async (e) => await updateSetting('storeLng', e.target.value)} />
+                          <input type="number" step="any" min="-180" max="180" className="form-input"
+                            placeholder="Set actual restaurant longitude"
+                            value={settings?.storeLng ?? ''}
+                            onChange={async (e) => { const value=e.target.value.trim(); if (!value || !Number.isFinite(Number(value)) || Math.abs(Number(value))>180) return; await updateSetting('storeLng', value); }} />
                         </div>
                       </div>
+                      <p style={{fontSize:12,margin:'8px 0',color:'var(--text-muted)'}} role="status">
+                        {settings?.storeLat != null && settings?.storeLat !== '' && settings?.storeLng != null && settings?.storeLng !== '' && Number.isFinite(Number(settings.storeLat)) && Number.isFinite(Number(settings.storeLng))
+                          ? 'Restaurant coordinates saved. Delivery is checked against the customer’s exact map pin.'
+                          : 'Restaurant map pin not saved. Delivery will remain unconfirmed until the real shop coordinates are set; the address text alone is not a delivery pin.'}
+                      </p>
                       <button className="btn btn-secondary" style={{ fontSize: '12px', padding: '6px 12px' }}
                         onClick={() => {
                           if ('geolocation' in navigator) {
