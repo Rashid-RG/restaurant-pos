@@ -18,6 +18,7 @@ import CheckoutSheet from '../components/CheckoutSheet.jsx';
 import {locationKey, selectedDeliveryPin} from '../utils/restaurant-fulfilment.js';
 import {deliveryQuoteKey,deliveryQuoteReady,validDeliveryQuote} from '../utils/delivery-quote.js';
 import {CHECKOUT_STEPS,checkoutStepIssue,checkoutReviewLineAmount,smartCheckoutNextStep} from '../utils/checkout-wizard.js';
+import {readCheckoutPaymentPreference,saveCheckoutPaymentPreference,savedDeliveryCoordinates} from '../utils/checkout-preferences.js';
 
 const ORDER_TYPES = [
   { id: 'dine-in', label: 'Dine In (QR)', icon: '🪑' },
@@ -95,6 +96,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   // Saved profile items
   const [savedAddresses, setSavedAddresses] = useState([]);
   const [savedCards, setSavedCards] = useState([]);
+  const [selectedSavedAddressId,setSelectedSavedAddressId]=useState('');
 
   // States
   const [totalChanged, setTotalChanged] = useState(false);
@@ -162,15 +164,14 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   useEffect(() => {
     if (customer) {
       apiFetch('/customer/addresses')
-        .then(data => {
-          setSavedAddresses(data || []);
-
-        })
-        .catch(() => {});
+        .then(data => {setSavedAddresses(Array.isArray(data)?data:[]);})
+        .catch(() => {setSavedAddresses([]);});
 
       apiFetch('/customer/cards')
         .then(data => setSavedCards(data || []))
         .catch(() => {});
+    } else {
+      setSavedAddresses([]);setSavedCards([]);setSelectedSavedAddressId('');
     }
 
     // Store settings are loaded from the live, tenant-verified storefront.
@@ -209,6 +210,27 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   // Only show a delivery quote for the selected restaurant, pinned location
   // and current subtotal. Ignore late results from superseded requests.
   const tenantId = store?.tenantId || getActiveTenant();
+  const customerId=customer?.id||customer?.customerAccountId||'';
+  useEffect(()=>{
+    if(!customerId)return;
+    const saved=readCheckoutPaymentPreference(sessionStorage,tenantId,customerId);
+    if(saved)setPaymentMethod(saved);
+  },[tenantId,customerId]);
+  const choosePaymentMethod=method=>{
+    setPaymentMethod(method);
+    if(customerId)saveCheckoutPaymentPreference(sessionStorage,tenantId,customerId,method);
+  };
+  const selectSavedDeliveryAddress=addressId=>{
+    const saved=savedAddresses.find(item=>String(item.id)===String(addressId));
+    if(!saved)return;
+    setSelectedSavedAddressId(String(saved.id));
+    setConfirmedEntrance(null);setDeliveryQuote({key:null,status:'needs-location',data:null});
+    setLocationPickerOpen(true);
+    setPickerRevision(revision=>revision+1);
+    setAddress('');
+    setGeoLocation(savedDeliveryCoordinates(saved));
+    openGuidedStep(2);
+  };
   const pinKey = locationKey(geoLocation);
   const entranceConfirmed = !!pinKey && confirmedEntrance?.tenantId === tenantId && confirmedEntrance?.pinKey === pinKey;
   const activeQuoteKey = entranceConfirmed ? deliveryQuoteKey({
@@ -897,6 +919,12 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               <span className="gf-smart-row-icon">💳</span><span className="gf-smart-row-main"><strong>{LOCAL_PAYMENTS.find(method=>method.id===paymentMethod)?.label||'Choose payment'}</strong><small>{appliedPromo?'Promotion applied · ':''}{tipAmount>0?'Tip included · ':''}Offers and tips are optional</small></span><span className="gf-smart-edit">Edit ›</span>
             </button>
           </div>
+          {orderType==='delivery'&&savedAddresses.length>0&&<div className="gf-smart-saved-addresses" aria-label="Saved delivery addresses">
+            <strong>Saved addresses</strong><p>Select an address to set up its entrance pin and a fresh delivery quote.</p>
+            <div className="gf-smart-saved-list">{savedAddresses.map(saved=><button type="button" key={saved.id} onClick={()=>selectSavedDeliveryAddress(saved.id)} className={selectedSavedAddressId===String(saved.id)?'is-selected':''}>
+              📍 {saved.label||saved.addressLine||'Saved address'} {Number(saved.isDefault)===1?'· Default':''}
+            </button>)}</div>
+          </div>}
           <div className="gf-smart-price"><span>{orderType==='delivery'&&!deliveryQuoteConfirmed?'Delivery fee not confirmed':'Estimated total payable'}</span><strong>Rs. {total.toFixed(2)}</strong></div>
           {firstSmartIssue&&<div className="gf-smart-next-needed" role="status"><span>Action needed</span><p>{firstSmartIssue.issue}</p><button type="button" onClick={()=>openGuidedStep(firstSmartIssue.step)}>Complete this detail ›</button></div>}
           {!firstSmartIssue&&<p className="gf-smart-ready">✓ Your details are ready for final review. The server verifies prices and availability when you submit.</p>}
@@ -1048,21 +1076,8 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 <select
                   className="form-control"
                   style={{ marginBottom: 8, fontWeight: 600 }}
-                  onChange={e => {
-                    const sel = savedAddresses.find(a => a.id === e.target.value);
-                    if (sel) {
-                      setPickerRevision(revision => revision + 1);
-                      setConfirmedEntrance(null);
-                      setLocationPickerOpen(true);
-                      setAddress('');
-                      if (typeof sel.lat === 'number' && Number.isFinite(sel.lat) && typeof sel.lng === 'number' && Number.isFinite(sel.lng)) {
-                        setGeoLocation({ lat: sel.lat, lng: sel.lng, label: sel.addressLine });
-                      } else {
-                        setGeoLocation(null); // An address without a pin cannot reuse the previous address's delivery quote.
-                      }
-                    }
-                  }}
-                  defaultValue=""
+                  onChange={e=>{if(e.target.value)selectSavedDeliveryAddress(e.target.value);}}
+                  value={selectedSavedAddressId}
                 >
                   <option value="">-- Select Saved Location --</option>
                   {savedAddresses.map(a => (
@@ -1168,7 +1183,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                   name="payment" 
                   checked={paymentMethod === p.id}
                   disabled={p.disabled || (p.id === 'payhere' && payHerePaymentDisabled(import.meta.env.MODE, rates.payhereEnabled))}
-                  onChange={() => setPaymentMethod(p.id)}
+                  onChange={() => choosePaymentMethod(p.id)}
                   style={{ width: 18, height: 18, accentColor: 'var(--brand)' }}
                 />
                 <span style={{ fontSize: '1.25rem' }}>{p.icon}</span>
