@@ -31,3 +31,4 @@ import './mobile-experience-2026.css';
 
 import './auth-mobile-v3.css';
 import './live-journey.css';
+import './checkout-flow.css';
