@@ -3,10 +3,11 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiFetch } from '../utils/api.js';
 import {acquireBestLocation} from '../utils/location-acquisition.js';
+import {locationKey} from '../utils/restaurant-fulfilment.js';
 import {createAddressSearchGate} from '../utils/address-search-gate.js';
 
-// Colombo city centre — sensible default before the user picks.
-const DEFAULT_CENTER = { lat: 6.9271, lng: 79.8612 };
+// Country overview while the customer has no delivery pin.
+const DEFAULT_CENTER = { lat: 7.8, lng: 80.7 };
 
 // A pure-CSS pin so we don't depend on Leaflet's bundled marker PNGs
 // (which break under Vite without extra config).
@@ -70,25 +71,26 @@ export default function LocationPicker({ value, onChange, toast }) {
   // Initialise the map once.
   useEffect(() => {
     if (mapRef.current || !mapEl.current) return;
-    const start = value && value.lat ? value : DEFAULT_CENTER;
+    const hasPin = Boolean(locationKey(value));
+    const start = hasPin ? value : DEFAULT_CENTER;
     const map = L.map(mapEl.current, { zoomControl: true, attributionControl: true })
-      .setView([start.lat, start.lng], value && value.lat ? 15 : 12);
+      .setView([start.lat, start.lng], hasPin ? 15 : 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
     map.on('click', (e) => { moveMarker(e.latlng.lat, e.latlng.lng, false); commit(e.latlng.lat, e.latlng.lng); });
     mapRef.current = map;
-    if (value && value.lat) moveMarker(value.lat, value.lng, false);
+    if (hasPin) moveMarker(value.lat, value.lng, false);
     // Leaflet needs a size recalc when mounted inside a sheet/animated container.
-    setTimeout(() => map.invalidateSize(), 200);
-    return () => { map.remove(); mapRef.current = null; markerRef.current = null; };
+    const resizeTimer = setTimeout(() => map.invalidateSize(), 200);
+    return () => { clearTimeout(resizeTimer); map.remove(); mapRef.current = null; markerRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reflect external value changes (e.g. after "use my location").
   useEffect(() => {
-    if (value && value.lat && mapRef.current) moveMarker(value.lat, value.lng, false);
+    if (locationKey(value) && mapRef.current) moveMarker(value.lat, value.lng, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value?.lat, value?.lng]);
 
@@ -153,13 +155,16 @@ export default function LocationPicker({ value, onChange, toast }) {
       toast?.('Device location requires HTTPS. Search your address or select a map pin.','warning');
       return;
     }
+    const request = ++commitSequenceRef.current;
     setLocating(true);
     try {
       const fix=await acquireBestLocation();
+      if (request !== commitSequenceRef.current) return;
       moveMarker(fix.lat,fix.lng,true);
       await commit(fix.lat,fix.lng);
       toast?.(`Location accuracy approximately ${fix.accuracy} metres. Verify the pin before placing an order.`,'info');
     } catch(error) {
+      if (request !== commitSequenceRef.current) return;
       toast?.(error.message || 'Location unavailable. Use address search or the map pin.','warning');
     } finally {setLocating(false);}
   }
