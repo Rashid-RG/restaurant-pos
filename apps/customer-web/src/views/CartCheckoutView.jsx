@@ -43,6 +43,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [geoLocation, setGeoLocation] = useState(selectedDeliveryPin);
   const [confirmedEntrance, setConfirmedEntrance] = useState(null);
   const [pickerRevision, setPickerRevision] = useState(0);
+  const [locationPickerOpen,setLocationPickerOpen]=useState(true);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [notes, setNotes] = useState('');
 
@@ -313,6 +314,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   // The map picker sets both the human-readable address and the real coordinates.
   const handlePickLocation = (loc) => {
     setGeoLocation(loc);
+    setLocationPickerOpen(true); // Any new point requires entrance confirmation again.
   };
 
   const executeOrderPlacement = () => checkoutGuard.current.run(async () => {
@@ -917,6 +919,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                     if (sel) {
                       setPickerRevision(revision => revision + 1);
                       setConfirmedEntrance(null);
+                      setLocationPickerOpen(true);
                       setAddress('');
                       if (typeof sel.lat === 'number' && Number.isFinite(sel.lat) && typeof sel.lng === 'number' && Number.isFinite(sel.lng)) {
                         setGeoLocation({ lat: sel.lat, lng: sel.lng, label: sel.addressLine });
@@ -934,16 +937,22 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
                 </select>
               )}
 
-              <LocationPicker key={pickerRevision} value={geoLocation} onChange={handlePickLocation} toast={toast} />
-              {pinKey && (
-                <div className="form-group">
+              <div className="gf-checkout-location-summary" role="status">
+                <div><strong>{entranceConfirmed?'✓ Delivery entrance confirmed':'📍 Confirm your delivery entrance'}</strong>
+                  <small>{entranceConfirmed?(geoLocation?.label||'Your saved map pin'):'Select the exact rider meeting point for an accurate delivery quote.'}</small></div>
+                <button type="button" onClick={()=>setLocationPickerOpen(open=>!open)} aria-expanded={locationPickerOpen}
+                  aria-controls="gf-checkout-location-picker">{locationPickerOpen?'Hide map':'Edit pin'}</button>
+              </div>
+              {locationPickerOpen&&<div id="gf-checkout-location-picker" className="gf-checkout-location-picker">
+                <LocationPicker key={pickerRevision} value={geoLocation} onChange={handlePickLocation} toast={toast}/>
+                {pinKey&&<div className="form-group">
                   <p>Move the pin to the entrance where your rider should meet you.</p>
                   <button type="button" className="btn btn-outline" disabled={entranceConfirmed}
-                    onClick={() => setConfirmedEntrance({ tenantId, pinKey })}>
-                    {entranceConfirmed ? 'Delivery entrance confirmed' : 'Confirm delivery entrance'}
+                    onClick={()=>{setConfirmedEntrance({tenantId,pinKey});setLocationPickerOpen(false);}}>
+                    {entranceConfirmed?'Delivery entrance confirmed':'Confirm delivery entrance'}
                   </button>
-                </div>
-              )}
+                </div>}
+              </div>}
 
               <textarea
                 className="form-control"
