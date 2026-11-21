@@ -24,7 +24,7 @@ try {
       const expression=JSON.stringify(''); // replaced below
       void expression;
       ws.send(JSON.stringify({id:1,method:'Runtime.evaluate',params:{
-        expression:`JSON.stringify({url:location.origin,hasRoot:!!document.querySelector('#root'),home:!!document.querySelector('.marketplace-menu'),errorScreen:!!document.querySelector('.customer-error-screen'),error:window.__gastrofoodNativeRenderFailure||'',title:document.title,bodyText:document.body?.innerText?.slice(0,140)||''})`,
+        expression:`JSON.stringify({url:location.origin,hasRoot:!!document.querySelector('#root'),home:!!document.querySelector('.restaurants-view.gastrofood-discovery'),errorScreen:!!document.querySelector('.customer-error-screen'),error:window.__gastrofoodNativeRenderFailure||'',title:document.title,bodyText:document.body?.innerText?.slice(0,140)||''})`,
         returnByValue:true
       }}));
     },{once:true});
