@@ -220,6 +220,7 @@ export default function App() {
   const nativeDriverBuild=import.meta.env.MODE==='native' && Capacitor.isNativePlatform();
   const [lastCoords, setLastCoords] = useState(null);
   const [gpsQuality, setGpsQuality] = useState('not_started');
+  const [gpsUploadStatus,setGpsUploadStatus]=useState('idle'); // Device GPS != server-accepted location
   const [discoveryConsent,setDiscoveryConsent]=useState(false);
   const discoveryConsentRef=useRef(false);
   const lastPresenceSentRef=useRef(null);
@@ -401,7 +402,7 @@ export default function App() {
         lastFixRef.current=null;
         if(nativeTrackingRef.current)void nativeTrackingRef.current.stop().catch(()=>{});
         nativeTrackingRef.current=null;
-        setIsGpsActive(false);setGpsQuality('off');setLastCoords(null);
+        setIsGpsActive(false);setGpsQuality('off');setLastCoords(null);setGpsUploadStatus('idle');
         discoveryConsentRef.current=false;setDiscoveryConsent(false);
         lastPresenceSentRef.current=null;
         if(discoveryPilotEnabled)void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
@@ -553,7 +554,10 @@ export default function App() {
           },
           onStatus:status=>{
             if(locationSessionEpochRef.current!==locationEpoch) return;
-            if(status==='location_error'||status==='upload_error') setGpsQuality('weak');
+            if(status==='location_error') setGpsQuality('weak');
+            if(status==='upload_error') setGpsUploadStatus('failed');
+            if(status==='upload_success') setGpsUploadStatus('accepted');
+            if(status==='off') setGpsUploadStatus('idle');
           }
         });
         nativeTrackingRef.current=session;
@@ -584,7 +588,7 @@ export default function App() {
       setIsGpsActive(false);
       setWatchId(null);
       setLastCoords(null);
-      setGpsQuality('off');
+      setGpsQuality('off');setGpsUploadStatus('idle');
       lastBroadcastRef.current = null;
       lastFixRef.current = null;
       lastPresenceSentRef.current=null;
@@ -638,14 +642,13 @@ export default function App() {
       const assigned=activeOrdersRef.current.filter(order => order?.id && !['delivered','completed','cancelled','rejected'].includes(String(order.status||'').toLowerCase()));
       if (!assigned.length || !shouldSendDriverFix(coords,lastBroadcastRef.current)) return;
       lastBroadcastRef.current={...coords,sentAt:Date.now()};
-      assigned.forEach(order => {
-        apiFetch('/public/driver/location', {
-          method: 'POST',
-          body: JSON.stringify({ orderId: order.id, ...coords })
-        }).catch(err => {
-          if (/location|accuracy|jump|fix/i.test(err.message || '')) setGpsQuality('weak');
-          // A later new fix can be retried; don't replay stale GPS.
-        });
+      setGpsUploadStatus('sending');
+      Promise.allSettled(assigned.map(order => apiFetch('/public/driver/location', {
+        method: 'POST',
+        body: JSON.stringify({ orderId: order.id, ...coords })
+      }))).then(results => {
+        if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
+        setGpsUploadStatus(results.every(result=>result.status==='fulfilled')?'accepted':'failed');
       });
     }, err => {
       if(locationSessionEpochRef.current!==locationEpoch || !getToken() || driverStatusRef.current==='offline') return;
@@ -1140,6 +1143,7 @@ export default function App() {
     : dispatchFresh ? 'Dispatch connected'
     : 'Dispatch update delayed';
   const hasFreshLocation = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords,driverClock);
+  const isServerConfirmedLocation = hasFreshLocation && gpsUploadStatus==='accepted';
   const routeRequest = useRef(requestRoadEstimate);
   useEffect(()=>{routeRequest.current=requestRoadEstimate;});
   const showLiveRoute = driverScreen==='orders' && taskTab==='active' && hasFreshLocation &&
@@ -1155,10 +1159,14 @@ export default function App() {
     : !isGpsActive ? 'Location sharing is off'
     : gpsQuality === 'searching' ? 'Finding an accurate location'
     : !hasFreshLocation ? 'Location unavailable or outdated'
-    : 'Accurate location available';
+    : activeOrders.length && gpsUploadStatus==='failed' ? 'GPS upload failed · customer tracking delayed'
+    : activeOrders.length && !isServerConfirmedLocation ? 'GPS accurate · awaiting server confirmation'
+    : isServerConfirmedLocation ? 'Location accepted for customer tracking'
+    : 'Accurate GPS available · no active delivery to share';
   const locationHelp = gpsQuality === 'denied' ? 'Allow location access in iPhone Settings, then try sharing again.'
     : !isGpsActive ? 'Enable location only when you are ready to share it for delivery operations.'
     : !hasFreshLocation ? 'Keep Location Services enabled and use a clear GPS signal. The app will not treat an old fix as live.'
+    : activeOrders.length && gpsUploadStatus==='failed' ? 'The location was not accepted by the server. Keep the app open, check your connection and retry a new GPS fix.'
     : `Last fix ${Math.max(0,Math.round((driverClock-lastCoords.recordedAt)/1000))} seconds ago · ±${Math.round(lastCoords.accuracyMeters)} m accuracy`;
 
   return (
@@ -1392,7 +1400,7 @@ export default function App() {
                 </label>}
                 <button onClick={toggleGps} className="btn-emerald"
                   style={{ padding: '8px 14px', borderRadius: 20, fontSize: '0.8rem', background: isGpsActive ? '#10b981' : '#64748b' }}>
-                  <MapPin size={18} aria-hidden="true"/><span>{isGpsActive ? (hasFreshLocation ? 'Sharing accurate location' : 'Location on · no reliable fix') : 'Share location'}</span>
+                  <MapPin size={18} aria-hidden="true"/><span>{isGpsActive ? (hasFreshLocation ? (isServerConfirmedLocation ? 'Location sharing confirmed' : 'GPS ready · verifying upload') : 'Location on · no reliable fix') : 'Share location'}</span>
                 </button>
                 <button type="button" onClick={handleLogout} className="btn-outline" style={{ padding: '8px 12px', fontSize: '0.9rem' }} title="Sign out"><LogOut size={18} aria-hidden="true"/><span>Sign out</span></button>
               </div>
