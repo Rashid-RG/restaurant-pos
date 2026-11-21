@@ -6777,6 +6777,10 @@ app.post('/api/public/driver/location', authenticateDriver, async (req, res) => 
 // The tracking middleware requires private confirmation access or an owning account.
 // Only allowed while the order is still 'pending' (kitchen has not accepted it yet).
 app.post('/api/public/orders/:id/cancel',publicApiLimiter,createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}),async(req,res)=>{
+ // Only the owning customer or their private order-confirmation capability can
+ // request a customer cancellation. Staff/driver JWTs use their own workflows.
+ if(!['customer','capability'].includes(req.trackingActor?.type))
+   return res.status(403).json({error:'Customer order access is required to cancel this order.'});
  const orderId=req.params.id,tenantId=await resolvePublicTenant(req);let open=false;
  try{
   await dbRun('BEGIN TRANSACTION');open=true;
