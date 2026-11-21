@@ -757,6 +757,7 @@ export default function App() {
         if(driverStatusIdentityRef.current!==driver.id)break;
         try{
           await apiFetch('/public/driver/status',{method:'POST',body:JSON.stringify({orderId:update.orderId,status:update.status})});
+          if(driverStatusIdentityRef.current!==driver.id || !getToken())break;
           remaining=removePendingStatus(remaining,update.orderId);
           storeOfflineUpdates(remaining);
         }catch(error){
@@ -764,6 +765,7 @@ export default function App() {
           break;
         }
       }
+      if(driverStatusIdentityRef.current!==driver.id || !getToken())return;
       if(remaining.length===0)showToast('Saved progress updates have been confirmed by the server.','success');
       void fetchDriverOrders();
     }finally{setRetryingOfflineUpdates(false);}
@@ -798,6 +800,9 @@ export default function App() {
       });
       if (newStatus === 'delivered' && !result.proof?.savedAt) throw new Error('No saved proof receipt was returned. Refresh to check this delivery.');
       if(newStatus==='delivered') setCashSummary(null); // Settlement must be reloaded after cash delivery.
+      if(pendingOfflineUpdates.some(item=>item.orderId===orderId)){
+        storeOfflineUpdates(removePendingStatus(pendingOfflineUpdates,orderId));
+      }
       showToast(newStatus === 'delivered' ? 'Delivery completed. Proof saved.' : 'Delivery status updated.', 'success');
       fetchDriverOrders();
     } catch (err) {
