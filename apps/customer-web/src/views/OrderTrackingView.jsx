@@ -529,6 +529,22 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
           </div>
           {stageAnnouncement && <div className="gf-journey-stage-announcement" role="status" aria-live="polite"><span aria-hidden="true">✓</span> {stageAnnouncement}<button type="button" aria-label="Dismiss order update" onClick={()=>setStageAnnouncement('')}>×</button></div>}
+          {/* Map-first journey: position the confirmed rider map before secondary progress details. */}
+          {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
+            <div className="gf-journey-map-shell">
+              <button type="button" className="gf-journey-map-toggle" aria-expanded={mapExpanded} onClick={()=>setMapExpanded(v=>!v)}>
+                <span>🛵 {mapExpanded?'Your delivery journey':'Show delivery map'}</span><span>{mapExpanded?'Collapse ↑':'View map ↓'}</span>
+              </button>
+              {mapExpanded&&<div className="gf-journey-map-body">
+                <TrackingMap
+                  store={storeInfo && validGeoPoint({lat:storeInfo.lat,lng:storeInfo.lng})?{lat:Number(storeInfo.lat),lng:Number(storeInfo.lng)}:null}
+                  dest={{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)}}
+                  driver={gpsState.visible?driverLoc:null}
+                  route={roadRoute}
+                />
+
+              </div>}
+            </div>}
           <section className="gf-journey-focus" aria-label="Current order progress" aria-live="off">
             <div className="gf-journey-focus-heading">
               <span className="gf-journey-focus-icon" aria-hidden="true"><AnimatedFeatureIcon kind={currentStage==='preparing'?'cooking':isDelivery&&['picked_up','out_for_delivery','arrived'].includes(currentStage)?'delivery':currentStage==='ready'?'ready':'order'} size={44} active={!isDone && !isCancelled}/></span>
@@ -568,25 +584,6 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             etaMinutes={isDone?null:etaDisplay}
             onMessage={riderAssigned?()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}:null}
           />}
-          {/* An explicit map toggle avoids a long, forced-scrolling page. */}
-          {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
-            <div className="gf-journey-map-shell">
-              <button type="button" className="gf-journey-map-toggle" aria-expanded={mapExpanded} onClick={()=>setMapExpanded(v=>!v)}>
-                <span>🗺️ {mapExpanded?'Live delivery map':'Show delivery map'}</span><span>{mapExpanded?'Hide map ↑':'View map ↓'}</span>
-              </button>
-              {mapExpanded&&<div className="gf-journey-map-body">
-                <TrackingMap
-                  store={storeInfo && validGeoPoint({lat:storeInfo.lat,lng:storeInfo.lng})?{lat:Number(storeInfo.lat),lng:Number(storeInfo.lng)}:null}
-                  dest={{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)}}
-                  driver={gpsState.visible?driverLoc:null}
-                  route={roadRoute}
-                />
-                <div className="gf-journey-route-note">{roadRoute?.available===true?
-                  `${Number(roadRoute.distanceKm).toFixed(1)} km road route · driving time ${roadRoute.travelMinutes} min (not live traffic)`:
-                  'Road route unavailable · straight-line proximity is not a driving route'}
-                </div>
-              </div>}
-            </div>}
           {/* Native disclosure keeps the order timeline accessible without hiding the live map. */}
           <details className="gf-tracking-journey-sheet" open={false}>
             <summary className="gf-tracking-journey-summary">
