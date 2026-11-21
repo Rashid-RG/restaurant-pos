@@ -188,15 +188,26 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    if(nativeTrackingRef.current)await nativeTrackingRef.current.stop().catch(()=>{});
+  const handleLogout = () => {
+    // Start device / presence cleanup but never hold visible customer data on
+    // screen while background tracking or the network takes time to stop.
+    const tracking=nativeTrackingRef.current;
     nativeTrackingRef.current=null;
-    if(discoveryPilotEnabled)await apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
-    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    if(tracking) void tracking.stop().catch(()=>{});
+    if(discoveryPilotEnabled) void apiFetch('/public/driver/off-duty-location',{method:'POST'}).catch(()=>{});
+    if (watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
+    // Revoke local credentials immediately; no pending asynchronous cleanup
+    // is allowed to delay sign-out on shared devices.
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(DRIVER_KEY);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setIsGpsActive(false);
     setWatchId(null);
     setGpsQuality('not_started');
+    setLastCoords(null);
+    discoveryConsentRef.current=false;
+    setDiscoveryConsent(false);
+    lastPresenceSentRef.current=null;
     lastBroadcastRef.current = null;
     lastFixRef.current = null;
     setDriver(null);
@@ -219,8 +230,7 @@ export default function App() {
     dispatchAbortRef.current?.cancel();dispatchAbortRef.current=null;
     dispatchGateRef.current.invalidate();
     setDispatchLastSynced(null);setDispatchSyncError(false);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(DRIVER_KEY);
+    setLoading(false);
   };
 
   const updateAvailability = async () => {
