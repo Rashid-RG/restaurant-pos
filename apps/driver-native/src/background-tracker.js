@@ -69,7 +69,12 @@ export function createNativeTrackingSession({
           const orders=getActiveOrders().filter(o=>o?.id&&
             !['delivered','completed','cancelled','rejected'].includes(String(o.status||'').toLowerCase()));
           if(orders.length){
-            await Promise.allSettled(orders.map(o=>post('/public/driver/location',{orderId:o.id,...fix})));
+            const results=await Promise.allSettled(orders.map(o=>post('/public/driver/location',{orderId:o.id,...fix})));
+            // A measured GPS fix is not proof that the customer can see it.
+            // Signal only accepted assigned-order uploads; never mark rejected
+            // requests as successfully shared.
+            if(!active||currentEpoch!==epoch)return;
+            onStatus(results.every(result=>result.status==='fulfilled')?'upload_success':'upload_error');
           }else if(discovery){
             await post('/public/driver/on-duty-location',{...fix,consent:true});
           }
