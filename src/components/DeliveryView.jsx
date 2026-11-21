@@ -6,6 +6,7 @@ import RiderRecruitmentPanel from './RiderRecruitmentPanel';
 import './RiderVerificationCenter.css';
 import ProtectedRiderEvidenceViewer from './ProtectedRiderEvidenceViewer';
 import DriverSupportInbox from './DriverSupportInbox';
+import DriverCompensationPanel from './DriverCompensationPanel';
 
 export default function DeliveryView({verificationOnly=false}) {
   const { orders, showToast, settings,currentUser } = usePOS();
@@ -552,6 +553,7 @@ export default function DeliveryView({verificationOnly=false}) {
         </section>}
         {!verificationOnly && <>
         {canReview && <DriverSupportInbox/>}
+        {canReview && <DriverCompensationPanel orders={orders}/>} 
         {/* 1. Register New Delivery Driver Form */}
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px' }}>
           <h3 style={{ margin: '0 0 14px', fontSize: '1rem', fontWeight: 800 }}>➕ Register New Fleet Driver</h3>
