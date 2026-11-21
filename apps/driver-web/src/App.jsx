@@ -1279,6 +1279,12 @@ export default function App() {
               {approvedEarnings && !earningsLoading && <>
                 <strong className="driver-approved-total">Rs. {(approvedEarnings.totalApprovedCents/100).toFixed(2)}</strong>
                 <small>{approvedEarnings.totalApprovedDeliveries||0} approved deliveries · LKR</small>
+                {Number.isSafeInteger(approvedEarnings.todayApprovedCents) && Number.isSafeInteger(approvedEarnings.last7DaysApprovedCents) && (
+                  <div className="driver-earnings-breakdown">
+                    <div><span>Approved today ({approvedEarnings.timeZone||'restaurant time'})</span><strong>Rs. {(approvedEarnings.todayApprovedCents/100).toFixed(2)}</strong></div>
+                    <div><span>Approved in the last 7 days</span><strong>Rs. {(approvedEarnings.last7DaysApprovedCents/100).toFixed(2)}</strong></div>
+                  </div>
+                )}
                 {Number.isSafeInteger(approvedEarnings.recordedPaidCents) && Number.isSafeInteger(approvedEarnings.outstandingCents) && (
                   <div className="driver-earnings-breakdown">
                     <div><span>Manager-recorded external payouts</span><strong>Rs. {(approvedEarnings.recordedPaidCents/100).toFixed(2)}</strong></div>
