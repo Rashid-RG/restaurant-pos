@@ -5344,6 +5344,45 @@ app.post('/api/delivery/driver-offers',authenticateToken,requireRole(['owner','m
   }
 });
 
+// Allows dispatch to release a still-pending individual offer back to the
+// shared marketplace, without cancelling a customer order.
+app.post('/api/delivery/driver-offers/cancel',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  const orderId=typeof req.body?.orderId==='string'?req.body.orderId.trim():'';
+  const reason=typeof req.body?.reason==='string'?req.body.reason.trim():'';
+  if(!orderId||orderId.length>128||reason.length<8||reason.length>300)
+    return res.status(400).json({error:'Specify an order and an 8–300 character cancellation reason.'});
+  let opened=false;
+  try{
+    await dbRun('BEGIN TRANSACTION');opened=true;
+    const order=await dbGet(
+      "SELECT id FROM orders WHERE id=? AND tenant_id=? AND (driverId IS NULL OR driverId='') AND (diningType='delivery' OR orderType='delivery') AND status IN ('pending','preparing','ready')",
+      [orderId,req.tenantId]
+    );
+    const offer=await dbGet(
+      "SELECT driverId FROM driver_timed_offers WHERE tenant_id=? AND orderId=? AND status='offered' AND expiresAt>?",
+      [req.tenantId,orderId,Date.now()]
+    );
+    if(!order||!offer){
+      await dbRun('ROLLBACK');opened=false;return res.status(409).json({error:'No cancellable active offer. Refresh dispatch.'});
+    }
+    const update=await dbRun(
+      "UPDATE driver_timed_offers SET status='cancelled' WHERE tenant_id=? AND orderId=? AND driverId=? AND status='offered' AND expiresAt>?",
+      [req.tenantId,orderId,offer.driverId,Date.now()]
+    );
+    if(update.changes!==1){
+      await dbRun('ROLLBACK');opened=false;return res.status(409).json({error:'Offer expired or changed. Refresh dispatch.'});
+    }
+    await writeAuditLog(req.user.id,req.user.username,'cancel_driver_offer',
+      `Order ${orderId} rider ${offer.driverId}; reason: ${reason}`);
+    await dbRun('COMMIT');opened=false;
+    return res.set('Cache-Control','no-store').json({success:true,orderId});
+  }catch(error){
+    if(opened)await dbRun('ROLLBACK').catch(()=>{});
+    console.error('[Cancel individual offer]',error.message);
+    return res.status(500).json({error:'Could not release this timed offer.'});
+  }
+});
+
 // Restaurant dispatch reassignment before pickup only. Explicit previous
 // assignment is required to protect against stale manager screens.
 app.post('/api/delivery/reassign',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
