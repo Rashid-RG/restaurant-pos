@@ -7,6 +7,8 @@ on:
     branches: [codex/production-readiness]
     paths:
       - .github/workflows/food-android-device-test.yml
+      - apps/customer-web/src/**
+      - shared/ui/**
 
 permissions:
   contents: read

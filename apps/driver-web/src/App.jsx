@@ -1,3 +1,4 @@
+import ProfilePhoto from '../../../shared/ui/ProfilePhoto.jsx';
 const DeliveryMap = React.lazy(()=>import('./DeliveryMap.jsx'));
 import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
@@ -257,8 +258,9 @@ export default function App() {
     setProfileLoading(true);setProfileError('');
     apiFetch('/public/driver/profile',{cache:'no-store'}).then(data=>{
       if(cancelled||driverStatusIdentityRef.current!==id)return;
-      if(!data.profile||data.profile.id!==id)throw new Error('Invalid driver profile response.');
-      setOwnDriverProfile(data.profile);
+      const profile=data.profile||data.driver;
+      if(!profile||profile.id!==id)throw new Error('Invalid driver profile response.');
+      setOwnDriverProfile(profile);
     }).catch(error=>{if(!cancelled)setProfileError(error.message||'Could not load profile.');})
       .finally(()=>{if(!cancelled)setProfileLoading(false);});
     return()=>{cancelled=true;};
@@ -1491,7 +1493,10 @@ export default function App() {
             </div>
             </>}
             {driverScreen === 'profile' && <>
-            <h2 className="driver-screen-heading">Profile &amp; location</h2>
+            <section className="gf-account-identity">
+              <ProfilePhoto key={driver.tenant_id+':'+driver.id} request={apiFetch} endpoint="/public/driver/profile/photo" name={driver.name}/>
+              <div><h2>{driver.name}</h2><p>{[driver.vehicleType,driver.plateNumber].filter(Boolean).join(' · ')}</p></div>
+            </section>
             <section className="card driver-verification-summary" aria-label="My rider verification">
               <h3>Account &amp; licence verification</h3>
               {profileLoading && <p role="status">Checking your restaurant verification record…</p>}

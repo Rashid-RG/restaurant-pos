@@ -561,8 +561,8 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
         <div className="form-section gf-tracking-lookup" style={{ marginTop: 24 }}>
           {customer && recent?.customer === customer && recent.choices.length > 0 && <section>
             <h2>Your restaurant orders</h2>
-            {recent.choices.map(choice => <button className="btn btn-ghost" type="button" key={choice.id}
-              onClick={() => onSelectOrder(choice.id)}>#{choice.label} · {choice.statusLabel} · {choice.dateLabel}</button>)}
+            <div className="gf-order-choices">{recent.choices.map(choice => <button type="button" key={choice.id}
+              onClick={() => onSelectOrder(choice.id)}><span><strong>#{choice.label}</strong><small>{choice.dateLabel}</small></span><em data-status={choice.statusLabel}>{choice.statusLabel}</em><span aria-hidden="true">›</span></button>)}</div>
           </section>}
           <h2>📦 {t('trackOrderTitle')}</h2>
           <p className="text-muted" style={{ marginBottom: 16 }}>{t('trackOrderHelp')}</p>

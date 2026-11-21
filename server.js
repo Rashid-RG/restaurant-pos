@@ -1,3 +1,4 @@
+import { registerProfilePhotos, profilePhotoSchema } from './routes/profile-photos.js';
 import {onlineHours, validOnlineHours} from './lib/online-hours.js';
 import {initCustomerPush,createCustomerPushRoutes,sendOrderPush,recoverPendingOrderPush,pushConfigured} from './lib/customer-push.js';
 import {initOrderStatusEmail,deliverPendingStageEmails} from './lib/order-status-email.js';
@@ -633,6 +634,8 @@ async function initTables() {
         paymentTimestamp BIGINT
       )
     `);
+
+    await dbRun(profilePhotoSchema);
 
     // 6. Customers Table
     await dbRun(`
@@ -3417,6 +3420,8 @@ app.get('/api/customer/auth/me', authenticateCustomer, async (req, res) => {
     res.status(500).json({ error: errMsg(err) });
   }
 });
+
+registerProfilePhotos(app,{authenticateCustomer,authenticateDriver,dbRun,dbGet});
 
 // GET /api/customer/profile
 app.get('/api/customer/profile', authenticateCustomer, async (req, res) => {

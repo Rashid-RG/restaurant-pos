@@ -1,3 +1,4 @@
+import ProfilePhoto from '../../../../shared/ui/ProfilePhoto.jsx';
 import React, { useState, useEffect } from 'react';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
@@ -125,18 +126,12 @@ export default function ProfileView({ toast, resetToken, onResetHandled, onBack,
     return <LoginRegisterView onSuccess={refreshProfile} onBack={onBack} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
   }
 
-  const initials = customer.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-
   return (
-    <div className="profile-page fade-in" style={{ padding: '20px 16px 80px' }}>
-      <div style={{ textAlign: 'center', marginBottom: 20 }}>
-
-        <div className="profile-avatar" style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--brand)', color: '#fff', fontSize: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-          {initials || '👤'}
-        </div>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0 }}>{customer.name}</h2>
-        <p className="text-muted" style={{ margin: '4px 0 0' }}>{customer.email}</p>
-      </div>
+    <div className="profile-page fade-in" style={{padding:'20px 16px 80px'}}>
+      <section className="gf-account-identity">
+        <ProfilePhoto key={customer.id} request={apiFetch} endpoint="/customer/profile/photo" name={customer.name} token={getToken()}/>
+        <div><h2>{customer.name}</h2><p>{customer.email}</p></div>
+      </section>
 
       {/* ── Loyalty Tier Card ── */}
       {(() => {
