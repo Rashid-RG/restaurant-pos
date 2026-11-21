@@ -39,3 +39,9 @@
 .rvc-review-guidance { padding:12px 16px; border-inline-start:3px solid var(--brand); background:var(--bg-secondary); border-radius:8px; font-size:.9rem; }
 .rvc-review-guidance p { margin:5px 0 10px; }
 .rvc-review-panel button:disabled { opacity:.5; cursor:not-allowed; }
+
+.driver-reassign-controls{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--border-color);border-radius:12px;background:var(--bg-card)}
+.driver-reassign-controls label,.driver-reassign-controls strong{font-size:12px;font-weight:750;color:var(--text-main)}
+.driver-reassign-controls span,.driver-reassign-controls small{font-size:12px;color:var(--text-muted);line-height:1.4}
+.driver-reassign-controls textarea{width:100%;box-sizing:border-box;min-height:64px;padding:10px 12px;border-radius:9px;border:1px solid var(--border-color);font:inherit;font-size:13px;background:var(--bg-surface);color:var(--text-main)}
+.driver-reassign-controls button{min-height:44px;white-space:normal}
