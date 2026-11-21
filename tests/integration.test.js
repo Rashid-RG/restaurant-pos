@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import path from 'path';
 import os from 'os';
 import { testCheckoutProof } from './checkout-proof-fixture.js';
@@ -288,12 +289,16 @@ describe('Customer handover PIN protection (integration)',()=>{
   it('only issues a PIN with private tracking access, rejects wrong rider codes, and retains proof requirements',async()=>{
     const created=await makePrivateTrackingFixture();
     expect(created.orderId).toBeTruthy();
-    const driverLogin=await request(app).post('/api/driver/auth/login')
-      .send({phone:'0771234567',password:'driver123'});
-    expect(driverLogin.status).toBe(200);
+    // Auth limiter is independently tested elsewhere; use a signed test
+    // identity here so earlier login tests cannot exhaust its shared quota.
+    const riderId='drv_1';
+    const driverToken=jwt.sign(
+      {driverId:riderId,tenant_id:'default_tenant',role:'driver',name:'Kamal Perera'},
+      process.env.JWT_SECRET,{expiresIn:'1h'}
+    );
     await dbRun(
       "UPDATE orders SET diningType='delivery',orderType='delivery',status='out_for_delivery',driverId=? WHERE id=? AND tenant_id=?",
-      [driverLogin.body.driver.id,created.orderId,'default_tenant']
+      [riderId,created.orderId,'default_tenant']
     );
     const url=`/api/public/orders/${created.orderId}/handover-pin`;
     expect((await request(app).post(url).send({})).status).toBe(401);
@@ -303,11 +308,11 @@ describe('Customer handover PIN protection (integration)',()=>{
     expect(issued.body.expiresAt).toBeGreaterThan(Date.now());
     const statusUrl='/api/public/driver/status';
     const wrong=await request(app).post(statusUrl)
-      .set('Authorization',`Bearer ${driverLogin.body.token}`)
+      .set('Authorization',`Bearer ${driverToken}`)
       .send({orderId:created.orderId,status:'delivered',deliveryPin:issued.body.pin==='000000'?'000001':'000000'});
     expect(wrong.status).toBe(422);
     const correctButNoProof=await request(app).post(statusUrl)
-      .set('Authorization',`Bearer ${driverLogin.body.token}`)
+      .set('Authorization',`Bearer ${driverToken}`)
       .send({orderId:created.orderId,status:'delivered',deliveryPin:issued.body.pin});
     expect(correctButNoProof.status).toBe(400);
   });
