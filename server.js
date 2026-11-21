@@ -6069,6 +6069,50 @@ app.get('/api/public/driver/cash-summary', authenticateDriver, async (req, res) 
   } catch (_) { return res.status(500).json({error:'Could not load the cash summary.'}); }
 });
 
+// GET /api/public/driver/orders/:orderId/road-eta — server-derived road estimate
+// Authenticate and scope both the delivery and the last GPS fix to this rider.
+// No client-supplied coordinates and no fallback straight-line travel time.
+app.get('/api/public/driver/orders/:orderId/road-eta', authenticateDriver, async (req,res) => {
+  const orderId=String(req.params.orderId||'');
+  if(!orderId || orderId.length>128) return res.status(400).json({error:'A valid delivery ID is required.'});
+  try {
+    const order=await dbGet(
+      "SELECT id,deliveryLat,deliveryLng,status FROM orders WHERE id=? AND tenant_id=? AND driverId=? AND (diningType='delivery' OR orderType='delivery')",
+      [orderId,req.driver.tenant_id,req.driver.driverId]
+    );
+    if(!order) return res.status(404).json({error:'Delivery not found.'});
+    if(!['picked_up','out_for_delivery','arrived'].includes(order.status))
+      return res.set('Cache-Control','no-store').json({available:false,reason:'The delivery is not in transit.'});
+    const destination={lat:order.deliveryLat,lng:order.deliveryLng};
+    if(!validRoadPoint(destination))
+      return res.set('Cache-Control','no-store').json({available:false,reason:'The customer destination is not mapped.'});
+    const fix=await dbGet(
+      'SELECT driverName,lat,lng,updatedAt,accuracyMeters FROM driver_locations WHERE orderId=? AND tenant_id=?',
+      [orderId,req.driver.tenant_id]
+    );
+    const timestamp=Number(fix?.updatedAt),accuracy=Number(fix?.accuracyMeters);
+    const belongsToRider=fix && [req.driver.driverId,req.driver.name].includes(fix.driverName);
+    if(!belongsToRider || !validRoadPoint(fix) || !Number.isFinite(timestamp) ||
+      timestamp>Date.now()+10000 || Date.now()-timestamp>30000 ||
+      !Number.isFinite(accuracy) || accuracy<=0 || accuracy>150)
+      return res.set('Cache-Control','no-store').json({available:false,reason:'A fresh, accurate rider location is needed.'});
+    const result=await fetchRoadRoute({
+      from:{lat:Number(fix.lat),lng:Number(fix.lng)},
+      to:{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)},
+      timeoutMs:3500
+    });
+    if(!result?.available)
+      return res.set('Cache-Control','no-store').json({available:false,reason:'Road routing is not currently available.'});
+    return res.set('Cache-Control','no-store').json({
+      available:true,source:'road',distanceKm:result.distanceKm,
+      travelMinutes:result.travelMinutes,estimatedAt:Date.now(),basedOnFixAt:timestamp
+    });
+  }catch(error){
+    console.error('[Driver road estimate]',error.message);
+    return res.status(500).json({error:'Could not calculate a road estimate.'});
+  }
+});
+
 // POST /api/public/driver/assign — Driver claims a delivery ticket (own tenant only)
 app.post('/api/public/driver/assign', authenticateDriver, async (req, res) => {
   const { orderId } = req.body;
