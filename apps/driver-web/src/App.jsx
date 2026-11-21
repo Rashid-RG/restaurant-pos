@@ -1720,8 +1720,13 @@ export default function App() {
                             <div><strong>Road travel estimate</strong><small>Road routing only · not a traffic-aware arrival guarantee</small></div>
                             <button type="button" className="btn-outline" disabled={roadLoadingId!==null}
                               onClick={()=>requestRoadEstimate(ord.id)}>{roadLoadingId===ord.id ? 'Calculating…' : roadEstimates[ord.id] ? 'Refresh estimate' : 'Check road ETA'}</button>
-                            {roadEstimates[ord.id]?.available ? <p role="status">{roadEstimates[ord.id].distanceKm.toFixed(1)} km · about {roadEstimates[ord.id].travelMinutes} min driving</p>
-                              : roadEstimates[ord.id] && <p role="status" className="driver-eta-unavailable">{roadEstimates[ord.id].message}</p>}
+                            {roadEstimates[ord.id]?.available && hasFreshLocation &&
+                              Number.isFinite(Number(roadEstimates[ord.id].basedOnFixAt)) &&
+                              Math.abs(driverClock-Number(roadEstimates[ord.id].basedOnFixAt))<=30000
+                              ? <p role="status">{roadEstimates[ord.id].distanceKm.toFixed(1)} km · about {roadEstimates[ord.id].travelMinutes} min driving (not live traffic)</p>
+                              : <p role="status" className="driver-eta-unavailable">{!hasFreshLocation
+                                ? 'Waiting for a fresh GPS position before updating road travel time.'
+                                : roadEstimates[ord.id]?.message || 'Checking for a current road estimate.'}</p>}
                           </div>
                         )}
                         {ord.status === 'ready' && (
