@@ -29,3 +29,11 @@
 @keyframes gf-pulse-orbit{to{transform:rotate(360deg)}}
 @media(max-width:380px){.gf-delivery-pulse{padding:12px;gap:10px}.gf-delivery-pulse__icon{width:45px;height:45px;flex-basis:45px}.gf-delivery-pulse h3{font-size:13px}.gf-delivery-pulse__eta{font-size:10px}}
 @media(prefers-reduced-motion:reduce){.gf-delivery-pulse *{animation:none!important;transition:none!important}}
+
+/* Subtle state activity, not simulated courier travel. */
+.gf-delivery-pulse--assigned .gf-delivery-pulse__dot,
+.gf-delivery-pulse--picked-up .gf-delivery-pulse__dot,
+.gf-delivery-pulse--transit .gf-delivery-pulse__dot{animation:gf-pulse-breathe 2.4s ease-in-out infinite}
+.gf-delivery-pulse--transit .gf-delivery-pulse__icon{box-shadow:0 0 0 4px #1474550c;animation:gf-pulse-tint 3.2s ease-in-out infinite}
+@keyframes gf-pulse-tint{50%{box-shadow:0 0 0 8px #14745508}}
+@media(prefers-reduced-motion:reduce){.gf-delivery-pulse--assigned .gf-delivery-pulse__dot,.gf-delivery-pulse--picked-up .gf-delivery-pulse__dot,.gf-delivery-pulse--transit .gf-delivery-pulse__dot,.gf-delivery-pulse--transit .gf-delivery-pulse__icon{animation:none!important}}
