@@ -258,3 +258,17 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 /* Time is supplied by the server-side offer, never an invented client timer. */
 .driver-offer-countdown{display:flex;align-items:center;gap:7px;margin:4px 0;padding:10px 12px;border-radius:10px;border:1px solid #ebd29c;background:#fff9e9;color:#80531c;font-size:12px;font-weight:750}
 .driver-offer-countdown svg{flex:0 0 auto}
+
+/* Opt-in accessibility preferences; scoped to the signed-in rider UI. */
+.driver-large-text .driver-bottom-nav button{font-size:14px}
+.driver-large-text .driver-order-detail,.driver-large-text .driver-home-destination,
+.driver-large-text .driver-quick-nav button,.driver-large-text .driver-offer-actions button,
+.driver-large-text .driver-order-action,.driver-large-text .driver-support,
+.driver-large-text .driver-offer-countdown{font-size:15px!important;line-height:1.55}
+.driver-large-text .driver-preferences strong,.driver-large-text .driver-support label{font-size:15px}
+.driver-high-contrast{--text-main:#102c1d;--text-muted:#314c3c;--border-color:#52735e;--brand-emerald:#115d40;--brand-dark:#0d4630}
+.driver-high-contrast .card,.driver-high-contrast .driver-home-focus,
+.driver-high-contrast .driver-bottom-nav,.driver-high-contrast .driver-offer-countdown{border-width:2px;border-color:var(--border-color)}
+.driver-high-contrast .driver-bottom-nav button.selected{background:#d1f0db;color:#0b5435}
+.driver-high-contrast .driver-controls-actions button,.driver-high-contrast .driver-offer-actions button{border-width:2px}
+.driver-reduced-motion *,.driver-reduced-motion *::before,.driver-reduced-motion *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
