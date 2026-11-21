@@ -15,3 +15,292 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 
 @media(max-width:600px){.driver-controls-card{flex-wrap:wrap;gap:14px}.driver-controls-card>div:first-child{flex:1 1 100%;min-width:0}.driver-controls-actions{display:grid!important;grid-template-columns:44px minmax(0,1fr) 44px;width:100%}.driver-controls-actions button{white-space:nowrap;min-width:44px}.driver-controls-actions>.btn-emerald{width:100%}}
 @media(max-width:360px){.driver-welcome{padding:22px 18px}.driver-welcome h1{font-size:26px;line-height:1.18}}
+
+
+/* GastroDriver 2.0: iPhone-first dashboard and action layout. */
+.driver-welcome-compact{padding:20px 22px!important;margin-bottom:14px!important}
+.driver-welcome-compact h1{font-size:clamp(23px,5.3vw,30px)!important;line-height:1.17!important;margin:10px 0!important}
+.driver-welcome-compact p{font-size:13px!important;line-height:1.5!important;margin:0 0 10px!important}
+.driver-quick-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 12px}
+.driver-quick-nav button{min-width:0;min-height:58px;border:1px solid #d5e4db;border-radius:13px;background:#fff;color:#275e49;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;cursor:pointer;padding:10px 5px}
+.driver-quick-nav button strong{background:#e7f5ec;border-radius:50%;min-width:23px;height:23px;display:inline-grid;place-items:center;font-variant-numeric:tabular-nums}
+.driver-quick-nav button:focus-visible,.driver-task-nav button:focus-visible{outline:3px solid #0a8462;outline-offset:2px}
+#driver-tasks{scroll-margin-top:96px}
+.driver-controls-card{min-width:0;max-width:100%;box-sizing:border-box;flex-wrap:wrap!important;gap:12px!important}
+.driver-controls-card>div:first-child{min-width:0;flex:1 1 100%;overflow-wrap:anywhere}
+.driver-controls-actions{display:flex!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start;gap:8px!important;width:100%;min-width:0}
+.driver-controls-actions>label{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
+.driver-controls-actions>.btn-emerald{flex:1 1 160px;min-width:0!important;max-width:100%;white-space:normal!important;overflow-wrap:anywhere;text-align:center}
+.driver-controls-actions>.btn-outline{flex:0 0 auto}
+.driver-controls-actions button{min-height:44px;box-sizing:border-box}
+.driver-metrics{grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.driver-metrics>div{min-width:0;padding:13px 10px}
+.driver-task-nav{position:relative;scroll-margin-top:90px}
+@media(max-width:600px){
+ .driver-header{padding-top:calc(10px + env(safe-area-inset-top))!important}
+ .driver-controls-actions{display:flex!important;grid-template-columns:none!important}
+ .driver-controls-actions>.btn-emerald{width:auto!important}
+ .driver-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .driver-metrics small{font-size:10px;line-height:1.35;display:block}
+ .driver-metrics strong{font-size:22px}
+ .driver-welcome-compact{padding:18px!important}
+ .driver-task-nav{margin-top:16px}
+}
+@media(max-width:380px){.driver-quick-nav button{font-size:11px}.driver-metrics>div{padding:12px 7px}}
+
+
+/* GastroDriver 2.0: delivery cards and explicit delivery-stage guidance. */
+.driver-delivery-card{min-width:0;box-sizing:border-box;overflow-wrap:anywhere;border-color:#dce9df!important;box-shadow:0 5px 18px rgba(24,70,52,.045)!important}
+.driver-distance-unavailable{font-size:11px;color:#6d7784;line-height:1.35;max-width:156px;text-align:right}
+.driver-progress-steps{list-style:none;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px;margin:4px 0 2px;padding:0}
+.driver-progress-steps li{min-width:0;color:#728177;font-size:11px;font-weight:700;text-align:center;display:flex;flex-direction:column;gap:5px;align-items:center}
+.driver-progress-steps li span{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:#eef2ee;color:#64796a;border:1px solid #dae6db;font-size:12px}
+.driver-progress-steps li.complete{color:#1e7151}
+.driver-progress-steps li.complete span{background:#dbf5e7;color:#176545;border-color:#b4e8ce}
+.driver-progress-steps li[aria-current=step] span{outline:2px solid #147858;outline-offset:2px}
+.driver-order-action{min-height:44px;box-sizing:border-box;flex:1 1 45%;display:flex;align-items:center;justify-content:center;border-radius:11px;text-decoration:none;text-align:center;color:#fff;font-size:13px;font-weight:750;padding:10px}
+.driver-order-navigate{background:#2563eb}
+.driver-order-contact{background:#168451}
+.driver-order-action:focus-visible{outline:3px solid #0b7654;outline-offset:2px}
+.driver-order-action-unavailable{flex:1 1 45%;min-height:44px;display:flex;align-items:center;justify-content:center;text-align:center;border:1px dashed #cddbd2;border-radius:11px;padding:8px;font-size:11px;color:#617368;background:#f7faf8;box-sizing:border-box}
+@media(max-width:380px){.driver-progress-steps li{font-size:10px}.driver-distance-unavailable{max-width:125px}}
+
+
+/* Live location is not synonymous with permission or a fresh GPS fix. */
+.driver-location-health{border:1px solid #d6e3da;border-radius:14px;padding:12px 14px;margin:10px 0;background:#f7faf8;overflow-wrap:anywhere}
+.driver-location-health.good{background:#ecfaf2;border-color:#afdac1}
+.driver-location-health.needs-attention{background:#fffaf0;border-color:#e9d8ac}
+.driver-location-health-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.driver-location-health-head strong{font-size:13px;color:#203d32}
+.driver-location-health-head span{font-size:12px;font-weight:750;color:#895b18}
+.driver-location-health.good .driver-location-health-head span{color:#18714e}
+.driver-location-health p{font-size:12px;line-height:1.55;margin:5px 0 0;color:#536b5b}
+.driver-controls-actions>.btn-emerald{line-height:1.35}
+
+
+/* Read-only, server-verified cash handover. Never label customer cash as earnings. */
+.driver-settlement{padding:16px!important}
+.driver-settlement-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.driver-settlement-head>div{flex:1 1 180px;min-width:0}
+.driver-settlement-head strong{font-size:15px;color:#143e30}
+.driver-settlement-head p{margin:5px 0 0;color:#63766a;line-height:1.4;font-size:12px}
+.driver-settlement-head button{min-height:44px}
+.driver-cash-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:14px 0 8px}
+.driver-cash-grid>div{padding:12px 10px;background:#f4faf6;border:1px solid #dceee3;border-radius:12px;min-width:0}
+.driver-cash-grid small{display:block;color:#63766a;font-size:11px;line-height:1.4;margin-bottom:8px}
+.driver-cash-grid strong{display:block;overflow-wrap:anywhere;color:#175d43;font-size:15px;font-variant-numeric:tabular-nums}
+.driver-cash-footnote{font-size:12px;color:#65756b;line-height:1.5}
+.driver-cash-error{font-size:12px;color:#a52727}
+.driver-cash-refresh{min-height:44px;margin-top:6px}
+@media(max-width:430px){.driver-cash-grid{grid-template-columns:1fr}.driver-cash-grid>div{display:flex;justify-content:space-between;align-items:center;gap:12px}.driver-cash-grid small{margin:0;flex:1}.driver-cash-grid strong{text-align:right}}
+
+/* Four verified delivery stages and a clear next-action hint. */
+.driver-next-step{display:flex;flex-direction:column;gap:4px;padding:11px 13px;border-radius:12px;background:#f0f8f3;border:1px solid #d7ebdc;color:#315b45;font-size:12px;line-height:1.5}
+.driver-next-step strong{color:#19593b;font-size:12px}
+.driver-order-navigate{gap:6px}
+@media(max-width:380px){.driver-progress-steps{gap:3px}.driver-progress-steps li{font-size:10px}.driver-progress-steps li span{width:24px;height:24px}}
+
+/* Complete handover journey including arrival. Keep five steps legible on small iPhones. */
+.driver-progress-steps{gap:4px}
+.driver-progress-steps li{overflow-wrap:anywhere;line-height:1.3}
+@media(max-width:430px){
+ .driver-progress-steps li{font-size:9px;letter-spacing:-.1px}
+ .driver-progress-steps li span{width:24px;height:24px;font-size:11px}
+}
+
+
+/* Distinguish confirmed dispatch data from delayed or interrupted updates. */
+.driver-dispatch-sync{min-width:0}
+.driver-dispatch-copy{min-width:0;flex:1 1 175px;display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}
+.driver-dispatch-copy strong{font-size:13px}
+.driver-dispatch-copy span{font-size:11px;line-height:1.45}
+.driver-dispatch-stale{background:#fff9ed;border-color:#ebd39d;color:#865c16}
+.driver-dispatch-stale span{color:#865c16}
+.driver-dispatch-sync button:disabled{opacity:.65;cursor:wait}
+.driver-delivery-card button:disabled{cursor:not-allowed;opacity:.65}
+@media(max-width:380px){.driver-dispatch-sync button{width:100%}}
+
+
+/* Quick filtering without hiding the original assigned/available delivery records. */
+.driver-order-search{display:flex;flex-direction:column;gap:7px;margin:0 0 16px}
+.driver-order-search label{color:#315d45;font-weight:750;font-size:12px}
+.driver-order-search>div{display:flex;align-items:center;gap:8px;min-width:0}
+.driver-order-search .input-field{flex:1;min-width:0;min-height:44px;background:#fff}
+.driver-order-search button{min-height:44px;flex:0 0 auto}
+@media(max-width:360px){.driver-order-search .input-field{font-size:13px}.driver-order-search button{padding-inline:10px}}
+
+
+/* Verified server-side road routing; no straight-line distance presented as ETA. */
+.driver-road-eta{flex:1 1 100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px;border-radius:12px;border:1px solid #c9ddeb;background:#f5faff}
+.driver-road-eta>div{display:flex;flex:1 1 175px;min-width:0;flex-direction:column;gap:3px}
+.driver-road-eta strong{font-size:12px;color:#214d72}
+.driver-road-eta small{font-size:11px;color:#55758b;line-height:1.4}
+.driver-road-eta button{min-height:44px}
+.driver-road-eta p{flex:1 1 100%;margin:0;font-size:13px;font-weight:750;color:#165e8b;overflow-wrap:anywhere}
+.driver-road-eta .driver-eta-unavailable{font-size:12px;font-weight:500;color:#7c5d2c}
+@media(max-width:380px){.driver-road-eta button{width:100%}}
+
+
+/* GastroDriver 2.0: dedicated mobile destinations and thumb-friendly tabs. */
+.driver-workspace{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+.driver-screen-heading{font-size:19px;line-height:1.3;color:#193d2e;font-weight:800;margin:8px 0 16px}
+.driver-section-header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:12px 0}
+.driver-section-header h2{font-size:17px;margin:0;font-weight:800;color:#193d2e}
+.driver-section-header button{min-height:44px}
+.driver-earnings-notice{border:1px solid #b7d8e4;background:#f0f8fb;border-radius:14px;padding:14px;display:flex;gap:10px;color:#285b72;align-items:flex-start}
+.driver-earnings-notice svg{flex:0 0 auto;margin-top:3px}
+.driver-earnings-notice p{margin:0;font-size:13px;line-height:1.55}
+.driver-bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:900;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;padding:7px max(12px,env(safe-area-inset-right,0px)) calc(7px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));background:rgba(255,255,255,.97);border-top:1px solid #dce8df;box-shadow:0 -8px 28px rgba(29,66,46,.08);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.driver-bottom-nav button{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0;min-height:54px;border:0;border-radius:12px;background:transparent;color:#68776b;font-size:11px;font-weight:700;cursor:pointer}
+.driver-bottom-nav button.selected{color:#176e4e;background:#eaf7f0}
+.driver-bottom-nav button:focus-visible{outline:3px solid #147858;outline-offset:-2px}
+.driver-bottom-nav button small{position:absolute;top:1px;left:calc(50% + 9px);background:#176e4e;border:2px solid #fff;color:#fff;font-size:9px;min-width:18px;height:18px;padding:0 3px;box-sizing:border-box;display:grid;place-items:center;border-radius:20px}
+@media(min-width:900px){.driver-bottom-nav{left:50%;right:auto;transform:translateX(-50%);width:min(100%,790px);border:1px solid #dce8df;border-radius:18px 18px 0 0}}
+@media(prefers-reduced-motion:reduce){.driver-bottom-nav{scroll-behavior:auto}}
+
+
+/* Delivery-first dashboard: the primary job is visible before metrics or diagnostics. */
+.driver-home-greeting{padding:12px 14px!important;min-height:0!important;margin-bottom:10px!important}
+.driver-home-greeting h1{font-size:clamp(19px,5.5vw,25px)!important;line-height:1.2!important;margin:2px 0!important}
+.driver-home-focus{background:#fff;border:1px solid #b9dec9;border-radius:17px;padding:15px;margin:8px 0 11px;box-shadow:0 9px 24px rgba(21,91,57,.07);min-width:0}
+.driver-home-focus-header{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#1b5c3d;font-size:13px}
+.driver-home-focus-header span{font-size:11px;background:#eaf8f0;border-radius:20px;padding:4px 9px;white-space:nowrap}
+.driver-home-order-line{margin-top:10px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.driver-home-order-line span{font-size:20px;font-weight:850;color:#203e30}
+.driver-home-order-line strong{font-size:11px;text-transform:capitalize;background:#edf3fc;color:#27538e;padding:6px 9px;border-radius:20px}
+.driver-home-destination{margin:11px 0;display:flex;gap:7px;align-items:flex-start;color:#516b5b;line-height:1.45;font-size:13px;overflow-wrap:anywhere}
+.driver-home-destination svg{flex:0 0 auto;margin-top:1px}
+.driver-home-focus-actions{display:flex;gap:9px;flex-wrap:wrap}
+.driver-home-focus-actions button,.driver-home-focus>.btn-emerald{min-height:46px;display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:1 1 150px}
+@media(max-width:420px){.driver-home-focus{padding:12px}.driver-home-focus-actions button{font-size:12px}}
+
+
+/* Consistent iconography and properly sized profile / delivery controls. */
+.driver-profile-name{display:flex;align-items:center;gap:9px;font-weight:800;font-size:17px;color:var(--text-main);min-width:0;overflow-wrap:anywhere}
+.driver-profile-name svg{flex:0 0 auto;color:#148058}
+.driver-controls-actions button{display:inline-flex!important;align-items:center;justify-content:center;gap:7px;min-height:44px;white-space:normal;line-height:1.35}
+.driver-controls-actions button svg{flex:0 0 auto}
+.driver-order-detail{display:flex;align-items:flex-start;gap:8px;min-width:0;overflow-wrap:anywhere}
+.driver-order-detail svg{flex:0 0 auto;margin-top:2px;color:#5b7a67}
+.driver-order-action{gap:7px;line-height:1.4}
+.driver-order-action svg{flex:0 0 auto}
+.driver-delivery-card button.btn-emerald{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;line-height:1.4}
+.driver-delivery-card button.btn-emerald svg{flex:0 0 auto}
+@media(max-width:390px){.driver-controls-actions button{flex:1 1 120px}.driver-controls-actions button span{overflow-wrap:anywhere}}
+
+
+/* Authenticated, tenant-scoped rider support intake. */
+.driver-support{padding:16px!important;display:flex;flex-direction:column;gap:12px;min-width:0}
+.driver-support h3{font-size:17px;color:#1d5039;margin:0}
+.driver-support>p{font-size:12px;line-height:1.5;color:#5b7163;margin:0}
+.driver-support form{display:flex;flex-direction:column;gap:7px;min-width:0}
+.driver-support form label{font-size:12px;font-weight:750;color:#2f5e43;margin-top:6px}
+.driver-support form input,.driver-support form select,.driver-support form textarea{box-sizing:border-box;width:100%;min-width:0;border:1px solid #c8dcd0;background:#fff;color:#1d3427;border-radius:11px;padding:12px;font:inherit;font-size:14px}
+.driver-support form select,.driver-support form input{min-height:45px}
+.driver-support form textarea{resize:vertical;line-height:1.5}
+.driver-support form button{min-height:47px;margin-top:8px}
+.driver-support-error{color:#a52727!important}
+.driver-support-history{border-top:1px solid #dce8df;padding-top:12px}
+.driver-support-history-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.driver-support-history-head strong{font-size:13px;color:#214d38}
+.driver-support-history-head button{min-height:44px}
+.driver-support-history p{font-size:12px;color:#627567}
+.driver-support-history ul{padding:0;margin:10px 0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.driver-support-history li{padding:10px;background:#f4f8f5;border:1px solid #dce8df;border-radius:10px;display:flex;flex-direction:column;gap:5px}
+.driver-support-history li strong{font-size:12px;text-transform:capitalize}
+.driver-support-history li span{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.driver-support .driver-support-emergency{color:#855326;background:#fff7e8;border:1px solid #eed6ab;border-radius:10px;padding:10px}
+
+.driver-support-reply{display:grid;gap:5px;padding:10px;border-left:3px solid #189768;border-radius:8px;background:#edf8f1;overflow-wrap:anywhere}
+.driver-support-reply strong{color:#176244;font-size:12px}
+.driver-support-reply span{line-height:1.5}
+.driver-support-reply small{font-size:11px;color:#62786a}
+
+/* Shared restaurant offers have rider-specific accept and decline actions. */
+.driver-offer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.driver-offer-actions button{min-width:0;min-height:48px;padding:10px 12px!important;font-size:13px;line-height:1.35;overflow-wrap:anywhere}
+@media(max-width:340px){.driver-offer-actions{grid-template-columns:1fr}}
+
+/* Device-local preference: prevents startling riders when audible offers are disabled. */
+.driver-preferences{display:grid;gap:10px}
+.driver-preferences h3{font-size:15px;margin:0;color:var(--brand-dark)}
+.driver-preferences label{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:48px}
+.driver-preferences label span{display:flex;flex-direction:column;gap:5px;min-width:0}
+.driver-preferences label strong{font-size:13px}
+.driver-preferences label small,.driver-preferences p{font-size:12px;line-height:1.5;color:var(--text-muted);margin:0}
+.driver-preferences input{flex:0 0 auto;width:23px;height:23px;accent-color:#24664f}
+
+/* Approved rider earnings are distinct from cash held and paid-out wages. */
+.driver-approved-earnings{display:grid;gap:9px}
+.driver-approved-earnings h3{margin:0;font-size:16px;color:var(--brand-dark)}
+.driver-approved-earnings>p{margin:0;font-size:12px;line-height:1.5;color:var(--text-muted)}
+.driver-approved-total{font-size:26px;color:var(--brand-emerald);font-variant-numeric:tabular-nums}
+.driver-approved-earnings>small{font-size:12px;color:var(--text-muted)}
+.driver-approved-earnings ul{list-style:none;display:grid;gap:7px;margin:5px 0;padding:0}
+.driver-approved-earnings li{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;border-bottom:1px solid var(--border-color);padding:6px 0;font-size:12px}
+.driver-approved-earnings .driver-earnings-payout-note{color:#805519;background:#fff7e9;border:1px solid #f0ddad;border-radius:10px;padding:11px}
+
+.driver-earnings-breakdown{display:grid;gap:8px;margin:6px 0}
+.driver-earnings-breakdown>div{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;padding:11px;background:#f3f9f5;border:1px solid #d8e9dc;border-radius:10px;font-size:12px}
+.driver-earnings-breakdown strong{font-variant-numeric:tabular-nums}
+
+.driver-pickup-distance{display:inline-flex;align-items:center;gap:5px;padding:7px 10px;border:1px solid #b4d8c6;background:#e8f7ed;border-radius:10px;color:#176c47;font-size:11px;font-weight:750;text-align:right;line-height:1.35}
+.driver-pickup-distance svg{flex:0 0 auto}
+
+.driver-verification-summary{display:grid;gap:10px}
+.driver-verification-summary h3{font-size:16px;margin:0;color:var(--brand-dark)}
+.driver-verification-summary dl{display:grid;gap:8px;margin:0}
+.driver-verification-summary dl>div{padding:9px 0;border-bottom:1px solid var(--border-color);display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:7px}
+.driver-verification-summary dt{font-size:12px;color:var(--text-muted)}
+.driver-verification-summary dd{font-size:12px;color:var(--text-main);font-weight:750;margin:0;text-align:right;overflow-wrap:anywhere}
+.driver-verification-summary p{font-size:12px;color:var(--text-muted);line-height:1.5;margin:0}
+
+/* Time is supplied by the server-side offer, never an invented client timer. */
+.driver-offer-countdown{display:flex;align-items:center;gap:7px;margin:4px 0;padding:10px 12px;border-radius:10px;border:1px solid #ebd29c;background:#fff9e9;color:#80531c;font-size:12px;font-weight:750}
+.driver-offer-countdown svg{flex:0 0 auto}
+
+/* Opt-in accessibility preferences; scoped to the signed-in rider UI. */
+.driver-large-text .driver-bottom-nav button{font-size:14px}
+.driver-large-text .driver-order-detail,.driver-large-text .driver-home-destination,
+.driver-large-text .driver-quick-nav button,.driver-large-text .driver-offer-actions button,
+.driver-large-text .driver-order-action,.driver-large-text .driver-support,
+.driver-large-text .driver-offer-countdown{font-size:15px!important;line-height:1.55}
+.driver-large-text .driver-preferences strong,.driver-large-text .driver-support label{font-size:15px}
+.driver-high-contrast{--text-main:#102c1d;--text-muted:#314c3c;--border-color:#52735e;--brand-emerald:#115d40;--brand-dark:#0d4630}
+.driver-high-contrast .card,.driver-high-contrast .driver-home-focus,
+.driver-high-contrast .driver-bottom-nav,.driver-high-contrast .driver-offer-countdown{border-width:2px;border-color:var(--border-color)}
+.driver-high-contrast .driver-bottom-nav button.selected{background:#d1f0db;color:#0b5435}
+.driver-high-contrast .driver-controls-actions button,.driver-high-contrast .driver-offer-actions button{border-width:2px}
+.driver-reduced-motion *,.driver-reduced-motion *::before,.driver-reduced-motion *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+
+/* Per-rider theme. Platform chrome and dark elements remain inside app shell. */
+.driver-preferences select{flex:0 0 auto;max-width:48%;min-width:110px;min-height:44px;border:1px solid var(--border-color);border-radius:9px;background:var(--bg-surface,#fff);color:var(--text-main);padding:8px;font:inherit;font-size:13px}
+.driver-theme-dark{--text-main:#f0f7f2;--text-muted:#b6ccbd;--border-color:#465b4c;--brand-emerald:#53c28d;--brand-dark:#d5f4dd;--bg-card:#1b2c22;--bg-surface:#1c3025;--bg-secondary:#273b2c;background:#111f18!important;color:var(--text-main);min-height:100vh}
+.driver-theme-dark .driver-header{background:#15271c!important;border-color:var(--border-color)}
+.driver-theme-dark .driver-title{color:#c0f1cf}
+.driver-theme-dark .card,.driver-theme-dark .driver-home-focus,.driver-theme-dark .driver-metrics>div,
+.driver-theme-dark .driver-controls-card,.driver-theme-dark .driver-bottom-nav,
+.driver-theme-dark .driver-welcome,.driver-theme-dark .driver-offer-countdown,
+.driver-theme-dark .driver-preferences{background:#1b2c22!important;border-color:var(--border-color)!important;color:var(--text-main)!important}
+.driver-theme-dark .driver-welcome h1,.driver-theme-dark .driver-home-focus-header,
+.driver-theme-dark .driver-home-order-line span,.driver-theme-dark .driver-screen-heading,
+.driver-theme-dark .driver-verified-status,.driver-theme-dark .driver-section-header h2{color:var(--text-main)!important}
+.driver-theme-dark .driver-bottom-nav button{color:#bbd0c1}
+.driver-theme-dark .driver-bottom-nav button.selected{color:#b4f2ca;background:#24583d}
+.driver-theme-dark .driver-offer-countdown{color:#f4d8a0!important}
+.driver-theme-dark .btn-outline,.driver-theme-dark .driver-offer-actions button.btn-outline{background:#253b2d!important;color:#f0f7f2!important;border-color:#58785f!important}
+.driver-theme-dark input:not([type="checkbox"]),.driver-theme-dark select,.driver-theme-dark textarea{background:#182a20!important;color:#f0f7f2!important;border-color:#58785f!important}
+.driver-theme-dark .driver-support-history li,.driver-theme-dark .driver-support-reply,
+.driver-theme-dark .driver-earnings-breakdown>div{background:#21392a!important;border-color:#4a6d54!important;color:var(--text-main)!important}
+.driver-theme-dark .driver-earnings-payout-note,.driver-theme-dark .driver-support-emergency{background:#3b321f!important;color:#f6d79b!important;border-color:#705b36!important}
+@media(max-width:400px){.driver-preferences select{min-width:98px;max-width:44%}}
+
+/* The driver must explicitly retry device-saved, non-final order progress. */
+.driver-offline-queue{display:grid;gap:10px;border:2px solid #d6af5d!important;background:#fff9eb!important}
+.driver-offline-queue h3{font-size:15px;color:#7b511b;margin:0}
+.driver-offline-queue p{font-size:12px;line-height:1.5;color:#6c562d;margin:0}
+.driver-offline-queue ul{list-style:none;padding:0;margin:0;display:grid;gap:7px}
+.driver-offline-queue li{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+.driver-offline-queue li button,.driver-offline-queue>button{min-height:44px}
+.driver-theme-dark .driver-offline-queue{background:#3c301d!important;color:#ffecc1!important;border-color:#ad8341!important}
+.driver-theme-dark .driver-offline-queue h3,.driver-theme-dark .driver-offline-queue p{color:#ffecc1}

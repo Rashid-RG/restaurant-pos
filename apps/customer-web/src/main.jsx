@@ -11,7 +11,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>
 );
 
-if ('serviceWorker' in navigator) {
+// Packaged Capacitor assets must not inherit the hosted PWA's stale-cache lifecycle.
+if (import.meta.env.MODE !== 'native' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).catch((err) => {
       console.warn('Service worker registration failed:', err);
@@ -20,5 +21,14 @@ if ('serviceWorker' in navigator) {
 }
 
 import './modern.css';
-
 import '../../../shared/ui/devices.css';
+import './premium-motion.css';
+import './experience-2026.css';
+import './reference-login.css';
+import './modern-commerce.css';
+
+import './mobile-experience-2026.css';
+
+import './auth-mobile-v3.css';
+import './live-journey.css';
+import './checkout-flow.css';

@@ -1,0 +1,46 @@
+name: Refresh original GastroFlow phone icons
+on:
+  push:
+    branches:
+      - codex/production-readiness
+    paths:
+      - apps/customer-web/public/food-logo.svg
+      - apps/customer-web/public/driver-logo.svg
+      - apps/driver-web/public/driver-logo.svg
+      - scripts/render-original-brand-icons.py
+      - .github/workflows/refresh-brand-icons.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rasterize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install SVG rasterizer
+        run: python -m pip install "CairoSVG==2.8.2" "Pillow==11.3.0"
+      - name: Produce phone-ready PNGs from original brand SVG artwork
+        run: python scripts/render-original-brand-icons.py
+      - name: Commit only branded PNG assets (no deployment)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add apps/customer-web/public/food-logo.png apps/customer-web/public/food-logo-192.png apps/customer-web/public/food-logo-180.png
+          git add apps/customer-web/public/driver-logo.png apps/customer-web/public/driver-logo-192.png apps/customer-web/public/driver-logo-180.png
+          git add apps/driver-web/public/driver-logo.png apps/driver-web/public/driver-logo-192.png apps/driver-web/public/driver-logo-180.png
+          if git diff --cached --quiet; then
+            echo "Original branded icons already match current SVG designs."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "assets(pwa): refresh original GastroFlow phone launcher PNGs [skip ci]"
+          git push origin HEAD:codex/production-readiness

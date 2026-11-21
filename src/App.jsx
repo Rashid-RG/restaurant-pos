@@ -3,7 +3,7 @@ import WorkspaceTools from './components/WorkspaceTools';
 import { ConnectionStatus } from '../shared/ui/Resilience.jsx';
 import { POSProvider, usePOS } from './context/POSContext';
 import Sidebar from './components/Sidebar';
-import PlatformAdmin from './components/PlatformAdmin';
+import PlatformAdmin from './platform/PlatformAdmin';
 import Dashboard from './components/Dashboard';
 import POSView from './components/POSView';
 import FloorPlan from './components/FloorPlan';
@@ -11,7 +11,9 @@ import KDSView from './components/KDSView';
 import Inventory from './components/Inventory';
 import Customers from './components/Customers';
 import Settings from './components/Settings';
+import OnlineStoreWorkspace from './components/OnlineStoreWorkspace';
 import DeliveryView from './components/DeliveryView';
+import OnlineOrders from './components/OnlineOrders';
 import SupportTicketsView from './components/SupportTicketsView';
 import DailyExpenses from './components/DailyExpenses';
 import SoldItems from './components/SoldItems';
@@ -20,9 +22,10 @@ import CashDrawer from './components/CashDrawer';
 import MyAttendance from './components/MyAttendance';
 import Login from './components/Login';
 import StoreStatusScreen from './components/StoreStatusScreen';
+import StagingPushSetup from './components/StagingPushSetup';
 
 function AppContent() {
-  const { activeTab, loading, currentUser, tenantLock, setTenantLock, logout, platformBroadcast, setPlatformBroadcast } = usePOS();
+  const { activeTab, loading, sessionChecking, currentUser, tenantLock, setTenantLock, logout, platformBroadcast, setPlatformBroadcast } = usePOS();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // If the store is suspended or deleted, display full-screen status view immediately
@@ -49,6 +52,10 @@ function AppContent() {
         }}
       />
     );
+  }
+
+  if (sessionChecking) {
+    return <div className="loader-container" role="status" aria-live="polite"><div className="spinner"></div><p>Restoring your saved session...</p></div>;
   }
 
   if (!currentUser) {
@@ -90,12 +97,22 @@ function AppContent() {
         return <DailyExpenses />;
       case 'customers':
         return <Customers />;
+      case 'online-orders':
+        return <OnlineOrders />;
       case 'delivery':
         return <DeliveryView />;
+      case 'rider-verification':
+        return ['owner','manager'].includes(currentUser?.role) ? <DeliveryView verificationOnly /> : <Dashboard />;
       case 'tickets':
         return <SupportTicketsView />;
+      case 'online-store':
+        return ['owner', 'manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <OnlineStoreWorkspace /> : <Dashboard />;
+      case 'menu':
+        // Menu and System Settings share the same component. Distinct keys force
+        // a fresh section selection when switching via the main sidebar.
+        return ['owner','manager'].includes(currentUser?.role) || currentUser?.isPlatformAdmin ? <Settings key="menu-management" initialSubTab="menu" /> : <Dashboard />;
       case 'settings':
-        return <Settings />;
+        return <Settings key="settings-home" />;
       default:
         return <Dashboard />;
     }
@@ -104,8 +121,9 @@ function AppContent() {
   return (
     <div className="app-container">
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div className="workspace">
+      <div className={`workspace ${isMasterOwner && activeTab === 'platform' ? 'platform-owner-workspace' : ''}`}>
         <WorkspaceTools/>
+        <StagingPushSetup key={`${currentUser?.tenant_id || 'none'}:${currentUser?.id || 'none'}`}/>
         <ConnectionStatus/>
         {platformBroadcast && (
           <div style={{

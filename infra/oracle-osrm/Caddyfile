@@ -1,0 +1,26 @@
+{
+  email {$ACME_CONTACT_EMAIL}
+}
+
+{$ROUTING_HOST} {
+  encode zstd gzip
+  @authorized {
+    header X-GastroFlow-Routing-Key {$GASTROFLOW_ROUTING_KEY}
+    path /route/v1/driving/*
+  }
+  handle @authorized {
+    reverse_proxy osrm:5000 {
+      transport http {
+        dial_timeout 2s
+        response_header_timeout 8s
+      }
+    }
+  }
+  handle {
+    respond "Forbidden" 403
+  }
+  log {
+    output stdout
+    format console
+  }
+}

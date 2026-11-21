@@ -1,0 +1,30 @@
+name: GastroFlow repository architecture guard
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'src/**'
+      - 'routes/**'
+      - 'lib/**'
+      - 'shared/**'
+      - 'server.js'
+      - 'scripts/check-repository-architecture.mjs'
+      - '.github/workflows/gastrofood-staging-apk.yml'
+      - '.github/workflows/repository-architecture.yml'
+  push:
+    branches:
+      - codex/production-readiness
+    paths:
+      - 'scripts/check-repository-architecture.mjs'
+      - '.github/workflows/repository-architecture.yml'
+permissions:
+  contents: read
+jobs:
+  architecture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node scripts/check-repository-architecture.mjs

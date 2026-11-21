@@ -8,8 +8,15 @@ import { formatRestaurantTime, restaurantTimeZone } from './restaurant-time';
  */
 
 export function resolvePrinterPaperSize(settingValue) {
-  const localPref = typeof window !== 'undefined' ? localStorage.getItem('gastroflow_printer_paper') : null;
-  const choice = localPref || settingValue || 'auto';
+  // An explicit restaurant setting must win over an old browser preference.
+  // A stale preference (including 'a4') used to silently force long/blank rolls.
+  let localPref = null;
+  if (typeof window !== 'undefined') {
+    try { localPref = window.localStorage?.getItem('gastroflow_printer_paper'); } catch (_) {}
+  }
+  const choice = settingValue && settingValue !== 'auto'
+    ? settingValue
+    : (localPref && localPref !== 'auto' ? localPref : 'auto');
 
   if (choice === '58mm' || choice === '80mm' || choice === 'a4') {
     return choice;
@@ -26,6 +33,10 @@ export function resolvePrinterPaperSize(settingValue) {
 
   // Default to standard 80mm POS receipt roll
   return '80mm';
+}
+
+function escapePrintText(value) {
+  return String(value).replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 }
 
 export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
@@ -70,7 +81,7 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
       <body>
         <div class="center">
           <div style="font-size: 24px;">🍽️</div>
-          <h3 style="margin: 2px 0; font-size: 15px; text-transform: uppercase;">${storeName}</h3>
+          <h3 style="margin: 2px 0; font-size: 15px; text-transform: uppercase;">${escapePrintText(storeName)}</h3>
           <p style="margin: 2px 0; font-size: 11px;">PRINTER ALIGNMENT TEST SLIP</p>
           <p style="margin: 2px 0; font-size: 11px;">Profile: ${paper.toUpperCase()} (${paperWidth})</p>
         </div>
@@ -79,13 +90,13 @@ export function testPrintReceipt(settings = {}, currencySymbol = 'Rs.') {
         <div class="row"><span>Paper Setting:</span><span class="bold">${paper.toUpperCase()}</span></div>
         <div class="row"><span>Device Width:</span><span>${window.innerWidth}px</span></div>
         <div class="divider"></div>
-        <div class="row"><span>1x Sample Burger</span><span>${currencySymbol} 850.00</span></div>
-        <div class="row"><span>1x Fresh Orange Juice</span><span>${currencySymbol} 450.00</span></div>
+        <div class="row"><span>1x Sample Burger</span><span>${escapePrintText(currencySymbol)} 850.00</span></div>
+        <div class="row"><span>1x Fresh Orange Juice</span><span>${escapePrintText(currencySymbol)} 450.00</span></div>
         <div class="divider"></div>
-        <div class="row bold" style="font-size: 14px;"><span>TEST TOTAL:</span><span>${currencySymbol} 1,300.00</span></div>
+        <div class="row bold" style="font-size: 14px;"><span>TEST TOTAL:</span><span>${escapePrintText(currencySymbol)} 1,300.00</span></div>
         <div class="divider"></div>
         <div class="center" style="margin-top: 10px;">
-          <p class="bold">✅ Printer Connected Correctly!</p>
+          <p class="bold">Check text alignment and paper cut.</p>
           <p style="font-size: 10px;">GastroFlow Intelligent POS Print Engine</p>
         </div>
         <script>
@@ -177,10 +188,10 @@ export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
   }
 
   // 96 CSS pixels = 1 inch = 25.4mm  =>  1mm = 3.7795px
-  // Add 3mm safety margin for the tear/cut blade right below the footer
+  // Allow room for delayed fonts and thermal-printer blade. Never truncate the preview.
   let totalHeightMm = measuredPx > 0
-    ? Math.ceil(measuredPx / 3.7795) + 3
-    : (is58mm ? 90 : 100);
+    ? Math.ceil(measuredPx / 3.7795) + 5
+    : (is58mm ? 85 : 110);
 
   // Safety clamps: never less than 35mm, never more than 1500mm
   if (totalHeightMm < 35) totalHeightMm = 35;
@@ -201,11 +212,11 @@ export function prepareThermalPrint(elementOrSelector, paperSetting = '80mm') {
     @media print {
       html, body {
         width: ${widthMm}mm !important;
-        height: ${totalHeightMm}mm !important;
-        max-height: ${totalHeightMm}mm !important;
+        height: auto !important;
+        max-height: none !important;
         margin: 0 !important;
         padding: 0 !important;
-        overflow: hidden !important;
+        overflow: visible !important;
       }
       #receipt-print-root, .receipt-print-area, .z-report-print-area {
         width: ${contentWidthMm}mm !important;
@@ -231,3 +242,144 @@ export function cleanupThermalPrint() {
   }
 }
 
+
+
+/**
+ * Print a POS receipt in its own document. Printing the main POS window
+ * makes Edge/Chrome apply conflicting hide/show CSS and yields blank POS-80 pages.
+ */
+export function buildStandaloneReceiptDocument(receiptMarkup, paperSetting='80mm') {
+  const paper=resolvePrinterPaperSize(paperSetting);
+  const a4=paper==='a4';
+  const roll=a4?'A4 portrait':paper==='58mm'?'58mm':'80mm';
+  const width=a4?'190mm':paper==='58mm'?'52mm':'76mm';
+  const font=a4?13:paper==='58mm'?11:12;
+  const css=[
+    '@page{size:'+(a4?'A4 portrait':roll+' 180mm')+';margin:0}',
+    '*{box-sizing:border-box}',
+    'html,body{margin:0!important;padding:0!important;background:white!important;color:black!important;font-family:Arial,Helvetica,sans-serif!important;height:auto!important;overflow:visible!important}',
+    '.receipt-print-area{display:block!important;visibility:visible!important;opacity:1!important;position:static!important;transform:none!important;float:none!important;width:'+width+'!important;max-width:'+width+'!important;margin:0 auto!important;padding:'+(a4?'10mm':'1mm 1mm 1mm')+'!important;color:black!important;background:white!important;font-size:'+font+'px!important;line-height:1.35!important;overflow:visible!important}',
+    '.receipt-print-area *{visibility:visible!important;opacity:1!important;color:black!important;-webkit-text-fill-color:black!important;text-shadow:none!important;box-shadow:none!important}',
+    '.receipt-print-area button,.receipt-print-area [data-print-exclude]{display:none!important}',
+    '.receipt-center{text-align:center}.receipt-divider{border-top:1px dashed #000;margin:3px 0}',
+    '.receipt-business-name{font-size:'+(paper==='58mm'?'14':'17')+'px!important;letter-spacing:.25px;line-height:1.15!important;margin:4px 0 5px!important}',
+    '.receipt-document-heading{padding:5px 0 4px;font-size:'+(paper==='58mm'?'12':'14')+'px;font-weight:800;letter-spacing:1.3px}',
+    '.receipt-items-heading{display:flex;justify-content:space-between;gap:7px;font-size:10px;font-weight:800;letter-spacing:.6px;padding:3px 0 3px;border-bottom:1px solid #111;margin-bottom:3px}',
+    '.receipt-items-heading span:last-child{text-align:right}',
+    '.receipt-item-block{padding:2px 0;break-inside:avoid}',
+    '.receipt-item-detail{font-size:10px;padding:1px 0 0 4px;color:#333!important}',
+    '.receipt-payment-method{font-weight:800;font-size:12px;margin:2px 0!important}',
+    '.receipt-totals{border-top:2px solid #000;border-bottom:2px solid #000;padding:4px 0!important;margin:3px 0!important;font-weight:800!important}',
+    '.receipt-print-area p{overflow-wrap:anywhere}',
+
+    '.receipt-row{display:flex;justify-content:space-between;align-items:baseline;gap:5px;padding:2px 0;break-inside:avoid}',
+    '.receipt-row span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}.receipt-row span:last-child{text-align:right;white-space:nowrap}',
+    '.receipt-totals{font-size:1.15em;font-weight:800}',
+    '.receipt-logo{display:block;max-width:100%;height:auto;object-fit:contain;margin:0 auto 2px}',
+    '.receipt-layout-standard .receipt-divider{margin:5px 0}.receipt-layout-standard .receipt-item-block{padding:4px 0}.receipt-layout-standard .receipt-totals{padding:5px 0!important}',
+    '.receipt-layout-detailed .receipt-divider{margin:7px 0}.receipt-layout-detailed .receipt-item-block{padding:5px 0}.receipt-layout-detailed .receipt-totals{padding:7px 0!important}',
+    'p{margin:1px 0!important}h3{margin:1px 0!important}img{max-width:100%;height:auto}',
+    '.receipt-gratitude{font-size:10px!important;font-weight:600!important;line-height:1.1!important;margin:2px 0 0!important;padding:0!important;border:0!important}.receipt-platform-credit{font-size:9px!important;line-height:1.1!important;margin:0!important;padding:0!important;border:0!important;white-space:normal!important}',
+    '@media print{html,body{overflow:visible!important}.receipt-print-area{break-inside:auto!important}}'
+  ].join('');
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>GastroFlow POS Bill</title><style>'+css+'</style></head><body>'+receiptMarkup+'</body></html>';
+}
+// The print document must size itself to the actual receipt, not a fixed roll length.
+// Use the isolated print document's layout to avoid measurement of hidden POS elements.
+export function fitStandaloneReceiptPage(doc, paperSetting = '80mm') {
+  if (!doc) return false;
+  // Some embedded print hosts expose a minimal document API without layout
+  // measurement; preserve the already-validated receipt instead of suppressing print.
+  if (typeof doc.querySelector !== 'function') return true;
+  const receipt = doc.querySelector('.receipt-print-area');
+  if (!receipt || !receipt.textContent?.trim()) return false;
+  const paper = resolvePrinterPaperSize(paperSetting);
+  if (paper === 'a4') return true;
+  const width = paper === '58mm' ? 58 : 80;
+  // Ensure all dimensions are measured with actual receipt wrapping after fonts load.
+  const rectHeight = typeof receipt.getBoundingClientRect === 'function' ? receipt.getBoundingClientRect().height : 0;
+  const px = Math.max(receipt.scrollHeight || 0, rectHeight || 0);
+  if (!Number.isFinite(px) || px <= 0) return false;
+  const mm = Math.max(35, Math.ceil(px * 25.4 / 96) + 5);
+  let style = doc.getElementById('receipt-content-page-size');
+  if (!style) {
+    style = doc.createElement('style');
+    style.id = 'receipt-content-page-size';
+    doc.head.appendChild(style);
+  }
+  // Limit one thermal page to 300mm. For large orders, let the browser
+  // paginate rather than requesting a single exceptionally long paper feed.
+  style.textContent = '@page { size: ' + width + 'mm ' + Math.min(mm, 300) + 'mm !important; margin: 0 !important; }';
+  return true;
+}
+let activePrintFrame=null;
+export function printRenderedReceipt(paperSetting='80mm',options={}) {
+  if(typeof document==='undefined'||typeof window==='undefined')return false;
+  const receipt=options.selector ? document.querySelector(options.selector) : document.getElementById('receipt-print-root')?.querySelector('.receipt-print-area');
+  const text=receipt?.textContent?.replace(/\s+/g,' ').trim()||'';
+  if(!receipt||text.length<24||!receipt.outerHTML){
+    console.error('[GastroFlow] Blank bill prevented: receipt has not rendered');
+    return false;
+  }
+  const receiptHtml=options.selector ? '<div class="receipt-print-area">'+receipt.outerHTML+'</div>' : receipt.outerHTML;
+  const html=buildStandaloneReceiptDocument(receiptHtml,paperSetting);
+  let popup=null;
+  if(options.userInitiated){
+    try{popup=window.open('','_blank','width=480,height=740');}catch(_){}
+  }
+  if(popup){
+    popup.document.open();popup.document.write(html);popup.document.close();
+    const show=async()=>{
+      try{
+        await popup.document.fonts?.ready;
+        await Promise.all([...popup.document.images].map(img=>img.complete?null:new Promise(resolve=>{
+          img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});setTimeout(resolve,1500);
+        })));
+        if(!popup.closed && fitStandaloneReceiptPage(popup.document,paperSetting)){popup.focus();popup.print();}
+      }catch(error){console.error('[GastroFlow] Bill print preview failed',error);}
+    };
+    setTimeout(show,180);
+    return true;
+  }
+  // An off-screen but layout-enabled iframe prints reliably on Edge when
+  // popup blocking would otherwise prevent auto-print after payment.
+  if(activePrintFrame?.parentNode)activePrintFrame.parentNode.removeChild(activePrintFrame);
+  const frame=document.createElement('iframe');
+  frame.title='GastroFlow POS receipt';
+  frame.setAttribute('aria-hidden','true');
+  frame.style.cssText='position:fixed;left:0;top:0;width:80mm;height:150mm;border:0;opacity:0;pointer-events:none;z-index:-1';
+  activePrintFrame=frame;
+  let launched=false;
+  const finish=()=>{
+    if(activePrintFrame===frame)activePrintFrame=null;
+    if(frame.parentNode)frame.parentNode.removeChild(frame);
+  };
+  frame.onload=async()=>{
+    if(launched)return;
+    launched=true;
+    try{
+      const doc=frame.contentDocument;
+      await doc?.fonts?.ready;
+      await Promise.all([...(doc?.images||[])].map(img=>img.complete?null:new Promise(resolve=>{
+        img.addEventListener('load',resolve,{once:true});img.addEventListener('error',resolve,{once:true});setTimeout(resolve,1500);
+      })));
+      if(!fitStandaloneReceiptPage(doc,paperSetting))throw Error('Print frame is empty or has no measurable receipt');
+      const win=frame.contentWindow;
+      if(!win)throw Error('Browser print frame unavailable');
+      win.addEventListener('afterprint',()=>setTimeout(finish,1500),{once:true});
+      win.focus();
+      win.print();
+      setTimeout(finish,30000);
+    }catch(error){console.error('[GastroFlow] Bill print failed',error);finish();}
+  };
+  // Configure srcdoc and its load handler *before* insertion. Otherwise the
+  // initial about:blank iframe load can win the race and print a blank frame.
+  frame.srcdoc=html;
+  document.body.appendChild(frame);
+  return true;
+}
+
+/** Print only the selected existing receipt, never the whole POS application. */
+export function printSelectedReceipt(selector, paperSetting = '80mm') {
+  return printRenderedReceipt(paperSetting, { selector, userInitiated: true });
+}

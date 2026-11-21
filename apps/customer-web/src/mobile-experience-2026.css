@@ -1,0 +1,684 @@
+/* GastroFlow Food — phone-first experience layer.
+ * Only the customer ordering app imports this file: POS and driver stay unchanged.
+ * Native Android + iPhone home-screen PWA share these layout corrections.
+ */
+.customer-premium { --gf-mobile-ink:#153c2e; --gf-mobile-green:#08734b; }
+.customer-premium .customer-mobile-policy-link {
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  margin:10px auto 0;padding:16px 16px 20px;text-align:center;
+  color:#738476;font-size:11px;
+}
+.customer-premium .customer-mobile-policy-link button {
+  appearance:none;border:0;background:none;padding:10px;
+  text-decoration:underline;text-underline-offset:3px;
+  color:#176b4c;font-size:12px;font-weight:750;cursor:pointer;
+}
+.customer-premium .customer-mobile-policy-link button:focus-visible {outline:3px solid #44a77c;outline-offset:2px;}
+@media(max-width:640px) {
+  .customer-premium {
+    width:100%;min-width:0;overflow-x:clip;background:#f7faf6;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .customer-premium .top-header {
+    min-height:60px!important;
+    padding:9px 14px!important;gap:8px!important;
+    background:rgba(255,255,255,.97)!important;
+    border-bottom:1px solid #e2ede5!important;
+    box-shadow:none!important;
+  }
+  .customer-premium .header-home { min-width:0;gap:8px!important; }
+  .customer-premium .header-home img {width:33px;height:33px;border-radius:11px;}
+  .customer-premium .header-home .restaurant-name {
+    font-size:16px!important;letter-spacing:-.035em!important;
+    line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .customer-premium .top-header .header-actions {gap:7px!important;}
+  .customer-premium .top-header .icon-btn {
+    min-width:42px!important;min-height:42px!important;
+    width:42px!important;height:42px!important;
+    border-radius:14px!important;background:#f4faf6!important;
+    border:1px solid #e0ebe4!important;color:#145c40!important;
+  }
+  .customer-premium .top-header .lang-select {
+    min-width:49px!important;height:42px!important;border-radius:13px!important;
+  }
+  .customer-premium #customer-main {
+    min-width:0;max-width:100%;padding-bottom:calc(112px + env(safe-area-inset-bottom,0px))!important;
+  }
+  .customer-premium .bottom-nav {
+    box-sizing:border-box!important;
+    bottom:0!important;width:100%!important;
+    min-height:calc(69px + env(safe-area-inset-bottom,0px))!important;
+    height:calc(69px + env(safe-area-inset-bottom,0px))!important;
+    padding:5px 6px max(5px,env(safe-area-inset-bottom,0px))!important;
+    background:rgba(255,255,255,.98)!important;
+    border-top:1px solid #e4ede6!important;
+    box-shadow:0 -6px 26px rgba(20,56,37,.07)!important;
+    z-index:110!important;
+  }
+  .customer-premium .bottom-nav .nav-item {
+    position:relative;min-width:0;gap:3px!important;
+    font-size:11px!important;line-height:1.1!important;
+    font-weight:650!important;letter-spacing:0!important;
+    border-radius:15px!important;padding:4px 1px!important;
+    color:#677c70!important;
+  }
+  .customer-premium .bottom-nav .nav-item.active {
+    background:#eaf7ee!important;color:#076c47!important;
+    font-weight:800!important;
+  }
+  .customer-premium .bottom-nav .nav-item .nav-icon {display:grid;place-items:center;}
+  .customer-premium .bottom-nav .nav-item .badge {position:absolute!important;top:1px;right:12%!important;}
+  /* Exactly one floating assistant launcher. Do not obstruct cards, tabs or search. */
+  .customer-premium .gastro-mate-launcher {
+    right:14px!important;
+    bottom:calc(86px + env(safe-area-inset-bottom,0px))!important;
+    z-index:115!important;
+  }
+  .customer-premium .gastro-mate-pill {display:none!important;}
+  .customer-premium .gastro-mate-trigger {
+    width:48px!important;height:48px!important;
+    box-shadow:0 6px 18px rgba(12,90,51,.22)!important;
+  }
+  .customer-premium .gastro-mate-modal {
+    width:calc(100vw - 16px)!important;
+    max-width:430px!important;
+    right:8px!important;
+    bottom:calc(76px + env(safe-area-inset-bottom,0px))!important;
+    max-height:calc(100dvh - 110px - env(safe-area-inset-top,0px))!important;
+  }
+  .customer-premium .marketplace-menu {
+    box-sizing:border-box;padding:12px 16px calc(95px + env(safe-area-inset-bottom,0px))!important;
+    width:100%;max-width:100%;min-width:0;
+  }
+  .customer-premium .marketplace-hero {
+    padding:23px 20px!important;border-radius:23px!important;
+    background:linear-gradient(145deg,#eff9ef,#e8f6ed)!important;
+    box-shadow:none!important;border:1px solid #dcebdd!important;
+  }
+  .customer-premium .marketplace-hero h1 {
+    font-size:clamp(27px,7vw,36px)!important;line-height:1.12!important;
+    margin:12px 0 9px!important;letter-spacing:-.048em;
+  }
+  .customer-premium .marketplace-hero p {
+    font-size:13px!important;line-height:1.5!important;margin-bottom:16px!important;
+  }
+  .customer-premium .marketplace-search {
+    min-height:50px!important;border-radius:15px!important;
+    box-shadow:none!important;padding:0 13px!important;
+  }
+  .customer-premium .marketplace-stats {gap:8px!important;margin-top:13px!important;}
+  .customer-premium .marketplace-stats span {font-size:11px!important;}
+  .customer-premium .marketplace-results-title {margin:22px 1px 12px!important;}
+  .customer-premium .marketplace-results-title h2 {font-size:22px!important;line-height:1.2;}
+  .customer-premium .marketplace-item-grid {
+    grid-template-columns:minmax(0,1fr)!important;gap:14px!important;
+  }
+  .customer-premium .marketplace-item {
+    width:100%;display:grid;grid-template-columns:minmax(0,42%) minmax(0,1fr);
+    min-height:164px;border-radius:20px!important;
+    box-shadow:0 6px 20px rgba(12,62,36,.06)!important;
+  }
+  .customer-premium .marketplace-item-image {height:100%!important;min-height:164px;}
+  .customer-premium .marketplace-item-store {
+    font-size:10px!important;left:7px!important;bottom:8px!important;
+    padding:5px 7px!important;max-width:calc(100% - 14px)!important;
+  }
+  .customer-premium .marketplace-item-info {
+    min-width:0;min-height:0!important;padding:14px 12px!important;gap:5px;
+  }
+  .customer-premium .marketplace-item-info h3 {font-size:17px!important;}
+  .customer-premium .marketplace-item-info p {
+    margin:2px 0 5px!important;font-size:12px!important;
+    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;
+  }
+  .customer-premium .marketplace-item-footer {
+    display:flex;align-items:flex-start;flex-direction:column;gap:8px!important;
+  }
+  .customer-premium .marketplace-item-footer strong {font-size:17px!important;}
+  .customer-premium .marketplace-item-footer button {
+    min-height:37px;font-size:12px!important;padding:8px 12px!important;border-radius:11px!important;
+  }
+  .customer-premium .marketplace-store-grid {grid-template-columns:minmax(0,1fr)!important;}
+  .customer-premium .marketplace-store {min-height:76px;border-radius:19px!important;}
+  .customer-premium .marketplace-notice {margin:16px 2px!important;}
+  .customer-premium .gastrofood-discovery .restaurants-result-grid {
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+  .customer-premium .gastrofood-discovery .gastrofood-restaurant-card {
+    border-radius:23px!important;overflow:hidden;
+    box-shadow:0 6px 22px rgba(20,66,42,.06)!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-modern-hero {
+    border-radius:23px!important;
+  }
+}
+@media(max-width:355px) {
+  .customer-premium .marketplace-item {
+    display:flex;flex-direction:column;
+  }
+  .customer-premium .marketplace-item-image {height:175px!important;}
+  .customer-premium .marketplace-item-footer {flex-direction:row;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .customer-premium .marketplace-item, .customer-premium .bottom-nav .nav-item {transition:none!important;}
+}
+
+
+/* iOS standalone Safari: sticky headers inside clipped app containers can
+ * scroll out of view. Anchor the app bar to the visual viewport instead.
+ * Reserve its exact height in layout; auth screens intentionally hide it. */
+@media(max-width:640px) {
+  .customer-premium:not(.customer-auth-route) {
+    padding-top:calc(62px + env(safe-area-inset-top,0px))!important;
+  }
+  .customer-premium:not(.customer-auth-route) > .top-header {
+    position:fixed!important;
+    display:flex!important;
+    visibility:visible!important;
+    left:0!important;right:0!important;
+    top:env(safe-area-inset-top,0px)!important;
+    width:100%!important;max-width:640px!important;
+    height:62px!important;min-height:62px!important;
+    margin:0 auto!important;padding:8px 14px!important;
+    z-index:200!important;
+    transform:none!important;
+    box-sizing:border-box!important;
+    background:#ffffff!important;
+    box-shadow:0 4px 22px rgba(13,63,42,.08)!important;
+    -webkit-backdrop-filter:none!important;
+    backdrop-filter:none!important;
+  }
+  .customer-premium:not(.customer-auth-route) > .top-header .header-actions {
+    display:flex!important;align-items:center!important;
+  }
+  .customer-premium.customer-auth-route {padding-top:0!important;}
+  .customer-premium.customer-auth-route > .top-header {display:none!important;}
+  .customer-premium .gastrofood-discovery {
+    padding-bottom:10px!important;
+  }
+  .customer-premium .customer-mobile-policy-link {
+    margin:0 auto!important;
+    padding:8px 14px 20px!important;
+  }
+  .customer-premium .customer-mobile-policy-link span {
+    font-size:10px!important;
+  }
+  .customer-premium .marketplace-menu {
+    padding-bottom:calc(30px + env(safe-area-inset-bottom,0px))!important;
+  }
+  .customer-premium .marketplace-notice {
+    max-width:42ch;
+    margin:15px 2px 0!important;
+    font-size:11px!important;line-height:1.5!important;
+  }
+  .customer-premium .marketplace-results-title h2 {
+    font-size:21px!important;
+  }
+  .customer-premium .marketplace-item {
+    border-color:#e2eae3!important;
+    background:#fff!important;
+  }
+}
+
+
+/* GastroFlow Food signature design — November 2026
+ * Unique editorial food-marketplace language: evergreen ink, lime highlights,
+ * warm ivory surfaces, expressive real food imagery and spacious product cards.
+ * Dedicated customer app only; POS/owner/driver UIs are not affected.
+ */
+.customer-premium:not(.customer-auth-route) {
+  --gf-signature-ink:#132e27;
+  --gf-signature-forest:#075a44;
+  --gf-signature-lime:#d9f4a7;
+  --gf-signature-cream:#f8f9f2;
+  background:#f8f9f5!important;
+}
+.customer-premium .marketplace-category-row {
+  display:flex;gap:9px;overflow-x:auto;scrollbar-width:none;
+  padding:1px 1px 7px;overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;
+}
+.customer-premium .marketplace-category-row::-webkit-scrollbar{display:none}
+.customer-premium .marketplace-category-row button {
+  flex:0 0 auto;min-height:42px;border-radius:999px;
+  background:#fff;color:#355f4b;border:1px solid #d8e5dc;
+  padding:9px 16px;white-space:nowrap;font-size:13px;font-weight:750;
+  box-shadow:0 3px 9px rgba(15,61,38,.025);cursor:pointer;
+}
+.customer-premium .marketplace-category-row button.is-active {
+  background:#0c6348!important;color:white!important;
+  border-color:#0c6348!important;
+}
+.customer-premium .marketplace-category-row button:focus-visible {
+  outline:3px solid #76ba91;outline-offset:2px;
+}
+.customer-premium .marketplace-hero-layout {
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(125px,34%);
+  align-items:center;gap:12px;
+}
+.customer-premium .marketplace-hero-visual {
+  width:100%;aspect-ratio:1/1;border-radius:50%;overflow:hidden;
+  background:radial-gradient(circle at 25% 25%,#fff3c5,#d5ebc0 80%);
+  display:grid;place-items:center;
+  border:5px solid rgba(255,255,255,.62);
+  box-shadow:0 13px 30px rgba(3,57,39,.12);
+}
+.customer-premium .marketplace-hero-visual img {
+  width:100%;height:100%;object-fit:cover;
+}
+.customer-premium .marketplace-hero-visual span {font-size:clamp(55px,7vw,105px);}
+.customer-premium .marketplace-hero-copy {min-width:0;}
+.customer-premium .marketplace-results-title span {
+  color:#35714f!important;letter-spacing:.13em!important;
+}
+.customer-premium .marketplace-results-title h2 {
+  color:#17372b!important;font-weight:850;letter-spacing:-.035em!important;
+}
+.customer-premium .marketplace-item {
+  border:1px solid #e0e8df!important;background:#fff;
+  box-shadow:0 10px 30px rgba(13,59,32,.07)!important;
+}
+.customer-premium .marketplace-item-info h3 {font-weight:850!important;color:#17362a!important;}
+.customer-premium .marketplace-item-footer button {
+  background:#0b684c!important;
+  transition:background .15s ease,transform .15s ease;
+}
+.customer-premium .marketplace-item-footer button:active {transform:scale(.97);}
+.customer-premium .marketplace-store {
+  background:white!important;border:1px solid #dae9dc!important;
+  box-shadow:0 5px 20px rgba(15,71,44,.035)!important;
+}
+.customer-premium .marketplace-store-icon {
+  border-radius:16px!important;background:#e8f7e6!important;
+}
+@media (max-width:640px) {
+  .customer-premium .marketplace-menu {padding:12px 16px 28px!important;}
+  .customer-premium .marketplace-hero {
+    background:linear-gradient(130deg,#e7f8e7 0%,#f3f9e9 60%,#f7edd9 100%)!important;
+    padding:21px 18px 19px!important;border-radius:25px!important;
+    border:1px solid #dcecd9!important;
+  }
+  .customer-premium .marketplace-eyebrow {font-size:10px!important;letter-spacing:.12em!important;}
+  .customer-premium .marketplace-hero-layout {gap:9px;grid-template-columns:minmax(0,1fr) 34%;}
+  .customer-premium .marketplace-hero h1 {
+    font-size:clamp(24px,6.4vw,34px)!important;
+    line-height:1.11!important;letter-spacing:-.05em!important;
+    margin:13px 0 9px!important;
+  }
+  .customer-premium .marketplace-hero p {font-size:12px!important;line-height:1.5!important;margin:0!important;}
+  .customer-premium .marketplace-hero-visual {
+    border-width:3px!important;box-shadow:0 8px 18px rgba(6,73,47,.12)!important;
+  }
+  .customer-premium .marketplace-hero-visual span {font-size:56px!important;}
+  .customer-premium .marketplace-search {margin-top:18px!important;}
+  .customer-premium .marketplace-category-row {margin-top:14px; margin-bottom:0;}
+  .customer-premium .marketplace-item-grid {gap:12px!important;}
+  .customer-premium .marketplace-item {
+    grid-template-columns:minmax(0,43%) minmax(0,1fr)!important;
+    min-height:164px!important;
+    border-radius:19px!important;
+  }
+  .customer-premium .marketplace-item-image {
+    min-height:164px!important;height:100%!important;
+  }
+  .customer-premium .marketplace-item-info {padding:13px 12px!important;}
+  .customer-premium .marketplace-item-info p {font-size:12px!important;}
+  .customer-premium .marketplace-store {
+    min-height:80px!important;border-radius:19px!important;
+  }
+  .customer-premium .gastrofood-discovery .gastrofood-restaurant-card {
+    border-radius:22px!important;
+    border:1px solid #dfebe1!important;
+    box-shadow:0 8px 23px rgba(15,59,36,.065)!important;
+  }
+  .customer-premium .gastrofood-discovery .gf-mobile-restaurant-banner {
+    max-height:178px;overflow:hidden;
+  }
+  .customer-premium .bottom-nav {
+    border-radius:20px 20px 0 0!important;
+    box-shadow:0 -8px 22px rgba(11,63,38,.075)!important;
+  }
+  .customer-premium .bottom-nav .nav-item.active {
+    border-radius:16px!important;
+    background:#e8f7e7!important;
+  }
+}
+@media(max-width:370px) {
+  .customer-premium .marketplace-hero-layout {grid-template-columns:minmax(0,1fr) 29%;}
+  .customer-premium .marketplace-hero-visual span {font-size:38px!important;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .customer-premium .marketplace-item-footer button {transition:none!important;}
+}
+
+
+/* Store discovery belongs to the same GastroFlow signature interface. */
+@media(max-width:640px) {
+  .customer-premium .gastrofood-discovery {
+    padding:11px 15px 14px!important;
+  }
+  .customer-premium .gastrofood-discovery .restaurants-location-row {
+    margin-bottom:11px!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-modern-hero {
+    padding:21px 19px!important;
+    background:linear-gradient(135deg,#e3f5e7,#f4f9ec 65%,#fcf0dd)!important;
+    border:1px solid #dce8da!important;
+    border-radius:25px!important;
+    box-shadow:none!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-eyebrow {
+    font-size:10px!important;letter-spacing:.13em!important;color:#286d4f!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-copy h1 {
+    font-size:clamp(27px,7vw,37px)!important;line-height:1.1!important;
+    color:#14372b!important;letter-spacing:-.055em!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-copy p {
+    font-size:13px!important;line-height:1.5!important;
+    color:#64796c!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-kpis span {
+    border-radius:10px!important;background:#ffffffb9!important;
+    border:1px solid #d8eadc!important;font-size:11px!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-hero-food {
+    border-radius:50%!important;
+    background:#fff7df!important;
+    box-shadow:0 8px 22px rgba(24,70,44,.1)!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-modern-search {
+    background:#fff!important;border:1.5px solid #d9e7dc!important;
+    border-radius:17px!important;box-shadow:none!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-quick-filters {
+    margin-top:10px!important;gap:7px!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-quick-filters>button {
+    border-radius:999px!important;min-height:42px!important;
+    background:#fff!important;border:1px solid #d9e8dc!important;
+    font-size:12px!important;color:#265f45!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-quick-filters>button.active {
+    background:#0e684b!important;color:white!important;
+    border-color:#0e684b!important;
+  }
+  .customer-premium .gastrofood-discovery .stores-modern-grid {
+    gap:14px!important;
+  }
+  .customer-premium .gastrofood-discovery .gf-mobile-restaurant-banner {
+    height:160px!important;
+    background:linear-gradient(135deg,#c7e6d5,#e8f4e1 55%,#f1ead6)!important;
+  }
+  .customer-premium .gastrofood-discovery .gf-mobile-restaurant-details {
+    padding:16px!important;
+  }
+  .customer-premium .gastrofood-discovery .gastrofood-store-name {
+    font-size:19px!important;line-height:1.25!important;
+    font-weight:850!important;color:#19372b!important;
+  }
+}
+
+
+/* Consistent premium surfaces across checkout, order tracking, account. */
+@media(max-width:640px) {
+  .customer-premium .checkout-view,
+  .customer-premium .tracking-page,
+  .customer-premium .profile-page {
+    width:100%;min-width:0;box-sizing:border-box;
+    padding-inline:15px!important;
+    color:#1c3c30;
+  }
+  .customer-premium .checkout-view .form-section,
+  .customer-premium .tracking-page .form-section,
+  .customer-premium .tracking-card,
+  .customer-premium .profile-card {
+    background:#fff!important;
+    border:1px solid #e1eae1!important;
+    border-radius:21px!important;
+    box-shadow:0 6px 23px rgba(13,66,42,.055)!important;
+  }
+  .customer-premium .checkout-view .form-section {
+    padding:17px!important;margin-bottom:13px!important;
+  }
+  .customer-premium .checkout-view .form-control,
+  .customer-premium .tracking-page .form-control,
+  .customer-premium .profile-page .form-control {
+    box-sizing:border-box;min-height:51px!important;
+    font-size:16px!important;border-radius:13px!important;
+    border:1.5px solid #d5e4d8!important;
+    background:#fff!important;color:#173b2b!important;
+  }
+  .customer-premium .checkout-view .form-control:focus,
+  .customer-premium .tracking-page .form-control:focus,
+  .customer-premium .profile-page .form-control:focus {
+    outline:3px solid #b7e5c5!important;outline-offset:0!important;
+    border-color:#27855a!important;
+  }
+  .customer-premium .checkout-view .gastrofood-checkout-heading {
+    color:#173c2b!important;letter-spacing:-.04em!important;
+  }
+  .customer-premium .tracking-page .uber-hero-card,
+  .customer-premium .tracking-page .gf-tracking-journey-sheet,
+  .customer-premium .tracking-page .gf-tracking-contact-card {
+    border-radius:22px!important;
+    box-shadow:0 8px 24px rgba(18,64,39,.075)!important;
+  }
+  .customer-premium .profile-page .profile-avatar {
+    box-shadow:0 8px 22px rgba(13,87,50,.15)!important;
+  }
+  .customer-premium .profile-page .profile-card {
+    margin-bottom:13px!important;
+  }
+  .customer-premium .checkout-view .btn-brand,
+  .customer-premium .profile-page .btn-brand,
+  .customer-premium .tracking-page .btn-brand {
+    background:#0d684b!important;border-color:#0d684b!important;
+    color:#fff!important;min-height:49px!important;
+    border-radius:15px!important;font-weight:800!important;
+  }
+  .customer-premium .checkout-view .sticky-bar {
+    box-sizing:border-box;
+    background:#fffffffa!important;
+    box-shadow:0 -9px 27px rgba(11,66,38,.085)!important;
+  }
+}
+
+
+/* iPhone standalone login: short branding, unobstructed form, no giant lower illustration.
+ * Designed for touch keyboard and accessibility text scaling. */
+@media(max-width:640px) {
+  .customer-premium.customer-auth-route {
+    min-height:100dvh!important;overflow-x:clip!important;
+    background:#f9fbf7!important;
+  }
+  .customer-auth-route .auth-reference-page {
+    padding:0 0 max(36px,env(safe-area-inset-bottom,0px))!important;
+    min-height:100dvh!important;
+    background:#fff!important;
+    overflow:visible!important;
+    box-shadow:none!important;
+  }
+  .customer-auth-route .auth-reference-page::after {display:none!important;content:none!important;}
+  .customer-auth-route .auth-reference-hero {margin-bottom:9px!important;}
+  .customer-auth-route .auth-hero-brand {
+    height:72px!important;min-height:72px!important;
+    padding:11px 18px!important;
+    justify-content:flex-start!important;gap:11px!important;
+  }
+  .customer-auth-route .auth-hero-brand .auth-brand-symbol {
+    height:43px!important;width:43px!important;border-radius:13px!important;
+  }
+  .customer-auth-route .auth-hero-brand h1 {
+    font-size:27px!important;letter-spacing:-.05em!important;
+  }
+  .customer-auth-route .auth-hero-brand span {
+    font-size:8px!important;letter-spacing:.15em!important;margin-top:4px!important;
+  }
+  .customer-auth-route .auth-reference-hero .auth-hero-image {
+    height:98px!important;min-height:98px!important;
+    background:#0b7750!important;
+  }
+  .customer-auth-route .auth-reference-hero .auth-hero-image img {
+    object-fit:cover;object-position:center 48%;
+  }
+  .customer-auth-route .auth-reference-hero .auth-hero-image::after {
+    height:14px!important;transform:none!important;
+  }
+  .customer-auth-route .auth-hero-intro {
+    padding:13px 23px 5px!important;
+  }
+  .customer-auth-route .auth-hero-intro h2 {
+    font-size:clamp(25px,7vw,32px)!important;
+    line-height:1.15!important;margin:0 0 4px!important;
+  }
+  .customer-auth-route .auth-hero-intro p {
+    font-size:13px!important;line-height:1.45!important;
+  }
+  .customer-auth-route .auth-reference-login-form,
+  .customer-auth-route .auth-reference-page > .auth-reference-register,
+  .customer-auth-route .auth-reference-page > .auth-reference-back,
+  .customer-auth-route .auth-reference-page > .auth-reference-alternate,
+  .customer-auth-route .auth-reference-page > form:not(.auth-reference-login-form) {
+    margin-left:23px!important;margin-right:23px!important;
+  }
+  .customer-auth-route .auth-reference-login-form .form-group {
+    margin-bottom:10px!important;
+  }
+  .customer-auth-route .auth-reference-field {
+    min-height:50px!important;height:50px!important;border-radius:14px!important;
+  }
+  .customer-auth-route .auth-reference-field .form-control {
+    font-size:16px!important;min-height:46px!important;
+  }
+  .customer-auth-route .auth-reference-forgot {
+    margin:10px 0 13px!important;
+  }
+  .customer-auth-route .auth-reference-submit {
+    min-height:49px!important;height:49px!important;border-radius:14px!important;
+    font-size:16px!important;
+  }
+  .customer-auth-route .auth-reference-register {
+    margin-top:13px!important;margin-bottom:7px!important;
+    padding:10px 13px!important;border-radius:15px!important;
+  }
+  .customer-auth-route .auth-reference-otp-link {
+    margin-top:4px!important;
+  }
+  .customer-auth-route .auth-reference-browse {
+    position:fixed!important;top:max(10px,env(safe-area-inset-top,0px))!important;right:12px!important;
+    z-index:250!important;max-width:112px!important;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    font-size:10px!important;padding:7px!important;
+  }
+}
+@media(max-width:640px) and (max-height:690px) {
+  .customer-auth-route .auth-reference-hero .auth-hero-image {height:65px!important;min-height:65px!important;}
+  .customer-auth-route .auth-hero-brand {height:63px!important;min-height:63px!important;}
+  .customer-auth-route .auth-hero-intro {padding-top:8px!important;}
+}
+
+/* When campaigns are active, the carousel replaces the illustration hero.
+   Keep the search box in a compact card directly beneath the advertising area. */
+@media(max-width:640px) {
+  .customer-premium .marketplace-hero.has-live-promotions {
+    padding:11px!important;margin-top:2px!important;
+    border-radius:18px!important;background:#fff!important;
+    border:1px solid #e1eae2!important;
+  }
+  .customer-premium .marketplace-hero.has-live-promotions>.marketplace-eyebrow {display:none!important;}
+  .customer-premium .marketplace-hero.has-live-promotions .marketplace-search {margin-top:0!important;}
+  .customer-premium .marketplace-hero.has-live-promotions .marketplace-stats {margin:10px 2px 1px!important;}
+}
+
+/* iPhone authentication and map-first delivery location — isolated customer UI. */
+@media(max-width:640px) {
+ .customer-auth-route .auth-reference-page {
+   padding:0 0 max(20px,env(safe-area-inset-bottom,0px))!important;
+   min-height:100dvh!important;height:auto!important;
+   overflow-x:hidden!important;overflow-y:auto!important;
+ }
+ .customer-auth-route .auth-reference-page::after {
+   display:none!important;content:none!important;background:none!important;
+ }
+ .customer-auth-route .auth-reference-hero {margin:0 0 5px!important;}
+ .customer-auth-route .auth-hero-brand {
+   height:68px!important;min-height:68px!important;justify-content:flex-start!important;
+   padding:12px 20px!important;gap:10px!important;
+ }
+ .customer-auth-route .auth-hero-brand .auth-brand-symbol {width:40px!important;height:40px!important;border-radius:12px!important;}
+ .customer-auth-route .auth-hero-brand h1 {font-size:25px!important;}
+ .customer-auth-route .auth-hero-brand span {font-size:8px!important;margin-top:3px!important;}
+ .customer-auth-route .auth-reference-hero .auth-hero-image {
+   height:102px!important;min-height:102px!important;
+ }
+ .customer-auth-route .auth-reference-hero .auth-hero-image::after {height:12px!important;transform:none!important;}
+ .customer-auth-route .auth-hero-intro {
+   padding:11px 22px 6px!important;
+ }
+ .customer-auth-route .auth-hero-intro h2 {font-size:28px!important;margin:0 0 6px!important;}
+ .customer-auth-route .auth-hero-intro p {font-size:13px!important;line-height:1.45!important;}
+ .customer-auth-route .auth-reference-login-form,
+ .customer-auth-route .auth-reference-page>.auth-reference-register,
+ .customer-auth-route .auth-reference-page>form:not(.auth-reference-login-form) {
+   margin-left:22px!important;margin-right:22px!important;
+ }
+ .customer-auth-route .auth-reference-page>.text-center.text-muted:last-child {
+   padding:7px 24px 24px!important;margin-top:9px!important;
+   line-height:1.5!important;font-size:11px!important;
+ }
+ .customer-auth-route .auth-reference-browse {
+   position:absolute!important;right:10px!important;top:env(safe-area-inset-top,0px)!important;
+   max-width:110px!important;z-index:20!important;
+ }
+ .gf-location-overlay {
+   align-items:flex-end!important;justify-content:center!important;
+   padding:0!important;background:rgba(10,38,25,.6)!important;
+   -webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);
+ }
+ .gf-location-sheet {
+   box-sizing:border-box!important;max-width:640px!important;
+   max-height:calc(100dvh - env(safe-area-inset-top,0px) - 12px)!important;
+   width:100%!important;
+   padding:18px 18px calc(22px + env(safe-area-inset-bottom,0px))!important;
+   margin:0!important;border-radius:27px 27px 0 0!important;
+   background:#fafcf8!important;color:#163d2b!important;
+   border:1px solid #e3eae2!important;
+   overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+ }
+ .gf-location-heading {align-items:flex-start!important;gap:8px!important;margin-bottom:14px!important;}
+ .gf-location-heading h3 {font-size:19px!important;color:#163b2a!important;line-height:1.25;}
+ .gf-location-heading p {margin:6px 0 0;font-size:12px;color:#677b70;line-height:1.4;}
+ .gf-location-heading>button {display:grid;place-items:center;min-width:42px;min-height:42px;border-radius:13px!important;background:#edf3ee!important;}
+ .gf-location-eyebrow {display:block;margin:0 0 5px;color:#13805b;font-size:10px;font-weight:900;letter-spacing:.13em;}
+ .gf-location-sheet>button:nth-child(2) {
+   min-height:50px;border-radius:15px!important;background:#0c784f!important;
+   font-size:13px!important;margin-bottom:11px!important;
+ }
+ .gf-location-error {font-size:12px;line-height:1.5;color:#8a422c;background:#fff4ea;padding:10px;border-radius:12px;margin:0 0 10px;}
+ .gf-location-current {display:flex;flex-direction:column;gap:4px;padding:10px 13px;background:#eff8ee;border:1px solid #d9e9dc;border-radius:13px;margin-bottom:13px;overflow-wrap:anywhere;}
+ .gf-location-current>span {font-size:10px;font-weight:850;color:#357452;text-transform:uppercase;letter-spacing:.08em;}
+ .gf-location-current>strong {font-size:12px;color:#224d37;font-weight:750;}
+ .gf-location-current>small {font-size:10px;color:#617768;}
+ .gf-location-search label {color:#4d7160!important;font-size:11px!important;}
+ .gf-location-search-row {min-width:0;}
+ .gf-location-search-row input {
+   min-width:0;flex:1!important;height:47px!important;border-radius:13px!important;
+   padding:10px!important;font-size:16px!important;background:#fff!important;color:#183a29!important;
+   border:1px solid #d4e3d7!important;
+ }
+ .gf-location-search-row button {
+   flex:0 0 auto;min-width:67px;border-radius:13px!important;
+   background:#0d7450!important;font-weight:800!important;
+ }
+ .gf-location-map-heading {display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 8px;}
+ .gf-location-map-heading strong {font-size:13px;color:#244c36;}
+ .gf-location-map-heading span {font-size:11px;color:#718476;}
+ .gf-location-map-frame {overflow:hidden;border-radius:17px;border:1px solid #d3e0d4;box-shadow:0 5px 16px #0a3a2012;}
+ .gf-location-map-frame .leaflet-container {height:225px!important;max-height:32dvh!important;}
+ .gf-location-confirm {width:100%;min-height:48px;margin:13px 0 8px;border:0;background:#0a704b;color:white;font-size:14px;font-weight:850;border-radius:14px;cursor:pointer;}
+ .gf-location-confirm:disabled {opacity:.5;cursor:not-allowed;}
+ .gf-location-cities-toggle {width:100%;min-height:44px;border:1px solid #d9e7da;background:#fff;color:#246448;font-size:12px;font-weight:800;border-radius:13px;margin:0 0 9px;cursor:pointer;}
+ .gf-location-city-grid button {background:#f0f8f1!important;border:1px solid #d8e6db!important;color:#23553c!important;font-size:12px!important;min-height:47px;border-radius:12px!important;}
+}

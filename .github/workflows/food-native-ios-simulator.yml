@@ -1,0 +1,177 @@
+name: GastroFlow Food iOS simulator candidate
+
+# Explicit only: macOS runners may consume billed GitHub Actions minutes.
+# Builds the separate customer iPhone app with no signing, deployment, or data.
+# Workflow-dispatch registration requires a copy on main. Keep this work
+# exclusively on codex/production-readiness and trigger a single unsigned
+# simulator validation when this workflow file is changed on that branch.
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [codex/production-readiness]
+    paths:
+      - .github/workflows/food-native-ios-simulator.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gastrofood-ios-simulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-simulator-candidate:
+    if: github.ref == 'refs/heads/codex/production-readiness'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Xcode requirements
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          XCODE_MAJOR="$(xcodebuild -version | awk '/^Xcode / { split($2, v, "."); print v[1] }')"
+          test -n "$XCODE_MAJOR"
+          test "$XCODE_MAJOR" -ge 26
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Keep root POS dependency lock immutable
+        run: shasum -a 256 package-lock.json > "$RUNNER_TEMP/pos-lock.sha256"
+      - name: Install root web build tooling
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+      - name: Install locked customer-only native dependencies
+        working-directory: apps/customer-web
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Verify customer native dependency lock and identifier
+        run: |
+          node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+          node scripts/check-food-native-release-boundary.mjs
+      - name: Build isolated customer web assets for staging
+        env:
+          VITE_NATIVE_API_ORIGIN: https://gastroflow-staging.onrender.com
+        run: npm run customer:native:build
+      - name: Generate or reuse only customer iPhone source
+        working-directory: apps/customer-web
+        run: |
+          set -euo pipefail
+          if test -f ios/App/App.xcodeproj/project.pbxproj; then
+            echo "Reusing existing customer iOS source"
+          else
+            npm run native:add:ios
+          fi
+      - name: Sync customer app assets and apply foreground location explanation
+        working-directory: apps/customer-web
+        run: |
+          npm run native:sync:ios
+          npm run native:permissions:ios
+      - name: Install reviewed Xcode project editor
+        run: gem install xcodeproj -v 1.27.0 --no-document
+      - name: Install customer-only Keychain plugin into generated Xcode project
+        run: |
+          ruby scripts/setup-food-ios-secure-session.rb
+          test -s apps/customer-web/ios/App/App/GastroFoodSecureSessionPlugin.swift
+          test -s apps/customer-web/ios/App/App/GastroFoodViewController.swift
+          grep -q 'customClass="GastroFoodViewController"' apps/customer-web/ios/App/App/Base.lproj/Main.storyboard
+          grep -q 'kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly' apps/customer-web/ios/App/App/GastroFoodSecureSessionPlugin.swift
+          shasum -a 256 -c "$RUNNER_TEMP/pos-lock.sha256"
+      - name: Install iPhone branding image processor in isolated Python environment
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/gastrofood-ios-python"
+          "$RUNNER_TEMP/gastrofood-ios-python/bin/python" -m pip install --disable-pip-version-check Pillow==11.3.0
+          echo "$RUNNER_TEMP/gastrofood-ios-python/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gastrofood-ios-python/bin/python" -c 'from PIL import Image; print("Pillow isolated and available")'
+      - name: Test iPhone asset generation and POS project isolation
+        run: python3 -m unittest discover -s tests -p test_food_ios_branding.py -v
+      - name: Apply approved GastroFlow Food iPhone launcher and splash assets
+        run: python3 scripts/generate-food-ios-branding.py
+      - name: Verify opaque 1024px app icon and branded splash images
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from PIL import Image
+          assets=Path('apps/customer-web/ios/App/App/Assets.xcassets')
+          icon=assets/'AppIcon.appiconset'/'AppIcon-512@2x.png'
+          assert icon.is_file(), 'Customer app icon missing'
+          with Image.open(icon) as im:
+              assert im.size==(1024,1024), 'iOS icon must be 1024x1024'
+              assert im.mode=='RGB', 'iOS app icon must be opaque'
+              im.verify()
+          splash=assets/'Splash.imageset'
+          images=json.loads((splash/'Contents.json').read_text())['images']
+          assert images, 'No splash images referenced'
+          for entry in images:
+              filename=entry.get('filename')
+              if filename:
+                  with Image.open(splash/filename) as im:
+                      assert im.mode=='RGB', 'iOS splash must be opaque'
+                      im.verify()
+          print('Approved customer iOS app icon and splash assets verified')
+          PY
+      - name: Confirm source identity, permissions, and no private signing files
+        run: |
+          set -euo pipefail
+          test -f apps/customer-web/ios/App/App.xcodeproj/project.pbxproj
+          test -f apps/customer-web/ios/App/App/Info.plist
+          grep -F 'NSLocationWhenInUseUsageDescription' apps/customer-web/ios/App/App/Info.plist
+          test -s apps/customer-web/ios/App/App/public/index.html
+          shasum -a 256 -c "$RUNNER_TEMP/pos-lock.sha256"
+          if find apps/customer-web/ios -type f \( -iname '*.p12' -o -iname '*.mobileprovision' -o -iname '*.cer' -o -iname '*.key' -o -name 'GoogleService-Info.plist' \) | grep .; then
+            echo 'Refusing to upload iOS signing credentials or Firebase service configuration'
+            exit 1
+          fi
+      - name: Compile unsigned-for-distribution iOS simulator application
+        working-directory: apps/customer-web
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/gastrofood-ios-derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Verify compiled simulator bundle and archive it
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/gastrofood-ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP"
+          test -s "$APP/public/index.html"
+          BUNDLE_ID="$(plutil -extract CFBundleIdentifier raw -o - "$APP/Info.plist")"
+          test "$BUNDLE_ID" = 'com.rstechnologies.gastrofood'
+          PURPOSE="$(plutil -extract NSLocationWhenInUseUsageDescription raw -o - "$APP/Info.plist")"
+          test -n "$PURPOSE"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" gastrofood-ios-simulator.zip
+          test -s gastrofood-ios-simulator.zip
+          echo 'Validated GastroFlow Food unsigned iOS simulator bundle. No real-device or App Store signing.'
+      - name: Upload isolated iOS simulator build for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-ios-simulator-candidate
+          path: gastrofood-ios-simulator.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: Summarize simulator validation for the release checklist
+        if: always()
+        run: |
+          {
+            echo '## GastroFlow Food iOS simulator validation'
+            echo ''
+            echo '- Branch: \`codex/production-readiness\`'
+            echo '- Commit: \`${GITHUB_SHA}\`'
+            echo '- Scope: customer iPhone app only; no signing, TestFlight, deployment or database operations'
+            echo '- Result: inspect the Xcode compilation step and generated artifacts above'
+            echo '- Next gate: signed physical-iPhone build and staging authentication/order testing'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload isolated iPhone project source for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-ios-source-candidate
+          path: apps/customer-web/ios/
+          if-no-files-found: error
+          retention-days: 7

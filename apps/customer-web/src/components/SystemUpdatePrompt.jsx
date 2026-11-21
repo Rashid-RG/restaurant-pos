@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useHostedPwaUpdatePrompt } from '../utils/native-update-policy.js';
 
 /**
  * SystemUpdatePrompt — Auto-detects server deployments and service worker updates,
@@ -12,8 +13,12 @@ export default function SystemUpdatePrompt() {
   });
   const [swRegistration, setSwRegistration] = useState(null);
 
+  const isHostedPwa = useHostedPwaUpdatePrompt(import.meta.env.MODE);
+
   useEffect(() => {
-    if (dismissed) return;
+    // Packaged Android/iOS apps update via app releases, not hosted PWA caches.
+    // Avoid polling the wrong https://localhost/api URL in the native shell.
+    if (!isHostedPwa || dismissed) return;
     // 1. Listen to Service Worker updates
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistration().then((reg) => {
@@ -80,7 +85,7 @@ export default function SystemUpdatePrompt() {
     try { sessionStorage.setItem('gastro_update_dismissed', '1'); } catch (_) {}
   };
 
-  if (!updateAvailable || dismissed) return null;
+  if (!isHostedPwa || !updateAvailable || dismissed) return null;
 
   return (
     <div

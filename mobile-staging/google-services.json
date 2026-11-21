@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "395753908391",
+    "project_id": "gastroflow-staging",
+    "storage_bucket": "gastroflow-staging.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:395753908391:android:b39486f00984ce0e3e5382",
+        "android_client_info": {
+          "package_name": "com.gastroflow.app.staging"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAFHMDdBwXyM_WH7cHFLyO-jfOOBrcouBI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

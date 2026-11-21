@@ -9,8 +9,11 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import path from 'path';
 import os from 'os';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
+import { makeTrackingAccess } from '../lib/orders/tracking.js';
 
 const TMP_DB = path.join(os.tmpdir(), `gastroflow_it_${Date.now()}_${Math.random().toString(36).slice(2)}.db`);
 process.env.DATABASE_FILE = TMP_DB;
@@ -19,7 +22,7 @@ process.env.PAYHERE_MERCHANT_SECRET = 'test_merchant_secret';
 process.env.PAYHERE_MERCHANT_ID = 'TESTMERCHANT';
 // NODE_ENV stays undefined (not 'production') so fail-fast + dev-simulate guard behave for tests.
 
-const { app, dbReady } = await import('../server.js');
+const { app, dbReady, dbRun } = await import('../server.js');
 const request = (await import('supertest')).default;
 
 // Reproduce the server's PayHere webhook signature exactly.
@@ -33,6 +36,7 @@ async function createOnlineOrder() {
   const menu = await request(app).get('/api/public/menu');
   const item = menu.body.items[0];
   const res = await request(app).post('/api/public/orders').send({
+    checkoutProof: await testCheckoutProof(dbRun,'default_tenant','0770000000'),
     items: [{ menuItemId: item.id, quantity: 2 }],
     orderType: 'takeaway',
     customerName: 'IT Tester',
@@ -235,5 +239,81 @@ describe('SaaS plan limits + usage metering', () => {
     const item = getRes.body.find(i => i.id === 'test_item_custom_photo_1');
     expect(item).toBeDefined();
     expect(item.imageUrl).toBe(customDataUrl);
+  });
+});
+
+
+// Security regression fixtures intentionally avoid the shared seeded menu.
+// Previous checkout tests consume its finite inventory, so a later test must
+// not depend on remaining stock. No production order is created or changed.
+async function makePrivateTrackingFixture(){
+  const id='ord_security_'+crypto.randomUUID();
+  const tenantId='default_tenant',now=Date.now();
+  await dbRun(
+    "INSERT INTO orders (id,tenant_id,diningType,orderType,status,timestamp,items,total,paymentMethod,paymentStatus) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    [id,tenantId,'takeaway','takeaway','pending',now,'[]',0,'cash','unpaid']
+  );
+  await dbRun(
+    'INSERT INTO order_inventory_state (orderId,tenant_id,requirements,revision,updatedAt) VALUES (?,?,?,?,?)',
+    [id,tenantId,'{}',1,now]
+  );
+  return {orderId:id,trackingToken:makeTrackingAccess(id,tenantId)};
+}
+
+describe('Private customer cancellation access (integration)',()=>{
+  it('rejects a stranger, an unrelated order token, and accepts the owning token',async()=>{
+    const first=await makePrivateTrackingFixture();
+    const second=await makePrivateTrackingFixture();
+    expect(first.orderId).toBeTruthy();
+    expect(first.trackingToken).toBeTruthy();
+    expect(second.trackingToken).toBeTruthy();
+    const url=`/api/public/orders/${first.orderId}/cancel`;
+    const stranger=await request(app).post(url).send({});
+    expect([401,403]).toContain(stranger.status);
+    const unrelated=await request(app).post(url)
+      .set('X-Order-Tracking',second.trackingToken).send({});
+    expect([401,403]).toContain(unrelated.status);
+    const privateCancel=await request(app).post(url)
+      .set('X-Order-Tracking',first.trackingToken).send({});
+    expect(privateCancel.status).toBe(200);
+    expect(privateCancel.body.status).toBe('cancelled');
+    const replay=await request(app).post(url)
+      .set('X-Order-Tracking',first.trackingToken).send({});
+    expect(replay.status).toBe(200);
+    expect(replay.body.status).toBe('cancelled');
+  });
+});
+
+
+describe('Customer handover PIN protection (integration)',()=>{
+  it('only issues a PIN with private tracking access, rejects wrong rider codes, and retains proof requirements',async()=>{
+    const created=await makePrivateTrackingFixture();
+    expect(created.orderId).toBeTruthy();
+    // Auth limiter is independently tested elsewhere; use a signed test
+    // identity here so earlier login tests cannot exhaust its shared quota.
+    const riderId='drv_1';
+    const driverToken=jwt.sign(
+      {driverId:riderId,tenant_id:'default_tenant',role:'driver',name:'Kamal Perera'},
+      process.env.JWT_SECRET,{expiresIn:'1h'}
+    );
+    await dbRun(
+      "UPDATE orders SET diningType='delivery',orderType='delivery',status='out_for_delivery',driverId=? WHERE id=? AND tenant_id=?",
+      [riderId,created.orderId,'default_tenant']
+    );
+    const url=`/api/public/orders/${created.orderId}/handover-pin`;
+    expect((await request(app).post(url).send({})).status).toBe(401);
+    const issued=await request(app).post(url).set('X-Order-Tracking',created.trackingToken).send({});
+    expect(issued.status).toBe(200);
+    expect(issued.body.pin).toMatch(/^[0-9]{6}$/);
+    expect(issued.body.expiresAt).toBeGreaterThan(Date.now());
+    const statusUrl='/api/public/driver/status';
+    const wrong=await request(app).post(statusUrl)
+      .set('Authorization',`Bearer ${driverToken}`)
+      .send({orderId:created.orderId,status:'delivered',deliveryPin:issued.body.pin==='000000'?'000001':'000000'});
+    expect(wrong.status).toBe(422);
+    const correctButNoProof=await request(app).post(statusUrl)
+      .set('Authorization',`Bearer ${driverToken}`)
+      .send({orderId:created.orderId,status:'delivered',deliveryPin:issued.body.pin});
+    expect(correctButNoProof.status).toBe(400);
   });
 });

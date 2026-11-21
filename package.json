@@ -11,6 +11,9 @@
     "start:production": "node server.js",
     "check": "node scripts/check-syntax.js",
     "backup": "node scripts/backup.js",
+    "backup:check": "node scripts/check-backup-freshness.js",
+    "backup:crypto": "node scripts/backup-crypto.js",
+    "backup:upload": "node scripts/upload-encrypted-backup.js",
     "start": "concurrently \"npm run server\" \"npm run dev\"",
     "start:all": "npx concurrently -k -n \"BACKEND,POS,FOOD,DRIVER\" -c \"cyan,blue,green,magenta\" \"npm run server\" \"npm run dev\" \"npm run customer:dev\" \"npm run driver:dev\"",
     "customer:dev": "vite apps/customer-web --port 3001 --host",
@@ -24,7 +27,10 @@
     "cap:ios": "npx cap add ios && npx cap sync",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mobile:audit": "node scripts/audit-customer-mobile-assets.mjs",
+    "food:native:preflight": "node scripts/audit-gastrofood-native-readiness.mjs",
+    "customer:native:build": "vite build apps/customer-web --mode native"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -49,7 +55,11 @@
     "recharts": "^3.10.0",
     "sqlite3": "^6.0.1",
     "web-push": "^3.6.7",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "h3-js": "^4.5.0",
+    "@capacitor/core": "^7.6.8",
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "maplibre-gl": "5.24.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

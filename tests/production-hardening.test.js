@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { validateProductionConfig } from '../lib/runtime-config.js';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 import { createDatabaseGate } from '../lib/database-gate.js';
 
 process.env.DATABASE_FILE = path.join(os.tmpdir(), `gastroflow_hardening_${crypto.randomUUID()}.db`);
@@ -25,7 +26,8 @@ const signedPayment = (order, overrides = {}) => {
   return body;
 };
 async function order(items = [{ menuItemId: 'security_item', quantity: 1 }], extra = {}) {
-  return request(app).post('/api/public/orders').send({ items, customerName: 'Regression Tester', customerPhone: '0770000000', orderType: 'takeaway', ...extra });
+  const checkoutProof = await testCheckoutProof(dbRun, 'default_tenant', extra.customerPhone || '0770000000');
+  return request(app).post('/api/public/orders').send({ items, customerName: 'Regression Tester', customerPhone: '0770000000', orderType: 'takeaway', ...extra, checkoutProof });
 }
 beforeAll(async () => {
   await dbReady;
@@ -46,6 +48,77 @@ describe('Production environment validation', () => {
   it('rejects ambiguous payment enablement values', () => expect(() => validateProductionConfig({ ...env, PAYHERE_ENABLED: 'no' })).toThrow(/PAYHERE_ENABLED/));
   it('rejects shared staff and customer secrets', () => expect(() => validateProductionConfig({ ...env, CUSTOMER_JWT_SECRET: env.JWT_SECRET })).toThrow());
   it('rejects unvalidated pooled Postgres transactions', () => expect(() => validateProductionConfig({ ...env, DATABASE_URL: 'postgres://localhost/db' })).toThrow(/PostgreSQL/));
+});
+
+describe('POS staff PIN reset authorization', () => {
+  it('resets an employee PIN without disclosing the PIN in any response', async () => {
+    const username = `pinreset_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+    const creation = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username, role: 'cashier', password: 'UniqueTestPassword!567', pin: '468291' });
+    expect(creation.status).toBe(200);
+    const id = creation.body.id;
+    const oldRow = await dbGet('SELECT pin FROM users WHERE id = ?', [id]);
+    const reset = await request(app).patch(`/api/users/${id}/pin`).set(auth(admin())).send({ pin: '819345' });
+    expect(reset.status).toBe(200);
+    expect(reset.body.success).toBe(true);
+    expect(reset.body.pin).toBeUndefined();
+    const newRow = await dbGet('SELECT pin FROM users WHERE id = ?', [id]);
+    expect(newRow.pin).not.toBe(oldRow.pin);
+    expect(newRow.pin).not.toBe('819345');
+    const listing = await request(app).get('/api/users').set(auth(admin()));
+    expect(listing.body.find(user => user.id === id).pin).toBeUndefined();
+  });
+
+  it('rejects invalid PINs and unauthorized cashiers', async () => {
+    const bad = await request(app).patch('/api/users/user_admin/pin').set(auth(admin())).send({ pin: '12a4' });
+    expect(bad.status).toBe(400);
+    const blocked = await request(app).patch('/api/users/user_admin/pin').set(auth(cashier())).send({ pin: '738291' });
+    expect(blocked.status).toBe(403);
+  });
+
+  it('does not allow owner of another restaurant to reset the PIN', async () => {
+    const username = `isolated_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+    const creation = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username, role: 'cashier', password: 'UniqueTestPassword!567', pin: '468291' });
+    expect(creation.status).toBe(200);
+    const blocked = await request(app).patch(`/api/users/${creation.body.id}/pin`)
+      .set(auth(bOwner())).send({ pin: '738291' });
+    expect(blocked.status).toBe(404);
+  });
+});
+
+describe('POS staff account creation', () => {
+  it('creates a staff account with secure credentials and lists it only for its tenant', async () => {
+    const username = `staff_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const response = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username, role: 'cashier', password: 'UniqueTestPassword!567', pin: '739165' });
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    const stored = await dbGet('SELECT id, username, role, tenant_id, pin, passwordHash FROM users WHERE username = ?', [username]);
+    expect(stored.tenant_id).toBe('default_tenant');
+    expect(stored.role).toBe('cashier');
+    expect(stored.pin).not.toBe('739165');
+    expect(stored.passwordHash).not.toBe('UniqueTestPassword!567');
+    const ownerList = await request(app).get('/api/users').set(auth(admin()));
+    const otherList = await request(app).get('/api/users').set(auth(bOwner()));
+    expect(ownerList.body.some(user => user.username === username)).toBe(true);
+    expect(otherList.body.some(user => user.username === username)).toBe(false);
+  });
+
+  it('rejects weak passwords and invalid PINs through request validation', async () => {
+    const weak = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username: `weak_${crypto.randomUUID().slice(0, 8)}`, role: 'cashier', password: 'short', pin: '7391' });
+    expect(weak.status).toBe(400);
+    const badPin = await request(app).post('/api/users').set(auth(admin()))
+      .send({ username: `badpin_${crypto.randomUUID().slice(0, 8)}`, role: 'cashier', password: 'UniqueTestPassword!567', pin: 'abcd' });
+    expect(badPin.status).toBe(400);
+  });
+
+  it('rejects unauthorized staff creation', async () => {
+    const response = await request(app).post('/api/users').set(auth(cashier()))
+      .send({ username: 'cashier_created_user', role: 'cashier', password: 'UniqueTestPassword!567', pin: '7391' });
+    expect(response.status).toBe(403);
+  });
 });
 
 describe('Actual HTTP authorization and tenant isolation', () => {

@@ -1,9 +1,13 @@
+import { platformPublisher } from '../../shared/platform-brand.js';
 import ManualPayments from './ManualPayments.jsx';
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePOS } from '../context/POSContext';
-import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint } from '../utils/printer';
+import { resolvePrinterPaperSize, prepareThermalPrint, cleanupThermalPrint, printRenderedReceipt, printSelectedReceipt } from '../utils/printer';
 import { formatRestaurantTime, restaurantTimeZone } from '../utils/restaurant-time';
+import { isNativePrintingEnabled, nativePrintReceiptElement } from '../utils/native-printer';
+import { readReceiptConfig, receiptFooterMessage, shouldPrintSubtotal, shouldPrintTax } from '../utils/receipt-settings';
+import { useExpressBilling } from '../utils/express-billing';
 
 export function getFoodImageForItem(item) {
   if (item?.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.trim() !== '') return item.imageUrl;
@@ -60,6 +64,7 @@ export default function POSView() {
     cart,
     addToCart,
     updateCartQuantity,
+    updateCartUnitPrice,
     updateCartNotes,
     removeFromCart,
     clearCart,
@@ -96,6 +101,8 @@ export default function POSView() {
   const closeMobileCart=()=>{setMobileCartOpen(false);mobileCartToggle.current?.focus();};
   useEffect(()=>{if(!mobileCartOpen)return;const close=event=>{if(event.key==='Escape'){setMobileCartOpen(false);mobileCartToggle.current?.focus();}};window.addEventListener('keydown',close);return()=>window.removeEventListener('keydown',close);},[mobileCartOpen]);
   const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef(null);
+  const [expressBilling] = useExpressBilling(currentUser);
   const [activeCategory, setActiveCategory] = useState('all');
 
   // Modals visibility
@@ -112,6 +119,9 @@ export default function POSView() {
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showCustomizerModal, setShowCustomizerModal] = useState(false);
+  const [customPriceLine, setCustomPriceLine] = useState(null);
+  const [customPriceValue, setCustomPriceValue] = useState('');
+  const [customPriceError, setCustomPriceError] = useState('');
 
   // Cash In / Cash Out (Paid-Out) Modal state
   const [showCashMoveModal, setShowCashMoveModal] = useState(false);
@@ -177,30 +187,52 @@ export default function POSView() {
   const [printReceiptOrder, setPrintReceiptOrder] = useState(null);
   const [lastPaidOrder, setLastPaidOrder] = useState(null);
 
-  // Auto-print receipt only when a new payment is completed.
-  // autoPrintRef.current is set to true in handlePaymentComplete and false on
-  // manual reprints (“Last Bill” button), preventing the double-print bug.
-  useEffect(() => {
-    if (printReceiptOrder && autoPrintRef.current) {
-      autoPrintRef.current = false;
-      const is58mm = settings.printerPaperWidth === '58mm';
-      if (is58mm) document.body.classList.add('print-58mm');
-      else document.body.classList.remove('print-58mm');
-      document.body.classList.add('printing-receipt');
-      const timer = setTimeout(() => {
-        prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
-        window.print();
-        setTimeout(() => {
-          document.body.classList.remove('print-58mm');
-          document.body.classList.remove('printing-receipt');
-          cleanupThermalPrint();
-        }, 1200);
-      }, 350);
-      return () => clearTimeout(timer);
+  // After settlement, use native ESC/POS only when explicitly enabled on
+  // this computer for this tenant. Never auto-fallback on a failed native job:
+  // a spooler may have accepted it, and a second print could duplicate bills.
+  const printerTenantId = currentUser?.tenant_id || currentUser?.tenantId || '';
+  const nativePrinterEnabled = isNativePrintingEnabled(printerTenantId);
+  const printCashierReceipt = async (userInitiated = false) => {
+    if (isNativePrintingEnabled(printerTenantId)) {
+      try {
+        await nativePrintReceiptElement(printerTenantId, settings?.printerPaperWidth || '80mm');
+        showToast('Receipt sent to the Windows print queue. Confirm physical output and paper cut.', 'info');
+        return true;
+      } catch (error) {
+        showToast('Direct print failed: ' + (error.message || error) + '. Use Browser Print to retry manually.', 'error');
+        return false;
+      }
     }
+    const ok = printRenderedReceipt(settings?.printerPaperWidth || '80mm', { userInitiated });
+    if (!ok) showToast('The receipt has not rendered. Open Last Bill and try again.', 'error');
+    return ok;
+  };
+  useEffect(() => {
+    if (!printReceiptOrder || !autoPrintRef.current) return;
+    autoPrintRef.current = false;
+    const timer = setTimeout(() => { void printCashierReceipt(false); }, 500);
+    return () => clearTimeout(timer);
+    // Only react to a newly committed paid receipt, not periodic store updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [printReceiptOrder]);
 
   const currencySymbol = settings.currencySymbol || 'Rs.';
+  const receiptConfig = readReceiptConfig(settings);
+  const openCustomPrice = (lineIndex, line) => {
+    if (!['owner', 'manager'].includes(currentUser?.role)) return;
+    setCustomPriceLine(lineIndex);
+    setCustomPriceValue(String(Number(line.unitPrice ?? line.price)));
+    setCustomPriceError('');
+  };
+  const saveCustomPrice = (event) => {
+    event.preventDefault();
+    const amount = Number(customPriceValue);
+    try {
+      updateCartUnitPrice(customPriceLine, amount);
+      setCustomPriceLine(null);
+      showToast('Custom price applied to this bill only. Menu prices are unchanged.', 'success');
+    } catch(error) { setCustomPriceError(error.message || 'Invalid custom price.'); }
+  };
 
   // Filter items
   const filteredItems = menuItems.filter((item) => {
@@ -213,8 +245,25 @@ export default function POSView() {
   const totals = getCartTotals(tipInput, deliveryInfo.fee);
 
   // Open customizer modal for item
-  const handleItemClick = (item) => {
-    if (item.stock <= 0) return; // out of stock
+  const handleItemClick = (item, forceCustomize = false) => {
+    if (Number(item.stock) <= 0) return;
+    // Explicit options must not be bypassed. Normal menu items add immediately
+    // and the existing cart reducer merges identical lines.
+    const hasOptions = Boolean(
+      item.requiresCustomization || item.requiresModifiers ||
+      item.modifierGroups?.length || item.modifiers?.length ||
+      item.requiredOptions?.length || item.variants?.length
+    );
+    if (expressBilling && !forceCustomize && !hasOptions) {
+      const inCart = cart.filter(line => line.id === item.id)
+        .reduce((quantity, line) => quantity + Number(line.quantity || 0), 0);
+      if (Number.isFinite(Number(item.stock)) && inCart >= Number(item.stock)) {
+        showToast('All available stock for this item is already in the bill.', 'warning');
+        return;
+      }
+      addToCart(item, 1, '');
+      return;
+    }
     setCustomizerItem(item);
     setCustomizerQty(1);
     setCustomizerNotes('');
@@ -270,11 +319,29 @@ export default function POSView() {
   };
 
   const handlePayClick = () => {
-    if (cart.length === 0) return;
-     // Clear any stale split-bill state from a previous order
+    if (cart.length === 0 || settlementBusyRef.current) return;
+    // Express checkout selects cash by default, but still requires a deliberate
+    // final confirmation and preserves the existing server-side settlement.
+    if (expressBilling) setPaymentMethod('cash');
     setCashReceived(totals.total.toString());
     setShowPaymentModal(true);
   };
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+      const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+      if (event.key === 'F2') {
+        event.preventDefault();
+        if (!showPaymentModal && !showCustomizerModal) searchInputRef.current?.focus();
+      } else if (event.key === 'F4' && !editing && !showPaymentModal && !showCustomizerModal && !printReceiptOrder) {
+        event.preventDefault();
+        handlePayClick();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
 
   // Poll the authoritative order status until it flips to paid (or a timeout elapses).
   // Returns the settled order (with its fiscal invoiceNumber) on success, else null.
@@ -569,6 +636,7 @@ export default function POSView() {
             <input
               type="text"
               className="search-input"
+              ref={searchInputRef}
               placeholder="Search dishes, drinks, or ingredients..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -610,6 +678,11 @@ export default function POSView() {
                     key={item.id}
                     className={`menu-item-card ${isOutOfStock ? 'disabled' : ''}`}
                     onClick={() => handleItemClick(item)}
+                    onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); handleItemClick(item); } }}
+                    role="button"
+                    tabIndex={isOutOfStock ? -1 : 0}
+                    aria-disabled={isOutOfStock}
+                    aria-label={`${expressBilling ? 'Add' : 'Customize'} ${item.name}`}
                     style={{ opacity: isOutOfStock ? 0.5 : 1, cursor: isOutOfStock ? 'not-allowed' : 'pointer' }}
                   >
                     <div className="menu-item-media-box">
@@ -641,7 +714,7 @@ export default function POSView() {
 
                     <div className="menu-item-footer">
                       <span className="menu-item-price">{currencySymbol}{item.price.toFixed(2)}</span>
-                      <button className="btn btn-icon" style={{ width: '32px', height: '32px', borderRadius: '6px' }} disabled={isOutOfStock}>
+                      <button type="button" className="btn btn-icon" style={{ width: '32px', height: '32px', borderRadius: '6px' }} disabled={isOutOfStock} aria-label={`Add ${item.name}`} onClick={event => { event.stopPropagation(); handleItemClick(item); }}>
                         ＋
                       </button>
                     </div>
@@ -778,7 +851,11 @@ export default function POSView() {
               <div className="cart-item" key={index}>
                 <div className="cart-item-desc">
                   <h4>{item.name}</h4>
-                  <span className="cart-item-price">{currencySymbol}{item.price.toFixed(2)}</span>
+                  <span className="cart-item-price">{currencySymbol}{Number(item.unitPrice ?? item.price).toFixed(2)} each</span>
+                  {item.customUnitPrice != null && <small style={{display:'block',color:'var(--text-muted)',fontSize:11}}>Menu price: {currencySymbol}{Number(item.menuPrice ?? item.price).toFixed(2)} · Custom for this bill</small>}
+                  {['owner', 'manager'].includes(currentUser?.role) && <button type="button" className="btn btn-secondary" style={{fontSize:11,minHeight:30,padding:'4px 9px',marginTop:6}}
+                    aria-label={`Edit price for ${item.name}`}
+                    onClick={() => openCustomPrice(index, item)}>✎ {item.customUnitPrice != null ? 'Edit price' : 'Custom price'}</button>}
                   {item.notes && <div className="cart-item-notes">📝 {item.notes}</div>}
                 </div>
                 <div className="cart-item-controls">
@@ -787,7 +864,7 @@ export default function POSView() {
                     <div className="qty-val">{item.quantity}</div>
                     <button className="qty-btn" onClick={() => updateCartQuantity(index, item.quantity + 1)}>＋</button>
                   </div>
-                  <span className="cart-item-total">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
+                  <span className="cart-item-total">{currencySymbol}{(Number(item.unitPrice ?? item.price) * item.quantity).toFixed(2)}</span>
                   <button 
                     className="cart-item-remove" 
                     onClick={() => updateCartQuantity(index, 0)}
@@ -884,11 +961,38 @@ export default function POSView() {
               Split / Portions
             </button>
             <button className="btn btn-primary" onClick={handlePayClick} disabled={cart.length === 0} style={{ fontWeight: 700, background: 'var(--color-primary)' }}>
-              💳 Pay {currencySymbol}{totals.total.toFixed(2)}
+              {expressBilling ? '💵 Cash & Pay' : '💳 Pay'} {currencySymbol}{totals.total.toFixed(2)}
             </button>
           </div>
         </div>
       </div>
+
+      {/* One-time owner/manager price, never edits the menu catalog. */}
+      {customPriceLine != null && cart[customPriceLine] && (
+        <div className="modal-overlay" role="presentation">
+          <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="pos-custom-price-title" style={{maxWidth:420}}>
+            <div className="modal-header">
+              <h2 id="pos-custom-price-title">Custom item price</h2>
+              <button type="button" className="modal-close" aria-label="Close custom price" onClick={()=>setCustomPriceLine(null)}>×</button>
+            </div>
+            <p style={{fontWeight:700,margin:'0 0 6px'}}>{cart[customPriceLine].name}</p>
+            <p style={{color:'var(--text-muted)',fontSize:13,margin:'0 0 16px'}}>Standard menu price: {currencySymbol}{Number(menuItems.find(i=>i.id===cart[customPriceLine].id)?.price ?? cart[customPriceLine].menuPrice ?? cart[customPriceLine].price).toFixed(2)}. Only this bill will change.</p>
+            <form onSubmit={saveCustomPrice}>
+              <label htmlFor="pos-one-off-price" style={{display:'block',fontWeight:700,marginBottom:7}}>Charge per item ({currencySymbol})</label>
+              <input id="pos-one-off-price" className="form-input" type="number" min="0.01" max="10000000" step="0.01" required autoFocus
+                value={customPriceValue} onChange={e=>setCustomPriceValue(e.target.value)} />
+              {customPriceError && <p role="alert" style={{color:'var(--color-danger)',fontSize:13}}>{customPriceError}</p>}
+              <div style={{display:'flex',gap:8,marginTop:16,flexWrap:'wrap'}}>
+                <button type="submit" className="btn btn-primary" style={{flex:1}}>Apply to this bill</button>
+                {cart[customPriceLine].customUnitPrice != null && <button type="button" className="btn btn-secondary" onClick={()=>{
+                  try { updateCartUnitPrice(customPriceLine,null);setCustomPriceLine(null); } catch(e){setCustomPriceError(e.message);}
+                }}>Restore menu price</button>}
+                <button type="button" className="btn btn-secondary" onClick={()=>setCustomPriceLine(null)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 3. MODALS BLOCK */}
 
@@ -901,8 +1005,17 @@ export default function POSView() {
               <button className="modal-close" onClick={() => setShowCustomizerModal(false)}>×</button>
             </div>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '24px' }}>
-              <div style={{ fontSize: '40px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '12px' }}>
-                {customizerItem.emoji}
+              <div style={{ width: '96px', height: '96px', flexShrink: 0, overflow: 'hidden', background: 'var(--bg-surface)', borderRadius: '12px' }}>
+                <img
+                  src={getFoodImageForItem(customizerItem)}
+                  alt={customizerItem.name}
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&auto=format&fit=crop&q=80';
+                  }}
+                />
               </div>
               <div>
                 <h3 style={{ fontSize: '18px', fontWeight: '700' }}>{customizerItem.name}</h3>
@@ -1173,7 +1286,7 @@ export default function POSView() {
           <div className="modal-content" style={{ maxWidth: '480px', padding: '20px 24px', maxHeight: '92vh', overflowY: 'auto' }}>
             <div className="modal-header" style={{ marginBottom: '12px' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: '18px' }}>Select Payment Mode</h2>
+                <h2 style={{ margin: 0, fontSize: '18px' }}>{expressBilling ? 'Confirm Cash Payment' : 'Select Payment Mode'}</h2>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Choose tender to settle bill</span>
               </div>
               <button className="modal-close" disabled={settlementBusy} onClick={() => { setShowPaymentModal(false); }}>×</button>
@@ -1390,7 +1503,7 @@ export default function POSView() {
                 disabled={settlementBusy} 
                 onClick={handlePaymentComplete}
               >
-                {settlementBusy ? 'Processing…' : 'Complete Settlement'}
+                {settlementBusy ? 'Processing…' : (expressBilling && paymentMethod === 'cash' ? 'Confirm Cash & Print' : 'Complete Settlement')}
               </button>
             </div>
           </div>
@@ -1428,22 +1541,18 @@ export default function POSView() {
               <button 
                 className="btn btn-secondary" 
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                onClick={() => {
-                  const is58mm = settings?.printerPaperWidth === '58mm';
-                  if (is58mm) document.body.classList.add('print-58mm');
-                  else document.body.classList.remove('print-58mm');
-                  document.body.classList.add('printing-receipt');
-                  prepareThermalPrint('.receipt-print-area', settings?.printerPaperWidth || '80mm');
-                  window.print();
-                  setTimeout(() => {
-                    document.body.classList.remove('print-58mm');
-                    document.body.classList.remove('printing-receipt');
-                    cleanupThermalPrint();
-                  }, 1200);
-                }}
+                onClick={() => { void printCashierReceipt(true); }}
               >
-                🖨️ Print Receipt
+                🖨️ {nativePrinterEnabled ? 'Direct Print Receipt' : 'Print Receipt'}
               </button>
+              {nativePrinterEnabled && <button type="button" className="btn btn-secondary" style={{ flex: 1 }}
+                onClick={() => {
+                  if (!printRenderedReceipt(settings?.printerPaperWidth || '80mm', { userInitiated: true })) {
+                    showToast('Receipt content is missing. Open Last Bill and retry.', 'error');
+                  }
+                }}>
+                Browser Print
+              </button>}
               <button 
                 className="btn btn-primary" 
                 style={{ flex: 1 }}
@@ -1638,19 +1747,17 @@ export default function POSView() {
                   </div>
                   <hr style={{ borderStyle: 'dashed' }} />
                   <div style={{ textAlign: 'center', fontSize: '11px', fontWeight: 'bold' }}>
-                    System by RS Technologies
+                    System by {platformPublisher}
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <button className="btn btn-secondary" style={{ flexGrow: 1 }} onClick={() => {
-                    document.body.classList.add('printing-receipt');
-                    prepareThermalPrint('#z-report-print', settings?.printerPaperWidth || '80mm');
-                    window.print();
-                    setTimeout(() => {
-                      document.body.classList.remove('printing-receipt');
-                      cleanupThermalPrint();
-                    }, 1200);
+                    // A Z-Report is a standalone receipt, never print the entire POS window.
+                    // The previous global print mode could generate blank or oversized pages.
+                    if (!printSelectedReceipt('#z-report-print', settings?.printerPaperWidth || '80mm')) {
+                      showToast('Z-Report is not ready for printing. Please reopen the report and try again.', 'error');
+                    }
                   }}>
                     🖨️ Print Z-Report
                   </button>
@@ -1671,30 +1778,31 @@ export default function POSView() {
       {printReceiptOrder && (() => {
         const printRoot = typeof document !== 'undefined' ? document.getElementById('receipt-print-root') : null;
         const receiptContent = (
-          <div className={`receipt-print-area paper-${resolvePrinterPaperSize(settings?.printerPaperWidth)}`}>
+          <div className={`receipt-print-area paper-${resolvePrinterPaperSize(settings?.printerPaperWidth)} receipt-layout-${receiptConfig.layout}`}>
             <div className="receipt-center">
-              {settings?.logoUrl || settings?.logo || settings?.restaurantLogo ? (
+              {receiptConfig.logo && (settings?.logoUrl || settings?.logo || settings?.restaurantLogo) ? (
                 <img
                   src={settings?.logoUrl || settings?.logo || settings?.restaurantLogo}
                   alt="Logo"
                   className="receipt-logo"
-                  style={{ maxWidth: '80px', maxHeight: '80px', margin: '0 auto 6px', display: 'block', objectFit: 'contain' }}
+                  style={{ maxWidth: `${receiptConfig.logoSize}px`, maxHeight: `${receiptConfig.logoSize}px`, margin: '0 auto 2px', display: 'block', objectFit: 'contain' }}
                 />
               ) : (
-                <div style={{ fontSize: '28px', marginBottom: '2px' }}>🍽️</div>
+                null
               )}
-              <h3 style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
+              <h3 className="receipt-business-name" style={{ margin: '0 0 2px 0', fontSize: '15px', fontWeight: '800', textTransform: 'uppercase' }}>
                 {settings?.restaurantName || settings?.businessName || currentUser?.tenantName || currentUser?.username || 'Restaurant Store'}
               </h3>
               {settings?.address && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>{settings.address}</p>}
               {settings?.phone && <p style={{ margin: '0 0 2px 0', fontSize: '11px' }}>Tel: {settings.phone}</p>}
             </div>
             <div className="receipt-divider"></div>
+            <div className="receipt-center receipt-document-heading"><strong>{printReceiptOrder.paymentStatus === 'paid' || printReceiptOrder.status === 'paid' ? 'PAYMENT RECEIPT' : 'CUSTOMER BILL'}</strong></div>
             <p>Date: {formatRestaurantTime(printReceiptOrder.timestamp || Date.now(), restaurantTimeZone(settings))}</p>
-            {printReceiptOrder.invoiceNumber != null && (
-              <p><strong style={{ fontSize: '13px' }}>INV-{String(printReceiptOrder.invoiceNumber).padStart(6, '0')}</strong></p>
+            {receiptConfig.showOrderId && printReceiptOrder.id && (
+              <p className="receipt-order-reference"><strong>Order ID: #{String(printReceiptOrder.id).slice(-6).toUpperCase()}</strong></p>
             )}
-            <p>Order ID: #{printReceiptOrder.id?.slice(-6).toUpperCase()}</p>
+
             <p>Type: {(printReceiptOrder.orderType || printReceiptOrder.diningType || 'POS')?.toUpperCase()}</p>
             {printReceiptOrder.tableId && <p>Table: {tables?.find(t => t.id === printReceiptOrder.tableId)?.number || printReceiptOrder.tableId}</p>}
             {printReceiptOrder.customerName && <p>Customer: {printReceiptOrder.customerName}</p>}
@@ -1702,18 +1810,26 @@ export default function POSView() {
             {printReceiptOrder.deliveryAddress && <p>Address: {printReceiptOrder.deliveryAddress}</p>}
             <div className="receipt-divider"></div>
             
-            {printReceiptOrder.items?.map((item, idx) => (
-              <div key={idx} className="receipt-row">
-                <span>{item.quantity}x {item.name}</span>
-                <span>{currencySymbol}{((item.price || 0) * (item.quantity || 1)).toFixed(2)}</span>
-              </div>
-            ))}
+            <div className="receipt-items-heading"><span>ITEM · QTY</span><span>AMOUNT</span></div>
+            {printReceiptOrder.items?.map((item, idx) => {
+              const quantity=Number(item.quantity || 1);
+              const price=Number(item.unitPrice ?? item.price ?? 0);
+              return (
+                <div key={idx} className="receipt-item-block">
+                  <div className="receipt-row">
+                    <span>{quantity} × {item.name}</span>
+                    <span>{currencySymbol}{(price*quantity).toFixed(2)}</span>
+                  </div>
+                  {(quantity > 1 || item.customUnitPrice != null || receiptConfig.showUnitPrice || receiptConfig.layout === 'detailed') && <div className="receipt-item-detail">{currencySymbol}{price.toFixed(2)} each{item.customUnitPrice != null ? ' · Special price' : ''}</div>}
+                </div>
+              );
+            })}
 
             <div className="receipt-divider"></div>
-            <div className="receipt-row">
+            {(shouldPrintSubtotal(printReceiptOrder, receiptConfig) || receiptConfig.layout === 'detailed') && <div className="receipt-row">
               <span>Subtotal:</span>
-              <span>{currencySymbol}{(printReceiptOrder.subtotal || 0).toFixed(2)}</span>
-            </div>
+              <span>{currencySymbol}{Number(printReceiptOrder.subtotal || 0).toFixed(2)}</span>
+            </div>}
             {(printReceiptOrder.discount || 0) > 0 && (
               <div className="receipt-row">
                 <span>Discount ({printReceiptOrder.discountValue || 0}{printReceiptOrder.discountType === 'percent' ? '%' : ''}):</span>
@@ -1732,10 +1848,10 @@ export default function POSView() {
                 <span>{currencySymbol}{(printReceiptOrder.deliveryFee || 0).toFixed(2)}</span>
               </div>
             )}
-            <div className="receipt-row">
+            {shouldPrintTax(printReceiptOrder, receiptConfig) && <div className="receipt-row">
               <span>Tax ({settings?.taxRate || 0}%):</span>
-              <span>{currencySymbol}{(printReceiptOrder.tax || 0).toFixed(2)}</span>
-            </div>
+              <span>{currencySymbol}{Number(printReceiptOrder.tax || 0).toFixed(2)}</span>
+            </div>}
             {(printReceiptOrder.tip || 0) > 0 && (
               <div className="receipt-row">
                 <span>Tip:</span>
@@ -1756,14 +1872,14 @@ export default function POSView() {
             {Number(printReceiptOrder.refundedAmount||0)>0&&<><div className="receipt-row"><span>REFUNDED:</span><span>{currencySymbol}{Number(printReceiptOrder.refundedAmount).toFixed(2)}</span></div><div className="receipt-row"><span>NET RETAINED:</span><span>{currencySymbol}{(Number(printReceiptOrder.total)-Number(printReceiptOrder.refundedAmount)).toFixed(2)}</span></div><p>Status: {printReceiptOrder.status}</p></>}
             <div className="receipt-divider"></div>
             <div className="receipt-center">
-              <p>Payment Method: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
+              <p className="receipt-payment-method">Payment: {printReceiptOrder.paymentMethod?.toUpperCase() || 'CASH'}</p>
               {(() => {
                 if (!printReceiptOrder.paymentSplit) return null;
                 try {
                   const splits = typeof printReceiptOrder.paymentSplit === 'string'
                     ? JSON.parse(printReceiptOrder.paymentSplit)
                     : printReceiptOrder.paymentSplit;
-                  if (!Array.isArray(splits)) return null;
+                  if (!Array.isArray(splits) || splits.length <= 1) return null;
                   return (
                     <div style={{ fontSize: '11px', color: '#666' }}>
                       {splits.map((p, i) => (
@@ -1775,8 +1891,8 @@ export default function POSView() {
                   return null;
                 }
               })()}
-              <p style={{ marginTop: '12px', fontWeight: 'bold' }}>Thank You For Dining With Us!</p>
-              <p>System by RS Technologies</p>
+              {receiptFooterMessage(receiptConfig) && <div className="receipt-gratitude">{receiptFooterMessage(receiptConfig)}</div>}
+              {receiptConfig.platformCredit && <div className="receipt-platform-credit">GastroFlow · {platformPublisher}</div>}
             </div>
           </div>
         );

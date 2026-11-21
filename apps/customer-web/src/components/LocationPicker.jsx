@@ -2,9 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { apiFetch } from '../utils/api.js';
+import {acquireBestLocation} from '../utils/location-acquisition.js';
+import {locationKey} from '../utils/restaurant-fulfilment.js';
+import {createAddressSearchGate} from '../utils/address-search-gate.js';
 
-// Colombo city centre — sensible default before the user picks.
-const DEFAULT_CENTER = { lat: 6.9271, lng: 79.8612 };
+// Country overview while the customer has no delivery pin.
+const DEFAULT_CENTER = { lat: 7.8, lng: 80.7 };
 
 // A pure-CSS pin so we don't depend on Leaflet's bundled marker PNGs
 // (which break under Vite without extra config).
@@ -27,24 +30,33 @@ export default function LocationPicker({ value, onChange, toast }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
+  const accuracyCircleRef = useRef(null);
   const debounceRef = useRef(null);
+  const commitSequenceRef = useRef(0);
+  const addressSearchGateRef = useRef(createAddressSearchGate());
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [locating, setLocating] = useState(false);
 
   // Reverse-geocode a coordinate and push the result up.
-  async function commit(lat, lng, knownLabel) {
-    let label = knownLabel;
-    if (!label) {
-      try {
-        const r = await apiFetch(`/public/reverse-geocode?lat=${lat}&lng=${lng}`);
-        label = r.label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-      } catch {
-        label = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-      }
+  async function commit(lat, lng, knownLabel, accuracy) {
+    const sequence=++commitSequenceRef.current;
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return;
+    accuracyCircleRef.current?.remove();
+    accuracyCircleRef.current = null;
+    if (mapRef.current && Number.isFinite(accuracy) && accuracy > 0) {
+      accuracyCircleRef.current = L.circle([lat, lng], { radius: accuracy, interactive: false, weight: 1, fillOpacity: 0.12 }).addTo(mapRef.current);
     }
-    onChange && onChange({ lat, lng, label });
+    const fallback=knownLabel || `Pinned location (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+    // Store the chosen coordinate immediately; geocoding must never block the pin.
+    onChange?.({lat,lng,label:fallback});
+    if(knownLabel)return;
+    try {
+      const r=await apiFetch(`/public/reverse-geocode?lat=${lat}&lng=${lng}`);
+      if(sequence===commitSequenceRef.current && typeof r?.label==='string' && r.label.trim())
+        onChange?.({lat,lng,label:r.label.trim()});
+    } catch { /* Keep the real pin when the geocoder is offline. */ }
   }
 
   function moveMarker(lat, lng, recenter = true) {
@@ -65,49 +77,62 @@ export default function LocationPicker({ value, onChange, toast }) {
   // Initialise the map once.
   useEffect(() => {
     if (mapRef.current || !mapEl.current) return;
-    const start = value && value.lat ? value : DEFAULT_CENTER;
+    const hasPin = Boolean(locationKey(value));
+    const start = hasPin ? value : DEFAULT_CENTER;
     const map = L.map(mapEl.current, { zoomControl: true, attributionControl: true })
-      .setView([start.lat, start.lng], value && value.lat ? 15 : 12);
+      .setView([start.lat, start.lng], hasPin ? 15 : 7);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
     map.on('click', (e) => { moveMarker(e.latlng.lat, e.latlng.lng, false); commit(e.latlng.lat, e.latlng.lng); });
     mapRef.current = map;
-    if (value && value.lat) moveMarker(value.lat, value.lng, false);
+    if (hasPin) moveMarker(value.lat, value.lng, false);
     // Leaflet needs a size recalc when mounted inside a sheet/animated container.
-    setTimeout(() => map.invalidateSize(), 200);
-    return () => { map.remove(); mapRef.current = null; markerRef.current = null; };
+    const resizeTimer = setTimeout(() => map.invalidateSize(), 200);
+    return () => { clearTimeout(resizeTimer); map.remove(); mapRef.current = null; markerRef.current = null; accuracyCircleRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reflect external value changes (e.g. after "use my location").
   useEffect(() => {
-    if (value && value.lat && mapRef.current) moveMarker(value.lat, value.lng, false);
+    if (locationKey(value) && mapRef.current) moveMarker(value.lat, value.lng, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value?.lat, value?.lng]);
 
   // Clean up the debounce timer on unmount.
-  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
+  useEffect(() => {
+    addressSearchGateRef.current.activate();
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      commitSequenceRef.current++;
+      addressSearchGateRef.current.dispose();
+    };
+  }, []);
 
   async function runSearch(text) {
     const q = (text ?? query).trim();
     if (q.length < 3) return;
+    const request=addressSearchGateRef.current.start();
     setSearching(true);
     try {
       const list = await apiFetch(`/public/geocode?q=${encodeURIComponent(q)}`);
-      setResults(list || []);
-      if ((list || []).length === 0) toast && toast('No matching places found — try a nearby town or landmark.', 'info');
+      if (!addressSearchGateRef.current.isCurrent(request)) return;
+      setResults(Array.isArray(list) ? list : []);
+      if ((!Array.isArray(list) || list.length === 0) && toast) toast('No matching places found — try a nearby town or landmark.', 'info');
     } catch (err) {
-      toast && toast(err.message || 'Search failed.', 'error');
+      if (addressSearchGateRef.current.isCurrent(request)) toast?.(err.message || 'Search failed.', 'error');
     } finally {
-      setSearching(false);
+      if (addressSearchGateRef.current.isCurrent(request)) setSearching(false);
     }
   }
 
   // Live autocomplete: search a short delay after the user stops typing (Uber/PickMe style).
   function onQueryChange(text) {
     setQuery(text);
+    addressSearchGateRef.current.invalidate();
+    setResults([]); // Do not show matches for a previous address while typing.
+    setSearching(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (text.trim().length < 3) { setResults([]); return; }
     debounceRef.current = setTimeout(() => runSearch(text), 450);
@@ -122,38 +147,32 @@ export default function LocationPicker({ value, onChange, toast }) {
   }
 
   function pickResult(r) {
+    addressSearchGateRef.current.invalidate();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSearching(false);
     setResults([]);
     setQuery(r.label);
     moveMarker(r.lat, r.lng, true);
     commit(r.lat, r.lng, r.label);
   }
 
-  function useMyLocation() {
-    if (!navigator.geolocation) { toast && toast('Geolocation is not supported on this device.', 'error'); return; }
-    // Geolocation only works in a secure context (HTTPS) or on localhost. On a phone
-    // opening the site by its LAN IP over http, the browser will always deny it.
+  async function useMyLocation() {
     if (!window.isSecureContext) {
-      toast && toast('Live GPS needs a secure (https) connection. Please search your address or drop the pin manually.', 'info', 7000);
+      toast?.('Device location requires HTTPS. Search your address or select a map pin.','warning');
+      return;
     }
+    const request = ++commitSequenceRef.current;
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        moveMarker(latitude, longitude, true);
-        commit(latitude, longitude);
-        setLocating(false);
-      },
-      (err) => {
-        const msg = err.code === 1
-          ? 'Location permission was blocked. Allow location for this site in your browser, or search/drop the pin instead.'
-          : err.code === 2
-            ? 'Your location is unavailable right now. Please search your address or drop the pin.'
-            : 'Getting your location timed out. Please search your address or drop the pin.';
-        toast && toast(msg, 'error', 7000);
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-    );
+    try {
+      const fix=await acquireBestLocation();
+      if (request !== commitSequenceRef.current) return;
+      moveMarker(fix.lat,fix.lng,true);
+      await commit(fix.lat,fix.lng,null,fix.accuracy);
+      toast?.(`Location accuracy approximately ${fix.accuracy} metres. Verify the pin before placing an order.`,'info');
+    } catch(error) {
+      if (request !== commitSequenceRef.current) return;
+      toast?.(error.message || 'Location unavailable. Use address search or the map pin.','warning');
+    } finally {setLocating(false);}
   }
 
   return (

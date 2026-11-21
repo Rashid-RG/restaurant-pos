@@ -1,0 +1,63 @@
+/* Lightweight, accessible GastroMate burger character — no external animation assets. */
+.gastromate-burger{display:inline-flex;position:relative;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;animation:mate-dance 5.6s ease-in-out infinite;transform-origin:50% 85%;vertical-align:middle}
+.gastromate-burger-body{position:relative;display:flex;align-items:center;justify-content:center;width:32px;height:27px;border-radius:46% 46% 36% 36%;background:linear-gradient(to bottom,#f7b74d 0 39%,#fff1bc 39% 47%,#4e9c43 47% 56%,#6d3526 56% 72%,#f8ba55 72%);box-shadow:inset 0 -2px 0 #c97d30,0 2px 4px #0002}
+.gastromate-burger-body:before{content:'•••';position:absolute;top:0;left:9px;font-size:9px;letter-spacing:2px;color:#fff5d4;transform:rotate(-8deg)}
+.gastromate-burger-face{font-size:11px;font-weight:900;color:#482718;white-space:nowrap;transform:translateY(-2px)}
+.gastromate-burger-arm{position:absolute;top:19px;font-size:12px;color:#ffbf69;z-index:0}
+.gastromate-burger-arm.left{left:-1px;transform:rotate(-28deg);animation:mate-wave 3.4s ease-in-out infinite}
+.gastromate-burger-arm.right{right:-1px;transform:rotate(28deg);animation:mate-wave 3.4s ease-in-out .6s infinite}
+.gastromate-burger-feet{position:absolute;bottom:-1px;left:11px;font-size:12px;font-weight:bold;color:#5f392b;white-space:nowrap}
+.gastromate-hello{position:absolute;top:-9px;right:-16px;padding:1px 5px;border-radius:8px 8px 8px 2px;background:#fff;color:#176e4d;font-size:10px;font-weight:900;box-shadow:0 1px 4px #0002;animation:mate-greet 5.6s ease-in-out infinite}
+.gastromate-burger-small{width:26px;height:26px;transform:scale(.66);margin:-2px -5px}
+.gastromate-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:10px 14px;background:var(--bg-card,#f8fafc);color:var(--text-1,#1b4332);font-size:12px;border-bottom:1px solid var(--border-color,#ddd)}
+.gastromate-confirm span{flex-basis:100%}
+.gastromate-confirm button{padding:7px 12px;border-radius:10px;border:1px solid var(--border-color,#ddd);cursor:pointer;color:var(--text-1,#1b4332);background:transparent}
+.gastromate-confirm button:first-of-type{background:#176e4d;color:#fff;border:0}
+.gastromate-confirm button:disabled{opacity:.55;cursor:wait}
+@keyframes mate-dance{0%,13%,35%,100%{transform:rotate(0) translateY(0)}17%{transform:rotate(-12deg) translateY(-3px)}22%{transform:rotate(13deg) translateY(-5px)}28%{transform:rotate(-8deg) translateY(-2px)}}
+@keyframes mate-greet{0%,35%,100%{opacity:0;transform:translateY(3px)}10%,29%{opacity:1;transform:translateY(0)}}
+@keyframes mate-wave{0%,35%,100%{transform:rotate(28deg)}12%,21%{transform:rotate(-35deg)}17%,27%{transform:rotate(52deg)}}
+@media(prefers-reduced-motion:reduce){.gastromate-burger,.gastromate-burger-arm,.gastromate-hello{animation:none!important}.gastromate-hello{opacity:1}}
+
+/* New chat-state animations: active only while a question is being answered. */
+.gastromate-burger-active { animation: mate-thinking-dance .7s ease-in-out infinite; }
+.gastromate-burger-active .gastromate-burger-arm.left { animation: mate-wave .8s ease-in-out infinite; }
+.gastromate-burger-active .gastromate-burger-arm.right { animation: mate-wave .8s ease-in-out .2s infinite; }
+.gastromate-chat-active .gastromate-burger-face { animation: mate-happy-face 1.1s ease-in-out infinite; }
+.gastromate-type-cursor { display:inline-block; margin-left:2px; color:#17744c; animation:mate-cursor .7s steps(1) infinite; }
+.gastromate-thinking-label { display:flex; align-items:center; gap:5px; }
+@keyframes mate-thinking-dance { 0%,100% { transform:translateY(0) rotate(-7deg) } 50% { transform:translateY(-6px) rotate(9deg) } }
+@keyframes mate-happy-face { 0%,100% { transform:translateY(-2px) scale(1) } 50% { transform:translateY(-2px) scale(1.1) } }
+@keyframes mate-cursor { 0%,49% { opacity:1 } 50%,100% { opacity:0 } }
+@media (prefers-reduced-motion:reduce) {
+ .gastromate-burger-active,.gastromate-burger-active .gastromate-burger-arm.left,
+ .gastromate-burger-active .gastromate-burger-arm.right,.gastromate-chat-active .gastromate-burger-face,
+ .gastromate-type-cursor { animation:none!important; }
+}
+
+/* Speaking mouth and short celebration only after confirmed cart action.
+   Keep reduced-motion mode fully accessible. */
+.gastromate-burger-speaking .gastromate-burger-face {
+  animation:mate-speaking-mouth .19s ease-in-out infinite alternate;
+  transform-origin:center 75%;
+}
+.gastromate-burger-speaking .gastromate-hello {opacity:1;animation:none;}
+.gastromate-burger-celebrate {animation:mate-celebrate .42s ease-in-out 3;}
+.gastromate-burger-celebrate .gastromate-burger-arm.left,
+.gastromate-burger-celebrate .gastromate-burger-arm.right {
+  animation:mate-wave .32s ease-in-out infinite;
+}
+@keyframes mate-speaking-mouth {
+  from {transform:translateY(-2px) scaleY(.68)}
+  to {transform:translateY(-2px) scaleY(1.24)}
+}
+@keyframes mate-celebrate {
+  0%,100% {transform:translateY(0) rotate(0)}
+  50% {transform:translateY(-9px) rotate(8deg)}
+}
+@media (prefers-reduced-motion:reduce) {
+  .gastromate-burger-speaking .gastromate-burger-face,
+  .gastromate-burger-celebrate,
+  .gastromate-burger-celebrate .gastromate-burger-arm.left,
+  .gastromate-burger-celebrate .gastromate-burger-arm.right {animation:none!important}
+}
