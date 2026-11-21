@@ -187,3 +187,26 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-delivery-card button.btn-emerald{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;line-height:1.4}
 .driver-delivery-card button.btn-emerald svg{flex:0 0 auto}
 @media(max-width:390px){.driver-controls-actions button{flex:1 1 120px}.driver-controls-actions button span{overflow-wrap:anywhere}}
+
+
+/* Authenticated, tenant-scoped rider support intake. */
+.driver-support{padding:16px!important;display:flex;flex-direction:column;gap:12px;min-width:0}
+.driver-support h3{font-size:17px;color:#1d5039;margin:0}
+.driver-support>p{font-size:12px;line-height:1.5;color:#5b7163;margin:0}
+.driver-support form{display:flex;flex-direction:column;gap:7px;min-width:0}
+.driver-support form label{font-size:12px;font-weight:750;color:#2f5e43;margin-top:6px}
+.driver-support form input,.driver-support form select,.driver-support form textarea{box-sizing:border-box;width:100%;min-width:0;border:1px solid #c8dcd0;background:#fff;color:#1d3427;border-radius:11px;padding:12px;font:inherit;font-size:14px}
+.driver-support form select,.driver-support form input{min-height:45px}
+.driver-support form textarea{resize:vertical;line-height:1.5}
+.driver-support form button{min-height:47px;margin-top:8px}
+.driver-support-error{color:#a52727!important}
+.driver-support-history{border-top:1px solid #dce8df;padding-top:12px}
+.driver-support-history-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.driver-support-history-head strong{font-size:13px;color:#214d38}
+.driver-support-history-head button{min-height:44px}
+.driver-support-history p{font-size:12px;color:#627567}
+.driver-support-history ul{padding:0;margin:10px 0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.driver-support-history li{padding:10px;background:#f4f8f5;border:1px solid #dce8df;border-radius:10px;display:flex;flex-direction:column;gap:5px}
+.driver-support-history li strong{font-size:12px;text-transform:capitalize}
+.driver-support-history li span{font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.driver-support .driver-support-emergency{color:#855326;background:#fff7e8;border:1px solid #eed6ab;border-radius:10px;padding:10px}
