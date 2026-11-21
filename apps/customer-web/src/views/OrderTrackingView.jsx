@@ -556,7 +556,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
                   store={storeInfo && validGeoPoint({lat:storeInfo.lat,lng:storeInfo.lng})?{lat:Number(storeInfo.lat),lng:Number(storeInfo.lng)}:null}
                   dest={{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)}}
                   driver={gpsState.visible?driverLoc:null}
-                  route={roadRoute}
+                  route={gpsState.visible?roadRoute:null}
                 />
 
               </div>}
