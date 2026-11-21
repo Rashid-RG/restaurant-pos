@@ -127,6 +127,7 @@ export default function App() {
   const supportRequestEpochRef=useRef(0);
   const [orderSearch,setOrderSearch]=useState('');
   const [availableOrders, setAvailableOrders] = useState([]);
+  const [pickupLocation,setPickupLocation]=useState(null);
   const [loading, setLoading] = useState(false);
   const [pendingOrderId,setPendingOrderId]=useState(null);
   const pendingOrderRef=useRef(null);
@@ -268,6 +269,7 @@ export default function App() {
     // same device does not briefly see the previous driver's orders.
     setActiveOrders([]);
     setAvailableOrders([]);
+    setPickupLocation(null);
     setHistory([]);
     setSummary({ completedToday: 0, cashToHandover: 0 });
     setTaskTab('active');
@@ -391,6 +393,7 @@ export default function App() {
       setSummary(data.summary || { completedToday: 0, cashToHandover: 0 });
       if (data.timeZone) setRestaurantTimeZone(data.timeZone);
       setAvailableOrders(newUnassigned);
+      setPickupLocation(data.pickupLocation && Number.isFinite(data.pickupLocation.lat) && Number.isFinite(data.pickupLocation.lng) ? data.pickupLocation : null);
     } catch (err) {
       if(!gate.isCurrent(request))return;
       if (/token/i.test(err.message)) { handleLogout(); showToast('Session expired — please sign in again', 'warning'); }
@@ -1297,9 +1300,10 @@ export default function App() {
                 </h3>
                 <div style={{ display: 'grid', gap: 12 }}>
                   {filteredAvailableOrders.map(ord => {
-                    // Calculate driver-to-destination distance
-                    const dropKm = (isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords, driverClock) && Number.isFinite(Number(ord.deliveryLat)) && Number.isFinite(Number(ord.deliveryLng)) && ord.deliveryLat != null && ord.deliveryLng != null)
-                      ? haversineKm(lastCoords.lat, lastCoords.lng, Number(ord.deliveryLat), Number(ord.deliveryLng))
+                    // Pickup proximity requires the restaurant's configured pin.
+                    // This is straight-line distance, not an OSRM driving ETA.
+                    const pickupKm = (isGpsActive && gpsQuality==='good' && validDriverFix(lastCoords,driverClock) && pickupLocation)
+                      ? haversineKm(lastCoords.lat,lastCoords.lng,pickupLocation.lat,pickupLocation.lng)
                       : null;
 
                     return (
@@ -1308,15 +1312,13 @@ export default function App() {
                         <div>
                           <div style={{ fontWeight: 800, fontSize: '1rem' }}>Order #{ord.id.slice(-4).toUpperCase()}</div>
                           <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                            📍 {ord.deliveryAddress || 'Store Pickup'} · Rs. {ord.total?.toFixed(2)}
+                            <MapPin size={15} aria-hidden="true"/> {ord.deliveryAddress || 'Customer address unavailable'} · Rs. {Number(ord.total||0).toFixed(2)}
                           </div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                          {dropKm === null && <span className="driver-distance-unavailable">Distance unavailable until accurate GPS and delivery coordinates are ready</span>}
-                          {dropKm !== null && (
-                            <span style={{ background: dropKm <= 5 ? '#10b98122' : '#f59e0b22', color: dropKm <= 5 ? '#10b981' : '#f59e0b', border: `1px solid ${dropKm <= 5 ? '#10b981' : '#f59e0b'}44`, padding: '2px 8px', borderRadius: 8, fontSize: '0.72rem', fontWeight: 800 }}>
-                              🗺️ {dropKm} km drop
-                            </span>
+                          {pickupKm === null && <span className="driver-distance-unavailable">Pickup distance unavailable · check restaurant pin and GPS</span>}
+                          {pickupKm !== null && (
+                            <span className="driver-pickup-distance"><MapPin size={14} aria-hidden="true"/>{pickupKm.toFixed(1)} km to restaurant · straight line</span>
                           )}
                           {isRushHour(restaurantTimeZone) && (
                             <span style={{ background: '#f59e0b22', color: '#f59e0b', padding: '2px 8px', borderRadius: 8, fontSize: '0.68rem', fontWeight: 700 }}>⏰ Peak</span>
