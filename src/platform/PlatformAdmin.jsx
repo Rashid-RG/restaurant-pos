@@ -14,6 +14,7 @@ import '../components/platform.css';
 
 export default function PlatformAdmin({ embedded = false }) {
   const { currentUser, showToast } = usePOS();
+  const [locationReport,setLocationReport]=useState(null),[locationError,setLocationError]=useState('');
   const [activeSubTab, setActiveSubTab] = useState('restaurants'); // 'restaurants' | 'credentials' | 'analytics' | 'broadcasts' | 'branding' | 'operations'
   const [restaurants, setRestaurants] = useState([]);
   const [credentialsList, setCredentialsList] = useState([]);
@@ -213,6 +214,16 @@ export default function PlatformAdmin({ embedded = false }) {
     }, 400);
   };
 
+  useEffect(()=>{
+    if(activeSubTab!=='location' || !currentUser?.isPlatformAdmin)return;
+    let disposed=false,timer;
+    async function refresh() {
+      try {const report=await request('/api/platform/location-monitor');if(!disposed){setLocationReport(report);setLocationError('');}}
+      catch(error){if(!disposed)setLocationError(error.message);}
+      if(!disposed)timer=setTimeout(refresh,30000);
+    }
+    refresh();return ()=>{disposed=true;clearTimeout(timer);};
+  },[activeSubTab,currentUser?.isPlatformAdmin]);
   useEffect(() => {
     if (currentUser?.isPlatformAdmin === true) {
       load();
@@ -379,6 +390,7 @@ export default function PlatformAdmin({ embedded = false }) {
         >
           <Megaphone size={16} /> Broadcast Alerts
         </button>
+        <button className={`btn ${activeSubTab==='location'?'btn-primary':'btn-outline'}`} onClick={()=>setActiveSubTab('location')}>Location monitoring</button>
         <button className={`btn ${activeSubTab === 'promotions' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setActiveSubTab('promotions')} style={{display:'flex',alignItems:'center',gap:'8px',borderRadius:'10px'}}>
           <Megaphone size={16}/> Campaigns & Offers
         </button>
@@ -1099,6 +1111,12 @@ export default function PlatformAdmin({ embedded = false }) {
         </section>
       )}
 
+      {activeSubTab==='location' && <section className="card"><h2>Delivery location monitoring</h2>
+        {locationError?<p role="alert">{locationError}</p>:!locationReport?<p>Loading restaurant status…</p>:<>
+          <p>Updated {new Date(locationReport.checkedAt).toLocaleTimeString()} · Fresh signals are accurate fixes received in the last 30 seconds.</p>
+          <div style={{overflowX:'auto'}}><table><thead><tr>{['Restaurant','Pickup pin','Delivery','Pricing','Areas','Active trips','Fresh signals'].map(x=><th key={x}>{x}</th>)}</tr></thead>
+          <tbody>{locationReport.stores.map(s=><tr key={s.id}><td>{s.name}</td><td>{s.pinSaved?'Saved':'Missing'}</td><td>{s.enabled?'Enabled':'Paused'}</td><td>{s.distanceMode}</td><td>{s.areas}</td><td>{s.trips}</td><td>{s.fresh}</td></tr>)}</tbody></table></div></>}
+        </section>}
       {activeSubTab === 'promotions' && <PromotionManager platform restaurants={partners} />}
 
       {/* PLATFORM OWNER: aggregate verification status only, never private rider documents. */}

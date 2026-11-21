@@ -878,6 +878,7 @@ export default function RestaurantsView({ onSelectRestaurant, toast = () => {} }
           <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏪</div>
           <h4>{!loadError && deliveryOnly && !hasActiveFilters ? t(!hasPreciseLocation ? 'deliveryNeedsPin' : !current ? 'checkingDelivery' : 'noDeliveryHere') : emptyState.title}</h4>
           {deliveryOnly && current && restaurants.some(r => r.deliveryIssue === 'quote_unavailable') && <p>Delivery quote temporarily unavailable. Check again shortly.</p>}
+          {deliveryOnly && current && restaurants.some(r=>['excluded_area','outside_delivery_area'].includes(r.deliveryIssue)) && <p>The selected entrance falls outside a restaurant’s delivery areas or inside an excluded area.</p>}
           {deliveryOnly && current && pendingDeliverySetup.length > 0 && (
             <p>Delivery is not confirmed because {pendingDeliverySetup.map(r => r.name).join(', ')} has not saved a restaurant map pin. The restaurant owner must set its actual coordinates in POS → Workspace Settings → Online Store. Pickup is still available where enabled.</p>
           )}

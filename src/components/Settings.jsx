@@ -1,4 +1,6 @@
 import { coordinatePair, restaurantPickupPin } from '../../lib/delivery/geo-distance.js';
+import DeliveryZoneEditor from './DeliveryZoneEditor.jsx';
+import { zoneMessage } from '../../lib/delivery/zones.js';
 import { db } from '../database/db';
 import SubscriptionBilling from './SubscriptionBilling';
 import React, { useState, useEffect } from 'react';
@@ -39,7 +41,7 @@ function DeliveryAddressTest({ tenantId, settings, updateSetting }) {
       const quote = await db.put('settings/delivery-test', { ...point, subtotal, expectedTenantId: tenantId });
       const basis = quote.distanceMode === 'road' ? 'by road' : 'straight-line';
       setMessage(quote.isOutOfRange
-        ? `Outside the delivery limit of ${quote.maxRadiusKm} km (${quote.distanceKm} km ${basis}).`
+        ? zoneMessage(quote.coverageIssue) || `Outside the delivery limit of ${quote.maxRadiusKm} km (${quote.distanceKm} km ${basis}).`
         : `Within coverage · ${quote.distanceKm} km ${basis} · Delivery fee Rs. ${quote.totalFee}`);
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
@@ -1631,6 +1633,7 @@ export default function Settings({ initialSubTab = null } = {}) {
                   {/* Store Location & Weather Controls */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px', marginBottom: '16px' }}>
                     <PickupPinEditor key={currentUser?.tenant_id} settings={settings} savePickupPin={savePickupPin} />
+                    <DeliveryZoneEditor key={'areas-'+currentUser?.tenant_id} settings={settings} updateSetting={updateSetting}/>
                     <DeliveryAddressTest key={"test-" + currentUser?.tenant_id} tenantId={currentUser?.tenant_id} settings={settings} updateSetting={updateSetting} />
 
                     <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>

@@ -1,3 +1,4 @@
+const DeliveryMap = React.lazy(()=>import('./DeliveryMap.jsx'));
 import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
 import './rider-wizard.css';
@@ -102,6 +103,7 @@ export default function App() {
   const [approvedEarnings,setApprovedEarnings]=useState(null);
   const [earningsLoading,setEarningsLoading]=useState(false);
   const [earningsError,setEarningsError]=useState('');
+  const [mapOrder,setMapOrder]=useState(null);
   const [roadEstimates,setRoadEstimates]=useState({});
   const [roadLoadingId,setRoadLoadingId]=useState(null);
   const roadRequestEpochRef=useRef(0);
@@ -695,13 +697,13 @@ export default function App() {
     setRoadLoadingId(orderId);
     setRoadEstimates(prev=>({...prev,[orderId]:null}));
     try {
-      const result=await apiFetch(`/public/driver/orders/${encodeURIComponent(orderId)}/road-eta`,{cache:'no-store'});
+      const result=await apiFetch(`/public/driver/orders/${encodeURIComponent(orderId)}/road-eta?geometry=1`,{cache:'no-store'});
       if(roadRequestEpochRef.current!==currentEpoch || riderId!==driverStatusIdentityRef.current) return;
       const validResult=result.available===true && result.source==='road' &&
         Number.isFinite(result.distanceKm) && result.distanceKm>=0 &&
         Number.isFinite(result.travelMinutes) && result.travelMinutes>=0;
       setRoadEstimates(prev=>({...prev,[orderId]:validResult ?
-        {available:true,distanceKm:result.distanceKm,travelMinutes:result.travelMinutes,estimatedAt:result.estimatedAt} :
+        {available:true,distanceKm:result.distanceKm,travelMinutes:result.travelMinutes,estimatedAt:result.estimatedAt,basedOnFixAt:result.basedOnFixAt,geometry:result.geometry} :
         {available:false,message:typeof result.reason==='string' ? result.reason : 'No verified route estimate is available.'}}));
     } catch(error) {
       if(roadRequestEpochRef.current===currentEpoch && riderId===driverStatusIdentityRef.current)
@@ -1600,6 +1602,14 @@ export default function App() {
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {ord.status !== 'delivered' && (progressStage<=1 ? pickupLocation : hasDropCoordinates) && <>
+                          <button type="button" className="btn-outline" onClick={()=>setMapOrder(id=>id===ord.id?null:ord.id)}>{mapOrder===ord.id?'Close map':progressStage<=1?'View pickup map':'View delivery map'}</button>
+                          {mapOrder===ord.id && <React.Suspense fallback={<p>Loading map…</p>}><DeliveryMap
+                            key={ord.id+'-'+(progressStage<=1?'pickup':'customer')}
+                            destination={progressStage<=1 && pickupLocation?[pickupLocation.lng,pickupLocation.lat]:[Number(ord.deliveryLng),Number(ord.deliveryLat)]}
+                            fix={hasFreshLocation?lastCoords:null}
+                            geometry={hasFreshLocation && progressStage>1 && driverClock-roadEstimates[ord.id]?.basedOnFixAt<=30000 ? roadEstimates[ord.id]?.geometry : null}/></React.Suspense>}
+                        </>}
                         {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to customer drop-off for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> Customer drop-off</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}><MessageCircle size={17} aria-hidden="true"/> WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
                         {hasDropCoordinates && ['picked_up','out_for_delivery','arrived'].includes(ord.status) && (

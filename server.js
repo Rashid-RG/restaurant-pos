@@ -23,6 +23,7 @@ import {createKitchenRouter} from './routes/kitchen.js';
 import {initInventoryOperations,createInventoryOperations} from './routes/inventory-operations.js';
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact ,createTrackingGuard,makeTrackingAccess,publicTrackingEvent,loadAssignedDriverLocation ,initOrderInventory,setOrderInventory,createReleaseOrderLoyalty} from './lib/orders/index.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
+import {readDeliveryZones,zoneMessage} from './lib/delivery/zones.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import {createRiderPresence} from './lib/delivery/rider-presence.js';
 import {createStaffRefreshToken,verifyStaffRefreshToken,readStaffRefreshCookie,staffRefreshCookie,staffRefreshCredentialVersion} from './lib/staff-session-refresh.js';
@@ -224,7 +225,8 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'https://checkout.payhere.lk', 'https://generativelanguage.googleapis.com', 'https://app.notify.lk', 'https://nominatim.openstreetmap.org'],
+      connectSrc: ["'self'", 'https://checkout.payhere.lk', 'https://generativelanguage.googleapis.com', 'https://app.notify.lk', 'https://nominatim.openstreetmap.org', 'https://tile.openstreetmap.org'],
+      workerSrc: ["'self'", 'blob:'],
       frameSrc: ["'self'", 'https://checkout.payhere.lk', 'https://sandbox.payhere.lk'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -2678,6 +2680,11 @@ app.post('/api/settings', authenticateToken, requireRole(['owner', 'manager']), 
       return res.status(400).json({ error: 'Invalid online store status.' });
     }
 
+    const zones = body.key === 'deliveryZones' ? body.value : body.deliveryZones;
+    if (zones !== undefined) {
+      try { if(typeof zones !== 'string')throw new Error('Invalid delivery areas.'); readDeliveryZones(zones); }
+      catch(error) {return res.status(422).json({error:error.message});}
+    }
     const distanceMode = body.key === 'deliveryDistanceMode' ? body.value : body.deliveryDistanceMode;
     if (distanceMode !== undefined && !['radius','road'].includes(distanceMode)) {
       return res.status(400).json({error:'Choose road or straight-line pricing.'});
@@ -5578,7 +5585,7 @@ app.get('/api/public/restaurants',publicApiLimiter,async(req,res)=>{
      try { quote=await calculateDeliveryFee(lat,lng,0,tenant.id); }
      catch(error) { if(error.code !== 'DELIVERY_ROUTE_UNAVAILABLE') throw error; }
    }
-   const deliveryIssue=!deliveryEnabled?'delivery_disabled':!configuredLocation?'store_pin_missing':lat==null||lng==null?'customer_pin_required':quote?.isOutOfRange?'outside_delivery_radius':quote?'none':'quote_unavailable';
+   const deliveryIssue=!deliveryEnabled?'delivery_disabled':!configuredLocation?'store_pin_missing':lat==null||lng==null?'customer_pin_required':quote?.isOutOfRange?(quote.coverageIssue||'outside_delivery_radius'):quote?'none':'quote_unavailable';
    const hours=onlineHours(settings);
    const withinHours=hours.includes(Date.now());
    stores.push({coverPhoto:settings.onlineCoverPhoto||null,opensAt:settings.storeOpen==='true'&&!withinHours?hours.opens:null,timeZone:settings.timeZone||'Asia/Colombo',id:tenant.id,name:settings.restaurantName||settings.businessName||tenant.name,cuisine:settings.cuisine||'Restaurant',cuisineTag:settings.cuisineTag||'all',emoji:'🍽️',rating:ratings.count?Math.round(ratings.rating*10)/10:null,ratingCount:ratings.count||0,deliveryTime:settings.deliveryPrepTime||settings.defaultPrepTime?`${settings.deliveryPrepTime||settings.defaultPrepTime} min estimate`:'Confirmed at checkout',deliveryFee:quote?quote.totalFee:Number(settings.deliveryFee||0),minOrder:Number(settings.minimumOrder||0),location:settings.address||'Address not configured',lat:pickup?.lat??null,lng:pickup?.lng??null,deliveryRadiusKm:Number(settings.deliveryMaxRadiusKm||15),isOpen:settings.storeOpen==='true'&&withinHours,pickupEnabled:settings.onlinePickupEnabled!=='false',deliveryEnabled,deliveryIssue,isDeliverable:!deliveryEnabled?false:quote?!quote.isOutOfRange:null,distanceKm:quote?.distanceKm??null,bannerGradient:'linear-gradient(135deg,#059669,#047857)'});
@@ -5674,6 +5681,32 @@ app.post('/api/public/restaurants/register', publicApiLimiter, async (req, res) 
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/platform/location-monitor', authenticateToken, requirePlatformAdmin, async (_req,res) => {
+  res.set('Cache-Control','private, no-store');
+  try {
+    const rows = await dbAll(`SELECT t.id,t.name,s.key,s.value FROM tenants t
+      LEFT JOIN settings s ON s.tenant_id=t.id AND s.key IN ('storeLat','storeLng','restaurantLat','restaurantLng','onlineDeliveryEnabled','deliveryDistanceMode','deliveryZones')
+      WHERE t.status IN ('active','trial') ORDER BY t.name`);
+    const stores=new Map();
+    for(const row of rows) {
+      if(!stores.has(row.id))stores.set(row.id,{id:row.id,name:row.name,settings:{}});
+      if(row.key)stores.get(row.id).settings[row.key]=row.value;
+    }
+    const now=Date.now();
+    const counts=await dbAll(`SELECT o.tenant_id AS id,COUNT(*) AS trips,
+      SUM(CASE WHEN dl.updatedAt BETWEEN ? AND ? AND dl.accuracyMeters>0 AND dl.accuracyMeters<=150 THEN 1 ELSE 0 END) AS fresh
+      FROM orders o LEFT JOIN driver_locations dl ON dl.orderId=o.id AND dl.driverName=o.driverId
+      WHERE o.status IN ('picked_up','out_for_delivery','arrived') AND (o.orderType='delivery' OR o.diningType='delivery')
+      GROUP BY o.tenant_id`,[now-30000,now]);
+    const activity=new Map(counts.map(row=>[row.id,row]));
+    res.json({checkedAt:now,stores:Array.from(stores.values(),({id,name,settings})=>({
+      id,name,pinSaved:!!restaurantPickupPin(settings),enabled:settings.onlineDeliveryEnabled!=='false',
+      distanceMode:settings.deliveryDistanceMode==='road'?'Road':'Straight-line',
+      areas:readDeliveryZones(settings.deliveryZones).length,trips:Number(activity.get(id)?.trips||0),fresh:Number(activity.get(id)?.fresh||0)
+    }))});
+  }catch(error){res.status(500).json({error:'Location status could not be loaded.'});}
 });
 
 app.use('/api', createPlatformRouter({ authenticateToken, requirePlatformAdmin, dbGet, dbAll, dbRun, writeAuditLog, notifyPOS, notifyPublicStore }));
@@ -5972,7 +6005,7 @@ const createPublicOrder = async (req, res) => {
         const feeResult = await calculateDeliveryFee(deliveryLat, deliveryLng, 0, tenantId); // subtotal not known yet; checked after billing
         if (feeResult.isOutOfRange) {
           return res.status(400).json({
-            error: `Sorry, your location is ${feeResult.distanceKm} km away — outside our delivery zone (max ${feeResult.maxRadiusKm} km). Please choose Takeaway instead.`
+            error: zoneMessage(feeResult.coverageIssue) || `Sorry, your location is ${feeResult.distanceKm} km away — outside our delivery zone (max ${feeResult.maxRadiusKm} km). Please choose Takeaway instead.`
           });
         }
         deliveryDistanceKm = feeResult.distanceKm;
@@ -6598,7 +6631,8 @@ app.get('/api/public/driver/orders/:orderId/road-eta', authenticateDriver, async
       return res.set('Cache-Control','no-store').json({available:false,reason:'Road routing is not currently available.'});
     return res.set('Cache-Control','no-store').json({
       available:true,source:'road',distanceKm:result.distanceKm,
-      travelMinutes:result.travelMinutes,estimatedAt:Date.now(),basedOnFixAt:timestamp
+      travelMinutes:result.travelMinutes,estimatedAt:Date.now(),basedOnFixAt:timestamp,
+      ...(req.query.geometry==='1' ? {geometry:result.geometry} : {})
     });
   }catch(error){
     console.error('[Driver road estimate]',error.message);

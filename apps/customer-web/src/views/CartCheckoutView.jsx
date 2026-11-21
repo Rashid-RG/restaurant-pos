@@ -3,6 +3,7 @@ import {checkoutIntent,readPendingCheckout,clearPendingCheckout} from '../utils/
 import { createSubmissionGuard } from '../utils/submission-guard.js';
 import { recoveryDecision, shouldFinalizeOnlinePayment } from '../utils/order-recovery-status.js';
 import {validOrderAcknowledgement,shouldClearCartAfterSubmit} from '../utils/order-acknowledgement.js';
+import { zoneMessage } from '../../../../lib/delivery/zones.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { useCart } from '../context/CartContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
@@ -1162,7 +1163,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
               <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, background: 'rgba(0,0,0,0.02)' }}>
                 {visibleDeliveryBreakdown?.isOutOfRange ? (
                   <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.82rem', textAlign: 'center', padding: '8px 0' }}>
-                    ❌ Sorry, your location is {visibleDeliveryBreakdown.distanceKm} km away — outside our {visibleDeliveryBreakdown.maxRadiusKm} km delivery zone.
+                    ❌ {zoneMessage(visibleDeliveryBreakdown.coverageIssue) || `Your location is ${visibleDeliveryBreakdown.distanceKm} km away, outside the ${visibleDeliveryBreakdown.maxRadiusKm} km delivery limit.`}
                   </div>
                 ) : visibleDeliveryBreakdown?.isFreeDelivery ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: 'var(--success)', alignItems: 'center' }}>
