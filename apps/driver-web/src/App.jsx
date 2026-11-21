@@ -749,13 +749,13 @@ export default function App() {
   const cashToHandover = Number(summary.cashToHandover || 0);
   const visibleOrders = taskTab === 'history' ? history : activeOrders;
   const hasFreshLocation = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords,driverClock);
-  const locationLabel = !isGpsActive ? 'Location sharing is off'
-    : gpsQuality === 'denied' ? 'Location permission denied'
+  const locationLabel = gpsQuality === 'denied' ? 'Location permission denied'
+    : !isGpsActive ? 'Location sharing is off'
     : gpsQuality === 'searching' ? 'Finding an accurate location'
     : !hasFreshLocation ? 'Location unavailable or outdated'
     : 'Accurate location available';
-  const locationHelp = !isGpsActive ? 'Enable location only when you are ready to share it for delivery operations.'
-    : gpsQuality === 'denied' ? 'Allow location access in iPhone Settings, then try sharing again.'
+  const locationHelp = gpsQuality === 'denied' ? 'Allow location access in iPhone Settings, then try sharing again.'
+    : !isGpsActive ? 'Enable location only when you are ready to share it for delivery operations.'
     : !hasFreshLocation ? 'Keep Location Services enabled and use a clear GPS signal. The app will not treat an old fix as live.'
     : `Last fix ${Math.max(0,Math.round((driverClock-lastCoords.recordedAt)/1000))} seconds ago · ±${Math.round(lastCoords.accuracyMeters)} m accuracy`;
 
