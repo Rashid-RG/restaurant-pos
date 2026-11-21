@@ -180,3 +180,21 @@ A separate inexpensive Ubuntu GitHub workflow, `GastroFlow Food iOS branding gen
 7. iPhone Xcode simulator compilation and real-device end-to-end testing remain separate acceptance gates.
 
 **Current status (2026-11-17):** Code/tests prepared; **live native-origin CORS remains unverified and blocked in prior read-only probes**. The current deployed server already handles the exact native origins when explicitly configured, but the contents of the staging environment variable have **not been read or established**. An approved merge-only staging configuration change and restart should precede a new read-only native probe; do not claim the issue resolved until that probe passes. Browser/POS safety is higher priority than bypassing CORS with a wildcard or weakening any authorization checks.
+
+## Installing the staging iPhone beta
+
+The staging TestFlight workflow packages GastroFlow Food for a physical iPhone and points it at the staging API. Use a paid Apple Developer Program team with an App Store Connect app record for `com.rstechnologies.gastrofood`. On the app's TestFlight tab, create an internal testing group, enable automatic distribution, and add the tester's App Store Connect account.
+
+Under GitHub repository **Settings → Secrets and variables → Actions**, configure the following. Enter the private key only in the secret editor.
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Variable | FOOD_APPLE_TEAM_ID | Apple Developer team ID |
+| Secret | FOOD_ASC_KEY_ID | App Store Connect team API key ID |
+| Secret | FOOD_ASC_ISSUER_ID | Team API issuer ID |
+| Secret | FOOD_ASC_PRIVATE_KEY | Full multiline contents of the matching Apple .p8 file |
+| Variable | FOOD_TESTFLIGHT_ENABLED | Set to true when the app record and signing access are ready |
+
+The key needs access to this app, automatic provisioning, cloud-managed distribution signing, and build uploads. A push that changes customer app sources or the TestFlight workflow on `codex/production-readiness` starts the release. Changing a repository variable alone does not start a workflow. Manual dispatch is available once GitHub has registered the workflow on the default branch. The upload is marked internal testing only. Check signing, build processing, and any export compliance questions in App Store Connect before expecting the first invitation.
+
+On iPhone, install TestFlight, accept the invitation, install GastroFlow Food, and enable **Automatic Updates** on its TestFlight page. The existing Home Screen web app and the native beta have separate local sessions.

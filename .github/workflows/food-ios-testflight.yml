@@ -1,0 +1,56 @@
+name: GastroFlow Food staging TestFlight
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/production-readiness]
+    paths:
+      - 'apps/customer-web/**'
+      - '!apps/customer-web/android/**'
+      - 'shared/**'
+      - 'apps/driver-web/src/utils/**'
+      - 'package*.json'
+      - 'scripts/*food*'
+      - '.github/workflows/food-ios-testflight.yml'
+permissions:
+  contents: read
+concurrency:
+  group: food-staging-testflight
+  cancel-in-progress: false
+jobs:
+  beta:
+    if: github.ref == 'refs/heads/codex/production-readiness' && vars.FOOD_TESTFLIGHT_ENABLED == 'true'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Build staging customer app
+        env:
+          VITE_NATIVE_API_ORIGIN: https://gastroflow-staging.onrender.com
+        run: |
+          set -eu
+          npm ci --include=dev --ignore-scripts
+          npm ci --prefix apps/customer-web --include=dev
+          npm run customer:native:build
+          cd apps/customer-web
+          test -f ios/App/App.xcodeproj/project.pbxproj || npm run native:add:ios
+          npm run native:sync:ios
+          npm run native:permissions:ios
+      - name: Apply native session storage and customer branding
+        run: |
+          set -eu
+          gem install xcodeproj -v 1.27.0 --no-document
+          ruby scripts/setup-food-ios-secure-session.rb
+          python3 -m venv "$RUNNER_TEMP/food-python"
+          "$RUNNER_TEMP/food-python/bin/pip" install Pillow==11.3.0
+          "$RUNNER_TEMP/food-python/bin/python" scripts/generate-food-ios-branding.py
+      - name: Archive for iPhone and upload to internal TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.FOOD_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.FOOD_ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.FOOD_ASC_PRIVATE_KEY }}
+          APPLE_TEAM_ID: ${{ vars.FOOD_APPLE_TEAM_ID }}
+        run: bash scripts/release-food-testflight.sh
