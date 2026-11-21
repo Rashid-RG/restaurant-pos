@@ -22,6 +22,8 @@ export default function DeliveryView({verificationOnly=false}) {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState({});
+  const [reassignReason,setReassignReason]=useState({});
+  const [reassignBusy,setReassignBusy]=useState(null);
   const [nearbyRiders,setNearbyRiders]=useState({});
   const [nearbyLoading,setNearbyLoading]=useState({});
 
@@ -118,6 +120,30 @@ export default function DeliveryView({verificationOnly=false}) {
     } catch (err) {
       showToast('Delete error: ' + err.message, 'error');
     }
+  };
+
+  const handleReassignDriver=async(order)=>{
+    if(!order?.driverId||reassignBusy)return;
+    const newDriverId=selectedDriver[order.id]??order.driverId;
+    const reason=String(reassignReason[order.id]||'').trim();
+    if(newDriverId===order.driverId){showToast('Choose another rider or Unassign before continuing.','warning');return;}
+    if(reason.length<8){showToast('Enter a reason of at least 8 characters for the audit record.','warning');return;}
+    if(!window.confirm('Reassign this order before pickup? The previous rider will lose access to this delivery.'))return;
+    setReassignBusy(order.id);
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/reassign',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({orderId:order.id,previousDriverId:order.driverId,newDriverId,reason})
+      });
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||'Could not reassign this order.');
+      setSelectedDriver(prev=>{const next={...prev};delete next[order.id];return next;});
+      setReassignReason(prev=>{const next={...prev};delete next[order.id];return next;});
+      showToast(newDriverId?'Delivery reassigned.':'Delivery unassigned for dispatch.','success');
+      void fetchDrivers();
+    }catch(error){showToast(error.message||'Reassignment failed. Refresh dispatch.','error');}
+    finally{setReassignBusy(null);}
   };
 
   const findNearbyRiders = async (orderId) => {
@@ -700,11 +726,11 @@ export default function DeliveryView({verificationOnly=false}) {
                       <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>Assign Delivery Rider:</label>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <select
-                          value={selectedDriver[ord.id] || ord.driverId || ''}
+                          value={selectedDriver[ord.id] ?? ord.driverId ?? ''}
                           onChange={(e) => setSelectedDriver({ ...selectedDriver, [ord.id]: e.target.value })}
                           style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'var(--bg-surface)', color: 'var(--text-main)', border: '1px solid var(--border-color)' }}
                         >
-                          <option value="">-- Select Driver --</option>
+                          <option value="">-- {ord.driverId?'Unassign / choose driver':'Select Driver'} --</option>
                           {activeDrivers.map(d => (
                             <option key={d.id} value={d.id}>
                               🛵 {d.name} ({d.phone}) — {d.status.toUpperCase()}
@@ -720,6 +746,20 @@ export default function DeliveryView({verificationOnly=false}) {
                           Assign Rider
                         </button>
                       </div>
+                      {canReview && Boolean(ord.driverId) && ['pending','preparing','ready'].includes(ord.status) &&
+                        (ord.diningType==='delivery'||ord.orderType==='delivery') && (
+                        <div className="driver-reassign-controls" role="group" aria-label={`Reassign order ${ord.id}`}>
+                          <label htmlFor={`reassign-reason-${ord.id}`}>Reason for reassignment (required)</label>
+                          <textarea id={`reassign-reason-${ord.id}`} value={reassignReason[ord.id]||''}
+                            maxLength={300} rows={2} onChange={event=>setReassignReason(prev=>({...prev,[ord.id]:event.target.value}))}
+                            placeholder="Why is this delivery being moved to a different rider?"/>
+                          <button type="button" className="btn btn-outline" disabled={Boolean(reassignBusy)||loading}
+                            onClick={()=>handleReassignDriver(ord)}>
+                            {reassignBusy===ord.id?'Reassigning…':'Confirm reassignment / unassign'}
+                          </button>
+                          <small>Only before pickup. Manager action is recorded for audit.</small>
+                        </div>
+                      )}
                       {['owner','manager'].includes(String(currentUser?.role||'').toLowerCase()) &&
                         (ord.diningType==='delivery'||ord.orderType==='delivery') &&
                         !ord.driverId && (
