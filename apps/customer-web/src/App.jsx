@@ -12,6 +12,7 @@ import MarketplaceMenu from './views/MarketplaceMenu.jsx';
 import CartCheckoutView from './views/CartCheckoutView.jsx';
 import { useStorefront } from './hooks/useStorefront.js';
 import OrderTrackingView from './views/OrderTrackingView.jsx';
+import OrderConfirmationView from './views/OrderConfirmationView.jsx';
 import ProfileView from './views/ProfileView.jsx';
 import RestaurantsView from './views/RestaurantsView.jsx';
 import LegalPoliciesView from './views/LegalPoliciesView.jsx';
@@ -238,6 +239,10 @@ function InnerApp({ switchRestaurant }) {
     return params.get('tenant') ? 'store-menu' : 'restaurants';
   });
   const [trackingOrderId, setTrackingOrderId] = useState(null);
+  const [confirmedOrderId,setConfirmedOrderId]=useState(()=>{
+    const params=new URLSearchParams(window.location.search);
+    return params.get('view')==='confirmation'?params.get('order'):null;
+  });
   const [aiCustomize, setAiCustomize] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
@@ -250,6 +255,7 @@ function InnerApp({ switchRestaurant }) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const track = params.get('track');
+    const confirmationId=params.get('view')==='confirmation'?params.get('order'):null;
     const reset = params.get('reset');
     const legal = params.get('legal') || params.get('policies');
     const viewParam = params.get('view') || params.get('page');
@@ -264,7 +270,10 @@ function InnerApp({ switchRestaurant }) {
       switchRestaurant(tenant);
     }
 
-    if (track) {
+    if (confirmationId){
+      setConfirmedOrderId(confirmationId);
+      setView('confirmation');
+    } else if (track) {
       setTrackingOrderId(track);
       setView('track');
     } else if (reset) {
@@ -272,7 +281,7 @@ function InnerApp({ switchRestaurant }) {
       setView('account');
     } else if (legal) {
       setView('legal');
-    } else if (viewParam && ['menu', 'store-menu', 'restaurants', 'checkout', 'track', 'account', 'support', 'legal'].includes(viewParam)) {
+    } else if (viewParam && ['menu', 'store-menu', 'restaurants', 'checkout', 'track', 'confirmation', 'account', 'support', 'legal'].includes(viewParam)) {
       // Existing restaurant-specific share links remain compatible.
       setView(viewParam === 'menu' && tenant ? 'store-menu' : viewParam);
     }
@@ -284,6 +293,7 @@ function InnerApp({ switchRestaurant }) {
       const v = p.get('view') || p.get('page') || (p.get('tenant') ? 'store-menu' : 'restaurants');
       setView(v === 'menu' && p.get('tenant') ? 'store-menu' : v);
       setTrackingOrderId(v === 'track' ? p.get('track') : null);
+      setConfirmedOrderId(v === 'confirmation' ? p.get('order') : null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -294,6 +304,7 @@ function InnerApp({ switchRestaurant }) {
     // Clearing a tracking selection should display the manual/private-link form
     // rather than leaking the previous customer's order.
     if (v === 'track') setTrackingOrderId(extraParams.track ? String(extraParams.track) : null);
+    if (v === 'confirmation') setConfirmedOrderId(extraParams.order ? String(extraParams.order) : null);
     setAiCustomize(null);
     if (v === 'store-menu' && extraParams.customize) {
       setAiCustomize({ itemId: String(extraParams.customize), quantity: Number(extraParams.qty) || 1, tenantId: String(extraParams.tenant || ''), requestId: Date.now() });
@@ -310,6 +321,7 @@ function InnerApp({ switchRestaurant }) {
       // Once the customer navigates away, refresh must open the current screen.
       for (const param of ['legal','policies','page','customize','qty','supportOrder']) url.searchParams.delete(param);
       if (v !== 'track') url.searchParams.delete('track');
+      if (v !== 'confirmation') url.searchParams.delete('order');
       if (v !== 'account') url.searchParams.delete('reset');
       Object.entries(extraParams).forEach(([k, val]) => {
         if (val !== null && val !== undefined) url.searchParams.set(k, val);
@@ -349,8 +361,10 @@ function InnerApp({ switchRestaurant }) {
   };
 
   const handleOrderPlaced = (orderId) => {
-    setTrackingOrderId(orderId);
-    navigate('track',{track:orderId,group:null});
+    // An acknowledged order should not instantly dismiss its receipt. The
+    // customer explicitly chooses when to open live tracking.
+    if(!orderId)return;
+    navigate('confirmation',{order:String(orderId),group:null});
   };
 
   return (
@@ -444,6 +458,7 @@ function InnerApp({ switchRestaurant }) {
         {view === 'menu' && <MarketplaceMenu onChooseStore={openRestaurant} />}
         {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} aiCustomize={aiCustomize} />}
         {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
+        {view === 'confirmation' && <OrderConfirmationView orderId={confirmedOrderId} onTrack={()=>navigate('track',{track:confirmedOrderId,group:null})} onBrowse={()=>navigate('restaurants')}/>}
         {view === 'track' && <OrderTrackingView onSupport={id => navigate('support', {supportOrder:id})} onSelectOrder={track => navigate('track', {track})} orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
         {view === 'account' && <ProfileView onReviewDish={reviewPastDish} toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
         {view === 'support' && <SupportView initialOrderId={new URLSearchParams(window.location.search).get('supportOrder')} store={store} onBack={() => navigate('menu')} toast={toast} />}
@@ -495,7 +510,7 @@ function InnerApp({ switchRestaurant }) {
           {t('navCart')}
           {totalItems > 0 && <span className="badge" style={{ position: 'static', fontSize: '0.6rem', padding: '1px 5px' }}>{totalItems}</span>}
         </button>
-        <button className={`nav-item ${view === 'track' ? 'active' : ''}`} aria-current={view==='track'?'page':undefined} onClick={() => navigate('track')}>
+        <button className={`nav-item ${view === 'track' || view === 'confirmation' ? 'active' : ''}`} aria-current={view==='track'||view==='confirmation'?'page':undefined} onClick={() => navigate('track')}>
           <span className="nav-icon"><Package size={21}/></span>
           {t('navOrders')}
         </button>
