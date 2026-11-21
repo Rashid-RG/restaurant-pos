@@ -24,6 +24,7 @@ import {initInventoryOperations,createInventoryOperations} from './routes/invent
 import {initCheckoutRecovery,checkoutIdentity,findRecoveredOrder,saveCheckout,publicOrderConfirmation,issueOrderProof,consumeOrderProof,normalizeCheckoutContact ,createTrackingGuard,makeTrackingAccess,publicTrackingEvent,loadAssignedDriverLocation ,initOrderInventory,setOrderInventory,createReleaseOrderLoyalty} from './lib/orders/index.js';
 import {createLiveAccessCheck} from './lib/live-access.js';
 import {readDeliveryZones,zoneMessage} from './lib/delivery/zones.js';
+import {locationActivitySql, locationActivityParams, normalizeLocationActivity} from './lib/delivery/location-monitor.js';
 import {fetchRoadRoute,routingOrigin,validRoadPoint} from './lib/road-routing.js';
 import {createRiderPresence} from './lib/delivery/rider-presence.js';
 import {createStaffRefreshToken,verifyStaffRefreshToken,readStaffRefreshCookie,staffRefreshCookie,staffRefreshCredentialVersion} from './lib/staff-session-refresh.js';
@@ -5695,11 +5696,7 @@ app.get('/api/platform/location-monitor', authenticateToken, requirePlatformAdmi
       if(row.key)stores.get(row.id).settings[row.key]=row.value;
     }
     const now=Date.now();
-    const counts=await dbAll(`SELECT o.tenant_id AS id,COUNT(*) AS trips,
-      SUM(CASE WHEN dl.updatedAt BETWEEN ? AND ? AND dl.accuracyMeters>0 AND dl.accuracyMeters<=150 THEN 1 ELSE 0 END) AS fresh
-      FROM orders o LEFT JOIN driver_locations dl ON dl.orderId=o.id AND dl.driverName=o.driverId
-      WHERE o.status IN ('picked_up','out_for_delivery','arrived') AND (o.orderType='delivery' OR o.diningType='delivery')
-      GROUP BY o.tenant_id`,[now-30000,now]);
+    const counts=await dbAll(locationActivitySql,locationActivityParams(now));
     const activity=new Map(counts.map(row=>[row.id,row]));
     res.json({checkedAt:now,infrastructure:{
       presenceEnabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true',
@@ -5709,7 +5706,7 @@ app.get('/api/platform/location-monitor', authenticateToken, requirePlatformAdmi
     },stores:Array.from(stores.values(),({id,name,settings})=>({
       id,name,pinSaved:!!restaurantPickupPin(settings),enabled:settings.onlineDeliveryEnabled!=='false',
       distanceMode:settings.deliveryDistanceMode==='road'?'Road':'Straight-line',
-      areas:readDeliveryZones(settings.deliveryZones).length,trips:Number(activity.get(id)?.trips||0),fresh:Number(activity.get(id)?.fresh||0)
+      areas:readDeliveryZones(settings.deliveryZones).length,...normalizeLocationActivity(activity.get(id))
     }))});
   }catch(error){res.status(500).json({error:'Location status could not be loaded.'});}
 });
