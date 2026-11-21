@@ -1146,15 +1146,16 @@ export default function App() {
   const isServerConfirmedLocation = hasFreshLocation && gpsUploadStatus==='accepted';
   const routeRequest = useRef(requestRoadEstimate);
   useEffect(()=>{routeRequest.current=requestRoadEstimate;});
+  const liveRouteOrderId = mapOrder===null && activeOrders.length===1 ? activeOrders[0].id : mapOrder;
   const showLiveRoute = driverScreen==='orders' && taskTab==='active' && hasFreshLocation &&
-    activeOrders.some(order=>order.id===mapOrder && ['picked_up','out_for_delivery','arrived'].includes(order.status));
+    activeOrders.some(order=>order.id===liveRouteOrderId && ['picked_up','out_for_delivery','arrived'].includes(order.status));
   useEffect(()=>{
     if(!showLiveRoute)return;
-    const refresh=()=>{if(!document.hidden && navigator.onLine!==false)routeRequest.current(mapOrder);};
+    const refresh=()=>{if(!document.hidden && navigator.onLine!==false)routeRequest.current(liveRouteOrderId);};
     refresh();
     const timer=setInterval(refresh,20000);
     return ()=>clearInterval(timer);
-  },[showLiveRoute,mapOrder]);
+  },[showLiveRoute,liveRouteOrderId]);
   const locationLabel = gpsQuality === 'denied' ? 'Location permission denied'
     : !isGpsActive ? 'Location sharing is off'
     : gpsQuality === 'searching' ? 'Finding an accurate location'
@@ -1627,6 +1628,20 @@ export default function App() {
                         {['Ready', 'Picked up', 'On the way', 'Arrived', 'Delivered'].map((label, index) => <li key={label} className={progressStage >= index + 1 ? 'complete' : ''} aria-current={progressStage === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}
                       </ol>
                       <div className="driver-next-step"><strong>Next step</strong><span>{nextStep}</span></div>
+                      <section className="driver-trip-map-hero" aria-label="Active trip map" style={{width:'100%',padding:0,margin:'4px 0 12px'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8}}>
+                          <strong style={{fontSize:15}}>Trip navigation</strong>
+                          <small style={{color:'var(--text-muted)'}}>{hasFreshLocation?'Fresh device location':'Waiting for usable GPS'}</small>
+                        </div>
+                        {ord.status !== 'delivered' && (progressStage<=1 ? pickupLocation : hasDropCoordinates) && <>
+                          <button type="button" className="btn-outline" onClick={()=>setMapOrder(id=>(id===ord.id || (id===null && activeOrders.length===1))?'hidden':ord.id)}>{(mapOrder===ord.id || (mapOrder===null && activeOrders.length===1))?'Close map':progressStage<=1?'View pickup map':'View delivery map'}</button>
+                          {(mapOrder===ord.id || (mapOrder===null && activeOrders.length===1)) && <React.Suspense fallback={<p>Loading map…</p>}><DeliveryMap
+                            key={ord.id+'-'+(progressStage<=1?'pickup':'customer')}
+                            destination={progressStage<=1 && pickupLocation?[pickupLocation.lng,pickupLocation.lat]:[Number(ord.deliveryLng),Number(ord.deliveryLat)]}
+                            fix={hasFreshLocation?lastCoords:null}
+                            geometry={hasFreshLocation && progressStage>1 && driverClock-roadEstimates[ord.id]?.basedOnFixAt<=30000 ? roadEstimates[ord.id]?.geometry : null}/></React.Suspense>}
+                        </>}
+                      </section>
                       <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div className="driver-order-detail"><User size={16} aria-hidden="true"/><strong>{ord.customerName || 'Customer'}</strong></div>
                         <div className="driver-order-detail"><Phone size={16} aria-hidden="true"/><strong>{customerPhone}</strong></div>
@@ -1636,14 +1651,6 @@ export default function App() {
                       </div>
 
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {ord.status !== 'delivered' && (progressStage<=1 ? pickupLocation : hasDropCoordinates) && <>
-                          <button type="button" className="btn-outline" onClick={()=>setMapOrder(id=>id===ord.id?null:ord.id)}>{mapOrder===ord.id?'Close map':progressStage<=1?'View pickup map':'View delivery map'}</button>
-                          {mapOrder===ord.id && <React.Suspense fallback={<p>Loading map…</p>}><DeliveryMap
-                            key={ord.id+'-'+(progressStage<=1?'pickup':'customer')}
-                            destination={progressStage<=1 && pickupLocation?[pickupLocation.lng,pickupLocation.lat]:[Number(ord.deliveryLng),Number(ord.deliveryLat)]}
-                            fix={hasFreshLocation?lastCoords:null}
-                            geometry={hasFreshLocation && progressStage>1 && driverClock-roadEstimates[ord.id]?.basedOnFixAt<=30000 ? roadEstimates[ord.id]?.geometry : null}/></React.Suspense>}
-                        </>}
                         {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to ${navigatingToPickup ? 'pickup' : 'customer drop-off'} for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> {navigatingToPickup ? 'Restaurant pickup' : 'Customer drop-off'}</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}><MessageCircle size={17} aria-hidden="true"/> WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
                         {hasDropCoordinates && ['picked_up','out_for_delivery','arrived'].includes(ord.status) && (
