@@ -239,3 +239,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-approved-earnings ul{list-style:none;display:grid;gap:7px;margin:5px 0;padding:0}
 .driver-approved-earnings li{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;border-bottom:1px solid var(--border-color);padding:6px 0;font-size:12px}
 .driver-approved-earnings .driver-earnings-payout-note{color:#805519;background:#fff7e9;border:1px solid #f0ddad;border-radius:10px;padding:11px}
+
+.driver-earnings-breakdown{display:grid;gap:8px;margin:6px 0}
+.driver-earnings-breakdown>div{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;padding:11px;background:#f3f9f5;border:1px solid #d8e9dc;border-radius:10px;font-size:12px}
+.driver-earnings-breakdown strong{font-variant-numeric:tabular-nums}
