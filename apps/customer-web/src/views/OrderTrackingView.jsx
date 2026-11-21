@@ -35,6 +35,21 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const [error, setError] = useState('');
   const [remainingMins, setRemainingMins] = useState(null);
   const [cancelling, setCancelling] = useState(false);
+  const [handoverPin,setHandoverPin]=useState(null);
+  const [handoverPinBusy,setHandoverPinBusy]=useState(false);
+  const [handoverPinError,setHandoverPinError]=useState('');
+  useEffect(()=>{setHandoverPin(null);setHandoverPinError('');},[order?.id]);
+  const requestHandoverPin=async()=>{
+    if(!order?.id||handoverPinBusy)return;
+    setHandoverPinBusy(true);setHandoverPinError('');
+    try{
+      const data=await apiFetch(`/public/orders/${encodeURIComponent(order.id)}/handover-pin`,{method:'POST',cache:'no-store'});
+      if(!/^[0-9]{6}$/.test(String(data.pin||''))||!Number.isFinite(Number(data.expiresAt)))
+        throw new Error('Invalid handover code response.');
+      setHandoverPin({orderId:order.id,pin:data.pin,expiresAt:data.expiresAt});
+    }catch(error){setHandoverPinError(error.message||'Could not generate delivery handover code.');}
+    finally{setHandoverPinBusy(false);}
+  };
   const [storeInfo, setStoreInfo] = useState(null);   // { lat, lng, name, ... }
   const [driverLoc, setDriverLoc] = useState(null);    // live { lat, lng, driverName }
   const [driverLastSeen,setDriverLastSeen]=useState(null);
@@ -765,6 +780,23 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
 
             <div className="customer-receipt-powered">Powered by <strong>GastroFlow</strong><span>Developed by {platformPublisher}</span></div>
             <button type="button" className="customer-print-receipt" onClick={() => window.print()}>🧾 Print / Save receipt</button>
+            {isDelivery && ['picked_up','out_for_delivery','arrived'].includes(order.status) && (
+              <section aria-label="Delivery handover verification"
+                style={{padding:14,margin:'14px 0',border:'1px solid var(--border-color)',borderRadius:12,background:'var(--bg-card)'}}>
+                <strong style={{display:'block',marginBottom:6}}>Secure delivery handover</strong>
+                <p style={{fontSize:13,color:'var(--text-muted)',lineHeight:1.5}}>
+                  Generate a private 6-digit code and share it only with your assigned rider at delivery. Once issued, the rider must enter it before completing this order.
+                </p>
+                {handoverPin?.orderId===order.id && Number(handoverPin.expiresAt)>nowClock &&
+                  <div role="status" style={{display:'grid',gap:5,margin:'12px 0'}}>
+                    <strong style={{fontSize:30,letterSpacing:5,fontVariantNumeric:'tabular-nums'}}>{handoverPin.pin}</strong>
+                    <small>Expires {new Date(handoverPin.expiresAt).toLocaleTimeString()}. Do not share with anyone else.</small>
+                  </div>}
+                <button type="button" className="btn btn-outline" disabled={handoverPinBusy}
+                  onClick={requestHandoverPin}>{handoverPinBusy?'Generating…':handoverPin?'Generate new code':'Generate handover code'}</button>
+                {handoverPinError && <p role="alert" style={{fontSize:12,color:'var(--danger)'}}>{handoverPinError}</p>}
+              </section>
+            )}
             {canCancel && (
               <button
                 className="btn btn-outline"
