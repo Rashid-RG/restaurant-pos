@@ -2,7 +2,7 @@ import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
 import './rider-wizard.css';
 import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
-import { Bike, House, ClipboardList, Wallet, UserRound, Navigation, MapPin, PackageCheck, Bell, LogOut, MessageCircle, Phone, User, Package, Check, CircleCheck, Truck } from 'lucide-react';
+import { Bike, House, ClipboardList, Wallet, UserRound, Navigation, MapPin, PackageCheck, Bell, LogOut, MessageCircle, Phone, User, Package, Check, CircleCheck, Truck, Clock3 } from 'lucide-react';
 import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
@@ -1341,6 +1341,9 @@ export default function App() {
                 </h3>
                 <div style={{ display: 'grid', gap: 12 }}>
                   {filteredAvailableOrders.map(ord => {
+                    const offerExpiry=Number(ord.offerExpiresAt)||null;
+                    const secondsLeft=offerExpiry?Math.max(0,Math.ceil((offerExpiry-driverClock)/1000)):null;
+                    const timedOfferExpired=secondsLeft!==null&&secondsLeft===0;
                     // Pickup proximity requires the restaurant's configured pin.
                     // This is straight-line distance, not an OSRM driving ETA.
                     const pickupKm = (isGpsActive && gpsQuality==='good' && validDriverFix(lastCoords,driverClock) && pickupLocation)
@@ -1366,9 +1369,13 @@ export default function App() {
                           )}
                         </div>
                       </div>
+                      {offerExpiry && <p className="driver-offer-countdown" role="status" aria-live="off">
+                        <Clock3 size={16} aria-hidden="true"/>
+                        {timedOfferExpired?'This individual offer has expired. Refresh orders.' : `Individual offer · ${secondsLeft} seconds remaining`}
+                      </p>}
                       <div className="driver-offer-actions">
-                        <button type="button" className="btn-emerald" disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : !dispatchFresh ? 'Refresh dispatch to claim' : pendingOrderId===ord.id ? 'Working…' : 'Accept delivery'}</button>
-                        <button type="button" className="btn-outline" disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh} onClick={() => handleDecline(ord.id)}>{pendingOrderId===ord.id ? 'Working…' : 'Decline offer'}</button>
+                        <button type="button" className="btn-emerald" disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh || timedOfferExpired} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : !dispatchFresh ? 'Refresh dispatch to claim' : pendingOrderId===ord.id ? 'Working…' : 'Accept delivery'}</button>
+                        <button type="button" className="btn-outline" disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh || timedOfferExpired} onClick={() => handleDecline(ord.id)}>{pendingOrderId===ord.id ? 'Working…' : 'Decline offer'}</button>
                       </div>
                     </article>
                     );
