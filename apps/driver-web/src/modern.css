@@ -229,3 +229,13 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-preferences label strong{font-size:13px}
 .driver-preferences label small,.driver-preferences p{font-size:12px;line-height:1.5;color:var(--text-muted);margin:0}
 .driver-preferences input{flex:0 0 auto;width:23px;height:23px;accent-color:#24664f}
+
+/* Approved rider earnings are distinct from cash held and paid-out wages. */
+.driver-approved-earnings{display:grid;gap:9px}
+.driver-approved-earnings h3{margin:0;font-size:16px;color:var(--brand-dark)}
+.driver-approved-earnings>p{margin:0;font-size:12px;line-height:1.5;color:var(--text-muted)}
+.driver-approved-total{font-size:26px;color:var(--brand-emerald);font-variant-numeric:tabular-nums}
+.driver-approved-earnings>small{font-size:12px;color:var(--text-muted)}
+.driver-approved-earnings ul{list-style:none;display:grid;gap:7px;margin:5px 0;padding:0}
+.driver-approved-earnings li{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;border-bottom:1px solid var(--border-color);padding:6px 0;font-size:12px}
+.driver-approved-earnings .driver-earnings-payout-note{color:#805519;background:#fff7e9;border:1px solid #f0ddad;border-radius:10px;padding:11px}
