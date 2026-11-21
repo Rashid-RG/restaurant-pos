@@ -12,6 +12,7 @@ import {Capacitor,CapacitorHttp,registerPlugin} from '@capacitor/core';
 import {createNativeTrackingSession} from '../../driver-native/src/background-tracker.js';
 import {createDispatchRequestGate,createDispatchTimeout,latestDispatchTickets} from './utils/dispatch-sync.js';
 import {offerSecondsRemaining,offerExpired} from './utils/offer-clock.js';
+import {driverLanguages,driverText,driverThemeChoice} from './utils/driver-locale.js';
 
 
 // ── Auth token storage ──
@@ -92,6 +93,30 @@ export default function App() {
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
   const [driverScreen,setDriverScreen]=useState('home');
+  const [driverLanguage,setDriverLanguage]=useState('en');
+  const [driverTheme,setDriverTheme]=useState('system');
+  const [prefersDark,setPrefersDark]=useState(()=>window.matchMedia?.('(prefers-color-scheme: dark)').matches===true);
+  useEffect(()=>{
+    const media=window.matchMedia?.('(prefers-color-scheme: dark)');
+    if(!media)return;
+    const update=()=>setPrefersDark(media.matches);
+    media.addEventListener?.('change',update);
+    return()=>media.removeEventListener?.('change',update);
+  },[]);
+  useEffect(()=>{
+    if(!driver?.id){setDriverLanguage('en');setDriverTheme('system');return;}
+    const language=localStorage.getItem(`gastrodriver:language:${driver.id}`);
+    setDriverLanguage(driverLanguages.includes(language)?language:'en');
+    setDriverTheme(driverThemeChoice(localStorage.getItem(`gastrodriver:theme:${driver.id}`)));
+  },[driver?.id]);
+  const setDriverPreference=(name,value)=>{
+    if(!driver?.id)return;
+    localStorage.setItem(`gastrodriver:${name}:${driver.id}`,value);
+    if(name==='language')setDriverLanguage(value);
+    if(name==='theme')setDriverTheme(value);
+  };
+  const tx=key=>driverText(driverLanguage,key);
+  const isDark=driverTheme==='dark'||(driverTheme==='system'&&prefersDark);
   const [ownDriverProfile,setOwnDriverProfile]=useState(null);
   const [profileLoading,setProfileLoading]=useState(false);
   const [profileError,setProfileError]=useState('');
@@ -1065,7 +1090,7 @@ export default function App() {
     : `Last fix ${Math.max(0,Math.round((driverClock-lastCoords.recordedAt)/1000))} seconds ago · ±${Math.round(lastCoords.accuracyMeters)} m accuracy`;
 
   return (
-    <div className={`driver-app-shell ${accessibility.largeText?'driver-large-text':''} ${accessibility.highContrast?'driver-high-contrast':''} ${accessibility.reducedMotion?'driver-reduced-motion':''}`}><ConnectionStatus/>
+    <div className={`driver-app-shell ${accessibility.largeText?'driver-large-text':''} ${accessibility.highContrast?'driver-high-contrast':''} ${accessibility.reducedMotion?'driver-reduced-motion':''} ${isDark?'driver-theme-dark':'driver-theme-light'}`}><ConnectionStatus/>
       <SystemUpdatePrompt />
 
 
@@ -1188,12 +1213,12 @@ export default function App() {
             <section className="driver-welcome driver-welcome-compact driver-home-greeting"><span>GASTRODRIVER · TODAY</span><h1>Hi, {driver.name?.split(' ')[0]}.</h1></section>
             <div className="card" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}><div><strong>{driver.status === 'offline' ? 'Offline — no new delivery offers' : 'Online — available for dispatch'}</strong><div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5 }}>Current deliveries remain assigned even when you stop accepting new work.</div></div><button type="button" className="btn-emerald" onClick={updateAvailability} disabled={availabilityLoading}>{availabilityLoading ? 'Updating…' : driver.status === 'offline' ? 'Go online' : 'Go offline'}</button></div>
             <section className="driver-home-focus" aria-label="Current delivery">
-              <div className="driver-home-focus-header"><strong>{activeOrders.length ? 'Current delivery' : 'Your next delivery'}</strong><span>{activeOrders.length ? `${activeOrders.length} assigned` : 'No active jobs'}</span></div>
+              <div className="driver-home-focus-header"><strong>{activeOrders.length ? tx('currentDelivery') : tx('nextDelivery')}</strong><span>{activeOrders.length ? `${activeOrders.length} assigned` : tx('noJob')}</span></div>
               {activeOrders.length > 0 ? <>
                 <div className="driver-home-order-line"><span>Order #{String(activeOrders[0].id).slice(-4).toUpperCase()}</span><strong>{String(activeOrders[0].status||'assigned').replace(/_/g,' ')}</strong></div>
                 <p className="driver-home-destination"><MapPin size={17} aria-hidden="true"/>{activeOrders[0].deliveryAddress || 'Customer destination not yet provided'}</p>
                 <div className="driver-home-focus-actions">
-                  <button type="button" className="btn-emerald" onClick={()=>goToDriverScreen('orders','active')}><PackageCheck size={18} aria-hidden="true"/> Open delivery</button>
+                  <button type="button" className="btn-emerald" onClick={()=>goToDriverScreen('orders','active')}><PackageCheck size={18} aria-hidden="true"/> {tx('openDelivery')}</button>
                   <button type="button" className="btn-outline" onClick={()=>goToDriverScreen('orders','available')}>Other pickups</button>
                 </div>
               </> : <>
@@ -1233,19 +1258,34 @@ export default function App() {
                 <p>Restaurant management controls approval and document reviews. Sensitive identity files are not shown here.</p>
               </>}
             </section>
+            <section className="card driver-preferences" aria-label="Driver display and language settings">
+              <h3>{tx('settings')}</h3>
+              <label htmlFor="driver-ui-language"><span><strong>{tx('language')}</strong><small>Core navigation and settings. Operational screens are not yet fully translated.</small></span>
+                <select id="driver-ui-language" value={driverLanguage}
+                  onChange={event=>setDriverPreference('language',event.target.value)}>
+                  <option value="en">English</option><option value="si">සිංහල</option><option value="ta">தமிழ்</option>
+                </select>
+              </label>
+              <label htmlFor="driver-ui-theme"><span><strong>{tx('theme')}</strong><small>Choose your device theme or set a light/dark appearance.</small></span>
+                <select id="driver-ui-theme" value={driverTheme}
+                  onChange={event=>setDriverPreference('theme',event.target.value)}>
+                  <option value="system">{tx('system')}</option><option value="light">{tx('light')}</option><option value="dark">{tx('dark')}</option>
+                </select>
+              </label>
+            </section>
             <section className="card driver-preferences" aria-label="Driver notification preferences">
-              <h3>Notification preferences</h3>
-              <label><span><strong>Delivery alert sound</strong><small>Play an audible alert when new pickup offers appear while the app is open. Phone silent-mode rules still apply.</small></span>
+              <h3>{tx('preferences')}</h3>
+              <label><span><strong>{tx('sound')}</strong><small>Play an audible alert when new pickup offers appear while the app is open. Phone silent-mode rules still apply.</small></span>
                 <input type="checkbox" checked={soundAlertsEnabled} onChange={toggleSoundAlerts} aria-label="Enable delivery alert sounds"/>
               </label>
               <p>Preferences are saved for this rider on this device. Native background push notifications require separate device permission and Firebase configuration.</p>
             </section>
             <section className="card driver-preferences" aria-label="Driver accessibility settings">
-              <h3>Accessibility</h3>
+              <h3>{tx('accessibility')}</h3>
               {[
-                ['largeText','Larger text','Increase text size across driver cards and actions.'],
-                ['highContrast','High contrast','Strengthen card borders and labels for easier reading.'],
-                ['reducedMotion','Reduce motion','Disable decorative animations and smooth transitions.']
+                ['largeText',tx('largeText'),'Increase text size across driver cards and actions.'],
+                ['highContrast',tx('highContrast'),'Strengthen card borders and labels for easier reading.'],
+                ['reducedMotion',tx('reducedMotion'),'Disable decorative animations and smooth transitions.']
               ].map(([name,label,help])=><label key={name}>
                 <span><strong>{label}</strong><small>{help}</small></span>
                 <input type="checkbox" checked={accessibility[name]}
@@ -1536,7 +1576,7 @@ export default function App() {
             </>}
             </>}
             <nav className="driver-bottom-nav" aria-label="Driver app navigation">
-              {[['home','Home',House],['orders','Orders',ClipboardList],['earnings','Cash',Wallet],['profile','Profile',UserRound]].map(([id,label,Icon])=>
+              {[['home',tx('home'),House],['orders',tx('orders'),ClipboardList],['earnings',tx('cash'),Wallet],['profile',tx('profile'),UserRound]].map(([id,label,Icon])=>
                 <button type="button" key={id} className={driverScreen===id?'selected':''}
                   aria-current={driverScreen===id?'page':undefined} onClick={()=>goToDriverScreen(id)}>
                   <Icon size={20} strokeWidth={driverScreen===id?2.6:2}/><span>{label}</span>
