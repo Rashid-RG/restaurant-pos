@@ -162,3 +162,31 @@ body .gastrofood-otp-backdrop button:focus-visible{outline:3px solid #239b78;out
   body .gastrofood-otp-backdrop .gastrofood-otp-icon{height:35px;width:35px;margin-bottom:4px}
   body .gastrofood-otp-backdrop .gastrofood-otp-dialog p{margin:3px 0 6px!important}
 }
+
+/* GastroFlow Smart Checkout: single-screen overview; guided wizard remains fallback. */
+.gf-smart-anchor{scroll-margin-top:12px}
+.gf-smart-checkout{display:flex;flex-direction:column;gap:12px;margin:0 0 12px}
+.gf-smart-heading{padding:5px 3px 2px}
+.gf-smart-kicker{display:block;font-size:10px;letter-spacing:.12em;color:#0b815b;font-weight:900;margin-bottom:4px}
+.gf-smart-heading h3{font-size:20px;font-weight:900;color:#16412c;margin:0;letter-spacing:-.035em}
+.gf-smart-heading p{font-size:12px;line-height:1.5;color:#678071;margin:5px 0 0}
+.gf-smart-summary{border:1px solid #d9e9df;background:#fff;border-radius:19px;box-shadow:0 8px 24px #123d250d;overflow:hidden}
+.gf-smart-row{display:flex;align-items:center;width:100%;gap:12px;border:0;border-bottom:1px solid #e8f0e9;background:transparent;text-align:left;padding:14px 13px;min-height:74px;color:#254533;cursor:pointer}
+.gf-smart-row:last-child{border-bottom:0}
+.gf-smart-row:active{background:#f4fbf6}
+.gf-smart-row:focus-visible,.gf-smart-guided:focus-visible{outline:3px solid #249870;outline-offset:-3px}
+.gf-smart-row-icon{display:grid;place-items:center;flex:0 0 41px;width:41px;height:41px;border-radius:13px;background:#e8f5ed;font-size:21px}
+.gf-smart-row-main{display:flex;flex:1;min-width:0;flex-direction:column;gap:5px}
+.gf-smart-row-main strong{font-size:13px;color:#173e2b;overflow-wrap:anywhere;font-weight:850}
+.gf-smart-row-main small{font-size:11px;color:#6d8376;line-height:1.35;overflow-wrap:anywhere}
+.gf-smart-edit{font-size:11px;font-weight:850;color:#087b55;white-space:nowrap}
+.gf-smart-price{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px;border-radius:15px;background:#e9f6ec;color:#285b43}
+.gf-smart-price span{font-size:12px;font-weight:700}
+.gf-smart-price strong{font-size:21px;letter-spacing:-.025em;color:#075d40;white-space:nowrap}
+.gf-smart-next-needed{border:1px solid #f1d6a6;border-radius:15px;background:#fffaf1;padding:12px 14px}
+.gf-smart-next-needed span{color:#9a5c1d;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.gf-smart-next-needed p{font-size:12px;color:#79512e;line-height:1.5;margin:6px 0}
+.gf-smart-next-needed button{border:1px solid #e8c99a;background:#fff;color:#94591c;font-size:12px;font-weight:850;padding:9px 12px;border-radius:11px;min-height:38px}
+.gf-smart-ready{font-size:11px;color:#206a4a;margin:0 4px;line-height:1.5}
+.gf-smart-guided{border:0;background:none;color:#497863;font-size:12px;font-weight:750;text-decoration:underline;align-self:center;padding:10px}
+@media(max-width:390px){.gf-smart-row{padding:12px 10px;gap:9px}.gf-smart-row-icon{width:36px;height:36px;flex-basis:36px}.gf-smart-price strong{font-size:17px}}
