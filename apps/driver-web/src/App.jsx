@@ -13,6 +13,7 @@ import {createNativeTrackingSession} from '../../driver-native/src/background-tr
 import {createDispatchRequestGate,createDispatchTimeout,latestDispatchTickets} from './utils/dispatch-sync.js';
 import {offerSecondsRemaining,offerExpired} from './utils/offer-clock.js';
 import {driverLanguages,driverText,driverThemeChoice} from './utils/driver-locale.js';
+import {offlineUpdateKey,sanitizePendingUpdates,queuePendingStatus,removePendingStatus} from './utils/offline-status.js';
 
 
 // ── Auth token storage ──
@@ -71,6 +72,23 @@ function isRushHour(timeZone = 'Asia/Colombo') {
 
 export default function App() {
   const [driver, setDriver] = useState(restoredDriverProfile);
+  const [pendingOfflineUpdates,setPendingOfflineUpdates]=useState([]);
+  const [retryingOfflineUpdates,setRetryingOfflineUpdates]=useState(false);
+  const [offlineRetryError,setOfflineRetryError]=useState('');
+  const offlineScope=driver?.id?offlineUpdateKey(driver.tenant_id||sessionStorage.getItem('gastrodriver_selected_tenant')||'default_tenant',driver.id):null;
+  useEffect(()=>{
+    if(!offlineScope){setPendingOfflineUpdates([]);return;}
+    try{
+      const stored=sanitizePendingUpdates(JSON.parse(localStorage.getItem(offlineScope)||'[]'));
+      setPendingOfflineUpdates(stored);
+      localStorage.setItem(offlineScope,JSON.stringify(stored));
+    }catch{setPendingOfflineUpdates([]);localStorage.removeItem(offlineScope);}
+  },[offlineScope]);
+  const storeOfflineUpdates=(updates)=>{
+    if(!offlineScope)return;
+    setPendingOfflineUpdates(updates);
+    localStorage.setItem(offlineScope,JSON.stringify(updates));
+  };
   const driverStatusRef=useRef(null);
   driverStatusRef.current=driver?.status||null;
   const driverStatusIdentityRef=useRef(null);
@@ -313,6 +331,8 @@ export default function App() {
     if (watchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
     // Revoke local credentials immediately; no pending asynchronous cleanup
     // is allowed to delay sign-out on shared devices.
+    if(offlineScope)localStorage.removeItem(offlineScope);
+    setPendingOfflineUpdates([]);setOfflineRetryError('');
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(DRIVER_KEY);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -728,6 +748,31 @@ export default function App() {
     }
   };
 
+  const retryOfflineUpdates=async()=>{
+    if(!driver||retryingOfflineUpdates||!navigator.onLine||pendingOrderRef.current)return;
+    setRetryingOfflineUpdates(true);setOfflineRetryError('');
+    let remaining=[...pendingOfflineUpdates];
+    try {
+      for(const update of pendingOfflineUpdates){
+        if(driverStatusIdentityRef.current!==driver.id)break;
+        try{
+          await apiFetch('/public/driver/status',{method:'POST',body:JSON.stringify({orderId:update.orderId,status:update.status})});
+          remaining=removePendingStatus(remaining,update.orderId);
+          storeOfflineUpdates(remaining);
+        }catch(error){
+          setOfflineRetryError(error.message||'Update not accepted. Check the latest order status.');
+          break;
+        }
+      }
+      if(remaining.length===0)showToast('Saved progress updates have been confirmed by the server.','success');
+      void fetchDriverOrders();
+    }finally{setRetryingOfflineUpdates(false);}
+  };
+  const discardOfflineUpdate=orderId=>{
+    const next=removePendingStatus(pendingOfflineUpdates,orderId);
+    storeOfflineUpdates(next);
+  };
+
   const handleUpdateStatus = async (orderId, newStatus, proof = null) => {
     if(pendingOrderRef.current) {
       const busyError=new Error('Another delivery update is still processing. Try again after it finishes.');
@@ -757,7 +802,17 @@ export default function App() {
       fetchDriverOrders();
     } catch (err) {
       if (newStatus === 'delivered') throw err;
-      showToast(err.message || 'Failed to update status', 'error');
+      if(err instanceof TypeError || navigator.onLine===false){
+        try{
+          const next=queuePendingStatus(pendingOfflineUpdates,orderId,newStatus);
+          storeOfflineUpdates(next);
+          showToast('Network unavailable. Progress saved on this device; open Orders to review and retry.','warning');
+        }catch(queueError){
+          showToast(queueError.message||'Could not queue progress. Check your connection.','warning');
+        }
+      }else{
+        showToast(err.message || 'Failed to update status', 'error');
+      }
     } finally {
       pendingOrderRef.current=null;setPendingOrderId(null);
     }
@@ -1413,6 +1468,18 @@ export default function App() {
             </>}
             {driverScreen === 'orders' && <>
             <h2 className="driver-screen-heading">My deliveries</h2>
+            {pendingOfflineUpdates.length>0 && <section className="card driver-offline-queue" aria-label="Saved offline progress updates">
+              <h3>Progress waiting for server confirmation ({pendingOfflineUpdates.length})</h3>
+              <p>These are saved on this device only. They do not change restaurant or customer order status until the server accepts them. Final handover evidence is never stored in this queue.</p>
+              <ul>{pendingOfflineUpdates.map(update=><li key={update.orderId}>
+                <span>Order #{String(update.orderId).slice(-8)} · {update.status.replace(/_/g,' ')}</span>
+                <button type="button" className="btn-outline" disabled={retryingOfflineUpdates}
+                  onClick={()=>discardOfflineUpdate(update.orderId)}>Discard</button>
+              </li>)}</ul>
+              <button type="button" className="btn-emerald" disabled={retryingOfflineUpdates || !navigator.onLine}
+                onClick={retryOfflineUpdates}>{retryingOfflineUpdates?'Checking updates…':'Review and retry saved updates'}</button>
+              {offlineRetryError && <p role="alert">{offlineRetryError}</p>}
+            </section>}
             {driverScreen === 'orders' && <div id="driver-tasks" className="driver-task-nav" role="tablist" aria-label="Delivery view">{[['active', 'My route'], ['available', 'Available'], ['history', 'Completed']].map(([id, label]) => <button key={id} role="tab" aria-selected={taskTab === id} onClick={() => setTaskTab(id)}>{label}</button>)}</div>}
             {driverScreen === 'orders' && <div className="driver-order-search"><label htmlFor="driver-order-search-input">Find a delivery</label><div><input id="driver-order-search-input" className="input-field" type="search" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} placeholder="Order number, customer or address" autoComplete="off"/>{orderSearch && <button type="button" className="btn-outline" onClick={()=>setOrderSearch('')}>Clear</button>}</div></div>}
             {/* Available to claim */}
