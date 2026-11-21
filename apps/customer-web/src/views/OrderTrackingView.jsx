@@ -77,6 +77,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const [roadRoute,setRoadRoute]=useState(null);
   const [driverChatOpen, setDriverChatOpen] = useState(false);
   const [mapExpanded,setMapExpanded]=useState(true);
+  const receiptDetailsRef=useRef(null);
   const [driverMessages, setDriverMessages] = useState([]);
   const [driverInputMsg, setDriverInputMsg] = useState('');
   const [sendingDriverMsg, setSendingDriverMsg] = useState(false);
@@ -551,6 +552,17 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
               {riderAssigned&&<button type="button" onClick={()=>{setDriverChatOpen(true);fetchDriverMessages(order.id);}}>Message rider</button>}
             </div>}
           </section>
+          {((isDelivery && ['picked_up','out_for_delivery','arrived'].includes(currentStage)) || canCancel) &&
+            <div className="gf-journey-quick-actions">
+              {isDelivery && ['picked_up','out_for_delivery','arrived'].includes(currentStage) &&
+                <button type="button" onClick={()=>{
+                  if(receiptDetailsRef.current){
+                    receiptDetailsRef.current.open=true;
+                    receiptDetailsRef.current.scrollIntoView({behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
+                  }
+                }}>🔐 Delivery handover details</button>}
+              {canCancel && <button type="button" className="gf-journey-quick-cancel" onClick={handleCancelOrder} disabled={cancelling}>{cancelling?'Cancelling…':'Cancel order'}</button>}
+            </div>}
           {/* An explicit map toggle avoids a long, forced-scrolling page. */}
           {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
             <div className="gf-journey-map-shell">
@@ -696,7 +708,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
           )}
 
           {/* The receipt identifies the restaurant that owns the order. */}
-          <details className="gf-journey-auxiliary gf-journey-receipt"><summary>🧾 Order details and receipt <span>Items, amount and handover</span></summary><div className="tracking-card customer-order-receipt" style={{ marginTop: 12 }}>
+          <details ref={receiptDetailsRef} className="gf-journey-auxiliary gf-journey-receipt"><summary>🧾 Order details and receipt <span>Items, amount and handover</span></summary><div className="tracking-card customer-order-receipt" style={{ marginTop: 12 }}>
             <div className="customer-receipt-brand"><strong>{order.storeName || storeInfo?.name || 'Restaurant'}</strong><small>{order.storeAddress || storeInfo?.address || ''}</small>{(order.storePhone || storeInfo?.phone) && <small>Tel: {order.storePhone || storeInfo.phone}</small>}</div>
             <div className="flex-between" style={{ marginBottom: 8 }}>
               <div>
