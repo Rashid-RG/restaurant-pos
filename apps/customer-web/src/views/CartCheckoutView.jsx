@@ -834,7 +834,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       {items.length === 0 ? <section className="form-section">
         <h3>Your cart is empty</h3>
         <button type="button" className="btn btn-brand" onClick={() => onNavigate('restaurants')}>Browse restaurants</button>
-      </section> : <form onSubmit={handlePlaceOrder} noValidate>
+      </section> : <form onSubmit={e=>{if(wizardStep!==4){e.preventDefault();wizardAdvance();}else handlePlaceOrder(e);}} noValidate>
         {wizardStep===0&&<section className="gf-wizard-stage" aria-label="Review cart items">
           <header className="gf-wizard-stage-heading"><h3>Your cart</h3><p>Check your dishes before checkout</p></header>
                 {items.length > 0 && <button type="button" className="gf-checkout-cart-edit" onClick={() => setCartOpen(true)}>
