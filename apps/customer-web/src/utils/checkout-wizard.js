@@ -42,3 +42,12 @@ export function checkoutReviewLineAmount(item={}){
   if(!Number.isFinite(quantity)||quantity<=0||!Number.isFinite(unitPrice)||unitPrice<0)return 0;
   return Math.round((unitPrice*quantity+Number.EPSILON)*100)/100;
 }
+
+/** Smart checkout may skip intermediate screens, but never their validation. */
+export function smartCheckoutNextStep(data={}){
+  for(let step=0;step<4;step++){
+    const issue=checkoutStepIssue(step,data);
+    if(issue)return {step,issue,ready:false};
+  }
+  return {step:4,issue:'',ready:true};
+}
