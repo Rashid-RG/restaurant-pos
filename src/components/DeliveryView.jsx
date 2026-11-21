@@ -25,6 +25,8 @@ export default function DeliveryView({verificationOnly=false}) {
   const [reassignReason,setReassignReason]=useState({});
   const [reassignBusy,setReassignBusy]=useState(null);
   const [offerBusy,setOfferBusy]=useState(null);
+  const [activeTimedOffers,setActiveTimedOffers]=useState([]);
+  const [offerCancelReason,setOfferCancelReason]=useState({});
   const [nearbyRiders,setNearbyRiders]=useState({});
   const [nearbyLoading,setNearbyLoading]=useState({});
 
@@ -123,6 +125,35 @@ export default function DeliveryView({verificationOnly=false}) {
     }
   };
 
+  const loadTimedOffers=async()=>{
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/driver-offers',{
+        headers:{Authorization:`Bearer ${token}`},cache:'no-store'
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Could not load active timed offers');
+      setActiveTimedOffers(Array.isArray(data.offers)?data.offers:[]);
+    }catch(error){showToast(error.message||'Could not refresh individual offers.','warning');}
+  };
+  const cancelTimedOffer=async(orderId)=>{
+    const reason=String(offerCancelReason[orderId]||'').trim();
+    if(reason.length<8)return showToast('Enter at least 8 characters explaining cancellation of the offer.','warning');
+    setOfferBusy(orderId);
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/driver-offers/cancel',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({orderId,reason})
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Could not cancel timed offer.');
+      setActiveTimedOffers(prev=>prev.filter(o=>o.orderId!==orderId));
+      setOfferCancelReason(prev=>({...prev,[orderId]:''}));
+      showToast('Individual offer released; the customer order remains available.','success');
+    }catch(error){showToast(error.message||'Could not cancel this offer.','error');}
+    finally{setOfferBusy(null);}
+  };
   const handleTimedOffer=async(order)=>{
     const driverId=selectedDriver[order.id];
     if(!driverId||offerBusy)return showToast('Select a restaurant rider for this offer.','warning');
@@ -135,6 +166,7 @@ export default function DeliveryView({verificationOnly=false}) {
       });
       const result=await response.json();
       if(!response.ok)throw new Error(result.error||'Could not send timed offer.');
+      setActiveTimedOffers(prev=>[...prev.filter(o=>o.orderId!==order.id),{orderId:order.id,driverId,expiresAt:result.expiresAt}]);
       showToast('Two-minute offer issued to the selected rider. The order remains unassigned until accepted.','success');
     }catch(error){showToast(error.message||'Timed offer failed.','error');}
     finally{setOfferBusy(null);}
@@ -319,6 +351,7 @@ export default function DeliveryView({verificationOnly=false}) {
     return()=>controller.abort();
   },[verificationOnly,selectedVerificationRider,reviewStep,timelineReload]);
   const canReview=['owner','manager'].includes(currentUser?.role);
+  useEffect(()=>{if(canReview&&!verificationOnly)void loadTimedOffers();},[canReview,verificationOnly]);
   const fetchVerificationAudit=async()=>{
     if(!canReview)return;
     try{
@@ -776,6 +809,21 @@ export default function DeliveryView({verificationOnly=false}) {
                             {reassignBusy===ord.id?'Reassigning…':'Confirm reassignment / unassign'}
                           </button>
                           <small>Only before pickup. Manager action is recorded for audit.</small>
+                        </div>
+                      )}
+                      {canReview && !ord.driverId &&
+                        activeTimedOffers.some(o=>o.orderId===ord.id && Number(o.expiresAt)>Date.now()) && (
+                        <div className="driver-reassign-controls">
+                          <strong>Individual offer active</strong>
+                          <span>Rider: {drivers.find(d=>d.id===activeTimedOffers.find(o=>o.orderId===ord.id)?.driverId)?.name||'Selected rider'}</span>
+                          <label htmlFor={`cancel-offer-${ord.id}`}>Reason for withdrawing offer</label>
+                          <textarea id={`cancel-offer-${ord.id}`} rows={2} maxLength={300} value={offerCancelReason[ord.id]||''}
+                            onChange={event=>setOfferCancelReason(prev=>({...prev,[ord.id]:event.target.value}))}
+                            placeholder="Why must this offer be withdrawn?"/>
+                          <button type="button" className="btn btn-outline" disabled={Boolean(offerBusy)}
+                            onClick={()=>cancelTimedOffer(ord.id)}>
+                            {offerBusy===ord.id?'Cancelling…':'Withdraw individual offer'}
+                          </button>
                         </div>
                       )}
                       {canReview && !ord.driverId && ['pending','preparing','ready'].includes(ord.status) &&
