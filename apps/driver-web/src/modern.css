@@ -107,3 +107,15 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
  .driver-progress-steps li{font-size:9px;letter-spacing:-.1px}
  .driver-progress-steps li span{width:24px;height:24px;font-size:11px}
 }
+
+
+/* Distinguish confirmed dispatch data from delayed or interrupted updates. */
+.driver-dispatch-sync{min-width:0}
+.driver-dispatch-copy{min-width:0;flex:1 1 175px;display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}
+.driver-dispatch-copy strong{font-size:13px}
+.driver-dispatch-copy span{font-size:11px;line-height:1.45}
+.driver-dispatch-stale{background:#fff9ed;border-color:#ebd39d;color:#865c16}
+.driver-dispatch-stale span{color:#865c16}
+.driver-dispatch-sync button:disabled{opacity:.65;cursor:wait}
+.driver-delivery-card button:disabled{cursor:not-allowed;opacity:.65}
+@media(max-width:380px){.driver-dispatch-sync button{width:100%}}
