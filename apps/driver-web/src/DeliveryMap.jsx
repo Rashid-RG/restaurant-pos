@@ -95,7 +95,7 @@ export default function DeliveryMap({destination, fix, geometry}) {
     else {
       view.addSource('road', {type: 'geojson', data});
       view.addLayer({id: 'road', type: 'line', source: 'road',
-        paint: {'line-width': 5, 'line-color': '#2369c9', 'line-opacity': 0.88}});
+        paint: {'line-width': 6, 'line-color': '#087653', 'line-opacity': 0.94}});
     }
     if (validRoute && !following) {
       const bounds = new maplibregl.LngLatBounds();
@@ -119,15 +119,24 @@ export default function DeliveryMap({destination, fix, geometry}) {
   };
 
   if (!destinationValid) return <p role="status">Destination pin is unavailable. Confirm the address before navigating.</p>;
-  return <section aria-label="Delivery navigation">
-    <div style={{display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8}}>
-      <button type="button" onClick={centerOnRider} disabled={!ready || !riderPosition}
-        aria-pressed={following}>Follow my location</button>
-      <button type="button" onClick={showWholeRoute} disabled={!ready}>Show whole route</button>
-      <small role="status">{!riderPosition ? 'GPS unavailable or stale' :
-        !validRoute ? 'Road route unavailable — map pins only' : 'Road route shown · not live traffic'}</small>
+  return <section aria-label="Delivery navigation" style={{position:'relative',borderRadius:22,overflow:'hidden',background:'#eff7f3',boxShadow:'0 12px 35px rgba(0,0,0,.16)'}}>
+    <div ref={container} aria-label="Delivery navigation map" style={{height:failed?0:'min(54vh,490px)',minHeight:failed?0:330,width:'100%'}}/>
+    <div style={{position:'absolute',top:12,left:12,right:74,pointerEvents:'none',zIndex:2}}>
+      <span role="status" style={{display:'inline-flex',alignItems:'center',gap:8,borderRadius:16,padding:'10px 12px',background:'rgba(255,255,255,.96)',color:'#164638',fontWeight:800,fontSize:12,boxShadow:'0 6px 20px rgba(0,0,0,.12)'}}>
+        <span aria-hidden="true" style={{height:8,width:8,borderRadius:'50%',background:riderPosition?'#149667':'#e6a23c'}}/>
+        {!riderPosition?'Waiting for fresh GPS':!validRoute?'GPS available · road route unavailable':'Confirmed GPS · road route shown'}
+      </span>
     </div>
-    {failed && <p role="alert">Map unavailable on this device. Use the external navigation link.</p>}
-    <div ref={container} aria-label="Delivery navigation map" style={{height: failed ? 0 : 300, borderRadius: 12, overflow: 'hidden'}}/>
+    <div style={{position:'absolute',right:12,top:102,display:'grid',gap:9,zIndex:3}}>
+      <button type="button" onClick={centerOnRider} disabled={!ready||!riderPosition} aria-pressed={following}
+        aria-label={following?'Following my location':'Follow my location'}
+        style={{background:following?'#087653':'white',color:following?'white':'#154b3e',border:0,borderRadius:15,padding:'13px 14px',fontSize:18,fontWeight:900,opacity:riderPosition?1:.5,boxShadow:'0 5px 17px rgba(0,0,0,.15)'}}>◎</button>
+      <button type="button" onClick={showWholeRoute} disabled={!ready} aria-label="Show whole route"
+        style={{background:'white',color:'#154b3e',border:0,borderRadius:15,padding:'13px 14px',fontSize:18,fontWeight:900,boxShadow:'0 5px 17px rgba(0,0,0,.15)'}}>⌖</button>
+    </div>
+    {failed && <p role="alert" style={{padding:18}}>Map unavailable on this device. Use external navigation.</p>}
+    <div style={{padding:'11px 14px',display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',color:'#1b5241',fontSize:12,fontWeight:750}}>
+      <span>Delivery route</span><span>{validRoute?'Road travel · no live traffic':'Navigation route unavailable'}</span>
+    </div>
   </section>;
 }
