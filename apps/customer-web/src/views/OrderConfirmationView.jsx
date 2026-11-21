@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {CheckCircle2,ReceiptText,MapPin,Package,ArrowRight,Store,Wallet} from 'lucide-react';
 import {apiFetch} from '../utils/api.js';
+import {confirmationIsClosed,confirmationPaymentLabel,confirmationTotal} from '../utils/order-confirmation.js';
 import './OrderConfirmationView.css';
 
 // Remain here after the server acknowledges an order. No auto-redirect or
@@ -19,13 +20,9 @@ export default function OrderConfirmationView({orderId,onTrack,onBrowse}){
       .finally(()=>{if(live)setLoading(false);});
     return()=>{live=false;};
   },[orderId]);
-  const status=String(order?.status||'').toLowerCase();
-  const closed=['cancelled','rejected','refunded','partially_refunded'].includes(status);
-  const payment=String(order?.paymentStatus||'').toLowerCase();
-  const paymentLabel=payment==='paid'?'Payment confirmed':
-    order?.paymentMethod==='bank_transfer'?'Bank transfer awaiting verification':
-    order?.paymentMethod==='cash'?'Pay at handover / collection':
-    payment==='pending'?'Payment pending':'Payment status: '+(payment||'not confirmed');
+  const closed=confirmationIsClosed(order?.status);
+  const paymentLabel=confirmationPaymentLabel(order||{});
+  const totalAmount=confirmationTotal(order||{});
   return <main className="gf-order-confirmation" aria-label="Order confirmation">
     <section className="gf-order-confirmation-hero">
       <span className="gf-order-confirmation-mark" aria-hidden="true"><CheckCircle2 size={35}/></span>
@@ -47,7 +44,7 @@ export default function OrderConfirmationView({orderId,onTrack,onBrowse}){
           {order.items.map((item,i)=><div key={i}><span>{item.name||'Menu item'} × {Number(item.quantity||1)}</span>
             {Number.isFinite(Number(item.price))&&<strong>Rs. {(Number(item.price)*Number(item.quantity||1)).toFixed(2)}</strong>}</div>)}
         </div>}
-        {Number.isFinite(Number(order?.total))&&order?.total!=null&&<div className="gf-order-confirmation-total"><span>Total payable</span><strong>Rs. {Number(order.total).toFixed(2)}</strong></div>}
+        {totalAmount!==null&&<div className="gf-order-confirmation-total"><span>Total payable</span><strong>Rs. {totalAmount.toFixed(2)}</strong></div>}
         <div className="gf-order-confirmation-line gf-order-confirmation-payment"><Wallet size={17}/><span>{paymentLabel}</span></div>
       </section>}
     <div className="gf-order-confirmation-actions">
