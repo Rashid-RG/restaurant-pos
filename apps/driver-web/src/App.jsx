@@ -80,6 +80,18 @@ export default function App() {
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
   const [driverScreen,setDriverScreen]=useState('home');
+  // Preferences belong to the authenticated rider on this device.
+  const [soundAlertsEnabled,setSoundAlertsEnabled]=useState(true);
+  useEffect(()=>{
+    if(!driver?.id){setSoundAlertsEnabled(true);return;}
+    setSoundAlertsEnabled(localStorage.getItem(`gastrodriver:sound:${driver.id}`)!=='off');
+  },[driver?.id]);
+  const toggleSoundAlerts=()=>{
+    if(!driver?.id)return;
+    const next=!soundAlertsEnabled;
+    localStorage.setItem(`gastrodriver:sound:${driver.id}`,next?'on':'off');
+    setSoundAlertsEnabled(next);
+  };
   const [supportCategory,setSupportCategory]=useState('delivery');
   const [supportMessage,setSupportMessage]=useState('');
   const [supportOrderId,setSupportOrderId]=useState('');
@@ -287,7 +299,8 @@ export default function App() {
   };
 
   // ── High-Professional Driver Delivery Ringtone Alert ──
-  const playDriverAlertRingtone = () => {
+  const playDriverAlertRingtone = (manualTest=false) => {
+    if(!manualTest && !soundAlertsEnabled) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
@@ -1124,6 +1137,13 @@ export default function App() {
             </>}
             {driverScreen === 'profile' && <>
             <h2 className="driver-screen-heading">Profile &amp; location</h2>
+            <section className="card driver-preferences" aria-label="Driver notification preferences">
+              <h3>Notification preferences</h3>
+              <label><span><strong>Delivery alert sound</strong><small>Play an audible alert when new pickup offers appear while the app is open. Phone silent-mode rules still apply.</small></span>
+                <input type="checkbox" checked={soundAlertsEnabled} onChange={toggleSoundAlerts} aria-label="Enable delivery alert sounds"/>
+              </label>
+              <p>Preferences are saved for this rider on this device. Native background push notifications require separate device permission and Firebase configuration.</p>
+            </section>
             <div className={`driver-location-health ${hasFreshLocation ? 'good' : 'needs-attention'}`} role="status" aria-live="polite"><div className="driver-location-health-head"><strong>Location health</strong><span>{locationLabel}</span></div><p>{locationHelp}</p></div>
             </>}
             {driverScreen === 'home' && <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>}
@@ -1138,7 +1158,7 @@ export default function App() {
               </div>
               <div className="driver-controls-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button
-                  onClick={() => { playDriverAlertRingtone(); showToast('Playing delivery notification sound test.', 'info'); }}
+                  onClick={() => { playDriverAlertRingtone(true); showToast('Playing delivery notification sound test.', 'info'); }}
                   className="btn-outline"
                   style={{ padding: '8px 12px', fontSize: '0.9rem' }}
                   title="Test Delivery Ringer Sound"
