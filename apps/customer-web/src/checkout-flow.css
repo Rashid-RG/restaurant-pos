@@ -136,3 +136,6 @@
 @media(min-width:720px){.gf-checkout-sheet-backdrop{align-items:center;padding:20px}.gf-checkout-sheet{border-radius:25px;max-height:85dvh}}
 @media(max-width:380px){.gf-checkout-sheet-header{padding:12px 14px}.gf-checkout-sheet-scroll{padding:14px}.gf-checkout-sheet-actions{padding-inline:14px}}
 @media(prefers-reduced-motion:reduce){.gf-checkout-sheet-backdrop,.gf-checkout-sheet{animation:none!important}}
+
+.gf-checkout-applied-promo{display:flex;justify-content:space-between;align-items:center;gap:9px;margin-top:12px;border:1px solid #bce1c5;background:#ecf9ee;border-radius:12px;padding:10px;color:#086744;font-size:12px;font-weight:800}
+.gf-checkout-applied-promo button{border:1px solid #b1d8bc;border-radius:9px;background:#fff;color:#0b714d;padding:7px 10px;font-size:11px;font-weight:800}
