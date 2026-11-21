@@ -50,6 +50,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [notes, setNotes] = useState('');
   const [wizardStep,setWizardStep]=useState(0);
+  const [smartCheckout,setSmartCheckout]=useState(true);
   const [wizardError,setWizardError]=useState('');
   const [activeSheet,setActiveSheet]=useState(null);
   useEffect(()=>{setActiveSheet(null);},[wizardStep]);
@@ -289,6 +290,22 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
     paymentMethod,cardUnavailable:payHerePaymentDisabled(import.meta.env.MODE,rates.payhereEnabled)
   };
   const wizardIssue=step=>checkoutStepIssue(step,wizardData);
+  const smartIssues=CHECKOUT_STEPS.slice(0,4).map((step,index)=>({step:index,issue:wizardIssue(index)})).filter(entry=>entry.issue);
+  const firstSmartIssue=smartIssues[0]||null;
+  const openGuidedStep=step=>{
+    if(loading)return;
+    setWizardError('');setSmartCheckout(false);setWizardStep(step);
+    requestAnimationFrame(()=>wizardTopRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));
+  };
+  const reviewSmartOrder=()=>{
+    if(firstSmartIssue){
+      toast(firstSmartIssue.issue,'warning');
+      openGuidedStep(firstSmartIssue.step);
+      return;
+    }
+    if(!checkoutReady){toast('Checkout is waiting for restaurant availability, confirmed fees, or a previous order check.','warning');return;}
+    openGuidedStep(4);
+  };
   const moveWizardStep=next=>{
     if(next<0||next>=CHECKOUT_STEPS.length||loading)return;
     if(next>wizardStep){
@@ -846,13 +863,14 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         <div><small className="gf-checkout-overline">YOUR ORDER</small><h2>Review & checkout</h2><span>{items.reduce((sum,item)=>sum+Number(item.qty||0),0)} items · {ORDER_TYPES.find(type => type.id === orderType)?.label}</span></div>
         <div><small>{orderType === 'delivery' && !deliveryQuoteConfirmed ? 'Before delivery fee' : 'Estimated total'}</small><strong>Rs. {total.toLocaleString('en-LK')}</strong></div>
       </div>
-<nav className="gf-wizard-progress" aria-label="Checkout progress" ref={wizardTopRef}>
+<div ref={wizardTopRef} className="gf-smart-anchor"/>
+      {!smartCheckout && <nav className="gf-wizard-progress" aria-label="Checkout progress">
         {CHECKOUT_STEPS.map((step,index)=>(
           <button key={step.id} type="button" className={`gf-wizard-progress-item ${index===wizardStep?'is-active':index<wizardStep?'is-complete':''}`}
             aria-current={index===wizardStep?'step':undefined} disabled={index>wizardStep}
             onClick={()=>moveWizardStep(index)}><span>{index<wizardStep?'✓':index+1}</span><small>{step.label}</small></button>
         ))}
-      </nav>
+      </nav>}
       {wizardError&&<div className="gf-wizard-error" role="alert">{wizardError}<button type="button" onClick={()=>setWizardError('')}>Dismiss</button></div>}
 
 
@@ -860,8 +878,30 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
       {items.length === 0 ? <section className="form-section">
         <h3>Your cart is empty</h3>
         <button type="button" className="btn btn-brand" onClick={() => onNavigate('restaurants')}>Browse restaurants</button>
-      </section> : <form onSubmit={e=>{if(wizardStep!==4){e.preventDefault();wizardAdvance();}else handlePlaceOrder(e);}} noValidate>
-        {wizardStep===0&&<section className="gf-wizard-stage" aria-label="Review cart items">
+      </section> : <form onSubmit={e=>{if(smartCheckout||wizardStep!==4){e.preventDefault();if(smartCheckout)reviewSmartOrder();else wizardAdvance();}else handlePlaceOrder(e);}} noValidate>
+        {smartCheckout&&<section className="gf-smart-checkout" aria-label="Smart checkout overview">
+          <div className="gf-smart-heading"><span className="gf-smart-kicker">FASTER CHECKOUT</span><h3>Everything in one place</h3><p>Review your order, edit only what needs changing, then confirm securely.</p></div>
+          <div className="gf-smart-summary">
+            <button type="button" onClick={()=>{setCartOpen(true);}} className="gf-smart-row">
+              <span className="gf-smart-row-icon">🛒</span><span className="gf-smart-row-main"><strong>{items.reduce((n,item)=>n+Number(item.qty||0),0)} items in your cart</strong><small>{items.slice(0,2).map(item=>item.name).join(', ')}{items.length>2?' and more':''}</small></span><span className="gf-smart-edit">Edit ›</span>
+            </button>
+            <button type="button" className="gf-smart-row" onClick={()=>openGuidedStep(1)}>
+              <span className="gf-smart-row-icon">📍</span><span className="gf-smart-row-main"><strong>{ORDER_TYPES.find(type=>type.id===orderType)?.label}</strong><small>{orderType==='delivery'?(entranceConfirmed?(geoLocation?.label||'Entrance confirmed'):'Confirm exact delivery entrance'):(isScheduled?'Scheduled order':'As soon as available')}</small></span><span className="gf-smart-edit">Edit ›</span>
+            </button>
+            <button type="button" className="gf-smart-row" onClick={()=>openGuidedStep(2)}>
+              <span className="gf-smart-row-icon">👤</span><span className="gf-smart-row-main"><strong>{name.trim()||'Add your name'}</strong><small>{phone.trim()||'Add a valid contact number'}{email.trim()?' · '+email.trim():''}</small></span><span className="gf-smart-edit">Edit ›</span>
+            </button>
+            <button type="button" className="gf-smart-row" onClick={()=>openGuidedStep(3)}>
+              <span className="gf-smart-row-icon">💳</span><span className="gf-smart-row-main"><strong>{LOCAL_PAYMENTS.find(method=>method.id===paymentMethod)?.label||'Choose payment'}</strong><small>{appliedPromo?'Promotion applied · ':''}{tipAmount>0?'Tip included · ':''}Offers and tips are optional</small></span><span className="gf-smart-edit">Edit ›</span>
+            </button>
+          </div>
+          <div className="gf-smart-price"><span>{orderType==='delivery'&&!deliveryQuoteConfirmed?'Delivery fee not confirmed':'Estimated total payable'}</span><strong>Rs. {total.toFixed(2)}</strong></div>
+          {firstSmartIssue&&<div className="gf-smart-next-needed" role="status"><span>Action needed</span><p>{firstSmartIssue.issue}</p><button type="button" onClick={()=>openGuidedStep(firstSmartIssue.step)}>Complete this detail ›</button></div>}
+          {!firstSmartIssue&&<p className="gf-smart-ready">✓ Your details are ready for final review. The server verifies prices and availability when you submit.</p>}
+          <button type="button" className="gf-smart-guided" onClick={()=>openGuidedStep(0)}>Use guided checkout instead</button>
+        </section>}
+
+        {!smartCheckout&&wizardStep===0&&<section className="gf-wizard-stage" aria-label="Review cart items">
           <header className="gf-wizard-stage-heading"><h3>Your cart</h3><p>Check your dishes before checkout</p></header>
                 {items.length > 0 && <button type="button" className="gf-checkout-cart-edit" onClick={() => setCartOpen(true)}>
         <span>🛒 {items.reduce((sum,item)=>sum+Number(item.qty||0),0)} items in your cart</span><strong>Edit items ›</strong>
@@ -876,7 +916,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
           </div>
           <div className="gf-wizard-cart-subtotal"><span>Food subtotal</span><strong>Rs. {subtotal.toFixed(2)}</strong></div>
         </section>}
-        {wizardStep===1&&<div className="gf-wizard-stage" aria-label="Fulfilment method">
+        {!smartCheckout&&wizardStep===1&&<div className="gf-wizard-stage" aria-label="Fulfilment method">
         {/* Order Type Choice */}
         <div id="gf-checkout-fulfilment" className="form-section gf-checkout-panel gf-checkout-fulfilment">
           <div className="gf-checkout-panel-heading"><span className="gf-checkout-step-number">1</span><div><h3>How would you like your order?</h3><p>Choose delivery, pickup or dine-in</p></div></div>
@@ -978,7 +1018,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
 
         </div>}
-        {wizardStep===2&&<div className="gf-wizard-stage" aria-label="Contact and delivery information">
+        {!smartCheckout&&wizardStep===2&&<div className="gf-wizard-stage" aria-label="Contact and delivery information">
                 <section id="gf-checkout-contact" className="form-section gf-checkout-panel gf-checkout-contact">
           <div className="gf-checkout-panel-heading"><span className="gf-checkout-step-number">2</span><div><h3>Your contact & delivery details</h3><p>Used to confirm your order and reach you if needed</p></div></div>
           
@@ -1059,7 +1099,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </section>
 
         </div>}
-        {wizardStep===3&&<div className="gf-wizard-stage" aria-label="Payment and optional extras">
+        {!smartCheckout&&wizardStep===3&&<div className="gf-wizard-stage" aria-label="Payment and optional extras">
                 {/* Promo Codes & Loyalty Points */}
         <button type="button" className="gf-checkout-option-trigger" onClick={()=>setActiveSheet('offers')}>
           <span>🏷️ Offers & loyalty</span><strong>{appliedPromo?'Promo applied':redeemPoints?'Points applied':'View offers ›'}</strong>
@@ -1245,7 +1285,7 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         )}
 
         </div>}
-        {wizardStep===4&&<div className="gf-wizard-stage" aria-label="Final order confirmation">
+        {!smartCheckout&&wizardStep===4&&<div className="gf-wizard-stage" aria-label="Final order confirmation">
           <section className="gf-wizard-final-note"><strong>✓ Ready for final review</strong>
             <p>Check your total and payment method. You may need a verification code when placing your order.</p>
             <div><span>Fulfilment</span><strong>{ORDER_TYPES.find(type=>type.id===orderType)?.label}</strong></div>
@@ -1362,15 +1402,15 @@ export default function CartCheckoutView({ onOrderPlaced, onNavigate, toast, sto
         </div>
         </div>}
         <div className="sticky-bar gf-checkout-sticky gf-wizard-sticky">
-          {wizardStep>0&&<button type="button" className="gf-wizard-back" onClick={()=>moveWizardStep(wizardStep-1)}>‹ Back</button>}
+          {!smartCheckout&&<button type="button" className="gf-wizard-back" onClick={()=>wizardStep===0?setSmartCheckout(true):moveWizardStep(wizardStep-1)}>{wizardStep===0?'‹ Smart checkout':'‹ Back'}</button>}
           <div className="gf-checkout-sticky-total"><span>{orderType==='delivery'&&!deliveryQuoteConfirmed?'Delivery fee pending':'Total payable'}</span><strong>Rs. {total.toFixed(2)}</strong></div>
           <button
-            type={wizardStep===4?'submit':'button'}
+            type={!smartCheckout&&wizardStep===4?'submit':'button'}
             className="btn btn-brand gf-wizard-next"
-            onClick={wizardStep===4?undefined:wizardAdvance}
-            disabled={loading || (wizardStep===4&&!checkoutReady)}
+            onClick={smartCheckout?reviewSmartOrder:wizardStep===4?undefined:wizardAdvance}
+            disabled={loading || (!smartCheckout&&wizardStep===4&&!checkoutReady)}
           >
-            {loading?`⏳ ${t.processing}`:wizardStep===4?`Place order · Rs. ${total.toFixed(0)}`:
+            {loading?`⏳ ${t.processing}`:smartCheckout?(firstSmartIssue?'Complete details':'Review & place order'):wizardStep===4?`Place order · Rs. ${total.toFixed(0)}`:
               wizardStep===3?'Review order':'Continue ›'}
           </button>
         </div>
