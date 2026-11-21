@@ -73,6 +73,8 @@ function isRushHour(timeZone = 'Asia/Colombo') {
 
 function DriverChatDialog({order,onClose}) {
   const dialogRef=useRef(null);
+  const onCloseRef=useRef(onClose);
+  onCloseRef.current=onClose;
   const [messages,setMessages]=useState([]);
   const [draft,setDraft]=useState('');
   const [busy,setBusy]=useState(false);
@@ -81,10 +83,10 @@ function DriverChatDialog({order,onClose}) {
   useEffect(()=>{
     const dialog=dialogRef.current;
     dialog?.showModal();
-    const close=event=>{event.preventDefault();onClose();};
+    const close=event=>{event.preventDefault();onCloseRef.current?.();};
     dialog?.addEventListener('cancel',close);
     return()=>{dialog?.removeEventListener('cancel',close);if(dialog?.open)dialog.close();};
-  },[onClose]);
+  },[]);
   useEffect(()=>{
     let disposed=false;
     const refresh=async()=>{
