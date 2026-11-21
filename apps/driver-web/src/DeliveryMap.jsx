@@ -7,6 +7,15 @@ const validPoint = point => Array.isArray(point) && point.length >= 2 &&
   Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90;
 const fixPoint = fix => fix && validPoint([Number(fix.lng), Number(fix.lat)])
   ? [Number(fix.lng), Number(fix.lat)] : null;
+// UI-only marker; GPS coordinates continue to come exclusively from the device.
+const markerElement=(emoji,label,background)=>{
+  const outer=document.createElement('div');
+  outer.setAttribute('role','img');outer.setAttribute('aria-label',label);
+  outer.style.cssText='width:46px;height:46px;display:grid;place-items:center;border:3px solid white;border-radius:18px;box-shadow:0 7px 20px rgba(5,44,32,.28);font-size:23px;line-height:1;';
+  outer.style.background=background;
+  outer.textContent=emoji;
+  return outer;
+};
 const routeFeature = geometry => {
   if (!geometry || geometry.type !== 'LineString' ||
       !Array.isArray(geometry.coordinates) || geometry.coordinates.length < 2 ||
@@ -47,10 +56,12 @@ export default function DeliveryMap({destination, fix, geometry}) {
         }
       });
       map.current = view;
-      destinationMarker.current = new maplibregl.Marker({color: '#b3443b'})
+      destinationMarker.current = new maplibregl.Marker({element:markerElement('📍','Customer destination','#fff1ec'),anchor:'bottom'})
         .setLngLat(destination).setPopup(new maplibregl.Popup().setText('Destination')).addTo(view);
       view.addControl(new maplibregl.NavigationControl({showCompass: true}), 'top-right');
       view.on('load', () => {setReady(true); setFailed(false);});
+      // Manual navigation always takes priority over camera follow mode.
+      view.on('dragstart',()=>setFollowing(false));
       view.on('error', event => {if (event?.error) console.warn('Delivery map tile or style error:', event.error.message);});
     } catch {
       setFailed(true);
@@ -78,7 +89,7 @@ export default function DeliveryMap({destination, fix, geometry}) {
       return;
     }
     if (!riderMarker.current) {
-      riderMarker.current = new maplibregl.Marker({color: '#087b61'})
+      riderMarker.current = new maplibregl.Marker({element:markerElement('🛵','Current rider location','#e4f9eb'),anchor:'bottom'})
         .setLngLat(riderPosition)
         .setPopup(new maplibregl.Popup().setText('Your latest reported location'))
         .addTo(view);
