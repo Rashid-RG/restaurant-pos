@@ -56,3 +56,8 @@
 .gf-journey-stage-announcement button{margin-left:auto;background:transparent;border:0;color:#376b51;padding:3px 8px;font-size:20px}
 @keyframes gf-journey-slide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.gf-journey-stage-announcement{animation:none}}
+
+.gf-journey-quick-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 11px}
+.gf-journey-quick-actions button{border:1px solid #a5d6ba;color:#0b6346;background:#e8f7ed;border-radius:13px;padding:10px 12px;min-height:40px;font-size:12px;font-weight:850}
+.gf-journey-quick-actions .gf-journey-quick-cancel{border-color:#f3c8c4;color:#aa423b;background:#fff3f1}
+.gf-journey-quick-actions button:disabled{opacity:.55}
