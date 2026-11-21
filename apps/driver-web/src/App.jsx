@@ -1371,6 +1371,16 @@ export default function App() {
             {driverScreen === 'home' && <>
             <section className="driver-welcome driver-welcome-compact driver-home-greeting"><span>GASTRODRIVER · TODAY</span><h1>Hi, {driver.name?.split(' ')[0]}.</h1></section>
             <div className="card" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}><div><strong>{driver.status === 'offline' ? 'Offline — no new delivery offers' : 'Online — available for dispatch'}</strong><div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5 }}>Current deliveries remain assigned even when you stop accepting new work.</div></div><button type="button" className="btn-emerald" onClick={updateAvailability} disabled={availabilityLoading}>{availabilityLoading ? 'Updating…' : driver.status === 'offline' ? 'Go online' : 'Go offline'}</button></div>
+            <section aria-label="Driver location connection" role="status" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap',padding:'13px 15px',margin:'10px 0 12px',borderRadius:18,background:isServerConfirmedLocation?'#eaf9f0':'#fff5dc',color:'#194b3b',border:'1px solid '+(isServerConfirmedLocation?'#a5e1c0':'#ecd29b')}}>
+              <div><strong style={{display:'block',fontSize:14}}>{isServerConfirmedLocation?'● GPS shared with customer':'● GPS tracking needs attention'}</strong>
+                <small style={{display:'block',marginTop:3}}>{locationLabel}</small></div>
+              {!isServerConfirmedLocation && <button type="button"
+                disabled={driverStatusRef.current==='offline'&&!isGpsActive}
+                onClick={()=>!nativeDriverBuild&&isGpsActive?toggleGps(true):toggleGps()}
+                style={{background:'#087653',color:'#fff',border:0,borderRadius:12,fontSize:13,fontWeight:800,padding:'12px 15px'}}>
+                {!nativeDriverBuild&&isGpsActive?'Retry GPS':'Share location'}
+              </button>}
+            </section>
             <section className="driver-home-focus" aria-label="Current delivery">
               <div className="driver-home-focus-header"><strong>{activeOrders.length ? tx('currentDelivery') : tx('nextDelivery')}</strong><span>{activeOrders.length ? `${activeOrders.length} assigned` : tx('noJob')}</span></div>
               {activeOrders.length > 0 ? <>
