@@ -367,7 +367,7 @@ export default function App() {
     setPendingOrderId(null);
     pendingOrderRef.current=null;
     roadRequestEpochRef.current+=1;
-    setRoadEstimates({});setRoadLoadingId(null);
+    setRoadEstimates({});setMapOrder(null);setRoadLoadingId(null);
     cashRequestVersionRef.current+=1; // Invalidates any in-flight result from the previous rider.
     setCashSummary(null);setCashLoading(false);setCashDetailsOpen(false);setCashError('');
     setApprovedEarnings(null);setEarningsLoading(false);setEarningsError('');
@@ -695,7 +695,6 @@ export default function App() {
     const currentEpoch=++roadRequestEpochRef.current;
     const riderId=driver.id;
     setRoadLoadingId(orderId);
-    setRoadEstimates(prev=>({...prev,[orderId]:null}));
     try {
       const result=await apiFetch(`/public/driver/orders/${encodeURIComponent(orderId)}/road-eta?geometry=1`,{cache:'no-store'});
       if(roadRequestEpochRef.current!==currentEpoch || riderId!==driverStatusIdentityRef.current) return;
@@ -1141,6 +1140,17 @@ export default function App() {
     : dispatchFresh ? 'Dispatch connected'
     : 'Dispatch update delayed';
   const hasFreshLocation = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords,driverClock);
+  const routeRequest = useRef(requestRoadEstimate);
+  useEffect(()=>{routeRequest.current=requestRoadEstimate;});
+  const showLiveRoute = driverScreen==='orders' && taskTab==='active' && hasFreshLocation &&
+    activeOrders.some(order=>order.id===mapOrder && ['picked_up','out_for_delivery','arrived'].includes(order.status));
+  useEffect(()=>{
+    if(!showLiveRoute)return;
+    const refresh=()=>{if(!document.hidden && navigator.onLine!==false)routeRequest.current(mapOrder);};
+    refresh();
+    const timer=setInterval(refresh,20000);
+    return ()=>clearInterval(timer);
+  },[showLiveRoute,mapOrder]);
   const locationLabel = gpsQuality === 'denied' ? 'Location permission denied'
     : !isGpsActive ? 'Location sharing is off'
     : gpsQuality === 'searching' ? 'Finding an accurate location'
@@ -1564,7 +1574,8 @@ export default function App() {
                   const hasDropCoordinates = ord.deliveryLat != null && ord.deliveryLng != null
                     && Number.isFinite(Number(ord.deliveryLat)) && Number.isFinite(Number(ord.deliveryLng))
                     && Math.abs(Number(ord.deliveryLat)) <= 90 && Math.abs(Number(ord.deliveryLng)) <= 180;
-                  const navLink = hasDropCoordinates
+                  const navigatingToPickup = ['pending','confirmed','preparing','ready'].includes(ord.status) && pickupLocation;
+                  const navLink = navigatingToPickup ? `https://www.google.com/maps/dir/?api=1&destination=${pickupLocation.lat},${pickupLocation.lng}` : hasDropCoordinates
                     ? `https://www.google.com/maps/dir/?api=1&destination=${Number(ord.deliveryLat)},${Number(ord.deliveryLng)}`
                     : ord.deliveryAddress?.trim()
                       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ord.deliveryAddress)}`
@@ -1610,7 +1621,7 @@ export default function App() {
                             fix={hasFreshLocation?lastCoords:null}
                             geometry={hasFreshLocation && progressStage>1 && driverClock-roadEstimates[ord.id]?.basedOnFixAt<=30000 ? roadEstimates[ord.id]?.geometry : null}/></React.Suspense>}
                         </>}
-                        {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to customer drop-off for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> Customer drop-off</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
+                        {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to ${navigatingToPickup ? 'pickup' : 'customer drop-off'} for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> {navigatingToPickup ? 'Restaurant pickup' : 'Customer drop-off'}</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}><MessageCircle size={17} aria-hidden="true"/> WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
                         {hasDropCoordinates && ['picked_up','out_for_delivery','arrived'].includes(ord.status) && (
                           <div className="driver-road-eta">

@@ -1114,6 +1114,7 @@ export default function PlatformAdmin({ embedded = false }) {
       {activeSubTab==='location' && <section className="card"><h2>Delivery location monitoring</h2>
         {locationError?<p role="alert">{locationError}</p>:!locationReport?<p>Loading restaurant status…</p>:<>
           <p>Updated {new Date(locationReport.checkedAt).toLocaleTimeString()} · Fresh signals are accurate fixes received in the last 30 seconds.</p>
+          <p>Rider presence: {locationReport.infrastructure?.presenceEnabled?'enabled':'off'} · Storage: {locationReport.infrastructure?.sharedPresence?'Redis configured':'in memory'} · Smart dispatch: {locationReport.infrastructure?.dispatchEnabled?'enabled':'off'} · Road routing: {locationReport.infrastructure?.routingConfigured?'configured':'unconfigured'}</p>
           <div style={{overflowX:'auto'}}><table><thead><tr>{['Restaurant','Pickup pin','Delivery','Pricing','Areas','Active trips','Fresh signals'].map(x=><th key={x}>{x}</th>)}</tr></thead>
           <tbody>{locationReport.stores.map(s=><tr key={s.id}><td>{s.name}</td><td>{s.pinSaved?'Saved':'Missing'}</td><td>{s.enabled?'Enabled':'Paused'}</td><td>{s.distanceMode}</td><td>{s.areas}</td><td>{s.trips}</td><td>{s.fresh}</td></tr>)}</tbody></table></div></>}
         </section>}

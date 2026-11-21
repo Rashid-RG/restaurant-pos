@@ -5701,7 +5701,12 @@ app.get('/api/platform/location-monitor', authenticateToken, requirePlatformAdmi
       WHERE o.status IN ('picked_up','out_for_delivery','arrived') AND (o.orderType='delivery' OR o.diningType='delivery')
       GROUP BY o.tenant_id`,[now-30000,now]);
     const activity=new Map(counts.map(row=>[row.id,row]));
-    res.json({checkedAt:now,stores:Array.from(stores.values(),({id,name,settings})=>({
+    res.json({checkedAt:now,infrastructure:{
+      presenceEnabled:process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true',
+      sharedPresence:!!process.env.GASTROFLOW_RIDER_PRESENCE_REDIS_URL,
+      dispatchEnabled:process.env.GASTROFLOW_SMART_DISPATCH_PILOT==='true' && process.env.GASTROFLOW_RIDER_PRESENCE_PILOT==='true',
+      routingConfigured:!!routingOrigin() && (process.env.GASTROFLOW_ROUTING_KEY||'').length>=32
+    },stores:Array.from(stores.values(),({id,name,settings})=>({
       id,name,pinSaved:!!restaurantPickupPin(settings),enabled:settings.onlineDeliveryEnabled!=='false',
       distanceMode:settings.deliveryDistanceMode==='road'?'Road':'Straight-line',
       areas:readDeliveryZones(settings.deliveryZones).length,trips:Number(activity.get(id)?.trips||0),fresh:Number(activity.get(id)?.fresh||0)
