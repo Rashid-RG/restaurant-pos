@@ -196,7 +196,7 @@ export default function App() {
   const [earningsLoading,setEarningsLoading]=useState(false);
   const [earningsError,setEarningsError]=useState('');
   const [mapOrder,setMapOrder]=useState(null);
-  const [tripSheet,setTripSheet]=useState('half');
+  const [tripSheet,setTripSheet]=useState('compact');
   const tripSheetTouchStart=useRef(null);
   const onTripSheetTouchStart=event=>{
     if(event.target.closest('button, a, input, textarea, select')){tripSheetTouchStart.current=null;return;}
@@ -1816,6 +1816,7 @@ export default function App() {
                           {(mapOrder===ord.id || (mapOrder===null && activeOrders.length===1)) && <React.Suspense fallback={<p>Loading map…</p>}><DeliveryMap
                             key={ord.id+'-'+(progressStage<=1?'pickup':'customer')}
                             destination={progressStage<=1 && pickupLocation?[pickupLocation.lng,pickupLocation.lat]:[Number(ord.deliveryLng),Number(ord.deliveryLat)]}
+                            pickup={progressStage<=1} locationLabel={locationLabel} sharingConfirmed={isServerConfirmedLocation}
                             fix={hasFreshLocation?lastCoords:null}
                             geometry={hasFreshLocation && progressStage>1 && driverClock-roadEstimates[ord.id]?.basedOnFixAt<=30000 ? roadEstimates[ord.id]?.geometry : null}/></React.Suspense>}
                         </>}
@@ -1824,7 +1825,7 @@ export default function App() {
                         <div aria-hidden="true" style={{width:42,height:5,background:'#86a69a',borderRadius:5,margin:'0 auto'}}/>
                         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
                           <div><strong style={{display:'block',fontSize:16}}>{ord.customerName||'Customer delivery'}</strong><small>{nextStep}</small></div>
-                          <strong style={{whiteSpace:'nowrap',fontSize:17}}>Rs. {Number(ord.total).toFixed(2)}</strong>
+                          <div style={{textAlign:'right'}}><small>{ord.paymentStatus==='paid'?'Paid':['cash','cod'].includes(ord.paymentMethod)?'Cash to collect':'Order total'}</small><strong style={{display:'block',whiteSpace:'nowrap',fontSize:17}}>Rs. {Number(ord.total).toFixed(2)}</strong></div>
                         </div>
                         <div role="group" aria-label="Trip details sheet size" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:5,padding:5,background:'rgba(100,160,125,.18)',borderRadius:14}}>
                           {[['compact','Summary'],['half','Details'],['full','Full trip']].map(([value,label])=>
@@ -1840,6 +1841,7 @@ export default function App() {
                       </section>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to ${navigatingToPickup ? 'pickup' : 'customer drop-off'} for order ${String(ord.id).slice(-4)}`}><Navigation size={17} aria-hidden="true"/> {navigatingToPickup ? 'Restaurant pickup' : 'Customer drop-off'}</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
+                        {waPhone && <a className="driver-order-action driver-order-contact" href={`tel:+${waPhone}`}><Phone size={17} aria-hidden="true"/> Call customer</a>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}><MessageCircle size={17} aria-hidden="true"/> WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
                         <button type="button" className="driver-order-action driver-order-contact" onClick={()=>setDriverChatOrder(ord)}><MessageCircle size={17} aria-hidden="true"/> In-app chat</button>
                         {hasDropCoordinates && ['picked_up','out_for_delivery','arrived'].includes(ord.status) && (

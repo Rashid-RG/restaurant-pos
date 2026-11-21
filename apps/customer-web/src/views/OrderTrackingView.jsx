@@ -578,13 +578,6 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
               <p style={{fontSize:'.85rem',lineHeight:1.6,margin:0}}>{t('bankPendingHelp')}</p>
             </section>
           )}
-          <div className="customer-tracking-tools">
-            <div className="customer-tracking-freshness" role="status" aria-live="polite"><strong>{streamConnected && hasRecentUpdates ? 'Live updates connected' : hasRecentUpdates ? 'Order updated · reconnecting' : 'Checking for order updates'}</strong><small>{lastUpdate ? 'Last confirmed '+new Date(lastUpdate).toLocaleTimeString() : 'Connecting…'}</small></div>
-            {canUseHostedWebPush(isPackagedNative) && storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
-              <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
-            {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
-            {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
-          </div>
           {riderNearDestination && <div role="status" aria-live="polite"
             style={{display:'flex',alignItems:'center',gap:10,padding:'12px 15px',borderRadius:16,background:'#e5f8ed',border:'1px solid #9fdbb7',color:'#145b40',fontWeight:750,margin:'10px 0'}}>
             <span aria-hidden="true">🛵</span><span>Your rider is near the delivery pin. Please be ready for handover. Arrival is not yet confirmed.</span>
@@ -594,13 +587,14 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
           {!isCancelled&&!isDone&&isDelivery&&validGeoPoint({lat:order.deliveryLat,lng:order.deliveryLng})&&
             <div className="gf-journey-map-shell">
               <button type="button" className="gf-journey-map-toggle" aria-expanded={mapExpanded} onClick={()=>setMapExpanded(v=>!v)}>
-                <span>🛵 {mapExpanded?'Your delivery journey':'Show delivery map'}</span><span>{mapExpanded?'Collapse ↑':'View map ↓'}</span>
+                <span>{actualProgress.steps[actualProgress.currentIndex]?.label || 'Delivery in progress'}{etaDisplay>0 && <small className="gf-map-header-eta">{deliveryEstimate}</small>}</span><span>{mapExpanded?'Hide map ↑':'Show map ↓'}</span>
               </button>
               {mapExpanded&&<div className="gf-journey-map-body">
                 <TrackingMap
                   store={storeInfo && validGeoPoint({lat:storeInfo.lat,lng:storeInfo.lng})?{lat:Number(storeInfo.lat),lng:Number(storeInfo.lng)}:null}
                   dest={{lat:Number(order.deliveryLat),lng:Number(order.deliveryLng)}}
                   driver={gpsState.visible?driverLoc:null}
+                  gpsState={gpsState}
                   route={gpsState.visible?roadRoute:null}
                 />
 
@@ -610,7 +604,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
             <div aria-hidden="true" style={{width:44,height:5,borderRadius:9,background:'#b7c9c0',margin:'0 auto 10px'}}/>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:10}}>
               <div><strong style={{display:'block',fontSize:17}}>{actualProgress.steps[actualProgress.currentIndex]?.label || 'Delivery in progress'}</strong>
-                <small style={{color:'#5d736a'}}>{gpsState.visible?'Rider location recently confirmed':'Waiting for a fresh rider GPS update'}</small></div>
+                <small style={{color:'#5d736a'}}>{gpsState.label}</small></div>
               <div style={{textAlign:'right'}}>{etaDisplay>0&&<strong style={{display:'block',fontSize:18}}>{deliveryEstimate}</strong>}<small style={{color:'#648176'}}>Estimated, not guaranteed</small></div>
             </div>
             <div role="group" aria-label="Delivery details sheet size" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:6,background:'#eef5f0',padding:5,borderRadius:15}}>
@@ -626,6 +620,13 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
               </div>
             </div>}
           </section>}
+          <div className="customer-tracking-tools">
+            <div className="customer-tracking-freshness" role="status" aria-live="polite"><strong>{streamConnected && hasRecentUpdates ? 'Live updates connected' : hasRecentUpdates ? 'Order updated · reconnecting' : 'Checking for order updates'}</strong><small>{lastUpdate ? 'Last confirmed '+new Date(lastUpdate).toLocaleTimeString() : 'Connecting…'}</small></div>
+            {canUseHostedWebPush(isPackagedNative) && storeInfo?.vapidPublicKey && !pushEnabled && 'Notification' in window &&
+              <button type="button" className="customer-tracking-notify" disabled={pushBusy} onClick={enableNotifications}>{pushBusy?'…': '🔔'} {t('enableOrderNotifications') || 'Enable notifications'}</button>}
+            {pushEnabled && <span className="customer-tracking-active">✓ {t('notificationsEnabled') || 'Notifications enabled'}</span>}
+            {connectionWarning && <div className="gf-tracking-reconnect" role="alert"><span>{connectionWarning}</span><button type="button" onClick={()=>fetchOrder(orderRef.current?.id,{silent:true})}>Refresh status</button></div>}
+          </div>
           {(journeySheet!=='compact' || !isDelivery || isCancelled || isDone) &&
           <section className="gf-journey-focus" aria-label="Current order progress" aria-live="off">
             <div className="gf-journey-focus-heading">

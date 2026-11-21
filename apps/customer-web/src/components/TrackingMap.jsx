@@ -1,4 +1,5 @@
 import React, {useEffect,useRef,useState} from 'react';
+import LiveMapControls from '../../../../shared/ui/LiveMapControls.jsx';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -17,7 +18,16 @@ const distanceMeters=(a,b)=>{
  * Last confirmed GPS positions on OpenStreetMap. Marker animation is a short
  * visual interpolation, not predicted rider movement or a navigable road route.
  */
-export default function TrackingMap({store,dest,driver,route}) {
+export default function TrackingMap({store,dest,driver,route,gpsState}) {
+  const roadPoints=React.useMemo(()=>{
+    const coordinates=route?.geometry?.coordinates;
+    const hasRoad=route?.available===true && route.geometry?.type==='LineString' &&
+      Array.isArray(coordinates) && coordinates.length>=2 && coordinates.length<=10000 &&
+      coordinates.every(c=>Array.isArray(c) && c.length>=2 &&
+        Number.isFinite(c[0]) && Number.isFinite(c[1]) &&
+        Math.abs(c[0])<=180 && Math.abs(c[1])<=90);
+    return hasRoad ? coordinates.map(([lng,lat])=>[lat,lng]) : null;
+  },[route]);
   const el=useRef(null),map=useRef(null),markers=useRef({});
   const routeLine=useRef(null),accuracyCircle=useRef(null),animation=useRef(null);
   const fitted=useRef(false),driverRef=useRef(null);
@@ -28,10 +38,11 @@ export default function TrackingMap({store,dest,driver,route}) {
   useEffect(()=>{
     if(map.current||!el.current)return;
     const center=valid(dest)?dest:valid(store)?store:{lat:6.9271,lng:79.8612};
-    const m=L.map(el.current,{zoomControl:true,attributionControl:true}).setView([center.lat,center.lng],13);
+    const m=L.map(el.current,{zoomControl:false,attributionControl:true}).setView([center.lat,center.lng],13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
       maxZoom:19,attribution:'© OpenStreetMap contributors'
     }).addTo(m);
+    L.control.zoom({position:'bottomleft'}).addTo(m);
     map.current=m;
     // User gestures stop automatic centering. Never move a marker without a new GPS fix.
     const stopFollowing=()=>setFollowing(false);
@@ -63,6 +74,7 @@ export default function TrackingMap({store,dest,driver,route}) {
   useEffect(()=>{
     const m=map.current;if(!m)return;
     driverRef.current=valid(driver)?driver:null;
+    if(!driverRef.current)setFollowing(false);
     const upsert=(key,point,emoji,cls,label)=>{
       const existing=markers.current[key];
       if(!valid(point)){
@@ -99,7 +111,7 @@ export default function TrackingMap({store,dest,driver,route}) {
         };
         animation.current=window.requestAnimationFrame(animate);
       }else marker.setLatLng([next.lat,next.lng]);
-      if(followingRef.current && distance<=500){
+      if(followingRef.current && distance>0){
         // Camera follows only measured positions; never interpolate beyond the latest fix.
         m.panTo([next.lat,next.lng],{animate:true,duration:.6});
       }
@@ -107,13 +119,8 @@ export default function TrackingMap({store,dest,driver,route}) {
 
     // Route geometry is external data: reject malformed coordinates before
     // giving them to Leaflet, and avoid a large accidental browser render.
-    const coordinates=route?.geometry?.coordinates;
-    const hasRoad=route?.available===true && route.geometry?.type==='LineString' &&
-      Array.isArray(coordinates) && coordinates.length>=2 && coordinates.length<=10000 &&
-      coordinates.every(c=>Array.isArray(c) && c.length>=2 &&
-        Number.isFinite(c[0]) && Number.isFinite(c[1]) &&
-        Math.abs(c[0])<=180 && Math.abs(c[1])<=90);
-    const points=hasRoad ? coordinates.map(c=>[c[1],c[0]]) : null;
+    const points=roadPoints;
+    const hasRoad=Boolean(points);
     const from=valid(driver)?driver:valid(store)?store:null;
     if(points || (from&&valid(dest))){
       const ends=points || [[from.lat,from.lng],[dest.lat,dest.lng]];
@@ -135,6 +142,7 @@ export default function TrackingMap({store,dest,driver,route}) {
 
     if(!fitted.current){
       const pts=[store,dest,driver].filter(valid);
+      if(points)pts.push(...points.map(([lat,lng])=>({lat,lng})));
       if(pts.length>1){
         m.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])).pad(.24),{maxZoom:16});
         fitted.current=true;
@@ -142,10 +150,10 @@ export default function TrackingMap({store,dest,driver,route}) {
     }
   },[store?.lat,store?.lng,dest?.lat,dest?.lng,driver?.lat,driver?.lng,driver?.accuracyMeters,route]);
 
-  const locateRider=()=>{
+  const locateRider=(follow)=>{
     const p=driverRef.current;
     if(!map.current||!valid(p))return;
-    setFollowing(true);
+    setFollowing(follow);
     map.current.flyTo([p.lat,p.lng],Math.max(14,map.current.getZoom()),{duration:.65});
   };
   const showJourney=()=>{
@@ -153,6 +161,7 @@ export default function TrackingMap({store,dest,driver,route}) {
     const m=map.current;
     if(!m)return;
     const points=[store,dest,driverRef.current].filter(valid);
+    if(routeLine.current)points.push(...routeLine.current.getLatLngs());
     if(points.length>1)m.fitBounds(L.latLngBounds(points.map(p=>[p.lat,p.lng])).pad(.18),{maxZoom:16});
     else if(points.length===1)m.setView([points[0].lat,points[0].lng],14);
   };
@@ -162,24 +171,17 @@ export default function TrackingMap({store,dest,driver,route}) {
       <div ref={el} className="tm-map" role="img" aria-label="Map showing restaurant, destination and latest confirmed rider GPS fix" style={{height:'min(57vh,520px)',minHeight:350,width:'100%'}}/>
       <div style={{position:'absolute',top:12,left:12,right:64,zIndex:500,pointerEvents:'none'}}>
         <div role="status" style={{display:'inline-flex',alignItems:'center',gap:8,padding:'10px 14px',borderRadius:18,color:'#153c32',background:'rgba(255,255,255,.96)',boxShadow:'0 7px 22px rgba(0,0,0,.12)',fontSize:13,fontWeight:750}}>
-          <span aria-hidden="true" style={{height:9,width:9,borderRadius:'50%',background:valid(driver)?'#13986a':'#e1a449'}}/>
-          {valid(driver)?'Last confirmed rider GPS':'Waiting for rider location'}
+          <span aria-hidden="true" style={{height:9,width:9,borderRadius:'50%',background:gpsState.state==='fresh'?'#13986a':'#e1a449'}}/>
+          {gpsState.label}
         </div>
       </div>
-      <div className="gf-map-actions" style={{position:'absolute',right:12,top:68,zIndex:500,display:'flex',flexDirection:'column',gap:9}}>
-        <button type="button" onClick={showJourney} aria-label="Show entire delivery route" style={{border:0,borderRadius:15,padding:'12px 13px',background:'#fff',color:'#174b3b',boxShadow:'0 5px 18px rgba(0,0,0,.16)',fontWeight:800}}>⌖ <span className="sr-only">Route overview</span></button>
-        <button type="button" onClick={followRider?()=>setFollowing(false):locateRider} disabled={!valid(driver)} aria-pressed={followRider} aria-label={followRider?'Stop following rider':'Follow confirmed rider location'} style={{border:0,borderRadius:15,padding:'12px 13px',background:followRider?'#087653':'#fff',color:followRider?'#fff':'#174b3b',boxShadow:'0 5px 18px rgba(0,0,0,.16)',opacity:valid(driver)?1:.55,fontWeight:800}}>◎</button>
-      </div>
-      <div style={{position:'absolute',bottom:12,left:12,right:12,zIndex:500,pointerEvents:'none'}}>
+      <LiveMapControls hasFix={valid(driver)} following={followRider}
+        onCenter={()=>locateRider(false)} onFollow={()=>followRider?setFollowing(false):locateRider(true)} onOverview={showJourney}/>
+      <div style={{position:'absolute',bottom:24,left:56,right:12,zIndex:500,pointerEvents:'none'}}>
         <span style={{display:'inline-block',maxWidth:'95%',padding:'9px 12px',borderRadius:14,background:'rgba(255,255,255,.94)',color:'#214a40',fontSize:12,fontWeight:650,boxShadow:'0 3px 12px rgba(0,0,0,.1)'}}>
-          {route?.available===true?'Road route · not live traffic':valid(driver)?'Road route unavailable · approximate direct distance':'Location updates appear after the rider enables sharing'}
+          {roadPoints?'Road route':valid(driver)||valid(store)?'Road route unavailable · dotted line shows direct distance':'Waiting for route endpoints'}
         </span>
       </div>
     </div>
-    <div className="gf-map-toolbar" style={{padding:'12px 16px',display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
-      <span className="gf-map-label" style={{fontWeight:800}}>Delivery journey</span>
-      <span style={{fontSize:12,color:'#56756a'}}>{followRider?'● Following rider':valid(driver)?'Rider location available':'Awaiting live GPS'}</span>
-    </div>
-    <small className="customer-map-note" style={{display:'block',padding:'0 16px 14px'}}>Positions reflect the latest confirmed GPS. Movement between fixes is visual interpolation only; road ETA is not live traffic prediction.</small>
   </section>;
 }

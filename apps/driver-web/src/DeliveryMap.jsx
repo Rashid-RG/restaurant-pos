@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import LiveMapControls from '../../../shared/ui/LiveMapControls.jsx';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -23,11 +24,14 @@ const routeFeature = geometry => {
   return {type: 'Feature', properties: {}, geometry};
 };
 
-export default function DeliveryMap({destination, fix, geometry}) {
+export default function DeliveryMap({destination, fix, geometry, pickup, locationLabel, sharingConfirmed}) {
   const container = useRef(null);
   const map = useRef(null);
   const destinationMarker = useRef(null);
   const riderMarker = useRef(null);
+  const cameraTouched = useRef(false);
+  const framedEndpoints = useRef(false);
+  const framedRoad = useRef(false);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [following, setFollowing] = useState(false);
@@ -56,12 +60,15 @@ export default function DeliveryMap({destination, fix, geometry}) {
         }
       });
       map.current = view;
-      destinationMarker.current = new maplibregl.Marker({element:markerElement('📍','Customer destination','#fff1ec'),anchor:'bottom'})
-        .setLngLat(destination).setPopup(new maplibregl.Popup().setText('Destination')).addTo(view);
-      view.addControl(new maplibregl.NavigationControl({showCompass: true}), 'top-right');
+      destinationMarker.current = new maplibregl.Marker({element:markerElement(pickup?'🏬':'📍',pickup?'Restaurant pickup':'Customer destination','#fff1ec'),anchor:'bottom'})
+        .setLngLat(destination).setPopup(new maplibregl.Popup().setText(pickup?'Restaurant pickup':'Customer drop-off')).addTo(view);
+      view.addControl(new maplibregl.NavigationControl({showCompass: true}), 'bottom-left');
       view.on('load', () => {setReady(true); setFailed(false);});
       // Manual navigation always takes priority over camera follow mode.
-      view.on('dragstart',()=>setFollowing(false));
+      const manualMove = event => {
+        if(event.originalEvent){cameraTouched.current=true;setFollowing(false);}
+      };
+      view.on('movestart',manualMove);
       // MapLibre's canvas needs an explicit resize when the trip panel moves.
       const resize=()=>{if(map.current===view)view.resize();};
       const observer=typeof ResizeObserver!=='undefined'
@@ -114,7 +121,15 @@ export default function DeliveryMap({destination, fix, geometry}) {
   useEffect(() => {
     const view = map.current;
     if (!ready || !view) return;
-    const data = {type: 'FeatureCollection', features: validRoute ? [validRoute] : []};
+    const direct = riderPosition && destinationValid ? {type:'Feature', properties:{}, geometry:{type:'LineString',coordinates:[riderPosition,destination]}} : null;
+    const data = {type:'FeatureCollection',features: validRoute ? [validRoute] : []};
+    const directData = {type:'FeatureCollection',features: !validRoute && direct ? [direct] : []};
+    const fallback = view.getSource('direct');
+    if(fallback)fallback.setData(directData);
+    else {
+      view.addSource('direct',{type:'geojson',data:directData});
+      view.addLayer({id:'direct',type:'line',source:'direct',paint:{'line-width':3,'line-color':'#087653','line-dasharray':[1,3]}});
+    }
     const source = view.getSource('road');
     if (source) source.setData(data);
     else {
@@ -122,21 +137,28 @@ export default function DeliveryMap({destination, fix, geometry}) {
       view.addLayer({id: 'road', type: 'line', source: 'road',
         paint: {'line-width': 6, 'line-color': '#087653', 'line-opacity': 0.94}});
     }
-    if (validRoute && !following) {
+    if (validRoute && !cameraTouched.current && !framedRoad.current) {
+      framedRoad.current=true;
       const bounds = new maplibregl.LngLatBounds();
       validRoute.geometry.coordinates.forEach(point => bounds.extend(point));
       view.fitBounds(bounds, {padding: 48, maxZoom: 16, duration: 0});
     }
-  }, [ready, geometry, following]);
+    if(!validRoute && direct && !cameraTouched.current && !framedEndpoints.current){
+      framedEndpoints.current=true;
+      view.fitBounds(new maplibregl.LngLatBounds(destination,riderPosition),{padding:48,maxZoom:16,duration:0});
+    }
+  }, [ready, geometry, riderPosition?.[0], riderPosition?.[1], destination?.[0], destination?.[1]]);
 
-  const centerOnRider = () => {
+  const centerOnRider = follow => {
     if (!riderPosition || !map.current) return;
-    setFollowing(true);
+    cameraTouched.current=true;
+    setFollowing(follow);
     map.current.easeTo({center: riderPosition, zoom: Math.max(map.current.getZoom(), 15), duration: 300});
   };
   const showWholeRoute = () => {
     if (!map.current || !destinationValid) return;
     setFollowing(false);
+    cameraTouched.current=true;
     const bounds = new maplibregl.LngLatBounds(destination, destination);
     if (riderPosition) bounds.extend(riderPosition);
     if (validRoute) validRoute.geometry.coordinates.forEach(point => bounds.extend(point));
@@ -146,22 +168,17 @@ export default function DeliveryMap({destination, fix, geometry}) {
   if (!destinationValid) return <p role="status">Destination pin is unavailable. Confirm the address before navigating.</p>;
   return <section aria-label="Delivery navigation" style={{position:'relative',borderRadius:22,overflow:'hidden',background:'#eff7f3',boxShadow:'0 12px 35px rgba(0,0,0,.16)'}}>
     <div ref={container} aria-label="Delivery navigation map" style={{height:failed?0:'min(54vh,490px)',minHeight:failed?0:330,width:'100%'}}/>
-    <div style={{position:'absolute',top:12,left:12,right:74,pointerEvents:'none',zIndex:2}}>
+    {!failed && <div style={{position:'absolute',top:12,left:12,right:74,pointerEvents:'none',zIndex:2}}>
       <span role="status" style={{display:'inline-flex',alignItems:'center',gap:8,borderRadius:16,padding:'10px 12px',background:'rgba(255,255,255,.96)',color:'#164638',fontWeight:800,fontSize:12,boxShadow:'0 6px 20px rgba(0,0,0,.12)'}}>
-        <span aria-hidden="true" style={{height:8,width:8,borderRadius:'50%',background:riderPosition?'#149667':'#e6a23c'}}/>
-        {!riderPosition?'Waiting for fresh GPS':!validRoute?'GPS available · road route unavailable':'Confirmed GPS · road route shown'}
+        <span aria-hidden="true" style={{height:8,width:8,borderRadius:'50%',background:sharingConfirmed?'#149667':'#e6a23c'}}/>
+        {locationLabel}
       </span>
-    </div>
-    <div style={{position:'absolute',right:12,top:102,display:'grid',gap:9,zIndex:3}}>
-      <button type="button" onClick={centerOnRider} disabled={!ready||!riderPosition} aria-pressed={following}
-        aria-label={following?'Following my location':'Follow my location'}
-        style={{background:following?'#087653':'white',color:following?'white':'#154b3e',border:0,borderRadius:15,padding:'13px 14px',fontSize:18,fontWeight:900,opacity:riderPosition?1:.5,boxShadow:'0 5px 17px rgba(0,0,0,.15)'}}>◎</button>
-      <button type="button" onClick={showWholeRoute} disabled={!ready} aria-label="Show whole route"
-        style={{background:'white',color:'#154b3e',border:0,borderRadius:15,padding:'13px 14px',fontSize:18,fontWeight:900,boxShadow:'0 5px 17px rgba(0,0,0,.15)'}}>⌖</button>
-    </div>
+    </div>}
+    {!failed && <LiveMapControls ready={ready} hasFix={Boolean(riderPosition)} following={following}
+      onCenter={()=>centerOnRider(false)} onFollow={()=>following?setFollowing(false):centerOnRider(true)} onOverview={showWholeRoute}/>}
     {failed && <p role="alert" style={{padding:18}}>Map unavailable on this device. Use external navigation.</p>}
     <div style={{padding:'11px 14px',display:'flex',justifyContent:'space-between',gap:8,alignItems:'center',color:'#1b5241',fontSize:12,fontWeight:750}}>
-      <span>Delivery route</span><span>{validRoute?'Road travel · no live traffic':'Navigation route unavailable'}</span>
+      <span>Delivery route</span><span>{validRoute?'Road travel · no live traffic':riderPosition?'Road route unavailable · direct line':'Waiting for rider GPS'}</span>
     </div>
   </section>;
 }
