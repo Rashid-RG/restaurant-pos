@@ -23,13 +23,13 @@ describe('platform delivery-location monitoring diagnostics', () => {
       now-LOCATION_FRESH_MS,now,now-LOCATION_FRESH_MS,now,
       now-LOCATION_FRESH_MS,now
     ]);
-    expect((locationActivitySql.match(/\\?/g)||[]).length).toBe(6);
+    expect((locationActivitySql.match(/\?/g)||[]).length).toBe(6);
   });
   it('includes only active delivery trips and matches assigned driver identity',()=>{
     expect(locationActivitySql).toContain('dl.orderId=o.id AND dl.driverName=o.driverId');
     expect(locationActivitySql).toContain("o.status IN ('picked_up','out_for_delivery','arrived')");
     expect(locationActivitySql).toContain("o.orderType='delivery' OR o.diningType='delivery'");
-    expect(locationActivitySql).not.toMatch(/\\b(?:lat|lng|phone|email)\\b/i);
+    expect(locationActivitySql).not.toMatch(/\b(?:lat|lng|phone|email)\b/i);
   });
   it('produces numeric aggregate-only data from nullable database rows',()=>{
     expect(normalizeLocationActivity({trips:3,fresh:1,stale:1,poorAccuracy:0,missing:1}))
