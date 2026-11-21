@@ -7,6 +7,7 @@ import { useLang } from '../context/LanguageContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { selectTrackableOrders } from '../utils/gastromate-tracking.js';
 import TrackingMap from '../components/TrackingMap.jsx';
+import RiderChatSheet from '../components/RiderChatSheet.jsx';
 import DeliveryPulseCard from '../components/DeliveryPulseCard.jsx';
 import {contactLinks} from '../utils/contact-actions.js';
 import { canUseHostedOrderStream, canUseHostedWebPush } from '../utils/native-tracking-policy.js';
@@ -795,54 +796,17 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
           </div></details>
 
           {/* Full stage history is available once inside the expandable journey sheet above. */}
-          {/* Driver In-App Live Chat Drawer */}
-          {driverChatOpen && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'flex-end' }}>
-              <div style={{ width: '100%', maxWidth: 440, height: '70vh', background: 'var(--bg-card)', borderRadius: '20px 20px 0 0', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
-                <div style={{ background: 'var(--brand)', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: '1.2rem' }}>🛵</span>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>Rider Live Direct Chat</div>
-                      <div style={{ fontSize: '0.7rem', opacity: 0.9 }}>Order #{order.id?.slice(-6).toUpperCase()}</div>
-                    </div>
-                  </div>
-                  <button style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }} onClick={() => setDriverChatOpen(false)}>✕</button>
-                </div>
-
-                <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {driverMessages.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: 40 }}>
-                      💬 No messages yet. Send delivery instructions to your rider below!
-                    </div>
-                  ) : (
-                    driverMessages.map(msg => (
-                      <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.senderType === 'customer' ? 'flex-end' : 'flex-start' }}>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginBottom: 2 }}>{msg.senderName} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                        <div style={{ background: msg.senderType === 'customer' ? 'var(--brand)' : 'var(--surface-3)', color: msg.senderType === 'customer' ? '#fff' : 'var(--text)', padding: '8px 12px', borderRadius: 12, fontSize: '0.85rem', maxWidth: '85%' }}>
-                          {msg.message}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                <form onSubmit={handleSendDriverMsg} style={{ padding: 12, borderTop: '1px solid var(--border-color)', display: 'flex', gap: 8, background: 'var(--bg-surface)' }}>
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Type message to driver..."
-                    value={driverInputMsg}
-                    onChange={e => setDriverInputMsg(e.target.value)}
-                    style={{ flex: 1, borderRadius: 20 }}
-                  />
-                  <button type="submit" className="btn btn-brand" style={{ borderRadius: 20, padding: '8px 16px' }} disabled={sendingDriverMsg || !driverInputMsg.trim()}>
-                    Send
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
+          {/* Chat dialog is portaled to document.body and remains above navigation. */}
+          <RiderChatSheet
+            open={driverChatOpen}
+            onClose={()=>setDriverChatOpen(false)}
+            orderId={order.id}
+            messages={driverMessages}
+            message={driverInputMsg}
+            onMessageChange={setDriverInputMsg}
+            onSend={handleSendDriverMsg}
+            sending={sendingDriverMsg}
+          />
         </>
       )}
     </div>
