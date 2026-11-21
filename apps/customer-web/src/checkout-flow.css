@@ -190,3 +190,6 @@ body .gastrofood-otp-backdrop button:focus-visible{outline:3px solid #239b78;out
 .gf-smart-ready{font-size:11px;color:#206a4a;margin:0 4px;line-height:1.5}
 .gf-smart-guided{border:0;background:none;color:#497863;font-size:12px;font-weight:750;text-decoration:underline;align-self:center;padding:10px}
 @media(max-width:390px){.gf-smart-row{padding:12px 10px;gap:9px}.gf-smart-row-icon{width:36px;height:36px;flex-basis:36px}.gf-smart-price strong{font-size:17px}}
+
+.gf-smart-return{display:block;margin:2px 0 12px;border:1px solid #cde4d5;background:#f5fbf6;color:#0e6e4c;border-radius:12px;padding:10px 14px;font-size:12px;font-weight:850;min-height:40px}
+.gf-smart-return:focus-visible{outline:3px solid #2c9b72;outline-offset:2px}
