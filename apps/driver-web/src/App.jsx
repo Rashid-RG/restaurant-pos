@@ -17,6 +17,18 @@ import {createDispatchRequestGate,createDispatchTimeout,latestDispatchTickets} f
 const TOKEN_KEY = 'gastrodriver_token';
 const DRIVER_KEY = 'gastrodriver_profile';
 const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
+const restoredDriverProfile = () => {
+  try {
+    // The cached profile is cosmetic only; the server authenticates the JWT
+    // and verifies the rider/restaurant before returning any private orders.
+    if(!getToken())return null;
+    const profile=JSON.parse(localStorage.getItem(DRIVER_KEY)||'null');
+    if(!profile || typeof profile!=='object' || typeof profile.id!=='string' ||
+       !profile.id || typeof profile.name!=='string')return null;
+    const {id,name,phone,vehicleType,plateNumber,status}=profile;
+    return {id,name,phone,vehicleType,plateNumber,status};
+  }catch{return null;}
+};
 
 // API helper — attaches the driver JWT so the server can identify + tenant-scope the rider.
 const apiFetch = async (url, opts = {}) => {
@@ -50,17 +62,13 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
 }
 
-// ── Sri Lanka store coords default (Colombo) ──
-const STORE_LAT = 6.9271;
-const STORE_LNG = 79.8612;
-
 function isRushHour(timeZone = 'Asia/Colombo') {
   const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
   return (h >= 12 && h <= 14) || (h >= 19 && h <= 21);
 }
 
 export default function App() {
-  const [driver, setDriver] = useState(JSON.parse(localStorage.getItem(DRIVER_KEY) || 'null'));
+  const [driver, setDriver] = useState(restoredDriverProfile);
   const driverStatusRef=useRef(null);
   driverStatusRef.current=driver?.status||null;
   const driverStatusIdentityRef=useRef(null);
