@@ -1412,7 +1412,7 @@ export default function Settings({ initialSubTab = null } = {}) {
                 <div style={{ marginBottom: '32px' }}>
                   <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '4px' }}>📍 Delivery Zone Strategy</h3>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                    Dynamic distance-based delivery pricing optimized for Sri Lankan urban delivery economics. Fee = Base + (Distance × Per-km) + Surcharges.
+                    Restaurant-specific pricing: base fee + chargeable distance beyond the free radius + optional surcharges. Set a fee or surcharge to 0 to disable it. Free delivery above the order threshold overrides charges.
                   </p>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
@@ -1420,8 +1420,8 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🛵 Base Delivery Fee (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings?.deliveryBaseFee || 99}
-                        onBlur={async (e) => await updateSetting('deliveryBaseFee', e.target.value)}
+                        defaultValue={settings?.deliveryBaseFee ?? 99}
+                        onBlur={async (e) => { const value = Number(e.target.value); if (!e.target.value.trim() || !Number.isFinite(value) || value < 0 || value > 1000000) { showToast('Enter a valid non-negative delivery setting.', 'error'); e.target.value = String(settings?.deliveryBaseFee ?? 99); return; } await updateSetting('deliveryBaseFee', String(value)); }}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Flat fee every delivery order</span>
                     </div>
@@ -1430,8 +1430,8 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>📏 Free Radius (km)</label>
                       <input 
                         type="number" step="0.5" className="form-input" 
-                        defaultValue={settings?.deliveryFreeRadiusKm || 2}
-                        onBlur={async (e) => await updateSetting('deliveryFreeRadiusKm', e.target.value)}
+                        defaultValue={settings?.deliveryFreeRadiusKm ?? 2}
+                        onBlur={async (e) => { const value = Number(e.target.value); if (!e.target.value.trim() || !Number.isFinite(value) || value < 0 || value > 100) { showToast('Enter a valid non-negative delivery setting.', 'error'); e.target.value = String(settings?.deliveryFreeRadiusKm ?? 2); return; } await updateSetting('deliveryFreeRadiusKm', String(value)); }}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>No per-km charge within this radius</span>
                     </div>
@@ -1440,8 +1440,8 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>💰 Per-Km Rate (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings?.deliveryPerKmRate || 50}
-                        onBlur={async (e) => await updateSetting('deliveryPerKmRate', e.target.value)}
+                        defaultValue={settings?.deliveryPerKmRate ?? 50}
+                        onBlur={async (e) => { const value = Number(e.target.value); if (!e.target.value.trim() || !Number.isFinite(value) || value < 0 || value > 1000000) { showToast('Enter a valid non-negative delivery setting.', 'error'); e.target.value = String(settings?.deliveryPerKmRate ?? 50); return; } await updateSetting('deliveryPerKmRate', String(value)); }}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Charge per km beyond free radius</span>
                     </div>
@@ -1450,8 +1450,8 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🚫 Max Delivery Radius (km)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings?.deliveryMaxRadiusKm || 15}
-                        onBlur={async (e) => await updateSetting('deliveryMaxRadiusKm', e.target.value)}
+                        defaultValue={settings?.deliveryMaxRadiusKm ?? 15}
+                        onBlur={async (e) => { const value = Number(e.target.value); if (!e.target.value.trim() || !Number.isFinite(value) || value <= 0 || value > 100) { showToast('Enter a valid non-negative greater-than-zero delivery setting.', 'error'); e.target.value = String(settings?.deliveryMaxRadiusKm ?? 15); return; } await updateSetting('deliveryMaxRadiusKm', String(value)); }}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Reject orders beyond this distance</span>
                     </div>
@@ -1460,8 +1460,8 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🔥 Peak Hour Surcharge (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings?.deliveryPeakSurcharge || 50}
-                        onBlur={async (e) => await updateSetting('deliveryPeakSurcharge', e.target.value)}
+                        defaultValue={settings?.deliveryPeakSurcharge ?? 50}
+                        onBlur={async (e) => { const value = Number(e.target.value); if (!e.target.value.trim() || !Number.isFinite(value) || value < 0 || value > 1000000) { showToast('Enter a valid non-negative delivery setting.', 'error'); e.target.value = String(settings?.deliveryPeakSurcharge ?? 50); return; } await updateSetting('deliveryPeakSurcharge', String(value)); }}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Auto-applied during lunch & dinner rush</span>
                     </div>
@@ -1470,8 +1470,8 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🌧️ Rain Surcharge (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings?.deliveryRainSurcharge || 75}
-                        onBlur={async (e) => await updateSetting('deliveryRainSurcharge', e.target.value)}
+                        defaultValue={settings?.deliveryRainSurcharge ?? 75}
+                        onBlur={async (e) => { const value = Number(e.target.value); if (!e.target.value.trim() || !Number.isFinite(value) || value < 0 || value > 1000000) { showToast('Enter a valid non-negative delivery setting.', 'error'); e.target.value = String(settings?.deliveryRainSurcharge ?? 75); return; } await updateSetting('deliveryRainSurcharge', String(value)); }}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Applied when rainy weather is toggled ON</span>
                     </div>
@@ -1480,8 +1480,8 @@ export default function Settings({ initialSubTab = null } = {}) {
                       <label style={{ fontSize: '11px', fontWeight: 600, display: 'block', marginBottom: '4px' }}>🎁 Free Delivery Threshold (Rs.)</label>
                       <input 
                         type="number" className="form-input" 
-                        defaultValue={settings?.deliveryFreeThreshold || 3000}
-                        onBlur={async (e) => await updateSetting('deliveryFreeThreshold', e.target.value)}
+                        defaultValue={settings?.deliveryFreeThreshold ?? 3000}
+                        onBlur={async (e) => { const value = Number(e.target.value); if (!e.target.value.trim() || !Number.isFinite(value) || value <= 0 || value > 1000000) { showToast('Enter a valid non-negative greater-than-zero delivery setting.', 'error'); e.target.value = String(settings?.deliveryFreeThreshold ?? 3000); return; } await updateSetting('deliveryFreeThreshold', String(value)); }}
                       />
                       <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Orders above this get FREE delivery</span>
                     </div>
@@ -1620,18 +1620,11 @@ export default function Settings({ initialSubTab = null } = {}) {
                   </div>
                 </div>
 
-                {/* ── Platform Commission (for partner stores) ── */}
-                <div style={{ marginBottom: '32px', padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)', maxWidth: '320px' }}>
-                  <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>💼 Platform Commission Rate</h3>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                    Percentage charged to partner restaurants on every delivery order placed through the marketplace.
+                <div style={{ marginBottom: '32px', padding: '16px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-surface)' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', marginBottom: '8px' }}>Marketplace fees and driver earnings</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Delivery prices above are charged to customers. Driver compensation is approved separately in Delivery Management; collected order cash is not driver earnings. Platform commission is managed only by the platform owner and must not be changed from restaurant settings.
                   </p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input type="number" step="0.5" min="0" max="50" className="form-input" style={{ maxWidth: '80px' }}
-                      defaultValue={settings?.platformCommissionRate || 15}
-                      onBlur={async (e) => await updateSetting('platformCommissionRate', e.target.value)} />
-                    <span style={{ fontSize: '14px', fontWeight: 700 }}>%</span>
-                  </div>
                 </div>
 
                 <div>
