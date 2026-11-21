@@ -5275,6 +5275,57 @@ app.post('/api/delivery/assign',authenticateToken,requireRole(['owner','manager'
  }catch(error){if(open)await dbRun('ROLLBACK');res.status(500).json({error:errMsg(error)});}
 });
 
+// Restaurant dispatch reassignment before pickup only. Explicit previous
+// assignment is required to protect against stale manager screens.
+app.post('/api/delivery/reassign',authenticateToken,requireRole(['owner','manager']),async(req,res)=>{
+  const orderId=typeof req.body?.orderId==='string'?req.body.orderId.trim():'';
+  const previousDriverId=typeof req.body?.previousDriverId==='string'?req.body.previousDriverId.trim():'';
+  const newDriverId=req.body?.newDriverId==null?'':String(req.body.newDriverId).trim();
+  const reason=typeof req.body?.reason==='string'?req.body.reason.trim():'';
+  if(!orderId||orderId.length>128||!previousDriverId||previousDriverId.length>128||
+     newDriverId.length>128||newDriverId===previousDriverId||reason.length<8||reason.length>300)
+    return res.status(400).json({error:'Select a changed rider (or unassign) and provide an 8–300 character reason.'});
+  let open=false;
+  try {
+    await dbRun('BEGIN TRANSACTION');open=true;
+    const order=await dbGet(
+      'SELECT id,status,diningType,orderType,driverId FROM orders WHERE id=? AND tenant_id=?',
+      [orderId,req.tenantId]
+    );
+    if(!order){await dbRun('ROLLBACK');open=false;return res.status(404).json({error:'Delivery not found.'});}
+    if((order.diningType!=='delivery'&&order.orderType!=='delivery')||
+       !['pending','preparing','ready'].includes(order.status)||
+       order.driverId!==previousDriverId){
+      await dbRun('ROLLBACK');open=false;
+      return res.status(409).json({error:'Pickup has started or assignment has changed. Refresh dispatch.'});
+    }
+    let next=null;
+    if(newDriverId){
+      next=await dbGet('SELECT id,name,status FROM drivers WHERE id=? AND tenant_id=?',[newDriverId,req.tenantId]);
+      if(!next||!['available','active','busy'].includes(next.status)){
+        await dbRun('ROLLBACK');open=false;
+        return res.status(409).json({error:'Replacement rider is not available in this restaurant.'});
+      }
+    }
+    const update=await dbRun(
+      "UPDATE orders SET driverId=? WHERE id=? AND tenant_id=? AND driverId=? AND status IN ('pending','preparing','ready') AND (diningType='delivery' OR orderType='delivery')",
+      [newDriverId||null,orderId,req.tenantId,previousDriverId]
+    );
+    if(update.changes!==1){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Assignment changed while updating.'});}
+    if(newDriverId)await dbRun("UPDATE drivers SET status='busy' WHERE id=? AND tenant_id=?",[newDriverId,req.tenantId]);
+    await writeAuditLog(req.user.id,req.user.username,'reassign_driver',
+      `Order ${orderId}: ${previousDriverId} -> ${newDriverId||'unassigned'}; reason: ${reason}`);
+    await dbRun('COMMIT');open=false;
+    notifyPOS({type:'driver_reassigned',orderId,previousDriverId,driverId:newDriverId||null},req.tenantId);
+    notifyOrderStream(orderId,{type:'driver_reassigned',orderId});
+    return res.set('Cache-Control','no-store').json({success:true,orderId,driverId:newDriverId||null});
+  }catch(error){
+    if(open)await dbRun('ROLLBACK').catch(()=>{});
+    console.error('[Delivery reassignment]',error.message);
+    return res.status(500).json({error:'Could not safely reassign this delivery.'});
+  }
+});
+
 // POST /api/orders/:id/eta — Staff update delivery/prep ETA
 app.post('/api/orders/:id/eta', authenticateToken, async (req, res) => {
   const { id } = req.params;
