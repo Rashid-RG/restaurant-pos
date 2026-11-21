@@ -1122,6 +1122,20 @@ async function initTables() {
     `);
     // One active restaurant-issued offer per delivery. Expiry is checked on
     // every read and claim; a background worker is not required for correctness.
+    // Customer-controlled handover PIN. Only a keyed digest is retained.
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS delivery_handover_pins (
+        tenant_id TEXT NOT NULL,
+        orderId TEXT NOT NULL,
+        codeHash TEXT NOT NULL,
+        issuedAt BIGINT NOT NULL,
+        expiresAt BIGINT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        verifiedAt BIGINT,
+        driverId TEXT,
+        PRIMARY KEY(tenant_id,orderId)
+      )
+    `);
     await dbRun(`
       CREATE TABLE IF NOT EXISTS driver_timed_offers (
         tenant_id TEXT NOT NULL,
@@ -6653,6 +6667,35 @@ async function readDeliveryProof(req, res, driverOnly) {
 app.get('/api/public/driver/orders/:id/proof', authenticateDriver, (req, res) => readDeliveryProof(req, res, true));
 app.get('/api/orders/:id/delivery-proof', authenticateToken, requireRole(['owner', 'manager']), (req, res) => readDeliveryProof(req, res, false));
 
+// Issue a private six-digit handover PIN to the owning customer. The code is
+// returned once and never stored in plaintext. A new request rotates the code.
+app.post('/api/public/orders/:id/handover-pin',publicApiLimiter,
+  createTrackingGuard({dbGet,resolvePublicTenant,authenticateToken,authenticateDriver}),async(req,res)=>{
+    if(!['customer','capability'].includes(req.trackingActor?.type))
+      return res.status(403).json({error:'Private customer order access required.'});
+    const tenantId=req.trackingTenant,orderId=req.params.id;
+    try {
+      const order=await dbGet(
+        "SELECT status,driverId,diningType,orderType FROM orders WHERE id=? AND tenant_id=?",
+        [orderId,tenantId]
+      );
+      if(!order || (order.diningType!=='delivery'&&order.orderType!=='delivery'))
+        return res.status(404).json({error:'Delivery unavailable.'});
+      if(!order.driverId || !['picked_up','out_for_delivery','arrived'].includes(order.status))
+        return res.status(409).json({error:'Handover code becomes available when the driver is delivering your order.'});
+      const current=await dbGet('SELECT issuedAt FROM delivery_handover_pins WHERE orderId=? AND tenant_id=?',[orderId,tenantId]);
+      if(current && Date.now()-Number(current.issuedAt)<30000)
+        return res.status(429).json({error:'Please wait 30 seconds before requesting a new code.'});
+      const pin=String(crypto.randomInt(0,1000000)).padStart(6,'0'),now=Date.now(),expiresAt=now+30*60*1000;
+      const digest=crypto.createHmac('sha256',process.env.JWT_SECRET||JWT_SECRET).update(tenantId+'|'+orderId+'|'+pin).digest('hex');
+      await dbRun(
+        'INSERT INTO delivery_handover_pins (tenant_id,orderId,codeHash,issuedAt,expiresAt,attempts,verifiedAt,driverId) VALUES (?,?,?,?,?,0,NULL,NULL) ON CONFLICT(tenant_id,orderId) DO UPDATE SET codeHash=excluded.codeHash,issuedAt=excluded.issuedAt,expiresAt=excluded.expiresAt,attempts=0,verifiedAt=NULL,driverId=NULL',
+        [tenantId,orderId,digest,now,expiresAt]
+      );
+      return res.set('Cache-Control','no-store').json({pin,expiresAt,note:'Show this code only to your assigned delivery rider at handover.'});
+    }catch(error){console.error('[Handover PIN]',error.message);return res.status(500).json({error:'Could not issue handover code.'});}
+  });
+
 // The driver controls delivery progress, never kitchen or payment states.
 app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
   const { orderId, status } = req.body;
@@ -6691,6 +6734,34 @@ app.post('/api/public/driver/status', authenticateDriver, async (req, res) => {
     if (['picked_up','out_for_delivery'].includes(status)) await dbRun("UPDATE kitchen_tickets SET state='served',revision=revision+1,updatedAt=? WHERE orderId=? AND tenant_id=? AND state='ready'",[Date.now(),orderId,t]);
     if (status === 'delivered' && order.paymentStatus==='partial') { await dbRun('ROLLBACK');transaction=false;return res.status(409).json({error:'The restaurant must reconcile the remaining partial payment before delivery completion.'}); }
     if (status === 'delivered') {
+      const handover=await dbGet(
+        'SELECT codeHash,expiresAt,attempts FROM delivery_handover_pins WHERE tenant_id=? AND orderId=?',
+        [t,orderId]
+      );
+      if(handover){
+        if(Number(handover.expiresAt)<=Date.now()){
+          await dbRun('ROLLBACK');transaction=false;
+          return res.status(409).json({error:'Customer handover code expired. Ask the customer to issue a new code.'});
+        }
+        if(Number(handover.attempts)>=5){
+          await dbRun('ROLLBACK');transaction=false;
+          return res.status(429).json({error:'Too many invalid handover codes. Ask the customer to generate a new code.'});
+        }
+        const pin=typeof req.body?.deliveryPin==='string'?req.body.deliveryPin:'';
+        const hashed=/^\\d{6}$/.test(pin)
+          ? crypto.createHmac('sha256',process.env.JWT_SECRET||JWT_SECRET).update(t+'|'+orderId+'|'+pin).digest('hex')
+          : null;
+        const isCorrect=hashed && crypto.timingSafeEqual(Buffer.from(hashed,'hex'),Buffer.from(handover.codeHash,'hex'));
+        if(!isCorrect){
+          await dbRun('UPDATE delivery_handover_pins SET attempts=attempts+1 WHERE tenant_id=? AND orderId=?',[t,orderId]);
+          await dbRun('COMMIT');transaction=false;
+          return res.status(422).json({error:'Invalid handover code. Check the six digits with the customer.'});
+        }
+        await dbRun(
+          'UPDATE delivery_handover_pins SET verifiedAt=?,driverId=? WHERE tenant_id=? AND orderId=?',
+          [Date.now(),driverId,t,orderId]
+        );
+      }
       try { proof = validateDeliveryProof(req.body); }
       catch (error) { await dbRun('ROLLBACK'); transaction = false; return res.status(400).json({ error: error.message }); }
       const isCash = ['cash', 'cod'].includes(order.paymentMethod) && order.paymentStatus!=='paid';
