@@ -576,6 +576,25 @@ export default function App() {
     }
   };
 
+  const handleDecline = async (orderId) => {
+    if(pendingOrderRef.current || !driver || driverStatusRef.current==='offline')return;
+    if(dispatchSyncError || !dispatchLastSynced || Date.now()-dispatchLastSynced>25000){
+      showToast('Refresh dispatch before declining an outdated offer.','warning');
+      return;
+    }
+    pendingOrderRef.current=orderId;setPendingOrderId(orderId);
+    try{
+      await apiFetch('/public/driver/decline',{method:'POST',body:JSON.stringify({orderId})});
+      setAvailableOrders(previous=>previous.filter(order=>order.id!==orderId));
+      showToast('Offer declined for your account. The restaurant order remains available to other riders.','info');
+      void fetchDriverOrders();
+    }catch(error){
+      showToast(error.message||'Could not decline offer. Please retry.','error');
+    }finally{
+      pendingOrderRef.current=null;setPendingOrderId(null);
+    }
+  };
+
   const handleClaim = async (orderId) => {
     if(pendingOrderRef.current || driverStatusRef.current === 'offline') return;
     if(dispatchSyncError || !dispatchLastSynced || Date.now()-dispatchLastSynced>25000) {
@@ -1239,7 +1258,10 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      <button type="button" className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : !dispatchFresh ? 'Refresh dispatch to claim' : pendingOrderId===ord.id ? 'Claiming…' : 'Claim Delivery'}</button>
+                      <div className="driver-offer-actions">
+                        <button type="button" className="btn-emerald" disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : !dispatchFresh ? 'Refresh dispatch to claim' : pendingOrderId===ord.id ? 'Working…' : 'Accept delivery'}</button>
+                        <button type="button" className="btn-outline" disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh} onClick={() => handleDecline(ord.id)}>{pendingOrderId===ord.id ? 'Working…' : 'Decline offer'}</button>
+                      </div>
                     </article>
                     );
                   })}
