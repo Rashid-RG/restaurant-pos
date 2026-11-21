@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {CHECKOUT_STEPS,checkoutStepIssue,checkoutReviewLineAmount} from '../apps/customer-web/src/utils/checkout-wizard.js';
+import {CHECKOUT_STEPS,checkoutStepIssue,checkoutReviewLineAmount,smartCheckoutNextStep} from '../apps/customer-web/src/utils/checkout-wizard.js';
 const valid={
  hasItems:true,orderType:'delivery',modePaused:false,kitchenClosed:false,
  isScheduled:false,scheduledTimeVal:null,scheduleLoading:false,scheduleError:'',
@@ -7,6 +7,17 @@ const valid={
  minimumOrder:500,subtotal:1200,paymentMethod:'cash',cardUnavailable:true
 };
 describe('five-stage customer checkout navigation',()=>{
+ it('express review goes directly to final confirmation only when every previous stage is valid',()=>{
+   expect(smartCheckoutNextStep(valid)).toEqual({step:4,issue:'',ready:true});
+   expect(smartCheckoutNextStep({...valid,hasItems:false}).step).toBe(0);
+   expect(smartCheckoutNextStep({...valid,modePaused:true}).step).toBe(1);
+   expect(smartCheckoutNextStep({...valid,phone:''}).step).toBe(2);
+   expect(smartCheckoutNextStep({...valid,entranceConfirmed:false}).step).toBe(2);
+   expect(smartCheckoutNextStep({...valid,deliveryQuoteConfirmed:false}).step).toBe(2);
+   expect(smartCheckoutNextStep({...valid,paymentMethod:'payhere'}).step).toBe(3);
+   expect(smartCheckoutNextStep({...valid,orderType:'takeaway',entranceConfirmed:false,deliveryQuoteConfirmed:false}).ready).toBe(true);
+ });
+
  it('keeps the customer-facing steps in expected order',()=>{
    expect(CHECKOUT_STEPS.map(x=>x.id)).toEqual(['cart','fulfilment','details','payment','confirm']);
  });
