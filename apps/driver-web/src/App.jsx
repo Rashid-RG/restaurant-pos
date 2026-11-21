@@ -63,6 +63,8 @@ export default function App() {
   const [driver, setDriver] = useState(JSON.parse(localStorage.getItem(DRIVER_KEY) || 'null'));
   const driverStatusRef=useRef(null);
   driverStatusRef.current=driver?.status||null;
+  const driverStatusIdentityRef=useRef(null);
+  driverStatusIdentityRef.current=driver?.id||null;
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [restaurantTimeZone, setRestaurantTimeZone] = useState('Asia/Colombo');
   const [activeOrders, setActiveOrders] = useState([]);
@@ -70,6 +72,7 @@ export default function App() {
   const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
   const [cashSummary,setCashSummary]=useState(null);
   const [cashLoading,setCashLoading]=useState(false);
+  const cashRequestVersionRef=useRef(0);
   const [cashError,setCashError]=useState('');
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
@@ -201,7 +204,16 @@ export default function App() {
     // same device does not briefly see the previous driver's orders.
     setActiveOrders([]);
     setAvailableOrders([]);
-    setCashSummary(null);setCashDetailsOpen(false);setCashError('');
+    setHistory([]);
+    setSummary({ completedToday: 0, cashToHandover: 0 });
+    setTaskTab('active');
+    setOrderSearch('');
+    setSelectedDeliveryOrder(null);
+    setProofPreview(null);
+    setPendingOrderId(null);
+    pendingOrderRef.current=null;
+    cashRequestVersionRef.current+=1; // Invalidates any in-flight result from the previous rider.
+    setCashSummary(null);setCashLoading(false);setCashDetailsOpen(false);setCashError('');
     activeOrdersRef.current = [];
     prevUnassignedCountRef.current = 0;
     dispatchAbortRef.current?.cancel();dispatchAbortRef.current=null;
@@ -468,9 +480,12 @@ export default function App() {
 
   const loadCashSummary = async () => {
     if(cashLoading || !driver) return;
+    const requestVersion=++cashRequestVersionRef.current;
+    const requestedDriverId=driver.id;
     setCashLoading(true);setCashError('');
     try {
       const result=await apiFetch('/public/driver/cash-summary',{cache:'no-store'});
+      if(requestVersion!==cashRequestVersionRef.current || requestedDriverId!==driverStatusIdentityRef.current) return;
       const centsFields=['cashReceivedCents','cashHandoverPendingCents','cashHandedOverCents'];
       if(result.currency!=='LKR' || !centsFields.every(key=>Number.isSafeInteger(result[key]) && result[key]>=0)
         || !Number.isSafeInteger(result.deliveredCodOrders) || result.deliveredCodOrders<0) {
@@ -478,9 +493,12 @@ export default function App() {
       }
       setCashSummary(result);
     } catch(error) {
+      if(requestVersion!==cashRequestVersionRef.current || requestedDriverId!==driverStatusIdentityRef.current) return;
       setCashError(error.message || 'Could not retrieve cash settlement.');
       setCashSummary(null);
-    } finally {setCashLoading(false);}
+    } finally {
+      if(requestVersion===cashRequestVersionRef.current) setCashLoading(false);
+    }
   };
 
   const handleClaim = async (orderId) => {
