@@ -50,3 +50,9 @@
 @media print{.gf-journey-focus,.gf-journey-map-shell,.gf-journey-auxiliary.gf-journey-contacts{display:none!important}.gf-journey-receipt{display:block!important}.gf-journey-receipt>.customer-order-receipt{display:block!important}}
 
 .gf-map-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.gf-map-actions button{border:1px solid #cee7d6;border-radius:12px;background:#effaf2;color:#0b6845;font-size:11px;font-weight:800;padding:8px 10px}.gf-map-actions button[aria-pressed=true]{background:#0a6b4e;color:white;border-color:#0a6b4e}
+
+.gf-journey-stage-announcement{display:flex;gap:9px;align-items:center;background:#e5f8ea;border:1px solid #a9dfb9;color:#135c40;padding:10px 12px;margin:6px 0 10px;border-radius:14px;font-size:12px;font-weight:800;animation:gf-journey-slide .3s ease-out}
+.gf-journey-stage-announcement>span{flex:0 0 22px;width:22px;height:22px;display:grid;place-items:center;background:#14734e;color:#fff;border-radius:50%}
+.gf-journey-stage-announcement button{margin-left:auto;background:transparent;border:0;color:#376b51;padding:3px 8px;font-size:20px}
+@keyframes gf-journey-slide{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.gf-journey-stage-announcement{animation:none}}
