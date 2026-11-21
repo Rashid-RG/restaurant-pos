@@ -47,8 +47,12 @@ export function normalizeDriverFix(fix, now = Date.now()) {
   if (!validGeoPoint(fix)) return null;
   const updatedAt=Number(fix.updatedAt);
   if (!Number.isFinite(updatedAt)||updatedAt<=0||updatedAt>now+10_000||now-updatedAt>TRACKING_GPS_EXPIRE_MS) return null;
+  // The tracking API accepts measured accuracy up to 150m. A missing,
+  // zero or inaccurate legacy fix must not display as confirmed live movement.
+  if (fix.accuracyMeters===null || fix.accuracyMeters===undefined || fix.accuracyMeters==='') return null;
   const accuracyMeters=Number(fix.accuracyMeters);
-  return {lat:Number(fix.lat),lng:Number(fix.lng),updatedAt,driverName:String(fix.driverName||''),accuracyMeters:Number.isFinite(accuracyMeters)&&accuracyMeters>=0?accuracyMeters:null};
+  if (!Number.isFinite(accuracyMeters) || accuracyMeters<=0 || accuracyMeters>150) return null;
+  return {lat:Number(fix.lat),lng:Number(fix.lng),updatedAt,driverName:String(fix.driverName||''),accuracyMeters};
 }
 
 export function isNewerDriverFix(incoming, previous) {
