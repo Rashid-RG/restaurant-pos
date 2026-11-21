@@ -71,6 +71,9 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [summary, setSummary] = useState({ completedToday: 0, cashToHandover: 0 });
   const [cashSummary,setCashSummary]=useState(null);
+  const [roadEstimates,setRoadEstimates]=useState({});
+  const [roadLoadingId,setRoadLoadingId]=useState(null);
+  const roadRequestEpochRef=useRef(0);
   const [cashLoading,setCashLoading]=useState(false);
   const cashRequestVersionRef=useRef(0);
   const [cashError,setCashError]=useState('');
@@ -227,6 +230,8 @@ export default function App() {
     setProofPreview(null);
     setPendingOrderId(null);
     pendingOrderRef.current=null;
+    roadRequestEpochRef.current+=1;
+    setRoadEstimates({});setRoadLoadingId(null);
     cashRequestVersionRef.current+=1; // Invalidates any in-flight result from the previous rider.
     setCashSummary(null);setCashLoading(false);setCashDetailsOpen(false);setCashError('');
     activeOrdersRef.current = [];
@@ -533,6 +538,29 @@ export default function App() {
       setCashSummary(null);
     } finally {
       if(requestVersion===cashRequestVersionRef.current) setCashLoading(false);
+    }
+  };
+
+  const requestRoadEstimate = async (orderId) => {
+    if(!driver || roadLoadingId!==null) return;
+    const currentEpoch=++roadRequestEpochRef.current;
+    const riderId=driver.id;
+    setRoadLoadingId(orderId);
+    setRoadEstimates(prev=>({...prev,[orderId]:null}));
+    try {
+      const result=await apiFetch(`/public/driver/orders/${encodeURIComponent(orderId)}/road-eta`,{cache:'no-store'});
+      if(roadRequestEpochRef.current!==currentEpoch || riderId!==driverStatusIdentityRef.current) return;
+      const validResult=result.available===true && result.source==='road' &&
+        Number.isFinite(result.distanceKm) && result.distanceKm>=0 &&
+        Number.isFinite(result.travelMinutes) && result.travelMinutes>=0;
+      setRoadEstimates(prev=>({...prev,[orderId]:validResult ?
+        {available:true,distanceKm:result.distanceKm,travelMinutes:result.travelMinutes,estimatedAt:result.estimatedAt} :
+        {available:false,message:typeof result.reason==='string' ? result.reason : 'No verified route estimate is available.'}}));
+    } catch(error) {
+      if(roadRequestEpochRef.current===currentEpoch && riderId===driverStatusIdentityRef.current)
+        setRoadEstimates(prev=>({...prev,[orderId]:{available:false,message:error.message||'Road estimate unavailable.'}}));
+    } finally {
+      if(roadRequestEpochRef.current===currentEpoch) setRoadLoadingId(null);
     }
   };
 
@@ -1177,6 +1205,15 @@ export default function App() {
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         {navLink ? <a className="driver-order-action driver-order-navigate" href={navLink} target="_blank" rel="noopener noreferrer" aria-label={`Navigate to customer drop-off for order ${String(ord.id).slice(-4)}`}>🧭 Customer drop-off</a> : <span className="driver-order-action-unavailable">Destination not provided</span>}
                         {waLink ? <a className="driver-order-action driver-order-contact" href={waLink} target="_blank" rel="noopener noreferrer" aria-label={`Contact customer for order ${String(ord.id).slice(-4)} using WhatsApp`}>💬 WhatsApp</a> : <span className="driver-order-action-unavailable">Customer contact unavailable</span>}
+                        {hasDropCoordinates && ['picked_up','out_for_delivery','arrived'].includes(ord.status) && (
+                          <div className="driver-road-eta">
+                            <div><strong>Road travel estimate</strong><small>Road routing only · not a traffic-aware arrival guarantee</small></div>
+                            <button type="button" className="btn-outline" disabled={roadLoadingId!==null}
+                              onClick={()=>requestRoadEstimate(ord.id)}>{roadLoadingId===ord.id ? 'Calculating…' : roadEstimates[ord.id] ? 'Refresh estimate' : 'Check road ETA'}</button>
+                            {roadEstimates[ord.id]?.available ? <p role="status">{roadEstimates[ord.id].distanceKm.toFixed(1)} km · about {roadEstimates[ord.id].travelMinutes} min driving</p>
+                              : roadEstimates[ord.id] && <p role="status" className="driver-eta-unavailable">{roadEstimates[ord.id].message}</p>}
+                          </div>
+                        )}
                         {ord.status === 'ready' && (
                           <button type="button" className="btn-emerald" style={{ flex: '1 1 100%', padding: 12, fontSize: '0.85rem' }}
                             disabled={pendingOrderId!==null} onClick={() => handleUpdateStatus(ord.id, 'picked_up')}>
