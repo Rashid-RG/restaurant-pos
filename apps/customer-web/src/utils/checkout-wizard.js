@@ -33,3 +33,12 @@ export function checkoutStepIssue(step,data={}){
   }
   return '';
 }
+
+/** Item review uses the exact modifier-inclusive unit price stored by the cart.
+ * The final payable amount is still calculated and verified by the server. */
+export function checkoutReviewLineAmount(item={}){
+  const quantity=Number(item.qty||0);
+  const unitPrice=Number(item.unitPrice??item.price??0);
+  if(!Number.isFinite(quantity)||quantity<=0||!Number.isFinite(unitPrice)||unitPrice<0)return 0;
+  return Math.round((unitPrice*quantity+Number.EPSILON)*100)/100;
+}
