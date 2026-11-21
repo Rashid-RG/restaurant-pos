@@ -484,6 +484,10 @@ export default function App() {
 
   const handleClaim = async (orderId) => {
     if(pendingOrderRef.current || driverStatusRef.current === 'offline') return;
+    if(dispatchSyncError || !dispatchLastSynced || Date.now()-dispatchLastSynced>25000) {
+      showToast('Dispatch data is outdated. Refresh before claiming this order.','warning');
+      return;
+    }
     pendingOrderRef.current=orderId;setPendingOrderId(orderId);
     try {
       await apiFetch('/public/driver/assign', { method: 'POST', body: JSON.stringify({ orderId }) });
@@ -796,6 +800,12 @@ export default function App() {
   // them was a logic error that could produce wrong totals if status semantics change.
   const cashToHandover = Number(summary.cashToHandover || 0);
   const visibleOrders = taskTab === 'history' ? history : activeOrders;
+  const dispatchFresh = !dispatchSyncError && dispatchLastSynced !== null
+    && driverClock - dispatchLastSynced <= 25000;
+  const dispatchHealthLabel = dispatchSyncError ? 'Dispatch connection interrupted'
+    : !dispatchLastSynced ? 'Connecting to dispatch'
+    : dispatchFresh ? 'Dispatch connected'
+    : 'Dispatch update delayed';
   const hasFreshLocation = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords,driverClock);
   const locationLabel = gpsQuality === 'denied' ? 'Location permission denied'
     : !isGpsActive ? 'Location sharing is off'
@@ -930,7 +940,10 @@ export default function App() {
             <section className="driver-welcome driver-welcome-compact"><span>GASTRODRIVER · TODAY</span><h1>Ready to ride, {driver.name?.split(' ')[0]}?</h1><p>Your deliveries and pickup opportunities, all in one place.</p><ConnectionStatus compact/></section>
             <div className="card" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}><div><strong>{driver.status === 'offline' ? 'Offline — no new delivery offers' : 'Online — available for dispatch'}</strong><div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5 }}>Current deliveries remain assigned even when you stop accepting new work.</div></div><button type="button" className="btn-emerald" onClick={updateAvailability} disabled={availabilityLoading}>{availabilityLoading ? 'Updating…' : driver.status === 'offline' ? 'Go online' : 'Go offline'}</button></div>
             <nav className="driver-quick-nav" aria-label="Quick delivery actions"><button type="button" onClick={() => { setTaskTab('active'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>My route <strong>{activeOrders.length}</strong></button><button type="button" onClick={() => { setTaskTab('available'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>Available <strong>{availableOrders.length}</strong></button><button type="button" onClick={() => { setTaskTab('history'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>Completed <strong>{summary.completedToday}</strong></button></nav>
-            <div className="driver-dispatch-sync" role="status" aria-live="polite"><strong>{dispatchSyncError || !dispatchLastSynced || driverClock-dispatchLastSynced>25000 ? 'Checking dispatch connection' : 'Dispatch synced'}</strong><span>{dispatchLastSynced ? 'Last confirmed '+new Date(dispatchLastSynced).toLocaleTimeString() : 'Waiting for first update'}</span>{dispatchSyncError && <button type="button" onClick={fetchDriverOrders}>Retry now</button>}</div>
+            <div className={`driver-dispatch-sync ${dispatchFresh ? 'driver-dispatch-healthy' : 'driver-dispatch-stale'}`} role="status" aria-live="polite">
+              <div className="driver-dispatch-copy"><strong>{dispatchHealthLabel}</strong><span>{dispatchLastSynced ? 'Last confirmed '+new Date(dispatchLastSynced).toLocaleTimeString() : 'Waiting for first update'}{!dispatchFresh && dispatchLastSynced ? ' · Displayed orders may be outdated' : ''}</span></div>
+              <button type="button" onClick={fetchDriverOrders} disabled={loading}>{loading ? 'Checking…' : dispatchFresh ? 'Refresh' : 'Retry connection'}</button>
+            </div>
             <div className={`driver-location-health ${hasFreshLocation ? 'good' : 'needs-attention'}`} role="status" aria-live="polite"><div className="driver-location-health-head"><strong>Location health</strong><span>{locationLabel}</span></div><p>{locationHelp}</p></div>
             <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
 
@@ -1030,7 +1043,7 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      <button type="button" className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} disabled={driver.status === 'offline' || pendingOrderId !== null} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : pendingOrderId===ord.id ? 'Claiming…' : 'Claim Delivery'}</button>
+                      <button type="button" className="btn-emerald" style={{ padding: '10px 14px', fontSize: '0.82rem' }} disabled={driver.status === 'offline' || pendingOrderId !== null || !dispatchFresh} onClick={() => handleClaim(ord.id)}>{driver.status === 'offline' ? 'Go online to claim' : !dispatchFresh ? 'Refresh dispatch to claim' : pendingOrderId===ord.id ? 'Claiming…' : 'Claim Delivery'}</button>
                     </article>
                     );
                   })}
