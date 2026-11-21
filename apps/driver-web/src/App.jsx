@@ -80,6 +80,13 @@ export default function App() {
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
   const [driverScreen,setDriverScreen]=useState('home');
+  const [supportCategory,setSupportCategory]=useState('delivery');
+  const [supportMessage,setSupportMessage]=useState('');
+  const [supportOrderId,setSupportOrderId]=useState('');
+  const [supportHistory,setSupportHistory]=useState([]);
+  const [supportBusy,setSupportBusy]=useState(false);
+  const [supportError,setSupportError]=useState('');
+  const supportRequestEpochRef=useRef(0);
   const [orderSearch,setOrderSearch]=useState('');
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -227,6 +234,9 @@ export default function App() {
     setSummary({ completedToday: 0, cashToHandover: 0 });
     setTaskTab('active');
     setDriverScreen('home');
+    supportRequestEpochRef.current+=1;
+    setSupportCategory('delivery');setSupportMessage('');setSupportOrderId('');
+    setSupportHistory([]);setSupportError('');setSupportBusy(false);
     setOrderSearch('');
     setSelectedDeliveryOrder(null);
     setProofPreview(null);
@@ -892,6 +902,35 @@ export default function App() {
   };
   const filteredOrders=visibleOrders.filter(matchesOrderSearch);
   const filteredAvailableOrders=availableOrders.filter(matchesOrderSearch);
+  const loadDriverSupport=async()=>{
+    if(!driver || supportBusy)return;
+    const epoch=++supportRequestEpochRef.current,owner=driver.id;
+    setSupportBusy(true);setSupportError('');
+    try{
+      const data=await apiFetch('/public/driver/support',{cache:'no-store'});
+      if(epoch!==supportRequestEpochRef.current || owner!==driverStatusIdentityRef.current)return;
+      setSupportHistory(Array.isArray(data.requests)?data.requests:[]);
+    }catch(error){
+      if(epoch===supportRequestEpochRef.current)setSupportError(error.message||'Unable to load support requests.');
+    }finally{if(epoch===supportRequestEpochRef.current)setSupportBusy(false);}
+  };
+  const submitDriverSupport=async(event)=>{
+    event.preventDefault();
+    if(!driver || supportBusy)return;
+    const epoch=++supportRequestEpochRef.current,owner=driver.id;
+    setSupportBusy(true);setSupportError('');
+    try {
+      const result=await apiFetch('/public/driver/support',{
+        method:'POST',body:JSON.stringify({category:supportCategory,message:supportMessage.trim(),orderId:supportOrderId.trim()||null})
+      });
+      if(epoch!==supportRequestEpochRef.current || owner!==driverStatusIdentityRef.current)return;
+      setSupportHistory(previous=>[result.request,...previous]);
+      setSupportMessage('');setSupportOrderId('');
+      showToast('Support request saved. You can review it below.','success');
+    }catch(error){
+      if(epoch===supportRequestEpochRef.current)setSupportError(error.message||'Unable to save support request.');
+    }finally{if(epoch===supportRequestEpochRef.current)setSupportBusy(false);}
+  };
   const goToDriverScreen=(target, tab='active')=>{
     setDriverScreen(target);
     if(target==='home') setTaskTab('active');
@@ -1099,6 +1138,31 @@ export default function App() {
                 <button type="button" onClick={handleLogout} className="btn-outline" style={{ padding: '8px 12px', fontSize: '0.9rem' }} title="Sign out"><LogOut size={18} aria-hidden="true"/><span>Sign out</span></button>
               </div>
             </div>
+            <section className="driver-support card" aria-label="Driver support">
+              <h3>Support &amp; safety</h3>
+              <p>Send a request to your restaurant's support records. This is not an emergency-response service.</p>
+              <form onSubmit={submitDriverSupport}>
+                <label htmlFor="driver-support-category">Issue type</label>
+                <select id="driver-support-category" value={supportCategory} onChange={e=>setSupportCategory(e.target.value)}>
+                  <option value="delivery">Delivery problem</option>
+                  <option value="payment">Payment or settlement</option>
+                  <option value="safety">Safety concern</option>
+                  <option value="account">Account or verification</option>
+                  <option value="other">Other issue</option>
+                </select>
+                <label htmlFor="driver-support-order">Assigned order ID (optional)</label>
+                <input id="driver-support-order" value={supportOrderId} maxLength={128} onChange={e=>setSupportOrderId(e.target.value)} placeholder="Exact order ID"/>
+                <label htmlFor="driver-support-message">Describe the issue</label>
+                <textarea id="driver-support-message" value={supportMessage} maxLength={1000} rows={4} required minLength={12} onChange={e=>setSupportMessage(e.target.value)} placeholder="What happened, and what assistance do you need?"/>
+                <button type="submit" className="btn-emerald" disabled={supportBusy || supportMessage.trim().length<12}>{supportBusy?'Saving…':'Save support request'}</button>
+              </form>
+              {supportError && <p role="alert" className="driver-support-error">{supportError}</p>}
+              <div className="driver-support-history">
+                <div className="driver-support-history-head"><strong>My requests</strong><button type="button" className="btn-outline" disabled={supportBusy} onClick={loadDriverSupport}>{supportBusy?'Loading…':'Refresh'}</button></div>
+                {supportHistory.length ? <ul>{supportHistory.map(request=><li key={request.id}><strong>{String(request.category||'other').replace(/_/g,' ')} · {request.status}</strong><span>{request.message}</span></li>)}</ul> : <p>Refresh to view saved requests for this driver.</p>}
+              </div>
+              <p className="driver-support-emergency">For immediate danger, contact local emergency services directly. A saved support request is not monitored as an emergency channel.</p>
+            </section>
 
             </>}
             {driverScreen === 'earnings' && <>
