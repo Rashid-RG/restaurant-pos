@@ -431,7 +431,17 @@ export default function App() {
         });
       });
     }, err => {
-      setGpsQuality(err?.code === 1 ? 'denied' : 'weak');
+      if (err?.code === 1) {
+        navigator.geolocation.clearWatch(id);
+        setWatchId(null);
+        setIsGpsActive(false);
+        setLastCoords(null);
+        discoveryConsentRef.current=false;
+        setDiscoveryConsent(false);
+        setGpsQuality('denied');
+      } else {
+        setGpsQuality('weak');
+      }
       showToast(err?.code === 1 ? 'Location permission denied. Enable it in device settings.' :
         'Location signal weak. Keep the app visible and move to a clearer area.', 'warning');
     }, { enableHighAccuracy: true, timeout: 18000, maximumAge: 0 });
@@ -738,6 +748,16 @@ export default function App() {
   // them was a logic error that could produce wrong totals if status semantics change.
   const cashToHandover = Number(summary.cashToHandover || 0);
   const visibleOrders = taskTab === 'history' ? history : activeOrders;
+  const hasFreshLocation = isGpsActive && gpsQuality === 'good' && validDriverFix(lastCoords,driverClock);
+  const locationLabel = !isGpsActive ? 'Location sharing is off'
+    : gpsQuality === 'denied' ? 'Location permission denied'
+    : gpsQuality === 'searching' ? 'Finding an accurate location'
+    : !hasFreshLocation ? 'Location unavailable or outdated'
+    : 'Accurate location available';
+  const locationHelp = !isGpsActive ? 'Enable location only when you are ready to share it for delivery operations.'
+    : gpsQuality === 'denied' ? 'Allow location access in iPhone Settings, then try sharing again.'
+    : !hasFreshLocation ? 'Keep Location Services enabled and use a clear GPS signal. The app will not treat an old fix as live.'
+    : `Last fix ${Math.max(0,Math.round((driverClock-lastCoords.recordedAt)/1000))} seconds ago · ±${Math.round(lastCoords.accuracyMeters)} m accuracy`;
 
   return (
     <div className="driver-app-shell"><ConnectionStatus/>
@@ -863,13 +883,14 @@ export default function App() {
             <div className="card" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}><div><strong>{driver.status === 'offline' ? 'Offline — no new delivery offers' : 'Online — available for dispatch'}</strong><div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5 }}>Current deliveries remain assigned even when you stop accepting new work.</div></div><button type="button" className="btn-emerald" onClick={updateAvailability} disabled={availabilityLoading}>{availabilityLoading ? 'Updating…' : driver.status === 'offline' ? 'Go online' : 'Go offline'}</button></div>
             <nav className="driver-quick-nav" aria-label="Quick delivery actions"><button type="button" onClick={() => { setTaskTab('active'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>My route <strong>{activeOrders.length}</strong></button><button type="button" onClick={() => { setTaskTab('available'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>Available <strong>{availableOrders.length}</strong></button><button type="button" onClick={() => { setTaskTab('history'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>Completed <strong>{summary.completedToday}</strong></button></nav>
             <div className="driver-dispatch-sync" role="status" aria-live="polite"><strong>{dispatchSyncError || !dispatchLastSynced || driverClock-dispatchLastSynced>25000 ? 'Checking dispatch connection' : 'Dispatch synced'}</strong><span>{dispatchLastSynced ? 'Last confirmed '+new Date(dispatchLastSynced).toLocaleTimeString() : 'Waiting for first update'}</span>{dispatchSyncError && <button type="button" onClick={fetchDriverOrders}>Retry now</button>}</div>
+            <div className={`driver-location-health ${hasFreshLocation ? 'good' : 'needs-attention'}`} role="status" aria-live="polite"><div className="driver-location-health-head"><strong>Location health</strong><span>{locationLabel}</span></div><p>{locationHelp}</p></div>
             <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
 
             <div className="card driver-controls-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-main)' }}>🛵 {driver.name}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                  {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {gpsQuality === 'good' && validDriverFix(lastCoords,driverClock) ? `Device location ±${Math.round(lastCoords.accuracyMeters)}m · ${new Date(lastCoords.recordedAt).toLocaleTimeString()}` : gpsQuality === 'good' ? 'Waiting for a fresh location' : gpsQuality === 'weak' ? 'Weak location signal · not sharing' : gpsQuality === 'denied' ? 'Location permission denied' : 'Live location inactive'}
+                  {driver.vehicleType || 'Motorbike'} ({driver.plateNumber || 'Active'}) · {hasFreshLocation ? `Device location ±${Math.round(lastCoords.accuracyMeters)}m · ${new Date(lastCoords.recordedAt).toLocaleTimeString()}` : locationLabel}
                 </div>
               </div>
               <div className="driver-controls-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -888,7 +909,7 @@ export default function App() {
                 </label>}
                 <button onClick={toggleGps} className="btn-emerald"
                   style={{ padding: '8px 14px', borderRadius: 20, fontSize: '0.8rem', background: isGpsActive ? '#10b981' : '#64748b' }}>
-                  {isGpsActive ? (gpsQuality === 'good' ? '📍 Location active' : '⌛ Finding location') : '📍 Share location'}
+                  {isGpsActive ? (hasFreshLocation ? '📍 Sharing accurate location' : 'Location on · no reliable fix') : '📍 Share location'}
                 </button>
                 <button onClick={handleLogout} className="btn-outline" style={{ padding: '8px 12px', fontSize: '0.9rem' }} title="Sign out">🚪</button>
               </div>
