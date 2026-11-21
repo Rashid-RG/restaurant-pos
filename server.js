@@ -5271,9 +5271,17 @@ app.post('/api/delivery/assign',authenticateToken,requireRole(['owner','manager'
   }
   if(!['pending','preparing','ready'].includes(order.status)||!['available','active','busy'].includes(driver.status)){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Order or driver is not available for assignment.'});}
   if(order.driverId&&order.driverId!==driverId){await dbRun('ROLLBACK');open=false;return res.status(409).json({error:'Order already has another driver.'});}
+  const activeOffer=await dbGet(
+    "SELECT driverId FROM driver_timed_offers WHERE tenant_id=? AND orderId=? AND status='offered' AND expiresAt>?",
+    [req.tenantId,orderId,Date.now()]
+  );
+  if(activeOffer && activeOffer.driverId!==driverId){
+    await dbRun('ROLLBACK');open=false;
+    return res.status(409).json({error:'A different rider has an active timed offer. Cancel or await its expiry before assigning.'});
+  }
   const updatedAssignment=await dbRun(
-    "UPDATE orders SET driverId=? WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId='' OR driverId=?)",
-    [driverId,orderId,req.tenantId,driverId]
+    "UPDATE orders SET driverId=? WHERE id=? AND tenant_id=? AND (diningType='delivery' OR orderType='delivery') AND status IN ('pending','preparing','ready') AND (driverId IS NULL OR driverId='' OR driverId=?) AND NOT EXISTS (SELECT 1 FROM driver_timed_offers off WHERE off.tenant_id=orders.tenant_id AND off.orderId=orders.id AND off.status='offered' AND off.expiresAt>? AND off.driverId!=?)",
+    [driverId,orderId,req.tenantId,driverId,Date.now(),driverId]
   );
   if(updatedAssignment.changes!==1){
     await dbRun('ROLLBACK');open=false;
