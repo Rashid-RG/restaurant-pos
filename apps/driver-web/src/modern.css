@@ -52,7 +52,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 /* GastroDriver 2.0: delivery cards and explicit delivery-stage guidance. */
 .driver-delivery-card{min-width:0;box-sizing:border-box;overflow-wrap:anywhere;border-color:#dce9df!important;box-shadow:0 5px 18px rgba(24,70,52,.045)!important}
 .driver-distance-unavailable{font-size:11px;color:#6d7784;line-height:1.35;max-width:156px;text-align:right}
-.driver-progress-steps{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:4px 0 2px;padding:0}
+.driver-progress-steps{list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:4px 0 2px;padding:0}
 .driver-progress-steps li{min-width:0;color:#728177;font-size:11px;font-weight:700;text-align:center;display:flex;flex-direction:column;gap:5px;align-items:center}
 .driver-progress-steps li span{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:#eef2ee;color:#64796a;border:1px solid #dae6db;font-size:12px}
 .driver-progress-steps li.complete{color:#1e7151}
@@ -93,3 +93,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-cash-error{font-size:12px;color:#a52727}
 .driver-cash-refresh{min-height:44px;margin-top:6px}
 @media(max-width:430px){.driver-cash-grid{grid-template-columns:1fr}.driver-cash-grid>div{display:flex;justify-content:space-between;align-items:center;gap:12px}.driver-cash-grid small{margin:0;flex:1}.driver-cash-grid strong{text-align:right}}
+
+/* Four verified delivery stages and a clear next-action hint. */
+.driver-next-step{display:flex;flex-direction:column;gap:4px;padding:11px 13px;border-radius:12px;background:#f0f8f3;border:1px solid #d7ebdc;color:#315b45;font-size:12px;line-height:1.5}
+.driver-next-step strong{color:#19593b;font-size:12px}
+.driver-order-navigate{gap:6px}
+@media(max-width:380px){.driver-progress-steps{gap:3px}.driver-progress-steps li{font-size:10px}.driver-progress-steps li span{width:24px;height:24px}}
