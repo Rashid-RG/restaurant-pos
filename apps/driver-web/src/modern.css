@@ -64,3 +64,15 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f5f6f1}.driver-app-she
 .driver-order-action:focus-visible{outline:3px solid #0b7654;outline-offset:2px}
 .driver-order-action-unavailable{flex:1 1 45%;min-height:44px;display:flex;align-items:center;justify-content:center;text-align:center;border:1px dashed #cddbd2;border-radius:11px;padding:8px;font-size:11px;color:#617368;background:#f7faf8;box-sizing:border-box}
 @media(max-width:380px){.driver-progress-steps li{font-size:10px}.driver-distance-unavailable{max-width:125px}}
+
+
+/* Live location is not synonymous with permission or a fresh GPS fix. */
+.driver-location-health{border:1px solid #d6e3da;border-radius:14px;padding:12px 14px;margin:10px 0;background:#f7faf8;overflow-wrap:anywhere}
+.driver-location-health.good{background:#ecfaf2;border-color:#afdac1}
+.driver-location-health.needs-attention{background:#fffaf0;border-color:#e9d8ac}
+.driver-location-health-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.driver-location-health-head strong{font-size:13px;color:#203d32}
+.driver-location-health-head span{font-size:12px;font-weight:750;color:#895b18}
+.driver-location-health.good .driver-location-health-head span{color:#18714e}
+.driver-location-health p{font-size:12px;line-height:1.55;margin:5px 0 0;color:#536b5b}
+.driver-controls-actions>.btn-emerald{line-height:1.35}
