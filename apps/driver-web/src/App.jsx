@@ -2,7 +2,7 @@ import RiderEvidenceWizard from './RiderEvidenceWizard.jsx';
 import RiderRegistrationWizard from './RiderRegistrationWizard.jsx';
 import './rider-wizard.css';
 import { AnimatedFeatureIcon } from '../../../shared/ui/AnimatedFeatureIcon.jsx';
-import { Bike } from 'lucide-react';
+import { Bike, House, ClipboardList, Wallet, UserRound, MapPin, Bell, LogOut } from 'lucide-react';
 import ProofOfDeliveryModal, { DeliveryProofViewer } from './ProofOfDeliveryModal.jsx';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, useRef } from 'react';
@@ -79,6 +79,7 @@ export default function App() {
   const [cashError,setCashError]=useState('');
   const [cashDetailsOpen,setCashDetailsOpen]=useState(false);
   const [taskTab, setTaskTab] = useState('active');
+  const [driverScreen,setDriverScreen]=useState('home');
   const [orderSearch,setOrderSearch]=useState('');
   const [availableOrders, setAvailableOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -225,6 +226,7 @@ export default function App() {
     setHistory([]);
     setSummary({ completedToday: 0, cashToHandover: 0 });
     setTaskTab('active');
+    setDriverScreen('home');
     setOrderSearch('');
     setSelectedDeliveryOrder(null);
     setProofPreview(null);
@@ -890,6 +892,12 @@ export default function App() {
   };
   const filteredOrders=visibleOrders.filter(matchesOrderSearch);
   const filteredAvailableOrders=availableOrders.filter(matchesOrderSearch);
+  const goToDriverScreen=(target, tab='active')=>{
+    setDriverScreen(target);
+    if(target==='home') setTaskTab('active');
+    if(target==='orders') setTaskTab(tab);
+    window.scrollTo({top:0,behavior:'instant'});
+  };
   const dispatchFresh = !dispatchSyncError && dispatchLastSynced !== null
     && driverClock - dispatchLastSynced <= 25000;
   const dispatchHealthLabel = dispatchSyncError ? 'Dispatch connection interrupted'
@@ -1026,16 +1034,28 @@ export default function App() {
           </div>
         ) : (
           /* ── Rider dashboard ── */
-          <div>
+          <div className="driver-workspace">
+            {driverScreen === 'home' && <>
             <section className="driver-welcome driver-welcome-compact"><span>GASTRODRIVER · TODAY</span><h1>Ready to ride, {driver.name?.split(' ')[0]}?</h1><p>Your deliveries and pickup opportunities, all in one place.</p><ConnectionStatus compact/></section>
             <div className="card" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}><div><strong>{driver.status === 'offline' ? 'Offline — no new delivery offers' : 'Online — available for dispatch'}</strong><div style={{ fontSize:12, color:'var(--text-muted)', marginTop:5 }}>Current deliveries remain assigned even when you stop accepting new work.</div></div><button type="button" className="btn-emerald" onClick={updateAvailability} disabled={availabilityLoading}>{availabilityLoading ? 'Updating…' : driver.status === 'offline' ? 'Go online' : 'Go offline'}</button></div>
-            <nav className="driver-quick-nav" aria-label="Quick delivery actions"><button type="button" onClick={() => { setTaskTab('active'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>My route <strong>{activeOrders.length}</strong></button><button type="button" onClick={() => { setTaskTab('available'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>Available <strong>{availableOrders.length}</strong></button><button type="button" onClick={() => { setTaskTab('history'); document.getElementById('driver-tasks')?.scrollIntoView({behavior:'smooth',block:'start'}); }}>Completed <strong>{summary.completedToday}</strong></button></nav>
+            <nav className="driver-quick-nav" aria-label="Quick delivery actions">
+              <button type="button" onClick={()=>goToDriverScreen('orders','active')}>My route <strong>{activeOrders.length}</strong></button>
+              <button type="button" onClick={()=>goToDriverScreen('orders','available')}>Available <strong>{availableOrders.length}</strong></button>
+              <button type="button" onClick={()=>goToDriverScreen('orders','history')}>Completed <strong>{summary.completedToday}</strong></button>
+            </nav>
+            </>}
+            {(driverScreen === 'home' || driverScreen === 'orders') && <>
             <div className={`driver-dispatch-sync ${dispatchFresh ? 'driver-dispatch-healthy' : 'driver-dispatch-stale'}`} role="status" aria-live="polite">
               <div className="driver-dispatch-copy"><strong>{dispatchHealthLabel}</strong><span>{dispatchLastSynced ? 'Last confirmed '+new Date(dispatchLastSynced).toLocaleTimeString() : 'Waiting for first update'}{!dispatchFresh && dispatchLastSynced ? ' · Displayed orders may be outdated' : ''}</span></div>
               <button type="button" onClick={fetchDriverOrders} disabled={loading}>{loading ? 'Checking…' : dispatchFresh ? 'Refresh' : 'Retry connection'}</button>
             </div>
+            </>}
+            {driverScreen === 'profile' && <>
+            <h2 className="driver-screen-heading">Profile &amp; location</h2>
             <div className={`driver-location-health ${hasFreshLocation ? 'good' : 'needs-attention'}`} role="status" aria-live="polite"><div className="driver-location-health-head"><strong>Location health</strong><span>{locationLabel}</span></div><p>{locationHelp}</p></div>
-            <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>
+            </>}
+            {driverScreen === 'home' && <div className="driver-metrics"><div><small>Active deliveries</small><strong>{activeOrders.length}</strong></div><div><small>Completed today</small><strong>{summary.completedToday}</strong></div><div><small>Available pickups</small><strong>{availableOrders.length}</strong></div></div>}
+            {driverScreen === 'profile' && <>
 
             <div className="card driver-controls-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 16, background: '#ffffff' }}>
               <div>
@@ -1066,6 +1086,10 @@ export default function App() {
               </div>
             </div>
 
+            </>}
+            {driverScreen === 'earnings' && <>
+            <h2 className="driver-screen-heading">Cash &amp; earnings</h2>
+            <div className="driver-earnings-notice"><Wallet size={20}/><p><strong>Driver earnings and payouts are not yet available.</strong> Customer cash is shown separately and must not be confused with your wages or commission.</p></div>
             <section className="driver-settlement card" aria-label="Driver cash settlement">
               <div className="driver-settlement-head">
                 <div><strong>Cash settlement</strong><p>Collected customer cash, not driver earnings or payout.</p></div>
@@ -1097,8 +1121,12 @@ export default function App() {
               </div>
             )}
 
-            <div id="driver-tasks" className="driver-task-nav" role="tablist" aria-label="Delivery view">{[['active', 'My route'], ['available', 'Available'], ['history', 'Completed']].map(([id, label]) => <button key={id} role="tab" aria-selected={taskTab === id} onClick={() => setTaskTab(id)}>{label}</button>)}</div>
-            <div className="driver-order-search"><label htmlFor="driver-order-search-input">Find a delivery</label><div><input id="driver-order-search-input" className="input-field" type="search" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} placeholder="Order number, customer or address" autoComplete="off"/>{orderSearch && <button type="button" className="btn-outline" onClick={()=>setOrderSearch('')}>Clear</button>}</div></div>
+            </>}
+            {(driverScreen === 'home' || driverScreen === 'orders') && <>
+            {driverScreen === 'home' && <div className="driver-section-header"><h2>Current deliveries</h2><button type="button" className="btn-outline" onClick={()=>goToDriverScreen('orders','available')}>Find pickups</button></div>}
+            {driverScreen === 'orders' && <h2 className="driver-screen-heading">My deliveries</h2>}
+            {driverScreen === 'orders' && <div id="driver-tasks" className="driver-task-nav" role="tablist" aria-label="Delivery view">{[['active', 'My route'], ['available', 'Available'], ['history', 'Completed']].map(([id, label]) => <button key={id} role="tab" aria-selected={taskTab === id} onClick={() => setTaskTab(id)}>{label}</button>)}</div>}
+            {driverScreen === 'orders' && <div className="driver-order-search"><label htmlFor="driver-order-search-input">Find a delivery</label><div><input id="driver-order-search-input" className="input-field" type="search" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} placeholder="Order number, customer or address" autoComplete="off"/>{orderSearch && <button type="button" className="btn-outline" onClick={()=>setOrderSearch('')}>Clear</button>}</div></div>}
             {/* Available to claim */}
             {taskTab === 'available' && filteredAvailableOrders.length === 0 && <div className="driver-empty"><strong>{orderSearch.trim() ? 'No matching pickups.' : 'You’re all caught up.'}</strong>{orderSearch.trim() ? 'Try a different order number or clear your search.' : 'Available pickups will appear here automatically.'}</div>}
             {taskTab === 'available' && filteredAvailableOrders.length > 0 && (
@@ -1249,6 +1277,15 @@ export default function App() {
               </div>
             )}
             </>}
+            </>}
+            <nav className="driver-bottom-nav" aria-label="Driver app navigation">
+              {[['home','Home',House],['orders','Orders',ClipboardList],['earnings','Cash',Wallet],['profile','Profile',UserRound]].map(([id,label,Icon])=>
+                <button type="button" key={id} className={driverScreen===id?'selected':''}
+                  aria-current={driverScreen===id?'page':undefined} onClick={()=>goToDriverScreen(id)}>
+                  <Icon size={20} strokeWidth={driverScreen===id?2.6:2}/><span>{label}</span>
+                  {id==='orders' && availableOrders.length>0 && <small aria-label={`${availableOrders.length} available pickups`}>{availableOrders.length>99?'99+':availableOrders.length}</small>}
+                </button>)}
+            </nav>
           </div>
         )}
 
