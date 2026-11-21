@@ -36,6 +36,38 @@ describe('native background GPS session',()=>{
     await f.tracker.stop();
     expect(f.plugin.removeWatcher).toHaveBeenCalledWith({id:'native-watch'});
   });
+  it('reports a rejected active-order upload rather than claiming rider GPS is shared',async()=>{
+    let listener;
+    const statuses=[];
+    const plugin={addWatcher:vi.fn(async(_settings,callback)=>{listener=callback;return 'watch';}),removeWatcher:vi.fn(async()=>{})};
+    const httpPost=vi.fn(async()=>({status:422}));
+    const tracker=createNativeTrackingSession({
+      plugin,httpPost,apiOrigin:'https://gastroflow-staging.onrender.com/',
+      getToken:()=> 'rider-test-token',getActiveOrders:()=>[{id:'delivery-one',status:'out_for_delivery'}],
+      clock:()=>now,onStatus:status=>statuses.push(status)
+    });
+    await tracker.start({onDuty:true,locationConsent:true});
+    listener(fix);
+    await flush();
+    expect(statuses).toContain('upload_error');
+    expect(statuses).not.toContain('upload_success');
+    await tracker.stop();
+  });
+  it('reports server-accepted active-order GPS after a successful upload',async()=>{
+    let listener;
+    const statuses=[];
+    const plugin={addWatcher:vi.fn(async(_settings,callback)=>{listener=callback;return 'watch';}),removeWatcher:vi.fn(async()=>{})};
+    const tracker=createNativeTrackingSession({
+      plugin,httpPost:vi.fn(async()=>({status:200})),apiOrigin:'https://gastroflow-staging.onrender.com/',
+      getToken:()=> 'rider-test-token',getActiveOrders:()=>[{id:'delivery-one',status:'out_for_delivery'}],
+      clock:()=>now,onStatus:status=>statuses.push(status)
+    });
+    await tracker.start({onDuty:true,locationConsent:true});
+    listener(fix);
+    await flush();
+    expect(statuses).toContain('upload_success');
+    await tracker.stop();
+  });
   it('rejects invalid coordinates without uploading',async()=>{
     const f=fixture({orders:[{id:'order-a'}]});
     await f.tracker.start({onDuty:true,locationConsent:true});
