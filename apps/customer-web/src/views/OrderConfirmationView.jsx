@@ -3,6 +3,7 @@ import {CheckCircle2,ReceiptText,MapPin,Package,ArrowRight,Store,Wallet} from 'l
 import {apiFetch} from '../utils/api.js';
 import {confirmationIsClosed,confirmationPaymentLabel,confirmationTotal} from '../utils/order-confirmation.js';
 import './OrderConfirmationView.css';
+import {orderPriceBreakdown} from '../utils/order-price-breakdown.js';
 
 // Remain here after the server acknowledges an order. No auto-redirect or
 // payment assumptions: the details shown below come from the tracked order.
@@ -23,6 +24,7 @@ export default function OrderConfirmationView({orderId,onTrack,onBrowse}){
   const closed=confirmationIsClosed(order?.status);
   const paymentLabel=confirmationPaymentLabel(order||{});
   const totalAmount=confirmationTotal(order||{});
+  const priceBreakdown=orderPriceBreakdown(order||{});
   return <main className="gf-order-confirmation" aria-label="Order confirmation">
     <section className="gf-order-confirmation-hero">
       <span className="gf-order-confirmation-mark" aria-hidden="true"><CheckCircle2 size={35}/></span>
@@ -43,6 +45,9 @@ export default function OrderConfirmationView({orderId,onTrack,onBrowse}){
         {Array.isArray(order?.items)&&order.items.length>0&&<div className="gf-order-confirmation-items">
           {order.items.map((item,i)=><div key={i}><span>{item.name||'Menu item'} × {Number(item.quantity||1)}</span>
             {Number.isFinite(Number(item.price))&&<strong>Rs. {(Number(item.price)*Number(item.quantity||1)).toFixed(2)}</strong>}</div>)}
+        </div>}
+        {priceBreakdown.lines.length>0&&<div className="gf-order-confirmation-items" aria-label="Price breakdown">
+          {priceBreakdown.lines.map((line,i)=><div key={i}><span>{line.label}</span><strong>{line.amount<0?'−':''}Rs. {Math.abs(line.amount).toFixed(2)}</strong></div>)}
         </div>}
         {totalAmount!==null&&<div className="gf-order-confirmation-total"><span>Total payable</span><strong>Rs. {totalAmount.toFixed(2)}</strong></div>}
         <div className="gf-order-confirmation-line gf-order-confirmation-payment"><Wallet size={17}/><span>{paymentLabel}</span></div>
