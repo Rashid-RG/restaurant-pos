@@ -25,3 +25,46 @@ html,body{background:#f7f7f2!important;color:var(--text)!important}body{max-widt
 
 @media(max-width:600px){.header-home{min-inline-size:44px}}
 .checkout-view{max-width:760px;margin-inline:auto}
+
+
+/* Customer release: unified mobile-first surfaces and accessible checkout. */
+:root{--brand:#24664f;--brand-dark:#174e3b;--brand-light:#e9f2eb;--accent:#20362c;--focus:#0e7452;--radius-card:18px}
+.app-shell{background:#f7f7f2;color:var(--text);isolation:isolate}
+.app-shell .main-content{min-width:0}
+.app-shell .form-section,.app-shell .profile-card{box-shadow:0 8px 32px rgba(22,50,39,.035);border-radius:18px!important}
+.app-shell .form-section h3{letter-spacing:-.02em;line-height:1.35}
+.app-shell .form-control,.app-shell input,.app-shell select,.app-shell textarea{max-width:100%}
+.app-shell input:focus-visible,.app-shell select:focus-visible,.app-shell textarea:focus-visible,.app-shell button:focus-visible,.app-shell a:focus-visible,[role="button"]:focus-visible{
+ outline:3px solid var(--focus)!important;outline-offset:3px;
+}
+.app-shell button:disabled{cursor:not-allowed;opacity:.65}
+.app-shell .btn-brand{background:#24664f!important;color:#fff!important;border:1px solid #24664f!important;font-weight:750;border-radius:12px!important;min-height:44px}
+.app-shell .btn-brand:hover:not(:disabled){background:#174e3b!important;border-color:#174e3b!important}
+.app-shell .menu-card{border:1px solid #e1e8de!important;overflow:hidden;background:#fff}
+.app-shell .menu-card:hover{box-shadow:0 14px 42px #20362c12!important}
+.app-shell .menu-card-name{color:#20362c}
+.app-shell .menu-card-emoji img{object-position:center}
+.app-shell .checkout-view .form-section{background:#fff!important;border:1px solid #e4e8de!important;padding:clamp(16px,3vw,22px)!important}
+.app-shell .checkout-view .form-section .form-control{border:1px solid #cad9cc!important;background:#fff!important}
+.app-shell .bottom-nav{padding-bottom:max(4px,env(safe-area-inset-bottom));z-index:75}
+.app-shell .nav-item{min-height:44px;min-width:44px}
+.app-shell .top-header{z-index:90}
+@media(max-width:700px){
+ .app-shell .checkout-view{padding-inline:12px!important}
+ .app-shell .checkout-view .form-section{margin-bottom:12px!important}
+ .app-shell .hero-banner{margin-inline:12px}
+ .app-shell .menu-card{border-radius:15px!important}
+ .app-shell .menu-card-body{padding:12px!important}
+ .app-shell .menu-card .add-btn{min-height:44px}
+ .app-shell .bottom-nav{bottom:0!important}
+}
+@media(max-width:420px){
+ .app-shell .menu-grid{gap:9px!important}
+ .app-shell .menu-card-emoji{height:135px!important}
+ .app-shell .menu-card-name{font-size:13px!important}
+ .app-shell .menu-card-body{padding:10px!important}
+ .app-shell .top-header{gap:5px}
+}
+@media(prefers-reduced-motion:reduce){
+ .app-shell *, .app-shell *::before, .app-shell *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}
+}

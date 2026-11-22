@@ -1,0 +1,51 @@
+name: GastroFlow order lifecycle integration gate
+
+# Runs against self-created temporary SQLite fixtures only. This workflow NEVER
+# connects to Render, Turso, any live merchant, or real payment providers.
+on:
+  push:
+    branches:
+      - codex/production-readiness
+    paths:
+      - 'server.js'
+      - 'lib/**'
+      - 'routes/**'
+      - 'services/**'
+      - 'apps/customer-web/src/views/CartCheckoutView.jsx'
+      - 'apps/customer-web/src/views/OrderTrackingView.jsx'
+      - 'apps/driver-web/**'
+      - 'tests/online-store-isolation.test.js'
+      - 'tests/order-safety.test.js'
+      - 'tests/customer-commerce-safety.test.js'
+      - '.github/workflows/order-lifecycle-staging-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: order-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  order-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Force all suites to use their own isolated sqlite fixtures.
+      NODE_ENV: test
+      PAYHERE_ENABLED: 'false'
+      CUSTOMER_CARD_PAYMENTS_ENABLED: 'false'
+      TURSO_DATABASE_URL: ''
+      TURSO_AUTH_TOKEN: ''
+      DATABASE_URL: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install pinned application dependencies
+        run: npm ci --include=dev
+      - name: Verify online-store isolation and full order lifecycle
+        run: npx vitest run --maxWorkers=1 tests/online-store-isolation.test.js tests/order-safety.test.js tests/customer-commerce-safety.test.js

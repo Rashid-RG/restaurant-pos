@@ -345,6 +345,10 @@ it("keeps prepaid counter delivery dispatchable and requires driver pickup to cl
         process.env.JWT_SECRET,
       ),
   };
+  // The API requires restaurant pickup before starting a delivery.
+  expect(
+    (await post("public/driver/status", { orderId: o.id, status: "picked_up" }, headers)).status,
+  ).toBe(200);
   expect(
     (
       await post(

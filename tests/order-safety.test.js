@@ -4,15 +4,17 @@ import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 process.env.DATABASE_FILE=path.join(os.tmpdir(),`order-safety-${crypto.randomUUID()}.db`);
 process.env.JWT_SECRET='safety-staff-test';process.env.CUSTOMER_JWT_SECRET='safety-customer-test';
-const {app,dbReady,dbRun,dbGet}=await import('../server.js');
+const {app,dbReady,dbRun,dbGet,dbAll}=await import('../server.js');
+const {loadVerifiedDispatchPings}=await import('../lib/driver-dispatch.js');
 const staff=(tenant='safe_A',id=tenant+'_owner')=>({Authorization:'Bearer '+jwt.sign({id,role:'owner',tenant_id:tenant},process.env.JWT_SECRET)});
-const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer'},process.env.CUSTOMER_JWT_SECRET)});
+const customer=id=>({Authorization:'Bearer '+jwt.sign({id,type:'customer',tenantId:'safe_A',sessionVersion:crypto.createHmac('sha256',process.env.CUSTOMER_JWT_SECRET).update('fixture').digest('hex').slice(0,24)},process.env.CUSTOMER_JWT_SECRET)});
 const driver=(id='safe_driver',tenant='safe_A')=>({Authorization:'Bearer '+jwt.sign({driverId:id,role:'driver',name:'Forged Name',tenant_id:tenant},process.env.JWT_SECRET)});
 const stock=()=>dbGet("SELECT stock FROM menu_items WHERE id='safe_item'");
 const ingredient=()=>dbGet("SELECT stock FROM ingredients WHERE id='safe_ingredient'");
-const publicOrder=()=>request(app).post('/api/public/orders?tenant=safe_A').send({customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
+const publicOrder=async()=>request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
 const ticket=async()=>{const id=crypto.randomUUID();const response=await request(app).post('/api/orders').set(staff()).send({id,diningType:'takeaway',items:[{id:'safe_item',quantity:2}]});expect(response.status,response.text).toBe(200);return id;};
 beforeAll(async()=>{
  await dbReady;
@@ -28,6 +30,17 @@ beforeAll(async()=>{
  for(const id of ['safe_customer','other_customer'])await dbRun('INSERT INTO customer_accounts (id,name,email,phone,tenant_id,passwordHash) VALUES (?,?,?,?,?,?)',[id,id,id+'@test.invalid','0770000000','safe_A','fixture']);
  await dbRun("INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES ('safe_driver','Verified Driver','0770000001','available','safe_A'),('foreign_driver','Other Driver','0770000002','available','safe_B')");
 },30000);
+it('uses a tenant-and-driver index for rider dispatch history without mixing restaurants',async()=>{
+ const indexes=await dbAll("PRAGMA index_info('idx_orders_tenant_driver_status_time')");
+ expect(indexes.map(c=>c.name)).toEqual(['tenant_id','driverId','status','timestamp']);
+ const plan=await dbAll(
+   "EXPLAIN QUERY PLAN SELECT * FROM orders WHERE tenant_id=? AND driverId=? AND status='delivered' ORDER BY timestamp DESC LIMIT 100",
+   ['safe_A','safe_driver']
+ );
+ expect(plan.map(row=>row.detail||'').join(' ')).toContain('idx_orders_tenant_driver_status_time');
+ const other=await dbAll("SELECT id FROM orders WHERE tenant_id=? AND driverId=? AND status='delivered'",['safe_B','safe_driver']);
+ expect(other).toEqual([]);
+});
 it('reserves both menu and recipe stock and reverses the saved recipe once across concurrent cancellation',async()=>{
  const before=await stock(),raw=await ingredient(),created=await publicOrder();expect(created.status,created.text).toBe(201);
  expect((await stock()).stock).toBe(before.stock-2);expect((await ingredient()).stock).toBe(raw.stock-1);
@@ -61,8 +74,117 @@ it('requires private order ownership for feedback and validates rating bounds',a
  expect((await request(app).post('/api/public/feedback?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken).send({...body,rating:6})).status).toBe(400);
  expect((await request(app).post('/api/public/feedback?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken).send(body)).status).toBe(200);
 });
+it('keeps future scheduled online orders out of the active kitchen queue until preparation is due',async()=>{
+ const when=Math.ceil((Date.now()+4*60*60000)/(15*60000))*(15*60000);
+ const checkoutProof=await testCheckoutProof(dbRun,'safe_A','0770000000');
+ const created=await request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof,customerName:'Scheduled Kitchen',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',scheduledTime:when,items:[{id:'safe_item',quantity:1}]});
+ expect(created.status,created.text).toBe(201);
+ const tickets=await request(app).get('/api/kitchen/tickets').set(staff());
+ expect(tickets.status,tickets.text).toBe(200);
+ expect(tickets.body.some(x=>x.orderId===created.body.orderId)).toBe(false);
+ const other=await request(app).get('/api/kitchen/tickets').set(staff('safe_B'));
+ expect(other.status,other.text).toBe(200);
+ expect(other.body.some(x=>x.orderId===created.body.orderId)).toBe(false);
+});
+it('propagates kitchen preparation to the original customer tracking order',async()=>{
+ const created=await publicOrder();expect(created.status,created.text).toBe(201);
+ const board=await request(app).get('/api/kitchen/tickets').set(staff());
+ expect(board.status,board.text).toBe(200);
+ const ticket=board.body.find(x=>x.orderId===created.body.orderId);
+ expect(ticket).toBeTruthy();
+ const action=await request(app).post('/api/kitchen/tickets/'+ticket.orderId).set(staff()).send({revision:ticket.revision,state:'preparing'});
+ expect(action.status,action.text).toBe(200);
+ const customer=await request(app).get('/api/public/orders/'+created.body.orderId+'?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken);
+ expect(customer.status,customer.text).toBe(200);
+ expect(customer.body.status).toBe('preparing');
+ expect((await request(app).get('/api/kitchen/tickets').set(staff('safe_B'))).body.some(x=>x.orderId===created.body.orderId)).toBe(false);
+});
+it('reconciles a lost kitchen response without duplicating events or changing another tenant',async()=>{
+ const created=await publicOrder();expect(created.status,created.text).toBe(201);
+ const orderId=created.body.orderId;
+ const tickets=await request(app).get('/api/kitchen/tickets').set(staff());
+ const initial=tickets.body.find(row=>row.orderId===orderId);
+ expect(initial).toBeTruthy();
+ const endpoint='/api/kitchen/tickets/'+orderId;
+ const action={revision:initial.revision,state:'preparing',retryKey:crypto.randomUUID()};
+ const first=await request(app).post(endpoint).set(staff()).send(action);
+ expect(first.status,first.text).toBe(200);
+ expect(first.body.revision).toBe(initial.revision+1);
+ const count=await dbGet('SELECT COUNT(*) AS n FROM kitchen_events WHERE orderId=? AND tenant_id=?',[orderId,'safe_A']);
+ const replay=await request(app).post(endpoint).set(staff()).send(action);
+ expect(replay.status,replay.text).toBe(200);
+ expect(replay.body.revision).toBe(first.body.revision);
+ expect((await dbGet('SELECT COUNT(*) AS n FROM kitchen_events WHERE orderId=? AND tenant_id=?',[orderId,'safe_A'])).n).toBe(count.n);
+ expect((await dbGet('SELECT status FROM orders WHERE id=?',[orderId])).status).toBe('preparing');
+ const differentRetry=await request(app).post(endpoint).set(staff()).send({...action,retryKey:crypto.randomUUID()});
+ expect(differentRetry.status).toBe(409);
+ const staleOtherAction=await request(app).post(endpoint).set(staff()).send({revision:initial.revision,state:'ready'});
+ expect(staleOtherAction.status).toBe(409);
+ const foreign=await request(app).post(endpoint).set(staff('safe_B')).send(action);
+ expect(foreign.status).toBe(404);
+ const customer=await request(app).get('/api/public/orders/'+orderId+'?tenant=safe_A').set('X-Order-Tracking',created.body.trackingToken);
+ expect(customer.status).toBe(200);
+ expect(customer.body.status).toBe('preparing');
+});
+it('rejects a kitchen retry from another staff member without repeating changes',async()=>{
+ const created=await publicOrder();expect(created.status,created.text).toBe(201);
+ const orderId=created.body.orderId,endpoint='/api/kitchen/tickets/'+orderId;
+ const tickets=await request(app).get('/api/kitchen/tickets').set(staff());
+ const initial=tickets.body.find(row=>row.orderId===orderId);expect(initial).toBeTruthy();
+ const action={revision:initial.revision,state:'preparing',retryKey:crypto.randomUUID()};
+ expect((await request(app).post(endpoint).set(staff()).send(action)).status).toBe(200);
+ await dbRun("INSERT INTO users (id,username,role,tenant_id) VALUES ('other_kitchen_operator','other_kitchen_operator','owner','safe_A')");
+ try{
+  const stranger=await request(app).post(endpoint).set(staff('safe_A','other_kitchen_operator')).send(action);
+  expect(stranger.status).toBe(409);
+ }finally{
+  await dbRun("DELETE FROM users WHERE id='other_kitchen_operator' AND tenant_id='safe_A'");
+ }
+});
+it('rejects non-delivery driver claims and assignments',async()=>{
+ const id=await ticket();
+ const manual=await request(app).post('/api/delivery/assign').set(staff()).send({orderId:id,driverId:'safe_driver'});
+ expect(manual.status,manual.text).toBe(409);
+ const claim=await request(app).post('/api/public/driver/assign').set(driver()).send({orderId:id});
+ expect(claim.status,claim.text).toBe(409);
+ expect((await dbGet('SELECT driverId FROM orders WHERE id=?',[id])).driverId).toBeNull();
+ const deliveryOrder=await ticket();
+ await dbRun("UPDATE orders SET diningType='delivery',orderType='delivery' WHERE id=?",[deliveryOrder]);
+ const accepted=await request(app).post('/api/public/driver/assign').set(driver()).send({orderId:deliveryOrder});
+ expect(accepted.status,accepted.text).toBe(200);
+ expect((await dbGet('SELECT driverId FROM orders WHERE id=?',[deliveryOrder])).driverId).toBe('safe_driver');
+});
+it('recovers lost self-claim responses but never gives two riders the same delivery',async()=>{
+ const winner='claim_rider_'+crypto.randomUUID(),challenger='claim_other_'+crypto.randomUUID();
+ const id=crypto.randomUUID();
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[winner,'Rider One',winner,'available','safe_A']);
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[challenger,'Rider Two',challenger,'available','safe_A']);
+ await dbRun("INSERT INTO orders(id,status,tenant_id,diningType,orderType) VALUES (?,'ready','safe_A','delivery','delivery')",[id]);
+ const url='/api/public/driver/assign';
+ const claim=rider=>request(app).post(url).set(driver(rider)).send({orderId:id});
+ try{
+  const results=await Promise.all([claim(winner),claim(challenger)]);
+  expect(results.map(r=>r.status).sort()).toEqual([200,409]);
+  const assigned=(await dbGet('SELECT driverId FROM orders WHERE id=?',[id])).driverId;
+  expect([winner,challenger]).toContain(assigned);
+  const other=assigned===winner?challenger:winner;
+  const replay=await claim(assigned);
+  expect(replay.status,replay.text).toBe(200);
+  expect(replay.body).toMatchObject({success:true,alreadyAssigned:true});
+  const blocked=await claim(other);
+  expect(blocked.status).toBe(409);
+  expect((await request(app).post(url).set(driver(assigned,'safe_B')).send({orderId:id})).status).toBe(403);
+  expect((await dbGet('SELECT driverId FROM orders WHERE id=?',[id])).driverId).toBe(assigned);
+  await dbRun("UPDATE orders SET status='delivered' WHERE id=?",[id]);
+  expect((await claim(assigned)).status).toBe(409);
+ }finally{
+  await dbRun('DELETE FROM orders WHERE id=?',[id]);
+  await dbRun('DELETE FROM drivers WHERE id IN (?,?)',[winner,challenger]);
+ }
+});
 it('binds dispatch to the restaurant and preserves kitchen state',async()=>{
  const id=await ticket();
+ await dbRun("UPDATE orders SET diningType='delivery',orderType='delivery' WHERE id=?",[id]);
  expect((await request(app).post('/api/delivery/assign').send({orderId:id,driverId:'safe_driver'})).status).toBe(401);
  expect((await request(app).post('/api/delivery/assign').set(staff()).send({orderId:id,driverId:'foreign_driver'})).status).toBe(404);
  expect((await request(app).post('/api/delivery/assign').set(staff()).send({orderId:id,driverId:'safe_driver'})).status).toBe(200);
@@ -92,7 +214,7 @@ it('uses private hosts and tenant-bound invitations and claims group checkout on
  expect((await request(app).post(`/api/public/group-cart/${id}/items?tenant=safe_A`).set('X-Group-Participant',participant).send({...item,itemId:'foreign_item'})).status).toBe(400);
  const endpoint=`/api/public/group-cart/${id}/checkout?tenant=safe_A`,body={customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'foreign_item',quantity:1}]};
  expect((await request(app).post(endpoint).send(body)).status).toBe(404);
- const before=await stock(),raw=await ingredient(),checkout=()=>request(app).post(endpoint).set('X-Group-Host',hostToken).send(body);
+ const before=await stock(),raw=await ingredient(),checkoutProof=await testCheckoutProof(dbRun,'safe_A','0770000000'),checkout=()=>request(app).post(endpoint).set('X-Group-Host',hostToken).send({...body,checkoutProof});
  const responses=await Promise.all([checkout(),checkout()]);expect(responses.filter(r=>r.status===201)).toHaveLength(1);expect(responses.filter(r=>r.status!==201)).toHaveLength(1);
  expect((await stock()).stock).toBe(before.stock-2);expect((await ingredient()).stock).toBe(raw.stock-1);
  expect((await request(app).post(`/api/public/group-cart/${id}/items?tenant=safe_A`).set('X-Group-Participant',participant).send(item)).status).toBe(409);
@@ -113,8 +235,8 @@ it('rejects negative or foreign stock transfers and cannot approve unavailable s
 });
 it('returns recorded loyalty reservations once when a customer cancels',async()=>{
  await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
- const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);
- const created=await request(app).post('/api/public/orders?tenant=safe_A').send({customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',customerToken:token,loyaltyPointsToRedeem:500,items:[{id:'safe_item',quantity:1}]});expect(created.status,created.text).toBe(201);
+ const token=customer('safe_customer').Authorization.split(' ')[1];
+ const created=await request(app).post('/api/public/orders?tenant=safe_A').send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Safety Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',customerToken:token,loyaltyPointsToRedeem:500,items:[{id:'safe_item',quantity:1}]});expect(created.status,created.text).toBe(201);
  expect((await dbGet("SELECT loyaltyPoints FROM customer_accounts WHERE id='safe_customer'")).loyaltyPoints).toBe(500);
  const cancel=()=>request(app).post(`/api/public/orders/${created.body.orderId}/cancel?tenant=safe_A`).set('X-Order-Tracking',created.body.trackingToken);
  expect((await Promise.all([cancel(),cancel()])).map(r=>r.status)).toEqual([200,200]);expect((await dbGet("SELECT loyaltyPoints FROM customer_accounts WHERE id='safe_customer'")).loyaltyPoints).toBe(1000);
@@ -145,12 +267,17 @@ it('keeps each invited participant in control of their own items and rolls back 
  for(const token of [first,second])expect((await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',token).send(body)).status).toBe(200);
  const removal=await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',second).send({...body,quantity:0});expect(removal.body.items).toHaveLength(1);
  await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");const before=await stock();
- const response=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash'});expect(response.status).toBe(500);
+ const response=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000'),customerName:'Host',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash'});expect(response.status).toBe(500);
  expect((await dbGet('SELECT status,orderId FROM group_carts WHERE id=?',[id]))).toEqual({status:'active',orderId:null});expect(await stock()).toEqual(before);
  await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");
 });
 const recoveryBody=()=>({customerName:'Retry Customer',customerPhone:'0770000000',orderType:'takeaway',paymentMethod:'cash',items:[{id:'safe_item',quantity:2}]});
-const retryCheckout=(key,body=recoveryBody(),tenant='safe_A')=>request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send(body);
+const proofByRequest=new Map();
+const retryCheckout=async(key,body=recoveryBody(),tenant='safe_A')=>{
+ const proofKey=tenant+':'+key;
+ if(!proofByRequest.has(proofKey))proofByRequest.set(proofKey,testCheckoutProof(dbRun,tenant,body.customerPhone||'0770000000'));
+ return request(app).post('/api/public/orders?tenant='+tenant).set('Idempotency-Key',key).send({...body,checkoutProof:await proofByRequest.get(proofKey)});
+};
 it('saves one order and one inventory reservation across concurrent checkout retries',async()=>{
  const key=crypto.randomUUID(),before=await stock(),raw=await ingredient();const results=await Promise.all([retryCheckout(key),retryCheckout(key)]);
  expect(results.map(r=>r.status).sort()).toEqual([200,201]);expect(new Set(results.map(r=>r.body.orderId)).size).toBe(1);expect(results.find(r=>r.status===200).headers['idempotency-replayed']).toBe('true');
@@ -162,10 +289,10 @@ it('rejects reuse of a private checkout key with a changed order',async()=>{
  expect((await retryCheckout(key,{...recoveryBody(),items:[{id:'safe_item',quantity:3}]})).status).toBe(409);expect(await stock()).toEqual(before);
 });
 it('recovers the original paid receipt after pricing, stock, loyalty and account tokens change',async()=>{
- const key=crypto.randomUUID(),body={...recoveryBody(),loyaltyPointsToRedeem:500},firstToken=jwt.sign({id:'safe_customer',type:'customer',version:1},process.env.CUSTOMER_JWT_SECRET);
+ const key=crypto.randomUUID(),body={...recoveryBody(),loyaltyPointsToRedeem:500},firstToken=jwt.sign({...jwt.decode(customer('safe_customer').Authorization.split(' ')[1]),version:1},process.env.CUSTOMER_JWT_SECRET);
  await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");const first=await retryCheckout(key,{...body,customerToken:firstToken});expect(first.status,first.text).toBe(201);
  await dbRun("UPDATE menu_items SET price=9999,isAvailable=0 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=0 WHERE id='safe_customer'");await dbRun("UPDATE orders SET paymentStatus='paid' WHERE id=?",[first.body.orderId]);
- const rotated=jwt.sign({id:'safe_customer',type:'customer',version:2},process.env.CUSTOMER_JWT_SECRET),replay=await retryCheckout(key,{...body,customerToken:rotated});expect(replay.status,replay.text).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.total).toBe(first.body.total);expect(replay.body.paymentStatus).toBe('paid');expect(replay.body.trackingToken).toBeTruthy();
+ const rotated=jwt.sign({...jwt.decode(customer('safe_customer').Authorization.split(' ')[1]),version:2},process.env.CUSTOMER_JWT_SECRET),replay=await retryCheckout(key,{...body,customerToken:rotated});expect(replay.status,replay.text).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.total).toBe(first.body.total);expect(replay.body.paymentStatus).toBe('paid');expect(replay.body.trackingToken).toBeTruthy();
  await dbRun("UPDATE menu_items SET price=100,isAvailable=1 WHERE id='safe_item'");await dbRun("UPDATE customer_accounts SET loyaltyPoints=1000 WHERE id='safe_customer'");
 });
 it('scopes the same checkout key separately to each restaurant',async()=>{
@@ -173,11 +300,88 @@ it('scopes the same checkout key separately to each restaurant',async()=>{
 });
 it('does not transfer checkout recovery access to a different customer identity',async()=>{
  const key=crypto.randomUUID();expect((await retryCheckout(key)).status).toBe(201);
- const token=jwt.sign({id:'safe_customer',type:'customer'},process.env.CUSTOMER_JWT_SECRET);expect((await retryCheckout(key,{...recoveryBody(),customerToken:token})).status).toBe(409);
+ const token=customer('safe_customer').Authorization.split(' ')[1];expect((await retryCheckout(key,{...recoveryBody(),customerToken:token})).status).toBe(409);
 });
 it('rolls back the recovery record with failed inventory and allows a corrected retry',async()=>{
  const key=crypto.randomUUID(),before=await stock();await dbRun("UPDATE ingredients SET stock=0 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(500);expect(await stock()).toEqual(before);
  await dbRun("UPDATE ingredients SET stock=1000 WHERE id='safe_ingredient'");expect((await retryCheckout(key)).status).toBe(201);expect((await stock()).stock).toBe(before.stock-2);
+});
+it('does not advertise scheduled slots while the restaurant is closed',async()=>{
+ const endpoint='/api/public/schedule/slots?tenant=safe_A&type=takeaway';
+ const open=await request(app).get(endpoint);
+ expect(open.status,open.text).toBe(200);
+ expect(open.body.slots.length).toBeGreaterThan(0);
+ await dbRun("UPDATE settings SET value='false' WHERE key='storeOpen' AND tenant_id='safe_A'");
+ try{
+  const closed=await request(app).get(endpoint);
+  expect(closed.status).toBe(409);
+  expect(closed.body.slots).toBeUndefined();
+  expect(closed.body.error).toMatch(/not accepting scheduled orders/i);
+ }finally{
+  await dbRun("UPDATE settings SET value='true' WHERE key='storeOpen' AND tenant_id='safe_A'");
+ }
+});
+it('reserves the final scheduled kitchen slot once across independent concurrent customers',async()=>{
+ const when=Math.ceil((Date.now()+2*60*60000)/(15*60000))*(15*60000);
+ await dbRun("INSERT OR REPLACE INTO settings (key,value,tenant_id) VALUES ('scheduledOrdersPerSlot','1','safe_A')");
+ const before=await stock(),raw=await ingredient(),body={...recoveryBody(),scheduledTime:when};
+ try{
+  const [first,second]=await Promise.all([retryCheckout(crypto.randomUUID(),body),retryCheckout(crypto.randomUUID(),body)]);
+  const statuses=[first.status,second.status].sort((a,b)=>a-b);
+  expect(statuses,JSON.stringify([first.body,second.body])).toEqual([201,409]);
+  expect((await stock()).stock).toBe(before.stock-2);
+  expect((await ingredient()).stock).toBe(raw.stock-1);
+  const count=await dbGet("SELECT COUNT(*) AS n FROM orders WHERE tenant_id='safe_A' AND source='online' AND orderType='takeaway' AND scheduledTime=?",[when]);
+  expect(Number(count.n)).toBe(1);
+ }finally{
+  await dbRun("DELETE FROM settings WHERE tenant_id='safe_A' AND key='scheduledOrdersPerSlot'");
+ }
+});
+it('blocks a changed checkout subtotal before creating an order or consuming inventory',async()=>{
+ const before=await stock(),raw=await ingredient();
+ const body={...recoveryBody(),expectedSubtotal:200};
+ await dbRun("UPDATE menu_items SET price=375 WHERE id='safe_item' AND tenant_id='safe_A'");
+ try{
+  const blocked=await retryCheckout(crypto.randomUUID(),body);
+  expect(blocked.status).toBe(409);
+  expect(blocked.body.code).toBe('MENU_PRICE_CHANGED');
+  expect(await stock()).toEqual(before);
+  expect(await ingredient()).toEqual(raw);
+  const updated=await retryCheckout(crypto.randomUUID(),{...body,expectedSubtotal:750});
+  expect(updated.status,updated.text).toBe(201);
+  expect(updated.body.subtotal).toBe(750);
+ }finally{
+  await dbRun("UPDATE menu_items SET price=100 WHERE id='safe_item' AND tenant_id='safe_A'");
+ }
+});
+it('uses updated restaurant prices instead of trusting a stale customer cart',async()=>{
+ const before=await stock();
+ await dbRun("UPDATE menu_items SET price=375 WHERE id='safe_item' AND tenant_id='safe_A'");
+ try{
+  const key=crypto.randomUUID();
+  const body={...recoveryBody(),items:[{id:'safe_item',quantity:2,price:1,unitPrice:1,lineTotal:2}]};
+  const created=await retryCheckout(key,body);
+  expect(created.status,created.text).toBe(201);
+  expect(created.body.subtotal).toBe(750);
+  expect(created.body.total).toBe(750);
+  expect((await stock()).stock).toBe(before.stock-2);
+  const record=await dbGet('SELECT items,total FROM orders WHERE id=?',[created.body.orderId]);
+  expect(JSON.parse(record.items)[0].unitPrice).toBe(375);
+  expect(record.total).toBe(750);
+ }finally{
+  await dbRun("UPDATE menu_items SET price=100 WHERE id='safe_item' AND tenant_id='safe_A'");
+ }
+});
+it('does not create an order or spend stock when a cart modifier was removed',async()=>{
+ const mod='safe_removed_mod';
+ await dbRun("INSERT INTO modifiers (id,menuItemId,name,groupName,priceDelta,tenant_id) VALUES (?,?,?,?,?,?)",[mod,'safe_item','Extra','Sides',45,'safe_A']);
+ await dbRun('DELETE FROM modifiers WHERE id=? AND tenant_id=?',[mod,'safe_A']);
+ const before=await stock(),raw=await ingredient();
+ const created=await retryCheckout(crypto.randomUUID(),{...recoveryBody(),items:[{id:'safe_item',quantity:2,selectedModifiers:[{id:mod}]}]});
+ expect(created.status).not.toBe(201);
+ expect(created.body.error).toMatch(/modifier/i);
+ expect(await stock()).toEqual(before);
+ expect(await ingredient()).toEqual(raw);
 });
 it('blocks new orders while closed but still recovers an already saved checkout',async()=>{
  const key=crypto.randomUUID(),created=await retryCheckout(key);expect(created.status).toBe(201);
@@ -187,7 +391,7 @@ it('blocks new orders while closed but still recovers an already saved checkout'
 it('recovers a checked-out group order only for its private host',async()=>{
  const created=await request(app).post('/api/public/group-cart?tenant=safe_A').send({}),{id,hostToken}=created.body,endpoint=`/api/public/group-cart/${id}`;
  expect((await request(app).post(endpoint+'/items?tenant=safe_A').set('X-Group-Participant',crypto.randomBytes(32).toString('hex')).send({participantName:'Host',itemId:'safe_item',quantity:1})).status).toBe(200);
- const first=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send(recoveryBody());expect(first.status).toBe(201);const before=await stock();
+ const first=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({...recoveryBody(),checkoutProof:await testCheckoutProof(dbRun,'safe_A','0770000000')});expect(first.status).toBe(201);const before=await stock();
  const replay=await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',hostToken).send({});expect(replay.status).toBe(200);expect(replay.body.orderId).toBe(first.body.orderId);expect(replay.body.trackingToken).toBeTruthy();expect(await stock()).toEqual(before);
  expect((await request(app).post(endpoint+'/checkout?tenant=safe_A').set('X-Group-Host',crypto.randomBytes(32).toString('hex')).send({})).status).toBe(404);
 });
@@ -195,4 +399,132 @@ it('rejects weak or malformed checkout recovery keys',async()=>expect((await ret
 it('returns the stored phone-verification flag without exposing customer credentials',async()=>{
  await dbRun("UPDATE customer_accounts SET phoneVerified=1 WHERE id='safe_customer'");
  const response=await request(app).get('/api/customer/auth/me?tenant=safe_A').set(customer('safe_customer'));expect(response.status).toBe(200);expect(response.body.phoneVerified).toBe(1);expect(response.body.passwordHash).toBeUndefined();
+});
+
+it('autodispatch GPS candidates use canonical assigned driver IDs, not display names',async()=>{
+ const stamp=Date.now();
+ const orderA=await ticket();
+ await dbRun("UPDATE orders SET driverId='safe_driver',diningType='delivery',orderType='delivery' WHERE id=?",[orderA]);
+ await dbRun('INSERT INTO driver_locations (orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',[orderA,'Verified Driver',6.98,79.87,stamp-500,20]);
+ const candidates=await loadVerifiedDispatchPings(dbAll,'safe_A',stamp-3000);
+ expect(candidates.find(x=>x.driverId==='safe_driver')?.driverName).toBe('Verified Driver');
+ expect(candidates.some(x=>x.driverId==='foreign_driver')).toBe(false);
+ // A second rider with the same display name makes legacy name-only GPS
+ // ambiguous: do not select either one from that name.
+ await dbRun("INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES ('same_name_driver','Verified Driver','0770000044','available','safe_A')");
+ try{
+  const ambiguous=await loadVerifiedDispatchPings(dbAll,'safe_A',stamp-3000);
+  expect(ambiguous.some(x=>x.driverId==='safe_driver')).toBe(false);
+  // New canonical ID pings remain valid even if names collide.
+  await dbRun('UPDATE driver_locations SET driverName=? WHERE orderId=?',['safe_driver',orderA]);
+  const confirmed=await loadVerifiedDispatchPings(dbAll,'safe_A',stamp-3000);
+  expect(confirmed.some(x=>x.driverId==='safe_driver')).toBe(true);
+ }finally{
+  await dbRun('DELETE FROM driver_locations WHERE orderId=?',[orderA]);
+  await dbRun("DELETE FROM drivers WHERE id='same_name_driver' AND tenant_id='safe_A'");
+ }
+});
+
+it('never replays another rider GPS when names collide across tenants or after reassignment',async()=>{
+ const {loadAssignedDriverLocation}=await import('../lib/order-tracking.js');
+ const firstId='gps_owner_'+crypto.randomUUID(),secondId='gps_other_'+crypto.randomUUID();
+ const orderId='gps_order_'+crypto.randomUUID(),foreignOrderId='gps_foreign_'+crypto.randomUUID();
+ const now=Date.now();
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[firstId,'Same Rider Name',firstId,'active','safe_A']);
+ await dbRun('INSERT INTO drivers (id,name,phone,status,tenant_id) VALUES (?,?,?,?,?)',[secondId,'Same Rider Name',secondId,'active','safe_B']);
+ await dbRun("INSERT INTO orders(id,status,tenant_id,driverId,diningType,orderType) VALUES (?,?,?,?,?,?)",[orderId,'out_for_delivery','safe_A',firstId,'delivery','delivery']);
+ await dbRun("INSERT INTO orders(id,status,tenant_id,driverId,diningType,orderType) VALUES (?,?,?,?,?,?)",[foreignOrderId,'out_for_delivery','safe_B',secondId,'delivery','delivery']);
+ try {
+  // Legacy name-only coordinates must never be attributed to an assigned ID.
+  await dbRun('INSERT INTO driver_locations(orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',[orderId,'Same Rider Name',6.90,79.80,now,12]);
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',firstId)).toBeFalsy();
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_B',secondId)).toBeFalsy();
+  // A verified fresh ping for the assigned ID restores the rider marker.
+  await dbRun('UPDATE driver_locations SET driverName=?,lat=? WHERE orderId=?',[firstId,6.91,orderId]);
+  const own=await loadAssignedDriverLocation(dbGet,orderId,'safe_A',firstId);
+  expect(own).toMatchObject({driverName:'Same Rider Name',lat:6.91});
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',secondId)).toBeFalsy();
+  // Reassignment must hide the prior rider's last location immediately.
+  await dbRun('UPDATE orders SET driverId=? WHERE id=?',[secondId,orderId]);
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',firstId)).toBeFalsy();
+  expect(await loadAssignedDriverLocation(dbGet,orderId,'safe_A',secondId)).toBeFalsy();
+  // The foreign tenant's valid GPS must never appear in restaurant A.
+  await dbRun('INSERT INTO driver_locations(orderId,driverName,lat,lng,updatedAt,accuracyMeters) VALUES (?,?,?,?,?,?)',[foreignOrderId,secondId,7.22,80.21,now,14]);
+  expect(await loadAssignedDriverLocation(dbGet,foreignOrderId,'safe_A',secondId)).toBeFalsy();
+  expect(await loadAssignedDriverLocation(dbGet,foreignOrderId,'safe_B',secondId)).toMatchObject({lat:7.22});
+ }finally{
+  await dbRun('DELETE FROM driver_locations WHERE orderId IN (?,?)',[orderId,foreignOrderId]);
+  await dbRun('DELETE FROM orders WHERE id IN (?,?)',[orderId,foreignOrderId]);
+  await dbRun('DELETE FROM drivers WHERE id IN (?,?)',[firstId,secondId]);
+ }
+});
+
+it('accepts a tenant-isolated customer delivery across checkout, kitchen, dispatch, tracking and proof',async()=>{
+  const priorPins={};
+  for(const key of ['storeLat','storeLng'])priorPins[key]=(await dbGet('SELECT value FROM settings WHERE tenant_id=? AND key=?',['safe_A',key]))?.value;
+  try{
+  const address='123 Main Street, Colombo 03, Sri Lanka';
+  for(const [key,value] of [['storeLat','6.9271'],['storeLng','79.8612']]){
+    await dbRun('INSERT OR REPLACE INTO settings(key,value,tenant_id) VALUES (?,?,?)',[key,value,'safe_A']);
+  }
+  const before=await stock(),raw=await ingredient();
+  const checkoutProof=await testCheckoutProof(dbRun,'safe_A','0770000000');
+  const placed=await request(app).post('/api/public/orders?tenant=safe_A').send({
+    checkoutProof,customerName:'Delivery Acceptance',customerPhone:'0770000000',
+    orderType:'delivery',paymentMethod:'cash',deliveryAddress:address,
+    deliveryLat:6.93,deliveryLng:79.87,items:[{id:'safe_item',quantity:2}]
+  });
+  expect(placed.status,placed.text).toBe(201);
+  const id=placed.body.orderId,access=placed.body.trackingToken;
+  expect(access).toBeTruthy();
+  const track=()=>request(app).get('/api/public/orders/'+id+'?tenant=safe_A').set('X-Order-Tracking',access);
+  expect((await request(app).get('/api/public/orders/'+id+'?tenant=safe_B').set('X-Order-Tracking',access)).status).toBe(404);
+  expect((await request(app).get('/api/public/driver/orders').set(driver('foreign_driver','safe_B'))).body.unassigned.some(o=>o.id===id)).toBe(false);
+  expect((await stock()).stock).toBe(before.stock-2);
+  expect((await ingredient()).stock).toBe(raw.stock-1);
+  let board=await request(app).get('/api/kitchen/tickets').set(staff());
+  expect(board.status,board.text).toBe(200);
+  let ticket=board.body.find(x=>x.orderId===id);expect(ticket).toBeTruthy();
+  const prepare=await request(app).post('/api/kitchen/tickets/'+id).set(staff()).send({revision:ticket.revision,state:'preparing'});
+  expect(prepare.status,prepare.text).toBe(200);
+  expect((await track()).body.status).toBe('preparing');
+  ticket=prepare.body;
+  const ready=await request(app).post('/api/kitchen/tickets/'+id).set(staff()).send({revision:ticket.revision,state:'ready'});
+  expect(ready.status,ready.text).toBe(200);
+  expect((await track()).body.status).toBe('ready');
+  expect((await request(app).post('/api/public/driver/assign').set(driver('foreign_driver','safe_B')).send({orderId:id})).status).toBe(404);
+  const claimed=await request(app).post('/api/public/driver/assign').set(driver()).send({orderId:id});
+  expect(claimed.status,claimed.text).toBe(200);
+  const pickup=await request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'picked_up'});
+  expect(pickup.status,pickup.text).toBe(200);
+  expect((await track()).body.status).toBe('picked_up');
+  const onRoute=await request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'out_for_delivery'});
+  expect(onRoute.status,onRoute.text).toBe(200);
+  expect((await track()).body.status).toBe('out_for_delivery');
+  const arrived=await request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'arrived'});
+  expect(arrived.status,arrived.text).toBe(200);
+  expect((await track()).body.status).toBe('arrived');
+  const signature='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jO5cAAAAASUVORK5CYII=';
+  const deliver=()=>request(app).post('/api/public/driver/status').set(driver()).send({orderId:id,status:'delivered',signature,cashReceived:true});
+  const completed=await deliver();
+  expect(completed.status,completed.text).toBe(200);
+  expect(completed.body.proof?.savedAt).toBeTruthy();
+  expect((await track()).body.status).toBe('delivered');
+  const saved=await dbGet('SELECT status,driverId,invoiceNumber,paymentStatus FROM orders WHERE id=?',[id]);
+  expect(saved).toMatchObject({status:'delivered',driverId:'safe_driver',paymentStatus:'paid'});
+  expect(saved.invoiceNumber).toBeTruthy();
+  const duplicate=await deliver();
+  expect(duplicate.status,duplicate.text).toBe(200);
+  expect(duplicate.body.alreadySaved).toBe(true);
+  expect((await dbGet('SELECT invoiceNumber FROM orders WHERE id=?',[id])).invoiceNumber).toBe(saved.invoiceNumber);
+  expect((await dbGet('SELECT COUNT(*) AS n FROM delivery_proofs WHERE orderId=? AND tenant_id=?',[id,'safe_A'])).n).toBe(1);
+  expect((await stock()).stock).toBe(before.stock-2);
+  expect((await ingredient()).stock).toBe(raw.stock-1);
+  expect((await request(app).get('/api/orders/'+id+'/delivery-proof').set(staff('safe_B'))).status).toBe(404);
+  }finally{
+    for(const [key,value] of Object.entries(priorPins)){
+      if(value===undefined)await dbRun('DELETE FROM settings WHERE tenant_id=? AND key=?',['safe_A',key]);
+      else await dbRun('INSERT OR REPLACE INTO settings(key,value,tenant_id) VALUES (?,?,?)',[key,value,'safe_A']);
+    }
+  }
 });

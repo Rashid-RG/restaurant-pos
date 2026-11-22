@@ -1,0 +1,251 @@
+/* GastroFlow Food Authentication 3.0
+   Single authoritative iPhone/mobile layout loaded after legacy auth rules.
+   Uses the actual food illustration without rendering UI text into an image.
+*/
+@media (max-width: 680px) {
+  .app-shell.customer-premium.customer-auth-route {
+    display:block!important;
+    width:100%!important;
+    min-height:0!important;
+    height:auto!important;
+    padding:0!important;
+    margin:0!important;
+    background:#f7faf6!important;
+    overflow-x:clip!important;
+    overflow-y:visible!important;
+  }
+  .customer-auth-route #customer-main {
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    min-height:0!important;
+    height:auto!important;
+    padding:0!important;
+    margin:0!important;
+    overflow:visible!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-page {
+    position:relative!important;
+    width:100%!important;
+    max-width:600px!important;
+    min-height:0!important;
+    height:auto!important;
+    box-sizing:border-box!important;
+    margin:0 auto!important;
+    padding:0 0 max(16px,env(safe-area-inset-bottom,0px))!important;
+    overflow:visible!important;
+    isolation:isolate!important;
+    background-color:#fff!important;
+    background-image:
+      linear-gradient(180deg,#fff 0%,#fff 80%,rgba(246,251,246,.96) 100%),
+      url('/customer/auth-food-garden.svg')!important;
+    background-position:center top,center bottom!important;
+    background-size:100% 100%,100% auto!important;
+    background-repeat:no-repeat!important;
+    box-shadow:none!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-page::before,
+  .customer-auth-route #customer-main .auth-reference-page::after {
+    display:none!important;
+    content:none!important;
+    height:0!important;
+    background:none!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-hero {
+    margin:0 0 9px!important;
+    padding:0!important;
+    background:transparent!important;
+    position:relative!important;
+  }
+  .customer-auth-route #customer-main .auth-hero-brand {
+    height:63px!important;
+    min-height:63px!important;
+    padding:10px 16px!important;
+    display:flex!important;
+    justify-content:flex-start!important;
+    align-items:center!important;
+    gap:9px!important;
+    background:linear-gradient(115deg,#07543c,#087a51)!important;
+  }
+  .customer-auth-route #customer-main .auth-hero-brand .auth-brand-symbol {
+    height:42px!important;width:42px!important;
+    border-radius:13px!important;
+  }
+  .customer-auth-route #customer-main .auth-hero-brand h1 {
+    font-size:25px!important;line-height:1!important;
+  }
+  .customer-auth-route #customer-main .auth-hero-brand span {
+    font-size:8px!important;
+    letter-spacing:.12em!important;
+    margin-top:4px!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-hero .auth-hero-image {
+    height:119px!important;
+    min-height:119px!important;
+    border:0!important;
+    overflow:hidden!important;
+    background:#08754b!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-hero .auth-hero-image img {
+    width:100%!important;
+    height:100%!important;
+    object-fit:cover!important;
+    object-position:center 53%!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-hero .auth-hero-image::after {
+    height:15px!important;
+    border-radius:45% 55% 0 0 / 90% 90% 0 0!important;
+    transform:none!important;
+  }
+  .customer-auth-route #customer-main .auth-hero-intro {
+    padding:11px 20px 7px!important;
+    background:#fff!important;
+  }
+  .customer-auth-route #customer-main .auth-hero-intro h2 {
+    font-size:clamp(26px,7.2vw,34px)!important;
+    margin:0 0 5px!important;
+    line-height:1.1!important;
+  }
+  .customer-auth-route #customer-main .auth-hero-intro p {
+    font-size:13px!important;
+    line-height:1.45!important;
+    color:#627469!important;
+    margin:0!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-browse {
+    position:absolute!important;
+    top:69px!important;
+    right:12px!important;
+    z-index:12!important;
+    min-height:35px!important;
+    max-width:128px!important;
+    padding:6px 10px!important;
+    border-radius:18px!important;
+    background:#fffef6f2!important;
+    color:#176c4b!important;
+    font-size:10px!important;
+    box-shadow:0 3px 12px rgba(0,42,22,.15)!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-login-form,
+  .customer-auth-route #customer-main .auth-reference-page > form:not(.auth-reference-login-form),
+  .customer-auth-route #customer-main .auth-reference-page > .auth-reference-register,
+  .customer-auth-route #customer-main .auth-reference-page > .auth-reference-back,
+  .customer-auth-route #customer-main .auth-reference-page > .auth-reference-alternate {
+    margin-left:20px!important;
+    margin-right:20px!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-login-form .form-group {
+    margin:0 0 10px!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-field {
+    height:51px!important;
+    min-height:51px!important;
+    border-radius:15px!important;
+    border:1.5px solid #ceded3!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-field .form-control {
+    height:100%!important;
+    min-height:45px!important;
+    font-size:16px!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-forgot {
+    margin:11px 0 13px!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-submit {
+    height:51px!important;
+    min-height:51px!important;
+    border-radius:15px!important;
+    font-size:16px!important;
+    box-shadow:0 8px 16px rgba(10,101,65,.15)!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-register {
+    box-sizing:border-box!important;
+    width:auto!important;
+    margin-top:12px!important;
+    margin-bottom:5px!important;
+    padding:10px 14px!important;
+    border-radius:16px!important;
+    min-height:64px!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-otp-link {
+    min-height:39px!important;
+    font-size:12px!important;
+    margin:2px auto 0!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-page > p.text-center:last-child {
+    padding:5px 20px 0!important;
+    margin:8px 0 0!important;
+    font-size:11px!important;
+    line-height:1.45!important;
+    color:#6b796e!important;
+  }
+  /* The form owns its intrinsic height. Never create a viewport-sized empty footer. */
+  .customer-auth-route #customer-main .auth-reference-page:has(.auth-reference-login-form) {
+    background-size:100% 100%,100% auto!important;
+  }
+  /* Registration is naturally scrollable, without overlaying its fields with decoration. */
+  .customer-auth-route #customer-main .auth-reference-page:has(.auth-reference-register-form) {
+    background-image:linear-gradient(180deg,#fff 0%,#fff 82%,rgba(245,252,243,.9) 100%),url('/customer/auth-food-garden.svg')!important;
+  }
+}
+@media(max-width:680px) and (max-height:700px) {
+ .customer-auth-route #customer-main .auth-reference-hero .auth-hero-image {height:76px!important;min-height:76px!important;}
+ .customer-auth-route #customer-main .auth-hero-intro {padding-top:6px!important;}
+}
+@media(prefers-reduced-motion:reduce){
+ .customer-auth-route #customer-main * {scroll-behavior:auto!important;animation-duration:.01ms!important;}
+}
+
+
+/* Standalone iOS uses a translucent system status bar. Reserve the actual
+ * status-bar region before the branding header, rather than placing the logo
+ * underneath the clock and Dynamic Island. In regular Safari, browser chrome
+ * already reserves this space and this additional inset is not applied. */
+@media (max-width:680px) and (display-mode:standalone) {
+  .app-shell.customer-premium.customer-auth-route {
+    padding-top:max(55px,env(safe-area-inset-top,0px))!important;
+    background:linear-gradient(180deg,#07553d 0 110px,#f8faf6 110px)!important;
+  }
+}
+/* iOS also supports the legacy home-screen flag; it must not double-apply. */
+@supports (-webkit-touch-callout:none) {
+  @media (max-width:680px) {
+    .customer-auth-route #customer-main .auth-hero-brand {
+      overflow:visible!important;
+    }
+  }
+}
+@media(max-width:680px) {
+  .customer-auth-route #customer-main .auth-reference-page {
+    background-image:linear-gradient(180deg,#fff 0%,#fff 89%,#f5faf3 100%)!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-page:has(.auth-reference-register-form) {
+    background-image:linear-gradient(180deg,#fff 0%,#fff 89%,#f5faf3 100%)!important;
+  }
+  .customer-auth-route #customer-main .auth-reference-page > p.text-center:last-child {
+    padding-bottom:4px!important;
+  }
+}
+
+/* Food artwork is page ambience, not a 500px footer panel.
+   On tall iPhones, any spare viewport below the form has a soft, non-interactive
+   food illustration; on short devices the form remains naturally scrollable. */
+@media(max-width:680px) {
+  .app-shell.customer-premium.customer-auth-route {
+    min-height:100svh!important;
+    background-color:#f7fbf5!important;
+    background-image:linear-gradient(180deg,rgba(255,255,255,0) 0%,rgba(246,251,245,.94) 75%),url('/customer/auth-food-garden.svg')!important;
+    background-size:100% 100%,100% auto!important;
+    background-position:center top,center bottom!important;
+    background-repeat:no-repeat!important;
+  }
+}
+@media(max-width:680px) and (display-mode:standalone) {
+  .app-shell.customer-premium.customer-auth-route {
+    background-color:#07553d!important;
+    background-image:linear-gradient(180deg,#07553d 0 58px,rgba(248,251,247,.97) 58px,rgba(245,251,245,.87) 100%),url('/customer/auth-food-garden.svg')!important;
+    background-size:100% 100%,100% auto!important;
+    background-position:center top,center bottom!important;
+    background-repeat:no-repeat!important;
+  }
+}

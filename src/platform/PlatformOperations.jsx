@@ -1,0 +1,33 @@
+import React,{useEffect,useState} from 'react';
+export default function PlatformOperations({restaurants}){
+ const[finance,setFinance]=useState(null),[readiness,setReadiness]=useState(null),[audit,setAudit]=useState([]),[snapshot,setSnapshot]=useState(null),[session,setSession]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const request=async(path,options={})=>{
+   try {
+     const response=await fetch('/api/platform'+path,{...options,headers:{'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`}});
+     const contentType = response.headers.get('content-type') || '';
+     if (!contentType.includes('application/json')) {
+       if (response.status === 502 || response.status === 503 || response.status === 504) {
+         throw new Error('Server is waking up (Render free tier). Please try again in a few seconds.');
+       }
+       throw new Error(`Server returned ${response.status}. Please refresh.`);
+     }
+     const body=await response.json();
+     if(!response.ok)throw new Error(body.error||'Platform request failed.');
+     return body;
+   } catch (err) {
+     if (err.message && (err.message.includes('<!DOCTYPE') || err.message.includes('Unexpected token'))) {
+       throw new Error('Server is currently waking up or unavailable. Please click Try again.');
+     }
+     throw err;
+   }
+ };
+ const load=async()=>{try{const[f,r,a]=await Promise.all([request('/finance'),request('/readiness'),request('/access-audit')]);setFinance(f);setReadiness(r);setAudit(a)}catch(e){setError(e.message)}};
+ useEffect(()=>{load()},[]);
+ const support=async event=>{event.preventDefault();setBusy(true);setError('');try{const values=Object.fromEntries(new FormData(event.currentTarget));const s=await request('/support-sessions',{method:'POST',body:JSON.stringify(values)});setSession(s);setSnapshot(await request(`/support-sessions/${s.id}/snapshot`));await load()}catch(e){setError(e.message)}finally{setBusy(false)}};
+ const endSupport=async()=>{setBusy(true);try{await request(`/support-sessions/${session.id}`,{method:'DELETE'});setSession(null);setSnapshot(null);await load()}catch(e){setError(e.message)}finally{setBusy(false)}};
+ const backup=async()=>{setBusy(true);setError('');try{const data=await request('/backups',{method:'POST',body:JSON.stringify({reason:'Platform owner requested recovery export'})});const blob=new Blob([JSON.stringify(data)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`gastroflow-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);await load()}catch(e){setError(e.message)}finally{setBusy(false)}};
+ return <section className="platform-operations"><h2>Platform operations</h2>{error&&<p role="alert">{error}</p>}<div className="platform-credentials"><h3>Audited restaurant support</h3><p>A read-only session expires after 15 minutes. Its reason and every snapshot access are recorded.</p>{session?<><p>Session expires {new Date(session.expiresAt).toLocaleTimeString()}.</p><button className="btn btn-outline" disabled={busy} onClick={endSupport}>End support session</button>{snapshot&&<div><h4>{snapshot.tenant?.name}</h4><p>{snapshot.orders.length} recent orders available for diagnosis. Customer contacts and delivery evidence are excluded.</p><div className="platform-finance-scroll"><table><thead><tr><th>Order</th><th>State</th><th>Payment</th></tr></thead><tbody>{snapshot.orders.map(o=><tr key={o.id}><td>{o.id}</td><td>{o.status}</td><td>{o.paymentStatus}</td></tr>)}</tbody></table></div></div>}</>:<form className="platform-billing-form" onSubmit={support}><label>Restaurant<select name="tenantId" required>{restaurants.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select></label><label>Reason<input name="reason" minLength={10} maxLength={1000} placeholder="Explain the issue you are investigating" required/></label><button className="btn btn-outline" disabled={busy||!restaurants.length}>Start read-only support</button></form>}</div>
+ <h3>Recorded restaurant collections - last 30 days</h3><p>{finance?.note}</p>{finance&&<div className="platform-finance-scroll"><table><thead><tr><th>Restaurant</th><th>Paid orders</th><th>Gross LKR</th><th>Refunds LKR</th><th>Net recorded LKR</th></tr></thead><tbody>{finance.restaurants.map(row=><tr key={row.id}><td>{row.name}</td><td>{row.paidOrders}</td><td>{(row.grossCents/100).toFixed(2)}</td><td>{(row.refundCents/100).toFixed(2)}</td><td>{(row.netRecordedCents/100).toFixed(2)}</td></tr>)}</tbody></table></div>}
+ <h3>Recovery and readiness</h3><p>Exports contain private account and restaurant data. Keep them secure. Verify a restore into a new database before treating an export as a recovery plan.</p><button className="btn btn-outline" disabled={busy} onClick={backup}>Download recovery backup</button>{readiness&&<dl>{Object.entries(readiness).map(([key,value])=><React.Fragment key={key}><dt>{key}</dt><dd>{value.replaceAll('_',' ')}</dd></React.Fragment>)}</dl>}
+ <h3>Recent platform access</h3><ul>{audit.slice(0,10).map(row=><li key={row.id}>{new Date(row.createdAt).toLocaleString()} · {row.action} · {row.reason}</li>)}</ul></section>;
+}

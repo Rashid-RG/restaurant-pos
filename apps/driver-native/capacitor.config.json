@@ -1,0 +1,17 @@
+{
+  "appId": "com.rstechnologies.gastrodriver",
+  "appName": "GastroDriver",
+  "webDir": "../driver-web/dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "useLegacyBridge": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#064e3b"
+    }
+  }
+}

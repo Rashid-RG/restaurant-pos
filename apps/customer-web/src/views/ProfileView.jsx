@@ -1,15 +1,14 @@
+import ProfilePhoto from '../../../../shared/ui/ProfilePhoto.jsx';
 import React, { useState, useEffect } from 'react';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { useLang } from '../context/LanguageContext.jsx';
-import { useCart } from '../context/CartContext.jsx';
 import LoginRegisterView from './LoginRegisterView.jsx';
 import { apiFetch } from '../utils/api.js';
 import { dateAtRestaurant } from '../../../../src/utils/restaurant-time.js';
 
-export default function ProfileView({ toast, resetToken, onResetHandled }) {
+export default function ProfileView({ toast, resetToken, onResetHandled, onBack, onReviewDish }) {
   const { customer, logout, refreshProfile, getToken } = useCustomerAuth();
   const { t, dict } = useLang();
-  const { addItem, setCartOpen } = useCart();
   const [orders, setOrders] = useState([]);
   const [restaurantZone, setRestaurantZone] = useState('Asia/Colombo');
   useEffect(() => { apiFetch('/public/store-info').then(info => setRestaurantZone(info?.timeZone || 'Asia/Colombo')).catch(() => {}); }, []);
@@ -18,14 +17,13 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Saved Addresses & Cards states
   const [addresses, setAddresses] = useState([]);
   const [cards, setCards] = useState([]);
   const [newAddress, setNewAddress] = useState('');
-  const [newCardNum, setNewCardNum] = useState('');
-  const [newCardExpiry, setNewCardExpiry] = useState('');
 
   useEffect(() => {
     if (customer) {
@@ -69,15 +67,21 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
     e.preventDefault();
     setSaving(true);
     try {
-      await apiFetch('/customer/profile', {
+      const response = await apiFetch('/customer/profile', {
         method: 'PUT',
         headers: { Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({ name, phone, password: password || undefined })
+        body: JSON.stringify({ name, phone, password: password || undefined, currentPassword: password ? currentPassword : undefined })
       });
-      await refreshProfile();
       setEditMode(false);
       setPassword('');
-      toast('Profile updated! ✓', 'success');
+      setCurrentPassword('');
+      if (response.reauthenticationRequired) {
+        logout();
+        toast('Password updated. Sign in again to secure your account.', 'success');
+      } else {
+        await refreshProfile();
+        toast('Profile updated!', 'success');
+      }
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -101,49 +105,6 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
     }
   };
 
-  const handleAddCard = async (e) => {
-    e.preventDefault();
-    if (!newCardNum.trim()) return;
-    const cleanNum = newCardNum.replace(/\s+/g, '');
-    if (cleanNum.length < 12) {
-      toast('Please enter a valid card number.', 'error');
-      return;
-    }
-    const lastFour = cleanNum.slice(-4);
-    const cardType = cleanNum.startsWith('4') ? 'Visa' : cleanNum.startsWith('5') ? 'Mastercard' : 'Amex';
-    try {
-      await apiFetch('/customer/cards', {
-        method: 'POST',
-        body: JSON.stringify({
-          cardToken: `tok_${Date.now()}`,
-          cardType,
-          lastFour,
-          expiry: newCardExpiry.trim() || '12/28'
-        })
-      });
-      setNewCardNum('');
-      setNewCardExpiry('');
-      toast('Card saved successfully! ✓', 'success');
-      fetchCards();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  };
-
-  const handleReorder = (order) => {
-    if (!order.items || order.items.length === 0) return;
-    order.items.forEach(item => {
-      addItem({
-        id: item.menuItemId || item.id,
-        name: item.name,
-        price: item.price,
-        emoji: item.emoji || '🍽️'
-      }, item.quantity, [], ''); // Default empty modifiers/notes for clean reorder
-    });
-    toast('Items added to cart! Reorder prefilled. 🛒', 'success');
-    setCartOpen(true);
-  };
-
   const handleCancelOrder = async (orderId) => {
     if (!window.confirm('Are you sure you want to cancel this pending order? Items and stock will be restored.')) return;
     try {
@@ -162,21 +123,15 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
   };
 
   if (!customer) {
-    return <LoginRegisterView onSuccess={refreshProfile} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
+    return <LoginRegisterView onSuccess={refreshProfile} onBack={onBack} toast={toast} resetToken={resetToken} onResetHandled={onResetHandled} />;
   }
 
-  const initials = customer.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-
   return (
-    <div className="profile-page fade-in" style={{ padding: '20px 16px 80px' }}>
-      <div style={{ textAlign: 'center', marginBottom: 20 }}>
-
-        <div className="profile-avatar" style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--brand)', color: '#fff', fontSize: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-          {initials || '👤'}
-        </div>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0 }}>{customer.name}</h2>
-        <p className="text-muted" style={{ margin: '4px 0 0' }}>{customer.email}</p>
-      </div>
+    <div className="profile-page fade-in" style={{padding:'20px 16px 80px'}}>
+      <section className="gf-account-identity">
+        <ProfilePhoto key={customer.id} request={apiFetch} endpoint="/customer/profile/photo" name={customer.name} token={getToken()}/>
+        <div><h2>{customer.name}</h2><p>{customer.email}</p></div>
+      </section>
 
       {/* ── Loyalty Tier Card ── */}
       {(() => {
@@ -265,15 +220,21 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
             </div>
             <div className="form-group" style={{ marginBottom: 10 }}>
               <label>Phone</label>
-              <input className="form-control" type="text" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} />
+              <input className="form-control" type="tel" autoComplete="tel" inputMode="tel" value={phone} readOnly aria-describedby="phone-change-help" />
+              <small id="phone-change-help" style={{color:'var(--text-muted)'}}>Phone changes require ownership verification. Contact support to update this number.</small>
             </div>
             <div className="form-group" style={{ marginBottom: 12 }}>
               <label>New Password <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(leave blank to keep)</span></label>
-              <input className="form-control" type="password" placeholder="Minimum 6 characters"
+              <input className="form-control" type="password" placeholder="At least 10 characters" autoComplete="new-password"
                 value={password} onChange={e => setPassword(e.target.value)} />
             </div>
+            {password && <div className="form-group" style={{ marginBottom: 12 }}>
+              <label>Current password (required to change password)</label>
+              <input className="form-control" type="password" autoComplete="current-password" required
+                value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
+            </div>}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className="btn btn-ghost" onClick={() => setEditMode(false)}>Cancel</button>
+              <button type="button" className="btn btn-ghost" onClick={() => { setEditMode(false); setPassword(''); setCurrentPassword(''); }}>Cancel</button>
               <button type="submit" className="btn btn-brand" disabled={saving}>{saving ? '⏳ Saving…' : 'Save Changes'}</button>
             </div>
           </form>
@@ -300,27 +261,11 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
         </form>
       </div>
 
-      {/* Saved Cards list */}
-      <div className="profile-card" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, border: '1px solid var(--border-color)', marginBottom: 16 }}>
-        <h3 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: 12 }}>💳 {t.savedCards}</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-          {cards.length === 0 ? (
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No saved payment cards.</p>
-          ) : (
-            cards.map(c => (
-              <div key={c.id} style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.01)', borderRadius: 8, fontSize: '0.82rem', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>💳 {c.cardType} ending in {c.lastFour}</span>
-                <span style={{ color: 'var(--text-muted)' }}>Exp: {c.expiry}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <form onSubmit={handleAddCard} style={{ display: 'flex', gap: 8 }}>
-          <input className="form-control" type="text" inputMode="numeric" autoComplete="cc-number" placeholder="Card number..." value={newCardNum} onChange={e => setNewCardNum(e.target.value)} />
-          <input className="form-control" style={{ width: '80px' }} placeholder="MM/YY" value={newCardExpiry} onChange={e => setNewCardExpiry(e.target.value)} />
-          <button className="btn btn-brand" type="submit" style={{ width: 'auto', padding: '0 16px' }}>Save</button>
-        </form>
-      </div>
+      {/* Gateway-tokenized cards can be enabled after certified provider integration. */}
+      <section className="profile-card" aria-label="Card payments" style={{background:'var(--bg-card)',padding:20,borderRadius:16,border:'1px solid var(--border-color)',marginBottom:16}}>
+        <h3 style={{fontSize:'1rem',fontWeight:800,marginBottom:8}}>💳 Card payment</h3>
+        <p style={{fontSize:'.85rem',color:'var(--text-muted)',lineHeight:1.55}}>Card payments and saved cards are not available at the moment. For safety, GastroFlow does not collect card numbers here. Please choose cash or manual bank transfer at checkout.</p>
+      </section>
 
       {/* Order History */}
       <div className="profile-card" style={{ background: 'var(--bg-card)', padding: 16, borderRadius: 12, border: '1px solid var(--border-color)', marginBottom: 16 }}>
@@ -352,9 +297,18 @@ export default function ProfileView({ toast, resetToken, onResetHandled }) {
                 {order.items?.map(i => `${i.name} ×${i.quantity}`).join(', ')}
               </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '0.72rem', width: 'auto' }} onClick={() => handleReorder(order)}>
-                  🔄 Reorder
-                </button>
+                {order.items?.length > 0 && <details>
+                  <summary style={{cursor:'pointer', padding:'10px 0', fontWeight:700}}>Order again</summary>
+                  <p>Review today’s price and choose your options for each dish.</p>
+                  {order.items.map((item, index) => <div key={index} style={{marginBottom:8}}>
+                    <button type="button" className="btn btn-ghost" disabled={!item.menuItemId} onClick={() => onReviewDish(item)}>
+                      {item.name} ×{item.quantity} · {item.menuItemId ? 'Review dish' : 'Unavailable'}
+                    </button>
+                    {Number.isFinite(item.price) && <small style={{display:'block'}}>Previously Rs. {item.price.toLocaleString('en-LK')} each</small>}
+                    {item.selectedModifiers?.length > 0 && <small style={{display:'block'}}>{t('previousChoices')} · {item.selectedModifiers.map(option => option.name).join(', ')}</small>}
+                    {item.notes && <small>Previous note · {item.notes}</small>}
+                  </div>)}
+                </details>}
                 {order.status === 'pending' && (
                   <button
                     className="btn btn-danger"

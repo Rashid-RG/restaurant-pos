@@ -25,6 +25,7 @@ export default function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
   const [hasSignature, setHasSignature] = useState(false), [photo, setPhoto] = useState(null);
   const [busy, setBusy] = useState(false), [preparingPhoto, setPreparingPhoto] = useState(false), [error, setError] = useState('');
   const [cashReceived, setCashReceived] = useState(false);
+  const [deliveryPin,setDeliveryPin]=useState('');
   const isCash = ['cash', 'cod'].includes(order.paymentMethod) && order.paymentStatus!=='paid';
   useEffect(() => { const el = dialog.current; el.showModal(); return () => el.close(); }, []);
   const point = e => {
@@ -45,9 +46,13 @@ export default function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
     if(order.paymentStatus==='partial'){setError('Ask the restaurant to reconcile this partial payment before completing delivery.');return;}
     if (!hasSignature && !photo) { setError('Add a customer signature or delivery photo.'); return; }
     if (isCash && !cashReceived) { setError('Confirm that you collected the delivery cash.'); return; }
+    if(deliveryPin && !/^\d{6}$/.test(deliveryPin)){
+      setError('The customer handover code must contain exactly six digits.');
+      return;
+    }
     busyRef.current = true; setBusy(true); setError('');
     try {
-      await onConfirm(order.id, { signature: hasSignature ? canvasRef.current.toDataURL('image/png') : null, photo, cashReceived });
+      await onConfirm(order.id, { signature: hasSignature ? canvasRef.current.toDataURL('image/png') : null, photo, cashReceived, deliveryPin });
       onClose();
     } catch (e) { setError(e instanceof TypeError ? 'Delivery was not saved. Your evidence is still here; retry when connected.' : e.message || 'Delivery was not saved. Please retry.'); }
     finally { busyRef.current = false; setBusy(false); }
@@ -71,6 +76,14 @@ export default function ProofOfDeliveryModal({ order, onClose, onConfirm }) {
           finally { setPreparingPhoto(false); }
         }} style={{ display: 'block', width: '100%', margin: '8px 0' }} />
         {photo && <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}><img src={photo} alt="Delivery photo preview" style={{ width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }} /><button type="button" className="btn-outline" onClick={() => setPhoto(null)}>Remove photo</button></div>}
+        <label htmlFor="driver-handover-pin" style={{display:'block',fontWeight:700,marginTop:16}}>Customer handover code (if issued)</label>
+        <input id="driver-handover-pin" type="text" inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
+          autoComplete="one-time-code" value={deliveryPin}
+          onChange={event=>setDeliveryPin(event.target.value.replace(/[^0-9]/g,'').slice(0,6))}
+          placeholder="6-digit customer code" className="input-field" style={{width:'100%',boxSizing:'border-box'}}/>
+        <p style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.5,margin:'6px 0 10px'}}>
+          If the customer generated a code in order tracking, enter all six digits. The server will reject delivery completion without the matching code. Signature or photo is still required.
+        </p>
         {isCash && <label style={{ display: 'flex', gap: 10, marginTop: 16 }}><input type="checkbox" checked={cashReceived} onChange={e => setCashReceived(e.target.checked)} />I collected Rs. {Number(order.total).toFixed(2)} from the customer.</label>}
       </fieldset>
       {preparingPhoto && <p role="status">Preparing photo…</p>}

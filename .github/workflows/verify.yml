@@ -20,3 +20,215 @@ jobs:
       - run: npm test
       - run: npm run build:all
       - run: node scripts/production-smoke.js
+
+  # Only an explicitly tagged commit on the customer development branch
+  # invokes the reusable macOS simulator workflow. No deployment or signing.
+  ios-native-simulator:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-ios-simulator]')
+    uses: ./.github/workflows/food-native-ios-simulator.yml
+    permissions:
+      contents: read
+
+  # Firebase/Capacitor owner POS staging wrapper. This only builds an
+  # unsigned-for-release APK; it never connects to Firebase or deploys.
+  gastroflow-staging-android-candidate:
+    if: (github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness') || (github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-staging-native]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install POS web dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated Firebase mobile wrapper dependencies
+        run: npm ci --prefix mobile-staging --ignore-scripts --no-audit --no-fund
+      - name: Build POS web frontend
+        run: npm run build
+      - name: Generate Android project and copy verified staging Firebase config
+        run: |
+          npm --prefix mobile-staging run setup:android
+          npm --prefix mobile-staging run sync -- android
+      - name: Compile unsigned-for-release Android staging debug APK
+        working-directory: mobile-staging/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Upload isolated staging APK for physical-device testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastroflow-staging-android-debug-candidate
+          path: mobile-staging/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  # The user has Windows and a free Apple ID, so compile the isolated
+  # GastroFlow POS staging iOS wrapper on a GitHub-hosted Mac. An unsigned
+  # simulator app is NOT installable on an iPhone and has no APNs entitlement.
+  gastroflow-staging-ios-simulator:
+    if: (github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness') || (github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-staging-ios]'))
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install POS frontend dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated staging Capacitor dependencies
+        run: npm ci --prefix mobile-staging --ignore-scripts --no-audit --no-fund
+      - name: Build POS frontend
+        run: npm run build
+      - name: Generate iOS staging shell and validate Firebase identifiers
+        run: |
+          npm --prefix mobile-staging run setup:ios
+          npm --prefix mobile-staging run sync -- ios
+          /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' mobile-staging/GoogleService-Info.plist | grep -Fx 'com.gastroflow.app.staging'
+          /usr/libexec/PlistBuddy -c 'Print :PROJECT_ID' mobile-staging/GoogleService-Info.plist | grep -Fx 'gastroflow-staging'
+      - name: Compile unsigned iPhone simulator staging app
+        working-directory: mobile-staging
+        run: |
+          # Capacitor 8 generates an Xcode project using Swift Package Manager.
+          # Unlike CocoaPods-based shells, no App.xcworkspace is generated.
+          xcodebuild -project ios/App/App.xcodeproj -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/gastroflow-staging-ios-derived" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Package verified Firebase config in unsigned staging simulator app
+        run: |
+          APP="$RUNNER_TEMP/gastroflow-staging-ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          SOURCE="mobile-staging/ios/App/App/GoogleService-Info.plist"
+          test -d "$APP"
+          test -f "$SOURCE"
+          # Capacitor 8's generated SPM Xcode project does not automatically
+          # copy this manually supplied plist into the built simulator bundle.
+          # Package it explicitly for the *unsigned simulator artifact*.
+          # A separately signed iPhone release must configure an Xcode
+          # Copy Bundle Resources phase and pass its own device checks.
+          /usr/libexec/PlistBuddy -c 'Print :PROJECT_ID' "$SOURCE" | grep -Fx 'gastroflow-staging'
+          /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' "$SOURCE" | grep -Fx 'com.gastroflow.app.staging'
+          install -m 644 "$SOURCE" "$APP/GoogleService-Info.plist"
+      - name: Verify compiled native app has staging identity
+        run: |
+          APP="$RUNNER_TEMP/gastroflow-staging-ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" | grep -Fx 'com.gastroflow.app.staging'
+          # Check the config inside the actual packaged simulator artifact.
+          test -f "$APP/GoogleService-Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :BUNDLE_ID' "$APP/GoogleService-Info.plist" | grep -Fx 'com.gastroflow.app.staging'
+          /usr/libexec/PlistBuddy -c 'Print :PROJECT_ID' "$APP/GoogleService-Info.plist" | grep -Fx 'gastroflow-staging'
+      - name: Package simulator-only candidate for Mac-based inspection
+        run: |
+          cd "$RUNNER_TEMP/gastroflow-staging-ios-derived/Build/Products/Debug-iphonesimulator"
+          ditto -c -k --sequesterRsrc --keepParent App.app "$GITHUB_WORKSPACE/gastroflow-staging-ios-simulator.zip"
+      - name: Upload simulator artifact (not installable on iPhone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastroflow-staging-ios-simulator-candidate
+          path: gastroflow-staging-ios-simulator.zip
+          retention-days: 7
+          if-no-files-found: error
+
+  gastrodriver-android-candidate:
+    if: (github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness') || (github.event_name == 'push' && github.ref == 'refs/heads/codex/production-readiness' && contains(github.event.head_commit.message, '[verify-driver-native]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install web dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated native dependencies
+        run: npm install --prefix apps/driver-native --no-audit --no-fund
+      - name: Compile native-mode GastroDriver assets
+        env:
+          VITE_DRIVER_NATIVE_API_URL: https://gastroflow-staging.onrender.com
+          VITE_RIDER_PRESENCE_PILOT: "true"
+        run: npx vite build apps/driver-web --mode native
+      - name: Generate Android and configure background-location permissions
+        run: |
+          cd apps/driver-native
+          npx cap add android
+          npx cap sync android
+          cd ../..
+          node scripts/setup-driver-native-android-permissions.mjs
+      - name: Compile Android debug APK
+        working-directory: apps/driver-native/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Upload unsigned-for-release Android debug candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrodriver-android-debug-candidate
+          path: apps/driver-native/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  gastrodriver-ios-candidate:
+    if: github.event_name == 'pull_request' && github.head_ref == 'codex/production-readiness'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install root frontend packages
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install isolated driver native packages
+        run: npm install --prefix apps/driver-native --no-audit --no-fund
+      - name: Build native-mode GastroDriver frontend
+        env:
+          VITE_DRIVER_NATIVE_API_URL: https://gastroflow-staging.onrender.com
+          VITE_RIDER_PRESENCE_PILOT: "true"
+        run: npx vite build apps/driver-web --mode native
+      - name: Generate isolated iOS source
+        working-directory: apps/driver-native
+        run: |
+          npx cap add ios
+          npx cap sync ios
+      - name: Configure iOS rider consent and background-location purpose
+        working-directory: apps/driver-native
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string GastroDriver uses your location only when you start location sharing during a shift." ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string GastroDriver tracks active deliveries while your iPhone is locked when you allow background location." ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string location" ios/App/App/Info.plist
+      - name: Compile unsigned iPhone simulator app
+        working-directory: apps/driver-native
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/driver-ios-derived" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Archive simulator candidate
+        run: |
+          test -d "$RUNNER_TEMP/driver-ios-derived/Build/Products/Debug-iphonesimulator/App.app"
+          cd "$RUNNER_TEMP/driver-ios-derived/Build/Products/Debug-iphonesimulator"
+          ditto -c -k --sequesterRsrc --keepParent App.app "$GITHUB_WORKSPACE/gastrodriver-ios-simulator.zip"
+      - name: Upload unsigned simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrodriver-ios-simulator-candidate
+          path: gastrodriver-ios-simulator.zip
+          if-no-files-found: error
+          retention-days: 7

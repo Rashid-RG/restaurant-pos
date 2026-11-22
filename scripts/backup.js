@@ -2,12 +2,14 @@
 import 'dotenv/config';
 import {createLibsqlStore} from '../lib/libsql-store.js';
 import {captureSnapshot} from '../lib/snapshots.js';
+import {runMonitoredBackup} from '../lib/ops-alerts.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const source = path.resolve(process.env.DATABASE_FILE || path.join(root, 'restaurant.db'));
 const directory = path.resolve(process.env.BACKUP_DIRECTORY || path.join(root, 'backups'));
+await runMonitoredBackup(async()=>{
 if (process.env.TURSO_DATABASE_URL) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const store = await createLibsqlStore({url:process.env.TURSO_DATABASE_URL,authToken:process.env.TURSO_AUTH_TOKEN});
@@ -35,3 +37,5 @@ try {
 } finally { await new Promise(resolve => database.close(resolve)); }
 
 }
+
+});

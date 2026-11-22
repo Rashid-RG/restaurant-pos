@@ -1,0 +1,28 @@
+.gf-camera-controls {
+  position: absolute;
+  z-index: 500;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 4px 18px #123a302f;
+}
+.gf-camera-controls button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: white;
+  color: #174c3e;
+  cursor: pointer;
+}
+.gf-camera-controls button[aria-pressed="true"] { background: #096847; color: white; }
+.gf-camera-controls button:disabled { opacity: .4; cursor: default; }
+.gf-camera-controls button:focus-visible { outline: 3px solid #df8818; outline-offset: -3px; }

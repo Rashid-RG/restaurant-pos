@@ -1513,8 +1513,7 @@ button {
   /* When printing receipts or tickets via portal:
      Hide #root completely so that the entire React app takes 0 space.
      This guarantees NO second blank page on thermal receipt printers! */
-  body.printing-receipt #root,
-  body:has(#receipt-print-root:not(:empty)) #root {
+  body.printing-receipt:has(#receipt-print-root .receipt-print-area) #root {
     display: none !important;
     visibility: hidden !important;
     height: 0 !important;
@@ -1524,8 +1523,7 @@ button {
     overflow: hidden !important;
   }
 
-  body.printing-receipt #receipt-print-root,
-  body:has(#receipt-print-root:not(:empty)) #receipt-print-root {
+  body.printing-receipt:has(#receipt-print-root .receipt-print-area) #receipt-print-root {
     display: block !important;
     visibility: visible !important;
     position: static !important;
@@ -1537,10 +1535,28 @@ button {
     min-height: 0 !important;
   }
 
-  body.printing-receipt #receipt-print-root *,
-  body:has(#receipt-print-root:not(:empty)) #receipt-print-root * {
+  body.printing-receipt #receipt-print-root,
+  body.printing-receipt #receipt-print-root * {
     visibility: visible !important;
     color: #000000 !important;
+  }
+
+
+  /* Prevent off-screen empty print roots from capturing the print page. */
+  body:not(.printing-receipt) #receipt-print-root { display: none !important; }
+  body.printing-receipt #receipt-print-root .receipt-print-area {
+    display: block !important;
+    position: static !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    overflow: visible !important;
+    break-inside: auto !important;
+  }
+  body.printing-receipt #receipt-print-root .receipt-print-area,
+  body.printing-receipt #receipt-print-root .receipt-print-area * {
+    color: #000 !important;
+    -webkit-text-fill-color: #000 !important;
   }
 
   /* Fallback for non-portal prints (e.g. Sales Report, Floor Plan QR) */
@@ -1560,8 +1576,7 @@ button {
   body:not(.printing-receipt) .z-report-print-area *,
   body:not(.printing-receipt) .receipt-print-area,
   body:not(.printing-receipt) .receipt-print-area * {
-    visibility: visible !important;
-    color: #000000 !important;
+    visibility: hidden !important;
   }
 
   .sales-report-print-area {
@@ -1615,7 +1630,7 @@ button {
     page-break-inside: avoid !important;
     break-after: avoid !important;
     break-inside: avoid !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     height: auto !important;
   }
   .receipt-print-area.paper-58mm {
@@ -1638,10 +1653,51 @@ button {
     font-size: 17px !important;
   }
   .receipt-center { text-align: center; }
+  /* Thermal-safe thank-you and system branding; shop branding remains in the header. */
+  .receipt-gratitude { border-top: 1px solid #000; margin-top: 3mm; padding: 2mm 0 3mm; }
+  .receipt-thank-you { font-family: Georgia, 'Times New Roman', serif; font-size: 25px; line-height: 1.15; font-style: italic; font-weight: 800; }
+  .receipt-visit-again { margin-top: 1.5mm; font-size: 12px; font-weight: 700; }
+  .receipt-platform-credit { border-top: 1px dashed #000; padding-top: 2mm; margin-top: 1mm; font-size: 10px; text-align: center; }
+  .receipt-developed-by { margin-top: 1mm; font-size: 9px; }
+  .receipt-print-area.paper-58mm .receipt-thank-you { font-size: 20px; }
   .receipt-divider { border-top: 1px dashed #000; margin: 4px 0; }
   .receipt-row { display: flex; justify-content: space-between; gap: 4px; padding: 1.5px 0; }
   .receipt-totals { font-weight: 800; font-size: 14px; }
   .receipt-logo { max-width: 70px; max-height: 70px; margin: 0 auto 4px; display: block; object-fit: contain; }
+
+  /* Paper Saver: applies to the receipt only, never sales reports or kitchen tickets. */
+  .receipt-print-area .receipt-gratitude {
+    border: 0 !important;
+    margin: 2px 0 0 !important;
+    padding: 0 !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    font-size: 10px !important;
+    font-style: normal !important;
+    font-weight: 600 !important;
+    line-height: 1.15 !important;
+  }
+  .receipt-print-area .receipt-platform-credit {
+    border: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+    overflow-wrap: anywhere;
+  }
+  .receipt-print-area .receipt-logo {
+    max-width: 100%;
+    height: auto;
+    margin-bottom: 2px !important;
+  }
+  .receipt-print-area.receipt-layout-standard .receipt-divider { margin: 5px 0 !important; }
+  .receipt-print-area.receipt-layout-standard .receipt-item-block { padding: 4px 0 !important; }
+  .receipt-print-area.receipt-layout-detailed .receipt-divider { margin: 7px 0 !important; }
+  .receipt-print-area.receipt-layout-detailed .receipt-item-block { padding: 5px 0 !important; }
+  .receipt-print-area .receipt-divider { margin: 2px 0 !important; }
+  .receipt-print-area .receipt-item-block { padding: 2px 0 !important; }
+  .receipt-print-area .receipt-item-detail { padding: 0 0 0 4px !important; }
+  .receipt-print-area .receipt-totals { padding: 3px 0 !important; }
+  .receipt-print-area p { margin: 1px 0 !important; }
 
   .receipt-print-area p {
     margin: 2px 0 !important;
@@ -2103,3 +2159,31 @@ button {
 .sidebar.collapsed .sidebar-footer div {
   align-items: center;
 }
+
+
+/* Organized restaurant sidebar. New Sale is intentionally pinned in slot 2. */
+.desktop-sidebar .sidebar-menu { gap:5px; padding:13px 10px 15px; scrollbar-width:thin; }
+.desktop-sidebar .sidebar-new-sale { font-weight:800; color:var(--color-primary); }
+.desktop-sidebar .sidebar-new-sale:not(.active) { background:transparent; color:var(--text-muted); }
+.desktop-sidebar .sidebar-group-separator { height:1px; background:var(--border-color); margin:10px 8px 7px; }
+.desktop-sidebar .sidebar-nav-group { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.desktop-sidebar .sidebar-group-toggle {
+  width:100%; display:flex; align-items:center; justify-content:space-between;
+  background:transparent; border:0; border-radius:9px; color:var(--text-muted);
+  padding:10px 10px 6px; text-align:left; font-size:10px; font-weight:800;
+  letter-spacing:1.15px; cursor:pointer; min-height:34px;
+}
+.desktop-sidebar .sidebar-group-toggle:hover { color:var(--text-main); background:var(--bg-card-hover); }
+.desktop-sidebar .sidebar-group-toggle:focus-visible { outline:2px solid var(--color-primary); outline-offset:2px; }
+.desktop-sidebar .sidebar-group-toggle svg { transition:transform .15s; }
+.desktop-sidebar .sidebar-group-toggle svg.expanded { transform:rotate(180deg); }
+.desktop-sidebar .sidebar-group-items { display:flex; flex-direction:column; gap:3px; }
+.desktop-sidebar .sidebar-item { padding:10px 12px; gap:12px; font-size:13px; border-radius:10px; min-height:42px; }
+.desktop-sidebar .sidebar-item.active { padding-left:8px; }
+.desktop-sidebar.collapsed .sidebar-menu { padding:10px 6px; gap:4px; }
+.desktop-sidebar.collapsed .sidebar-nav-group { gap:3px; }
+.desktop-sidebar.collapsed .sidebar-group-items { gap:3px; }
+.desktop-sidebar.collapsed .sidebar-item { padding:10px; justify-content:center; }
+.desktop-sidebar .sidebar-footer { padding:12px 11px; gap:9px; }
+.mobile-more-sheet .mobile-nav-group { display:flex; flex-direction:column; gap:2px; padding-top:9px; border-top:1px solid var(--border-color); }
+.mobile-more-sheet .mobile-nav-group-title { margin:0; padding:6px 10px 5px; font-size:10px; font-weight:850; color:var(--text-muted); letter-spacing:1px; }

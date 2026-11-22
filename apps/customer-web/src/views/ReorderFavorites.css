@@ -1,0 +1,14 @@
+/* Real, tenant-scoped menu imagery on repeat-order cards. */
+.gf-reorder-section{padding:14px 16px 0;min-width:0}
+.gf-reorder-section h3{font-weight:850;color:#173e2c;font-size:16px;margin:0 0 11px;letter-spacing:-.02em}
+.gf-reorder-list{display:flex;gap:12px;overflow-x:auto;padding:0 2px 12px;overscroll-behavior-inline:contain;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.gf-reorder-card{display:flex;flex-direction:column;flex:0 0 188px;min-width:0;overflow:hidden;border:1px solid #dbe9df;border-radius:17px;background:white;box-shadow:0 5px 15px #174d310b;scroll-snap-align:start}
+.gf-reorder-image{width:100%;height:123px;display:grid;place-items:center;overflow:hidden;background:linear-gradient(140deg,#e6f4eb,#fbf9ee);font-size:34px;color:#2d7155}
+.gf-reorder-image img{display:block;width:100%;height:100%;object-fit:cover}
+.gf-reorder-info{display:flex;flex:1;flex-direction:column;gap:5px;padding:11px}
+.gf-reorder-name{font-size:13px;line-height:1.35;font-weight:850;color:#173c2a;overflow-wrap:anywhere}
+.gf-reorder-price{font-size:12px;font-weight:850;color:#0c7953}
+.gf-reorder-add{border:0;border-radius:11px;margin-top:auto;padding:10px 9px;min-height:39px;font-size:12px;font-weight:850;background:#0b7953;color:white;cursor:pointer}
+.gf-reorder-add:focus-visible{outline:3px solid #309d74;outline-offset:2px}
+@media(max-width:400px){.gf-reorder-section{padding-inline:12px}.gf-reorder-card{flex-basis:164px}.gf-reorder-image{height:112px}}
+@media(prefers-reduced-motion:reduce){.gf-reorder-list{scroll-behavior:auto!important}}

@@ -3,6 +3,8 @@ import {Banknote,CalendarDays,CheckCircle2,Clock3,Coins,LockKeyhole,Plus,Refresh
 import {usePOS} from '../context/POSContext';
 import {dateAtRestaurant,formatRestaurantTime,restaurantTimeZone} from '../utils/restaurant-time';
 import './cash-drawer.css';
+import {testPrintReceipt,resolvePrinterPaperSize} from '../utils/printer';
+import PendingDeviceSales from './PendingDeviceSales.jsx';
 
 async function requestJson(path, options={}) {
   const result=await fetch(path,{...options,headers:{Authorization:`Bearer ${localStorage.getItem('gastroflow_token')}`,'Content-Type':'application/json',...options.headers}});
@@ -80,6 +82,12 @@ export default function CashDrawer(){
     <div className="cashdesk-columns">
       <section className="cashdesk-card">
         <div className="cashdesk-sectionheading"><div className="cashdesk-sectionicon"><LockKeyhole size={22}/></div><div><h2>{active?'Your drawer is open':'Start your workday'}</h2><p>{active?'Opening cash is recorded. Keep track of money going in and out.':'Count the cash already in your drawer before your first sale.'}</p></div></div>
+        {!active && !loading && <div className="cashdesk-opening-check">
+          <strong>{settings?.businessName || settings?.restaurantName || currentUser?.tenant_id}</strong>
+          <span role="status">{error ? 'Drawer connection needs attention' : 'Drawer connected'} · {resolvePrinterPaperSize(settings?.printerPaperWidth)}</span>
+          <button type="button" className="cashdesk-outline" onClick={() => testPrintReceipt(settings || {},currency)}>Print test slip</button>
+          <PendingDeviceSales key={currentUser?.tenant_id}/>
+        </div>}
         {active ? <>
           <div className="cashdesk-state"><span className="cashdesk-pulse"/> OPEN SHIFT <small>{formatRestaurantTime(active.startTime,zone)}</small></div>
           <div className="cashdesk-bigamount"><small>Your opening float</small><strong>{money(active.startFloat)}</strong></div>

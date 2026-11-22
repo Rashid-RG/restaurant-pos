@@ -1,0 +1,47 @@
+/* Rider Verification Center: isolated responsive review interface. */
+.rvc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,305px),1fr));gap:15px;margin-top:5px}
+.rvc-application-card{display:flex;flex-direction:column;gap:14px;padding:19px;border-radius:20px;border:1px solid var(--border-color);background:var(--bg-card);box-shadow:0 8px 32px rgba(14,63,47,.035);min-width:0}
+.rvc-application-card.selected{border:2px solid #238565;box-shadow:0 0 0 3px rgba(36,126,95,.08)}
+.rvc-card-identity{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.rvc-initial{display:grid;place-items:center;flex:none;width:43px;height:43px;border-radius:14px;background:#e1f5e9;color:#1c7455;font-size:21px;font-weight:800}
+.rvc-card-identity>div:nth-child(2){min-width:0;flex:1}
+.rvc-card-identity h4{margin:0;font-size:16px;overflow-wrap:anywhere}
+.rvc-card-identity p{margin:4px 0 0;font-size:12px;color:var(--text-muted)}
+.rvc-card-state{font-size:10px;font-weight:800;background:#e9f4ee;color:#237454;padding:6px 9px;border-radius:30px;max-width:85px;overflow-wrap:anywhere}
+.rvc-card-contact{font-size:12px;color:var(--text-muted);margin:0;overflow-wrap:anywhere}
+.rvc-card-progress{display:flex;align-items:center;justify-content:space-between;gap:9px;font-size:12px}
+.rvc-card-progress span{color:var(--text-muted)}
+.rvc-application-card progress{width:100%;height:9px;accent-color:#198568}
+.rvc-card-docs{display:flex;flex-wrap:wrap;gap:6px}
+.rvc-card-docs span{font-size:10px;padding:6px 8px;border:1px solid var(--border-color);border-radius:30px;color:var(--text-muted)}
+.rvc-card-docs .received{background:#e8f7ec;color:#1c7652;border-color:#c7e6cf}
+.rvc-open-button{width:100%;margin-top:auto;min-height:44px;border-radius:12px}
+.rvc-review-panel{background:var(--bg-card);border:1px solid var(--border-color);border-radius:22px;padding:clamp(14px,2vw,24px);display:grid;gap:17px}
+.rvc-review-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.rvc-review-head span{color:#248565;font-size:11px;font-weight:800;letter-spacing:1px}
+.rvc-review-head h3{margin:6px 0 0;font-size:22px}
+.rvc-review-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;border-radius:15px;background:var(--bg-secondary,rgba(148,163,184,.08));padding:6px}
+.rvc-review-tabs button{padding:12px 6px;font-size:12px;font-weight:750;border:0;border-radius:10px;background:transparent;color:var(--text-main);cursor:pointer}
+.rvc-review-tabs button.active{background:#247b5d;color:white}
+.rvc-review-panel>div:nth-last-child(1){max-width:100%}
+.rvc-review-panel .rvc-identity-review,.rvc-review-panel .rvc-eligibility-review{display:grid;gap:15px;border:1px solid var(--border-color);border-radius:16px;padding:clamp(12px,2vw,20px)}
+.rvc-identity-review button,.rvc-eligibility-review button{min-height:38px}
+.rvc-timeline{border:1px solid var(--border-color);border-radius:15px;padding:18px}
+.rvc-timeline h4{margin:0 0 9px;font-size:18px}
+.rvc-timeline>p{color:var(--text-muted);font-size:12px;line-height:1.6}
+.rvc-event{display:flex;gap:14px;padding:15px 0;border-top:1px solid var(--border-color)}
+.rvc-event-marker{width:12px;height:12px;border:3px solid #4b9c80;border-radius:50%;margin-top:3px;flex:none}
+.rvc-event p{font-size:12px;color:var(--text-muted);margin:6px 0}
+.rvc-event small{font-size:11px;color:var(--text-muted)}
+.rvc-empty-state{padding:20px;border:1px dashed var(--border-color);border-radius:12px;font-size:13px;color:var(--text-muted)}
+@media(max-width:680px){.rvc-review-tabs{grid-template-columns:1fr}.rvc-review-panel{padding:12px}.rvc-application-card{padding:15px}.rvc-card-identity{flex-wrap:wrap}.rvc-card-state{margin-left:56px}}
+
+.rvc-review-guidance { padding:12px 16px; border-inline-start:3px solid var(--brand); background:var(--bg-secondary); border-radius:8px; font-size:.9rem; }
+.rvc-review-guidance p { margin:5px 0 10px; }
+.rvc-review-panel button:disabled { opacity:.5; cursor:not-allowed; }
+
+.driver-reassign-controls{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--border-color);border-radius:12px;background:var(--bg-card)}
+.driver-reassign-controls label,.driver-reassign-controls strong{font-size:12px;font-weight:750;color:var(--text-main)}
+.driver-reassign-controls span,.driver-reassign-controls small{font-size:12px;color:var(--text-muted);line-height:1.4}
+.driver-reassign-controls textarea{width:100%;box-sizing:border-box;min-height:64px;padding:10px 12px;border-radius:9px;border:1px solid var(--border-color);font:inherit;font-size:13px;background:var(--bg-surface);color:var(--text-main)}
+.driver-reassign-controls button{min-height:44px;white-space:normal}

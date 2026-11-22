@@ -1,12 +1,39 @@
+import {riderReviewReadiness} from '../utils/rider-review-readiness.js';
 import React, { useState, useEffect } from 'react';
 import { usePOS } from '../context/POSContext';
 import { restaurantTimeZone } from '../utils/restaurant-time';
+import RiderRecruitmentPanel from './RiderRecruitmentPanel';
+import './RiderVerificationCenter.css';
+import ProtectedRiderEvidenceViewer from './ProtectedRiderEvidenceViewer';
+import DriverSupportInbox from './DriverSupportInbox';
+import DriverCompensationPanel from './DriverCompensationPanel';
 
-export default function DeliveryView() {
-  const { orders, showToast, settings } = usePOS();
+export default function DeliveryView({verificationOnly=false}) {
+  const { orders, showToast, settings,currentUser } = usePOS();
+  const [verificationTab,setVerificationTab]=useState('Pending');
+  const [verificationSearch,setVerificationSearch]=useState('');
+  const [selectedVerificationRider,setSelectedVerificationRider]=useState(null);
+  const [reviewStep,setReviewStep]=useState('identity');
+  const [timelineEvents,setTimelineEvents]=useState([]);
+  const [timelineLoading,setTimelineLoading]=useState(false);
+  const [timelineError,setTimelineError]=useState('');
+  const [timelineReload,setTimelineReload]=useState(0);
+  const [auditRows,setAuditRows]=useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState({});
+  const [reassignReason,setReassignReason]=useState({});
+  const [reassignBusy,setReassignBusy]=useState(null);
+  const [offerBusy,setOfferBusy]=useState(null);
+  const [activeTimedOffers,setActiveTimedOffers]=useState([]);
+  const [offerCancelReason,setOfferCancelReason]=useState({});
+  const [nearbyRiders,setNearbyRiders]=useState({});
+  const [nearbyLoading,setNearbyLoading]=useState({});
+
+  const [verifiedApplications, setVerifiedApplications] = useState({});
+  const [licenceReviews, setLicenceReviews] = useState({});
+  const [manualReviews,setManualReviews]=useState({});
+  const [manualPreview,setManualPreview]=useState(null);
 
   // Driver registration form states
   const [name, setName] = useState('');
@@ -38,6 +65,12 @@ export default function DeliveryView() {
       if (res.ok) {
         const data = await res.json();
         setDrivers(data);
+        if (verificationOnly) setLicenceReviews(previous => {
+          const next = {...previous};
+          for (const driver of data) if (driver.manualReviewStatus === 'approved' && !next[driver.id])
+            next[driver.id] = {licenceClass:driver.reviewedLicenceClass, expiry:driver.reviewedLicenceExpiry};
+          return next;
+        });
       }
     } catch (err) {
       console.error('Failed to fetch drivers:', err);
@@ -92,6 +125,106 @@ export default function DeliveryView() {
     }
   };
 
+  const loadTimedOffers=async()=>{
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/driver-offers',{
+        headers:{Authorization:`Bearer ${token}`},cache:'no-store'
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Could not load active timed offers');
+      setActiveTimedOffers(Array.isArray(data.offers)?data.offers:[]);
+    }catch(error){showToast(error.message||'Could not refresh individual offers.','warning');}
+  };
+  const cancelTimedOffer=async(orderId)=>{
+    const reason=String(offerCancelReason[orderId]||'').trim();
+    if(reason.length<8)return showToast('Enter at least 8 characters explaining cancellation of the offer.','warning');
+    setOfferBusy(orderId);
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/driver-offers/cancel',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({orderId,reason})
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Could not cancel timed offer.');
+      setActiveTimedOffers(prev=>prev.filter(o=>o.orderId!==orderId));
+      setOfferCancelReason(prev=>({...prev,[orderId]:''}));
+      showToast('Individual offer released; the customer order remains available.','success');
+    }catch(error){showToast(error.message||'Could not cancel this offer.','error');}
+    finally{setOfferBusy(null);}
+  };
+  const handleTimedOffer=async(order)=>{
+    const driverId=selectedDriver[order.id];
+    if(!driverId||offerBusy)return showToast('Select a restaurant rider for this offer.','warning');
+    setOfferBusy(order.id);
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/driver-offers',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({orderId:order.id,driverId,durationSeconds:120})
+      });
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||'Could not send timed offer.');
+      setActiveTimedOffers(prev=>[...prev.filter(o=>o.orderId!==order.id),{orderId:order.id,driverId,expiresAt:result.expiresAt}]);
+      showToast('Two-minute offer issued to the selected rider. The order remains unassigned until accepted.','success');
+    }catch(error){showToast(error.message||'Timed offer failed.','error');}
+    finally{setOfferBusy(null);}
+  };
+
+  const handleReassignDriver=async(order)=>{
+    if(!order?.driverId||reassignBusy)return;
+    const newDriverId=selectedDriver[order.id]??order.driverId;
+    const reason=String(reassignReason[order.id]||'').trim();
+    if(newDriverId===order.driverId){showToast('Choose another rider or Unassign before continuing.','warning');return;}
+    if(reason.length<8){showToast('Enter a reason of at least 8 characters for the audit record.','warning');return;}
+    if(!window.confirm('Reassign this order before pickup? The previous rider will lose access to this delivery.'))return;
+    setReassignBusy(order.id);
+    try{
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch('/api/delivery/reassign',{
+        method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({orderId:order.id,previousDriverId:order.driverId,newDriverId,reason})
+      });
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||'Could not reassign this order.');
+      setSelectedDriver(prev=>{const next={...prev};delete next[order.id];return next;});
+      setReassignReason(prev=>{const next={...prev};delete next[order.id];return next;});
+      showToast(newDriverId?'Delivery reassigned.':'Delivery unassigned for dispatch.','success');
+      void fetchDrivers();
+    }catch(error){showToast(error.message||'Reassignment failed. Refresh dispatch.','error');}
+    finally{setReassignBusy(null);}
+  };
+
+  const findNearbyRiders = async (orderId) => {
+    // Pickup coordinates must be explicitly configured per restaurant.
+    const lat=Number(settings?.storeLat),lng=Number(settings?.storeLng);
+    if(!settings?.storeLat||!settings?.storeLng||
+       !Number.isFinite(lat)||!Number.isFinite(lng)||
+       Math.abs(lat)>90||Math.abs(lng)>180){
+      showToast('Configure your restaurant pickup GPS coordinates in Settings before searching for nearby riders.','warning');
+      return;
+    }
+    setNearbyLoading(prev=>({...prev,[orderId]:true}));
+    try{
+      const params=new URLSearchParams({lat:String(lat),lng:String(lng)});
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch(`/api/delivery/nearby-riders?${params}`,{
+        headers:{Authorization:`Bearer ${token}`},cache:'no-store'
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Rider discovery unavailable');
+      setNearbyRiders(prev=>({...prev,[orderId]:data}));
+      if(!data.candidates?.length)
+        showToast('No verified riders with fresh on-duty location are currently nearby.','info');
+    }catch(error){
+      setNearbyRiders(prev=>({...prev,[orderId]:null}));
+      showToast(error.message||'Could not find nearby riders.','warning');
+    }finally{
+      setNearbyLoading(prev=>({...prev,[orderId]:false}));
+    }
+  };
+
   const handleAssignDriver = async (orderId) => {
     const driverId = selectedDriver[orderId];
     if (!driverId) {
@@ -118,6 +251,49 @@ export default function DeliveryView() {
     }
   };
 
+  const inspectManualDocument = async (driverId,kind) => {
+    try {
+      const token=localStorage.getItem('gastroflow_token');
+      const res=await fetch(`/api/delivery/drivers/${encodeURIComponent(driverId)}/manual-document/${kind}`,{
+        headers:{Authorization:`Bearer ${token}`}
+      });
+      const data=await res.json();
+      if(!res.ok)throw new Error(data.error||'Document unavailable.');
+      setDrivers(previous => previous.map(driver => driver.id === driverId ? {...driver,
+        reviewedDocumentKinds:[...new Set([...(driver.reviewedDocumentKinds || '').split(',').filter(Boolean),kind])].join(',')} : driver));
+      setManualPreview({driverId,kind,src:`data:${data.contentType};base64,${data.data}`});
+    }catch(error){showToast(error.message||'Unable to open protected document.','error');}
+  };
+  const decideManualReview = async (driver,decision) => {
+    try {
+      setLoading(true);
+      const review=manualReviews[driver.id]||{};
+      const licence=licenceReviews[driver.id]||{};
+      const token=localStorage.getItem('gastroflow_token');
+      const response=await fetch(`/api/delivery/drivers/${driver.id}/manual-review`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({
+          identityKind:review.identityKind||driver.applicationIdentityKind||'nic',
+          decision,selfieMatched:review.selfieMatched===true,documentAuthenticityConfirmed:review.documentAuthenticityConfirmed===true,dmtStandingStatus:review.dmtStandingStatus||'not_checked',
+          licenceClass:licence.licenceClass,licenceExpiry:licence.expiry,resubmitReason:review.resubmitReason||'missing_evidence'
+        })
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Manual review failed.');
+      const state = decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'resubmit';
+      setDrivers(previous => previous.map(row => row.id === driver.id ? {...row, manualReviewStatus:state,
+        reviewedLicenceExpiry:licence.expiry, reviewedLicenceClass:licence.licenceClass} : row));
+      setVerificationTab(decision === 'approve' ? 'Under Review' : decision === 'reject' ? 'Rejected' : 'Resubmit');
+      setReviewStep(decision === 'approve' ? 'eligibility' : 'timeline');
+      void fetchVerificationAudit();
+      showToast(decision === 'approve' ? 'Evidence review saved. Complete the final rider decision.' : 'Review decision saved.', 'success');
+      setManualPreview(null);
+      await fetchDrivers();
+    }catch(error){showToast(error.message||'Manual review failed.','error');}
+    finally{setLoading(false);}
+  };
+
   const handleApproveDriver = async (id, driverName, action) => {
     try {
       setLoading(true);
@@ -125,11 +301,13 @@ export default function DeliveryView() {
       const res = await fetch(`/api/delivery/drivers/${id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected' })
+        body: JSON.stringify({ status: action === 'approve' ? 'available' : 'rejected', verificationConfirmed: action === 'approve' && verifiedApplications[id] === true, licenceConfirmed: action === 'approve' && licenceReviews[id]?.checked === true, licenceExpiry: action === 'approve' ? licenceReviews[id]?.expiry : undefined, licenceClass: action === 'approve' ? licenceReviews[id]?.licenceClass : undefined })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       showToast(`Driver ${driverName} ${action === 'approve' ? 'approved & activated!' : 'rejected.'}`, action === 'approve' ? 'success' : 'info');
+      setVerifiedApplications(previous => ({ ...previous, [id]: false }));
+      setLicenceReviews(previous => ({ ...previous, [id]: { checked: false, expiry: '' } }));
       fetchDrivers();
     } catch (err) {
       showToast('Approval error: ' + err.message, 'error');
@@ -140,6 +318,49 @@ export default function DeliveryView() {
 
   const pendingDrivers = drivers.filter(d => d.status === 'pending_approval');
   const activeDrivers = drivers.filter(d => d.status !== 'pending_approval' && d.status !== 'rejected');
+  const verificationStatus=d=>d.status==='rejected'?'Rejected':
+    d.status==='pending_approval'?
+      d.manualReviewStatus==='resubmit'?'Resubmit':
+      d.manualReviewStatus==='rejected'?'Rejected':
+      d.manualReviewStatus==='approved'?'Under Review':'Pending':'Approved';
+  const statusCounts=['Pending','Under Review','Resubmit','Approved','Rejected'].map(name=>({
+    name,count:drivers.filter(d=>verificationStatus(d)===name).length
+  }));
+  const visibleVerificationDrivers=drivers.filter(d=>verificationStatus(d)===verificationTab && [d.name,d.phone,d.email,d.vehicleType,d.plateNumber].some(value=>String(value||'').toLowerCase().includes(verificationSearch.trim().toLowerCase())));
+  const evidenceKinds=d=>[
+    'identity_front',...(d.applicationIdentityKind==='passport'?[]:['identity_back']),'selfie',
+    ...(d.vehicleType==='Bicycle'?[]:['licence_front','licence_back'])
+  ];
+  const evidenceCount=d=>evidenceKinds(d).filter(k=>String(d.submittedDocumentKinds||'').split(',').includes(k)).length;
+  useEffect(()=>{
+    if(selectedVerificationRider&&!visibleVerificationDrivers.some(d=>d.id===selectedVerificationRider))setSelectedVerificationRider(null);
+  },[selectedVerificationRider,visibleVerificationDrivers]);
+  useEffect(()=>{
+    if(!verificationOnly||!selectedVerificationRider||reviewStep!=='timeline')return;
+    const controller=new AbortController();
+    setTimelineLoading(true);setTimelineError('');setTimelineEvents([]);
+    const token=localStorage.getItem('gastroflow_token');
+    fetch('/api/delivery/driver-verification/'+encodeURIComponent(selectedVerificationRider)+'/timeline',{
+      headers:{Authorization:'Bearer '+token},signal:controller.signal,cache:'no-store'
+    }).then(async response=>{
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'Could not fetch rider timeline');
+      if(!controller.signal.aborted)setTimelineEvents(data.events||[]);
+    }).catch(err=>{if(!controller.signal.aborted)setTimelineError(err.message||'Timeline unavailable');})
+      .finally(()=>{if(!controller.signal.aborted)setTimelineLoading(false);});
+    return()=>controller.abort();
+  },[verificationOnly,selectedVerificationRider,reviewStep,timelineReload]);
+  const canReview=['owner','manager'].includes(currentUser?.role);
+  useEffect(()=>{if(canReview&&!verificationOnly)void loadTimedOffers();},[canReview,verificationOnly]);
+  const fetchVerificationAudit=async()=>{
+    if(!canReview)return;
+    try{
+      const res=await fetch('/api/delivery/driver-verification/audit',{headers:{Authorization:'Bearer '+localStorage.getItem('gastroflow_token')},cache:'no-store'});
+      if(res.ok)setAuditRows((await res.json()).reviews||[]);
+    }catch(_){}
+  };
+  useEffect(()=>{if(verificationOnly)void fetchVerificationAudit();},[verificationOnly,drivers.length]);
+
 
   // Uber Eats-grade Multi-Order Stacking Batch state
   const [selectedBatchOrders, setSelectedBatchOrders] = useState([]);
@@ -153,9 +374,10 @@ export default function DeliveryView() {
     const drv = drivers.find(d => d.id === batchDriverId);
     try {
       setLoading(true);
+      const token = localStorage.getItem('gastroflow_token');
       const res = await fetch('/api/public/driver/assign-batch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ driverId: batchDriverId, orderIds: selectedBatchOrders })
       });
       const data = await res.json();
@@ -175,34 +397,182 @@ export default function DeliveryView() {
     <div className="main-content">
       <div className="view-header">
         <div className="view-title">
-          <h1>🛵 Delivery Dispatch & Fleet Management</h1>
-          <p>Review rider self-registrations, approve fleet drivers, and assign active orders.</p>
+          <h1>{verificationOnly?'🛡️ Rider Verification Center':'🛵 Delivery Dispatch & Fleet Management'}</h1>
+          <p>{verificationOnly?'Private restaurant-owned identity review, hiring and audit history.':'Assign active orders and manage delivery operations.'}</p>
         </div>
       </div>
 
       <div className="view-body" style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: '30px' }}>
         
+        {verificationOnly && canReview && <>
+          <RiderRecruitmentPanel/>
+          <section aria-label="Driver application workspace" style={{padding:'clamp(16px,2vw,24px)',borderRadius:18,border:'1px solid var(--border-color)',background:'var(--bg-card)',display:'grid',gap:18}}>
+            <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap'}}>
+              <div>
+                <h3 style={{margin:0,fontSize:'clamp(18px,2vw,21px)'}}>Driver applications</h3>
+                <p style={{fontSize:13,color:'var(--text-muted)',margin:'6px 0 0'}}>Review applications and identity evidence for your restaurant only.</p>
+              </div>
+              <span style={{borderRadius:99,padding:'7px 12px',background:'rgba(16,185,129,.1)',fontSize:12,fontWeight:700}}>{drivers.length} total driver{drivers.length===1?'':'s'}</span>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <label style={{display:'grid',gap:5,flex:'1 1 220px',fontSize:12,fontWeight:700}}>Find a rider
+                <input className="form-input" type="search" value={verificationSearch} onChange={e=>setVerificationSearch(e.target.value)} placeholder="Search name, phone, vehicle or plate" aria-label="Search rider applications"/>
+              </label>
+              <button type="button" className="btn btn-outline" onClick={()=>{void fetchDrivers();void fetchVerificationAudit();}}>Refresh applications</button>
+            </div>
+            <div role="tablist" aria-label="Rider verification states" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,155px),1fr))',gap:10}}>
+              {statusCounts.map(({name,count})=><button key={name} type="button" role="tab" aria-selected={verificationTab===name} onClick={()=>setVerificationTab(name)}
+                className={verificationTab===name?'btn btn-primary':'btn btn-outline'}
+                style={{display:'grid',gap:7,justifyItems:'start',textAlign:'left',minHeight:82,padding:'13px 15px',borderRadius:13}}>
+                <span style={{fontSize:12,fontWeight:650}}>{name}</span><strong style={{fontSize:22,lineHeight:1.15}}>{count}</strong>
+              </button>)}
+            </div>
+            <div className="rvc-cards" aria-label="Rider application cards">
+              {visibleVerificationDrivers.map(d=>{
+                const kinds=evidenceKinds(d),count=evidenceCount(d),received=String(d.submittedDocumentKinds||'').split(',');
+                return <article className={'rvc-application-card'+(selectedVerificationRider===d.id?' selected':'')} key={d.id}>
+                  <div className="rvc-card-identity"><div className="rvc-initial" aria-hidden="true">{String(d.name||'R').charAt(0).toUpperCase()}</div>
+                    <div><h4>{d.name}</h4><p>{d.vehicleType||'Rider'} · {d.plateNumber||'Unassigned'}</p></div>
+                    <span className="rvc-card-state">{verificationStatus(d)}</span>
+                  </div>
+                  <p className="rvc-card-contact">{d.phone} · {d.email||'Email not recorded'}</p>
+                  <div className="rvc-card-progress"><strong>Verification documents</strong><span>{count}/{kinds.length} received</span></div>
+                  <progress value={count} max={kinds.length} aria-label={'Document progress for '+d.name}/>
+                  <div className="rvc-card-docs">{kinds.map(kind=><span key={kind} className={received.includes(kind)?'received':''}>{received.includes(kind)?'✓ ':'○ '}{kind==='identity_front'?(d.applicationIdentityKind==='passport'?'Passport':'NIC front'):kind==='identity_back'?'NIC back':kind==='selfie'?'Selfie':kind==='licence_front'?'Licence front':'Licence back'}</span>)}</div>
+                  <button type="button" className="btn btn-primary rvc-open-button" onClick={()=>{setSelectedVerificationRider(d.id);setReviewStep(d.status==='pending_approval'?'identity':'timeline');}}>{d.status==='pending_approval'?'Review application':'View rider details'}</button>
+                </article>;
+              })}
+            </div>
+            {visibleVerificationDrivers.length===0&&<div role="status" style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',borderRadius:12,background:'var(--bg-secondary,rgba(148,163,184,.07))'}}>
+              <span aria-hidden="true" style={{fontSize:20}}>📋</span>
+              <div><strong style={{fontSize:13}}>No {verificationTab.toLowerCase()} applications</strong><p style={{fontSize:12,color:'var(--text-muted)',margin:'4px 0 0'}}>{verificationSearch?'No riders match this search. Clear the search or choose another status.':'Applications appear here after riders register or their review status changes.'}</p></div>
+            </div>}
+          </section>
+        </>}
+        {verificationOnly && !canReview && <p role="alert">Only restaurant owners and managers may review rider verification evidence.</p>}
+        {verificationOnly && canReview && ['Approved','Rejected'].includes(verificationTab) && selectedVerificationRider && visibleVerificationDrivers.some(d=>d.id===selectedVerificationRider) && (
+          <section className="rvc-review-panel" aria-label="Read-only completed rider application">
+            {visibleVerificationDrivers.filter(d=>d.id===selectedVerificationRider).map(d=><div key={d.id}>
+              <div className="rvc-review-head">
+                <div><span>COMPLETED APPLICATION</span><h3>{d.name}</h3><p>{d.vehicleType||'Rider'} · {d.plateNumber||'No plate'}</p></div>
+                <button className="btn btn-outline" onClick={()=>setSelectedVerificationRider(null)} type="button">Close ✕</button>
+              </div>
+              <p className="rvc-completed-notice">This application is {verificationStatus(d).toLowerCase()}. Completed decisions are read-only and protected identity images are purged after final approval or rejection.</p>
+              <div className="rvc-timeline"><h4>Recorded application activity</h4>
+                <button type="button" className="btn btn-outline" onClick={()=>{setReviewStep('timeline');setTimelineReload(n=>n+1);}}>Refresh timeline</button>
+                {timelineLoading&&<p role="status">Loading timeline…</p>}
+                {timelineError&&<p role="alert">{timelineError}</p>}
+                {timelineEvents.map((event,i)=><div className="rvc-event" key={event.occurredAt+'-'+i}>
+                  <div className="rvc-event-marker" aria-hidden="true"/><div>
+                    <strong>{({application_submitted:'Application submitted',document_submitted:'Evidence uploaded',manual_approved:'Manual evidence accepted',manual_rejected:'Manual evidence rejected',resubmit_requested:'Resubmission requested',driver_approved:'Rider approved',driver_rejected:'Rider rejected'})[event.eventType]||'Verification event'}</strong>
+                    {event.detail&&<p>{String(event.detail).replace(/_/g,' ')}</p>}
+                    <small>{event.occurredAt?new Date(event.occurredAt).toLocaleString():'Time unavailable'}</small>
+                  </div></div>)}
+                {!timelineLoading&&!timelineError&&timelineEvents.length===0&&<p>There are no captured timeline events for this application. Earlier decisions may predate event tracking.</p>}
+              </div>
+            </div>)}
+          </section>
+        )}
         {/* 0. Pending Driver Registrations Queue */}
-        {pendingDrivers.length > 0 && (
-          <div style={{ background: 'rgba(234, 179, 8, 0.08)', border: '2px dashed #eab308', borderRadius: '12px', padding: '20px' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800, color: '#eab308', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              ⏳ Pending Rider Self-Registration Applications ({pendingDrivers.length})
+        {verificationOnly && canReview && visibleVerificationDrivers.some(d=>d.id===selectedVerificationRider && d.status==='pending_approval') && (
+          <div className="rvc-review-panel" aria-label="Selected rider review">
+            <div className="rvc-review-head"><div><span>APPLICATION REVIEW</span><h3>{visibleVerificationDrivers.find(d=>d.id===selectedVerificationRider)?.name}</h3></div>
+              <button type="button" className="btn btn-outline" onClick={()=>setSelectedVerificationRider(null)}>Close review ✕</button></div>
+            <div className="rvc-review-tabs" role="tablist" aria-label="Manager review stages">
+              {[['identity','1 · Identity & documents'],['eligibility','2 · Licence & decision'],['timeline','3 · Activity timeline']].map(([key,label])=>
+                <button key={key} type="button" role="tab" aria-selected={reviewStep===key} className={reviewStep===key?'active':''} onClick={()=>setReviewStep(key)}>{label}</button>)}
+            </div>
+            <h3 style={{ margin: '0 0 14px', fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ⏳ {verificationTab} Rider Applications ({visibleVerificationDrivers.length})
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-              {pendingDrivers.map(d => (
-                <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%,370px), 1fr))', gap: '12px' }}>
+              {visibleVerificationDrivers.filter(d=>d.status==='pending_approval' && d.id===selectedVerificationRider).map(d => {
+                const readiness = riderReviewReadiness(d, manualReviews[d.id], licenceReviews[d.id], verifiedApplications[d.id]);
+                const licenceFields = <>
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Verified driving licence class
+                    <select className="form-input" value={licenceReviews[d.id]?.licenceClass || ''} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],licenceClass:e.target.value}}))}>
+                      <option value="">Select class from original licence</option>
+                      <option value="A">A — motorbike</option>
+                      <option value="A1">A1 — restricted small motorbike (not approved without engine check)</option>
+                      <option value="B1">B1 — tuk-tuk</option>
+                      <option value="B">B — car / light vehicle</option>
+                    </select>
+                  </label>}
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,fontWeight:650}}>Driving licence expiry (verified from the original licence)<input type="date" className="form-input" value={licenceReviews[d.id]?.expiry || ''} min={new Date().toISOString().slice(0,10)} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],expiry:e.target.value}}))}/></label>}
+                </>;
+                return (
+                <div key={d.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '13px' }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: '1rem' }}>👤 {d.name}</div>
                     <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>📞 {d.phone} • {d.vehicleType || 'Motorbike'} ({d.plateNumber || 'N/A'})</div>
                     <span className="badge badge-warning" style={{ marginTop: '6px', textTransform: 'uppercase', fontSize: '10px' }}>
                       Awaiting Admin Approval
                     </span>
+                    <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Automated ID verification: <strong>{d.identityStatus === 'verified' ? 'Provider verified' : d.identityStatus === 'rejected' ? 'Provider rejected — review required' : d.identityStatus === 'resubmit' ? 'Resubmission requested' : d.identityStatus === 'created' || d.identityStatus === 'review' ? 'Verification in progress' : 'Not verified'}</strong></div>
+                    <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Driving-licence document: <strong>{d.licenceDocumentStatus === 'verified' ? 'Document authenticity verified; class and standing still need review' : d.licenceDocumentStatus === 'rejected' ? 'Provider rejected' : d.licenceDocumentStatus === 'resubmit' ? 'Resubmission needed' : d.licenceDocumentStatus === 'review' ? 'Manual review needed' : d.licenceDocumentStatus === 'created' ? 'Waiting for provider' : 'No provider check recorded'}</strong></div>
+                    <div style={{fontSize:12,marginTop:8,color:'var(--text-muted)'}}>Manual review: <strong>{d.manualReviewStatus||'Not reviewed'}</strong> · DMT standing: {d.dmtReviewStatus==='manager_checked_external'?'Manager recorded external check':'Not officially checked'}</div>
                   </div>
+                  {reviewStep==='identity'&&<section className="rvc-identity-review">
+                    <strong style={{fontSize:13}}>Identity & licence review</strong>
+                    {d.applicationIdentityKind&&<p style={{fontSize:12,margin:0,color:'var(--text-muted)'}}>Applicant selected: <strong>{d.applicationIdentityKind==='passport'?'Passport':'National Identity Card'}</strong></p>}
+                    <select className="form-input" value={manualReviews[d.id]?.identityKind||d.applicationIdentityKind||'nic'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],identityKind:e.target.value}}))}>
+                      <option value="nic" disabled={d.applicationIdentityKind==='passport'}>Sri Lankan NIC</option>
+                      <option value="passport" disabled={d.applicationIdentityKind==='nic'}>Passport</option>
+                    </select>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                      {[
+                        ['identity_front',(manualReviews[d.id]?.identityKind||d.applicationIdentityKind)==='passport'?'Passport information page':'NIC front'],
+                        ...((manualReviews[d.id]?.identityKind||d.applicationIdentityKind)==='passport'?[]:[['identity_back','NIC back']]),
+                        ['selfie','Selfie photo'],
+                        ...(d.vehicleType==='Bicycle'?[]:[['licence_front','Licence front'],['licence_back','Licence back']])
+                      ].map(([kind,label])=><button type="button" key={kind} className="btn btn-outline" style={{fontSize:11,padding:5}} disabled={!String(d.submittedDocumentKinds||'').split(',').includes(kind)} onClick={()=>inspectManualDocument(d.id,kind)}>{label} · {String(d.reviewedDocumentKinds||'').split(',').includes(kind)?'Opened':String(d.submittedDocumentKinds||'').split(',').includes(kind)?'Open':'Missing'}</button>)}
+                    </div>
+                    <label style={{display:'flex',gap:8,alignItems:'flex-start',fontSize:12}}>
+                      <input type="checkbox" checked={manualReviews[d.id]?.selfieMatched===true} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],selfieMatched:e.target.checked}}))}/>
+                      I opened the selfie and identity document, visually compared the face, and am satisfied they appear to match.
+                    </label>
+                    <label style={{display:'flex',gap:8,alignItems:'flex-start',fontSize:12}}>
+                      <input type="checkbox" checked={manualReviews[d.id]?.documentAuthenticityConfirmed===true} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],documentAuthenticityConfirmed:e.target.checked}}))}/>
+                      I examined the document images and original evidence or performed an attended identity check. An image upload alone is not proof of authenticity.
+                    </label>
+                    <label style={{fontSize:12}}>DMT standing review
+                      <select className="form-input" value={manualReviews[d.id]?.dmtStandingStatus||'not_checked'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],dmtStandingStatus:e.target.value}}))}>
+                        <option value="not_checked">Not officially checked</option>
+                        <option value="manager_checked_external">Manager completed external standing review (not system-verified)</option>
+                      </select>
+                    </label>
+                    <p style={{fontSize:11,color:'var(--text-muted)',margin:0}}>Confirm image quality, original identity, licence class, expiry and any external DMT standing independently. Files are deleted after final approval.</p>
+                    <label style={{fontSize:12,fontWeight:700,display:'grid',gap:6}}>Reason if resubmission is needed
+                      <select className="form-input" value={manualReviews[d.id]?.resubmitReason||'missing_evidence'} onChange={e=>setManualReviews(p=>({...p,[d.id]:{...p[d.id],resubmitReason:e.target.value}}))}>
+                        <option value="missing_evidence">Required document missing</option>
+                        <option value="unclear_identity">NIC / passport is not readable</option>
+                        <option value="unclear_selfie">Selfie is not clear</option>
+                        <option value="selfie_mismatch">Selfie does not match identity document</option>
+                        {d.vehicleType!=='Bicycle'&&<><option value="unclear_licence">Driving licence image unreadable</option><option value="licence_expired">Driving licence appears expired / ineligible</option></>}
+                      </select>
+                    </label>
+                    {licenceFields}
+                    {readiness.manualIssue && <p className="rvc-review-guidance" role="status">{readiness.manualIssue}</p>}
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      <button type="button" className="btn btn-success" disabled={loading || !!readiness.manualIssue} onClick={()=>decideManualReview(d,'approve')}>Record manual pass</button>
+                      <button type="button" className="btn btn-outline" disabled={loading} onClick={()=>decideManualReview(d,'resubmit')}>Request resubmission</button>
+                      <button type="button" className="btn btn-danger" disabled={loading} onClick={()=>decideManualReview(d,'reject')}>Reject evidence</button>
+                    </div>
+                    <button className="btn btn-primary" type="button" onClick={()=>setReviewStep('eligibility')}>Continue to licence & decision →</button>
+                  </section>}
+                  {reviewStep==='eligibility'&&<section className="rvc-eligibility-review">
+                  <label style={{ fontSize: 12, lineHeight: 1.5, display: 'flex', alignItems: 'flex-start', gap: 8 }}><input type="checkbox" checked={verifiedApplications[d.id] === true} onChange={e => setVerifiedApplications(previous => ({ ...previous, [d.id]: e.target.checked }))} style={{ marginTop: 3 }} />I independently checked this rider's identity and vehicle eligibility; application details alone are not verification.</label>
+                  {licenceFields}
+                  {d.vehicleType !== 'Bicycle' && <label style={{display:'flex',alignItems:'flex-start',gap:8,fontSize:12,lineHeight:1.5}}><input type="checkbox" checked={licenceReviews[d.id]?.checked===true} onChange={e=>setLicenceReviews(previous=>({...previous,[d.id]:{...previous[d.id],checked:e.target.checked}}))} style={{marginTop:3}}/>I checked the original licence, the permitted vehicle class, and its validity.</label>}
+                  {readiness.approvalIssue && <div className="rvc-review-guidance" role="status">
+                    <strong>Before you approve</strong><p>{readiness.approvalIssue}</p>
+                    {readiness.evidenceIssue && <button type="button" className="btn btn-outline" onClick={()=>setReviewStep('identity')}>Review identity & documents</button>}
+                  </div>}
                   <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
                     <button
                       className="btn btn-success"
                       onClick={() => handleApproveDriver(d.id, d.name, 'approve')}
-                      disabled={loading}
+                      disabled={loading || !!readiness.approvalIssue}
                       style={{ flex: 1, padding: '8px', fontSize: '0.82rem', fontWeight: 700, background: '#10b981', color: '#fff', border: 'none' }}
                     >
                       ✓ Approve Driver
@@ -216,12 +586,51 @@ export default function DeliveryView() {
                       ✕ Reject
                     </button>
                   </div>
+                  </section>}
+                  {reviewStep==='timeline'&&<section className="rvc-timeline">
+                    <h4>Recorded application activity</h4>
+                    <p>Restaurant-private events from the secure rider activity log. Older applications may only have a final review entry.</p>
+                    <button type="button" className="btn btn-outline" onClick={()=>setTimelineReload(n=>n+1)}>Refresh activity</button>
+                    {timelineLoading&&<p role="status">Loading activity…</p>}
+                    {timelineError&&<p role="alert">{timelineError}</p>}
+                    {!timelineLoading&&!timelineError&&timelineEvents.map((event,index)=><div className="rvc-event" key={event.occurredAt+'-'+index}>
+                      <div className="rvc-event-marker" aria-hidden="true"/><div>
+                        <strong>{({application_submitted:'Application submitted',document_submitted:'Evidence uploaded',manual_approved:'Manual evidence accepted',manual_rejected:'Manual evidence rejected',resubmit_requested:'Resubmission requested',driver_approved:'Rider approved',driver_rejected:'Rider rejected'})[event.eventType]||'Verification update'}</strong>
+                        {event.detail&&<p>{String(event.detail).replace(/_/g,' ')}</p>}
+                        <small>{event.occurredAt?new Date(event.occurredAt).toLocaleString():'Time unavailable'} · {event.actorRole||'system'}</small>
+                      </div></div>)}
+                    {!timelineLoading&&!timelineError&&timelineEvents.length===0&&auditRows.filter(row=>row.driverId===d.id).length===0?
+                      <div className="rvc-empty-state">No manager review recorded for this rider yet.</div>:
+                      timelineEvents.length===0 ? auditRows.filter(row=>row.driverId===d.id).map((row,index)=><div className="rvc-event" key={row.driverId+'-'+index}>
+                        <div className="rvc-event-marker" aria-hidden="true"/><div><strong>{String(row.state||'Review').replace(/_/g,' ')}</strong>
+                          <p>{row.identityType==='passport'?'Passport':'NIC'} · {row.standingCheck==='manager_checked_external'?'Manager-attested external check':'No official DMT check'}</p>
+                          {row.resubmitReason&&<p>Resubmission: {String(row.resubmitReason).replace(/_/g,' ')}</p>}
+                          <small>{row.reviewedAt?new Date(row.reviewedAt).toLocaleString():'Time unavailable'}</small></div>
+                      </div>) : null}
+                  </section>}
                 </div>
-              ))}
+              );})}
             </div>
           </div>
         )}
         
+        {verificationOnly && canReview && visibleVerificationDrivers.length===0 && (
+          <div style={{borderRadius:15,padding:26,textAlign:'center',border:'1px dashed var(--border-color)',color:'var(--text-muted)'}}>
+            No applications in {verificationTab.toLowerCase()}. Select another status or invite new riders.
+          </div>
+        )}
+        {verificationOnly && canReview && <section style={{padding:20,border:'1px solid var(--border-color)',borderRadius:16,background:'var(--bg-card)'}}>
+          <h3 style={{margin:'0 0 12px'}}>Verification audit history</h3>
+          <p style={{color:'var(--text-muted)',fontSize:12}}>Tenant-specific manager decisions and standing-check attestations. No identity images are included.</p>
+          <button type="button" className="btn btn-outline" onClick={fetchVerificationAudit}>Refresh audit</button>
+          <div style={{overflowX:'auto',marginTop:12}}><table style={{width:'100%',fontSize:12}}>
+            <thead><tr><th>Rider</th><th>Review status</th><th>Identity</th><th>DMT standing</th><th>Resubmission reason</th><th>Reviewed at</th></tr></thead>
+            <tbody>{auditRows.map((row,i)=><tr key={row.driverId+'-'+i}><td>{row.driverName}</td><td>{row.state}</td><td>{row.identityType}</td><td>{row.standingCheck==='manager_checked_external'?'Manager-attested':'Not checked'}</td><td>{row.resubmitReason?row.resubmitReason.replace(/_/g,' '):'—'}</td><td>{row.reviewedAt?new Date(row.reviewedAt).toLocaleString():'Not reviewed'}</td></tr>)}</tbody>
+          </table>{!auditRows.length&&<p style={{fontSize:13,color:'var(--text-muted)'}}>No manual reviews recorded.</p>}</div>
+        </section>}
+        {!verificationOnly && <>
+        {canReview && <DriverSupportInbox/>}
+        {canReview && <DriverCompensationPanel orders={orders}/>} 
         {/* 1. Register New Delivery Driver Form */}
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px' }}>
           <h3 style={{ margin: '0 0 14px', fontSize: '1rem', fontWeight: 800 }}>➕ Register New Fleet Driver</h3>
@@ -368,11 +777,11 @@ export default function DeliveryView() {
                       <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' }}>Assign Delivery Rider:</label>
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <select
-                          value={selectedDriver[ord.id] || ord.driverId || ''}
+                          value={selectedDriver[ord.id] ?? ord.driverId ?? ''}
                           onChange={(e) => setSelectedDriver({ ...selectedDriver, [ord.id]: e.target.value })}
                           style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'var(--bg-surface)', color: 'var(--text-main)', border: '1px solid var(--border-color)' }}
                         >
-                          <option value="">-- Select Driver --</option>
+                          <option value="">-- {ord.driverId?'Unassign / choose driver':'Select Driver'} --</option>
                           {activeDrivers.map(d => (
                             <option key={d.id} value={d.id}>
                               🛵 {d.name} ({d.phone}) — {d.status.toUpperCase()}
@@ -388,6 +797,81 @@ export default function DeliveryView() {
                           Assign Rider
                         </button>
                       </div>
+                      {canReview && Boolean(ord.driverId) && ['pending','preparing','ready'].includes(ord.status) &&
+                        (ord.diningType==='delivery'||ord.orderType==='delivery') && (
+                        <div className="driver-reassign-controls" role="group" aria-label={`Reassign order ${ord.id}`}>
+                          <label htmlFor={`reassign-reason-${ord.id}`}>Reason for reassignment (required)</label>
+                          <textarea id={`reassign-reason-${ord.id}`} value={reassignReason[ord.id]||''}
+                            maxLength={300} rows={2} onChange={event=>setReassignReason(prev=>({...prev,[ord.id]:event.target.value}))}
+                            placeholder="Why is this delivery being moved to a different rider?"/>
+                          <button type="button" className="btn btn-outline" disabled={Boolean(reassignBusy)||loading}
+                            onClick={()=>handleReassignDriver(ord)}>
+                            {reassignBusy===ord.id?'Reassigning…':'Confirm reassignment / unassign'}
+                          </button>
+                          <small>Only before pickup. Manager action is recorded for audit.</small>
+                        </div>
+                      )}
+                      {canReview && !ord.driverId &&
+                        activeTimedOffers.some(o=>o.orderId===ord.id && Number(o.expiresAt)>Date.now()) && (
+                        <div className="driver-reassign-controls">
+                          <strong>Individual offer active</strong>
+                          <span>Rider: {drivers.find(d=>d.id===activeTimedOffers.find(o=>o.orderId===ord.id)?.driverId)?.name||'Selected rider'}</span>
+                          <label htmlFor={`cancel-offer-${ord.id}`}>Reason for withdrawing offer</label>
+                          <textarea id={`cancel-offer-${ord.id}`} rows={2} maxLength={300} value={offerCancelReason[ord.id]||''}
+                            onChange={event=>setOfferCancelReason(prev=>({...prev,[ord.id]:event.target.value}))}
+                            placeholder="Why must this offer be withdrawn?"/>
+                          <button type="button" className="btn btn-outline" disabled={Boolean(offerBusy)}
+                            onClick={()=>cancelTimedOffer(ord.id)}>
+                            {offerBusy===ord.id?'Cancelling…':'Withdraw individual offer'}
+                          </button>
+                        </div>
+                      )}
+                      {canReview && !ord.driverId && ['pending','preparing','ready'].includes(ord.status) &&
+                        (ord.diningType==='delivery'||ord.orderType==='delivery') && (
+                        <button type="button" className="btn btn-outline" disabled={Boolean(offerBusy)||!selectedDriver[ord.id]}
+                          onClick={()=>handleTimedOffer(ord)}>
+                          {offerBusy===ord.id?'Issuing offer…':'Send 2-minute offer to selected rider'}
+                        </button>
+                      )}
+                      {['owner','manager'].includes(String(currentUser?.role||'').toLowerCase()) &&
+                        (ord.diningType==='delivery'||ord.orderType==='delivery') &&
+                        !ord.driverId && (
+                        <div style={{display:'flex',flexDirection:'column',gap:8,padding:10,borderRadius:10,background:'var(--bg-surface)',border:'1px solid var(--border-color)'}}>
+                          <button type="button" className="btn btn-secondary"
+                            onClick={()=>findNearbyRiders(ord.id)} disabled={nearbyLoading[ord.id]}
+                            style={{fontSize:12,alignSelf:'flex-start',padding:'7px 10px'}}>
+                            {nearbyLoading[ord.id]?'Finding verified riders…':'📍 Find nearby riders'}
+                          </button>
+                          {nearbyRiders[ord.id] && (
+                            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                              <div style={{fontSize:11,color:'var(--text-muted)'}}>
+                                {nearbyRiders[ord.id].estimatedRoadTimesAvailable
+                                  ? 'Estimated road travel to restaurant (not live traffic)'
+                                  : 'Straight-line proximity only — route ETA unavailable'}
+                              </div>
+                              {(nearbyRiders[ord.id].candidates||[]).length===0
+                                ? <span style={{fontSize:12,color:'var(--text-muted)'}}>No fresh, consented and available riders in range.</span>
+                                : nearbyRiders[ord.id].candidates.map(candidate=>(
+                                  <button key={candidate.driverId} type="button"
+                                    onClick={()=>setSelectedDriver(prev=>({...prev,[ord.id]:candidate.driverId}))}
+                                    aria-pressed={selectedDriver[ord.id]===candidate.driverId}
+                                    style={{
+                                      textAlign:'left',padding:9,borderRadius:8,
+                                      border:selectedDriver[ord.id]===candidate.driverId
+                                        ? '2px solid var(--brand)':'1px solid var(--border-color)',
+                                      background:'var(--bg-card)',color:'var(--text-main)',cursor:'pointer',fontSize:12
+                                    }}>
+                                    🛵 {drivers.find(d=>d.id===candidate.driverId)?.name||'Verified rider'}
+                                    {' · '}{candidate.roadTravelMinutes!=null
+                                      ? `${candidate.roadTravelMinutes} min by road`
+                                      : `${(candidate.distanceMeters/1000).toFixed(1)} km nearby`}
+                                    {' · '}GPS {Math.ceil(candidate.locationAgeMs/1000)}s old
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {assignedDrv && (
                         <a
                           href={waLink}
@@ -407,6 +891,8 @@ export default function DeliveryView() {
           </div>
         </div>
 
+        </>}
+        {manualPreview && <ProtectedRiderEvidenceViewer preview={manualPreview} onClose={()=>{setManualPreview(null);void fetchDrivers();}}/>}
       </div>
     </div>
   );

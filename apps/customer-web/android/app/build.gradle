@@ -1,0 +1,74 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "com.rstechnologies.gastrofood"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.rstechnologies.gastrofood"
+        manifestPlaceholders = [appLabel: "@string/app_name"]
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode (project.findProperty('foodStagingVersionCode')?.toString()?.toInteger() ?: 1)
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        // Never generate per-run signing keys for staging. Provision a persistent
+        // keystore through GitHub Actions secrets; no secret is kept in Git.
+        foodStaging {
+            storeFile file(System.getenv('FOOD_STAGING_KEYSTORE_PATH') ?: 'unconfigured-food-staging.jks')
+            storePassword System.getenv('FOOD_STAGING_STORE_PASSWORD') ?: ''
+            keyAlias System.getenv('FOOD_STAGING_KEY_ALIAS') ?: ''
+            keyPassword System.getenv('FOOD_STAGING_KEY_PASSWORD') ?: ''
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        staging {
+            // Define release first, before deriving this isolated testing variant.
+            initWith release
+            applicationIdSuffix '.staging'
+            versionNameSuffix '-staging'
+            signingConfig signingConfigs.foodStaging
+            manifestPlaceholders = [appLabel: "@string/food_staging_app_name"]
+            matchingFallbacks = ['release']
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

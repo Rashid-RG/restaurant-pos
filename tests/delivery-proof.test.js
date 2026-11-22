@@ -13,7 +13,7 @@ const driverToken = (id = 'proof_driver', tenant_id = 'default_tenant') => jwt.s
 const auth = token => ({ Authorization: `Bearer ${token}` });
 const staff = role => auth(jwt.sign({ id: role === 'cashier' ? 'user_cashier' : 'user_admin', role, tenant_id: 'default_tenant' }, process.env.JWT_SECRET));
 async function delivery(overrides = {}) {
-  const o = { id: crypto.randomUUID(), status: 'out_for_delivery', tenant_id: 'default_tenant', driverId: 'proof_driver', paymentMethod: 'cod', paymentStatus: 'pending', ...overrides };
+  const o = { id: crypto.randomUUID(), status: 'arrived', tenant_id: 'default_tenant', driverId: 'proof_driver', paymentMethod: 'cod', paymentStatus: 'pending', ...overrides };
   await dbRun('INSERT INTO orders (id,status,tenant_id,driverId,paymentMethod,paymentStatus,diningType,total,source,timestamp) VALUES (?,?,?,?,?,?,?,?,?,?)', [o.id,o.status,o.tenant_id,o.driverId,o.paymentMethod,o.paymentStatus,'delivery',100,'online',Date.now()]);
   return o;
 }
@@ -33,13 +33,21 @@ describe('Delivery evidence and completion', () => {
     expect((await request(app).post('/api/public/driver/status').send({ orderId: o.id, status: 'delivered' })).status).toBe(401);
     expect((await complete(o, {}, driverToken('other_driver'))).status).toBe(404);
     expect((await complete(o, {}, driverToken('foreign_driver', 'tenant_B'))).status).toBe(404);
-    expect((await dbGet('SELECT status FROM orders WHERE id=?', [o.id])).status).toBe('out_for_delivery');
+    expect((await dbGet('SELECT status FROM orders WHERE id=?', [o.id])).status).toBe('arrived');
+  });
+  it('refuses to skip pickup or confirmed arrival even with valid proof', async () => {
+    for (const status of ['ready', 'picked_up', 'out_for_delivery']) {
+      const o=await delivery({status});
+      expect((await complete(o)).status).toBe(409);
+      expect((await dbGet('SELECT status FROM orders WHERE id=?',[o.id])).status).toBe(status);
+      expect(await dbGet('SELECT orderId FROM delivery_proofs WHERE orderId=?',[o.id])).toBeUndefined();
+    }
   });
   it('does not complete without evidence or cash confirmation', async () => {
     const o = await delivery();
     expect((await complete(o, { signature: null })).status).toBe(400);
     expect((await complete(o, { cashReceived: false })).status).toBe(400);
-    expect((await dbGet('SELECT status,paymentStatus FROM orders WHERE id=?', [o.id]))).toEqual({ status: 'out_for_delivery', paymentStatus: 'pending' });
+    expect((await dbGet('SELECT status,paymentStatus FROM orders WHERE id=?', [o.id]))).toEqual({ status: 'arrived', paymentStatus: 'pending' });
     expect(await dbGet('SELECT orderId FROM delivery_proofs WHERE orderId=?', [o.id])).toBeUndefined();
   });
   it.each([
@@ -50,7 +58,7 @@ describe('Delivery evidence and completion', () => {
   ])('rejects unsafe or oversized image evidence (%#)', async image => {
     const o = await delivery();
     expect((await complete(o, { signature: image })).status).toBe(400);
-    expect((await dbGet('SELECT status FROM orders WHERE id=?', [o.id])).status).toBe('out_for_delivery');
+    expect((await dbGet('SELECT status FROM orders WHERE id=?', [o.id])).status).toBe('arrived');
   });
   it('does not accept kitchen, terminal or unverified payment states', async () => {
     for (const status of ['pending', 'preparing', 'ready', 'cancelled', 'rejected']) {
@@ -70,10 +78,12 @@ describe('Delivery evidence and completion', () => {
     expect(saved.driverId).toBe('proof_driver'); expect(saved.cashReceived).toBe(1);
     const settled = await dbGet('SELECT status,paymentStatus,invoiceNumber FROM orders WHERE id=?', [o.id]);
     expect(settled.status).toBe('delivered'); expect(settled.paymentStatus).toBe('paid'); expect(settled.invoiceNumber).toBeGreaterThan(0);
+    const originalProof=await dbGet('SELECT * FROM delivery_proofs WHERE orderId=?',[o.id]);
     const before = await dbGet('SELECT * FROM invoice_counter');
     expect((await complete(o, { signature: null })).body.alreadySaved).toBe(true);
     expect(await dbGet('SELECT * FROM invoice_counter')).toEqual(before);
     expect((await dbGet('SELECT signature FROM delivery_proofs WHERE orderId=?', [o.id])).signature).toBe(png);
+    expect(await dbGet('SELECT * FROM delivery_proofs WHERE orderId=?',[o.id])).toEqual(originalProof);
   });
   it('does not recollect prepaid cash at delivery', async () => {
     const o = await delivery();
@@ -109,7 +119,7 @@ describe('Delivery evidence and completion', () => {
     await dbRun(`CREATE TRIGGER fail_delivery_settlement BEFORE UPDATE OF paymentStatus ON orders WHEN NEW.id = '${o.id}' BEGIN SELECT RAISE(ABORT, 'simulated settlement failure'); END`);
     try {
       expect((await complete(o)).status).toBe(500);
-      expect((await dbGet('SELECT status,paymentStatus FROM orders WHERE id=?', [o.id]))).toEqual({ status: 'out_for_delivery', paymentStatus: 'pending' });
+      expect((await dbGet('SELECT status,paymentStatus FROM orders WHERE id=?', [o.id]))).toEqual({ status: 'arrived', paymentStatus: 'pending' });
       expect(await dbGet('SELECT orderId FROM delivery_proofs WHERE orderId=?', [o.id])).toBeUndefined();
     } finally { await dbRun('DROP TRIGGER fail_delivery_settlement'); }
     expect((await complete(o)).status).toBe(200);

@@ -1,0 +1,559 @@
+/* Modern food-ordering behaviors: fixed cart, merchant clarity and honest availability. */
+.customer-premium .customer-fixed-cart-action{
+  position:fixed;z-index:105;
+  left:max(14px,env(safe-area-inset-left));
+  bottom:calc(var(--bottom-bar,64px) + env(safe-area-inset-bottom,0px) + 15px);
+  pointer-events:none
+}
+.customer-premium .customer-fixed-cart-action button{
+  pointer-events:auto;min-height:49px;display:flex;align-items:center;gap:10px;
+  color:white;border:0;border-radius:18px;padding:11px 17px;
+  background:linear-gradient(110deg,#127c50,#045f3d);
+  box-shadow:0 12px 32px rgba(5,84,50,.23);
+  font:inherit;font-size:13px;font-weight:850;cursor:pointer
+}
+.customer-premium .customer-fixed-cart-action strong{
+  color:#09633d;background:white;border-radius:10px;padding:3px 9px;min-width:22px;text-align:center
+}
+.customer-premium .customer-fixed-cart-action button:focus-visible{outline:3px solid #ffbb6c;outline-offset:3px}
+.customer-premium .customer-checkout-restaurant{
+  display:flex;align-items:center;gap:12px;
+  padding:16px;margin-bottom:13px;
+  background:linear-gradient(110deg,#eef8eb,#fff);
+  border:1px solid #d1e5d3;border-radius:18px;box-shadow:0 9px 25px rgba(23,80,43,.05)
+}
+.customer-premium .customer-checkout-restaurant-icon{
+  flex-shrink:0;display:grid;place-items:center;width:47px;height:47px;
+  background:#d6eee0;color:#116c4a;border-radius:14px
+}
+.customer-premium .customer-checkout-restaurant-details{flex:1;min-width:0;display:grid;gap:4px}
+.customer-premium .customer-checkout-restaurant-details small,.customer-premium .customer-bill-merchant>span{
+  font-size:10px;letter-spacing:.13em;font-weight:850;color:#608171
+}
+.customer-premium .customer-checkout-restaurant-details strong{font-size:17px;line-height:1.35;color:#16452c;overflow-wrap:anywhere}
+.customer-premium .customer-checkout-restaurant-details span{font-size:11px;line-height:1.5;color:#667b6c;overflow-wrap:anywhere}
+.customer-premium .customer-checkout-restaurant-details .customer-store-open{color:#197449;font-weight:800}
+.customer-premium .customer-checkout-restaurant-details .customer-store-closed{color:#aa5e31;font-weight:800}
+.customer-premium .customer-change-store{
+  flex-shrink:0;border:1px solid #bbd9c8;border-radius:12px;padding:10px 11px;
+  color:#166c48;background:#fff;font-size:12px;font-weight:800;cursor:pointer
+}
+.customer-premium .customer-checkout-closed-notice,.customer-premium .customer-cart-closed-message{
+  display:flex;align-items:center;gap:10px;line-height:1.5;
+  background:#fff5e9;color:#92572e;border:1px solid #f0d5ad;
+  border-radius:12px;padding:13px;margin-bottom:14px;font-size:12px;font-weight:650
+}
+.customer-premium .customer-cart-store-label{
+  color:#63806d;font-size:11px;margin:4px 0 0;line-height:1.4
+}
+.customer-premium .customer-cart-store-label strong{color:#195c3b}
+.customer-premium .customer-bill-merchant{
+  display:grid;gap:5px;padding:13px 14px;border-radius:13px;
+  background:#eff7ee;border:1px solid #d5e9d8;margin-bottom:16px
+}
+.customer-premium .customer-bill-merchant strong{font-size:17px;color:#134d32}
+.customer-premium .customer-bill-merchant small{color:#637869;font-size:11px}
+.customer-premium .customer-bill-brand{padding:12px 4px 0;margin-top:5px;text-align:center;color:#667e6b;font-size:11px;border-top:1px solid #dfece1}
+.customer-premium .customer-bill-brand strong{color:#116c4a}
+.customer-premium .customer-receipt-brand{display:grid;gap:5px;padding:12px 0 15px;border-bottom:1px dashed #d1dfd3;margin-bottom:15px}
+.customer-premium .customer-receipt-brand strong{color:#145538;font-size:19px}
+.customer-premium .customer-receipt-brand small{color:#718171;line-height:1.4;font-size:12px}
+.customer-premium .customer-receipt-powered{
+  display:grid;gap:4px;justify-items:center;text-align:center;
+  color:#687a6c;padding:14px 0;margin-top:14px;border-top:1px dashed #dae8dc;font-size:12px
+}
+.customer-premium .customer-receipt-powered strong{color:#0a7146}
+.customer-premium .customer-receipt-powered span{font-size:10px}
+.customer-premium .customer-print-receipt{
+  display:block;margin:12px auto 0;padding:11px 17px;min-height:44px;
+  border:1px solid #b7d9c4;border-radius:12px;background:#edf8ee;
+  color:#155d3f;font-size:12px;font-weight:850;cursor:pointer
+}
+@media(min-width:768px){
+ .customer-premium .customer-fixed-cart-action{
+   left:calc(50% - min(48vw,300px));bottom:calc(var(--bottom-bar,68px) + 52px)
+ }
+}
+@media(max-width:380px){
+ .customer-premium .customer-checkout-restaurant{padding:11px;gap:8px}
+ .customer-premium .customer-checkout-restaurant-icon{width:39px;height:39px}
+ .customer-premium .customer-checkout-restaurant-details strong{font-size:14px}
+ .customer-premium .customer-change-store{padding:9px 6px}
+ .customer-premium .customer-fixed-cart-action{bottom:calc(var(--bottom-bar,64px) + env(safe-area-inset-bottom,0px) + 10px)}
+}
+@media print{
+ @page{size:auto;margin:12mm}
+ body{background:white!important}
+ body *{visibility:hidden!important}
+ .customer-premium .customer-order-receipt,.customer-premium .customer-order-receipt *{
+   visibility:visible!important;color:#111!important;box-shadow:none!important
+ }
+ .customer-premium .customer-order-receipt{
+   position:absolute!important;top:0!important;left:0!important;width:100%!important;
+   margin:0!important;padding:0!important;border:0!important;background:white!important
+ }
+ .customer-premium .customer-order-receipt .customer-print-receipt,
+ .customer-premium .customer-order-receipt button,
+ .customer-premium .customer-order-receipt a{display:none!important}
+}
+
+.customer-premium .customer-smart-item-media{
+  width:100%;height:84px;background:linear-gradient(130deg,#e9f5e7,#f8faf2);
+  border-radius:12px;display:grid;place-items:center;overflow:hidden
+}
+.customer-premium .customer-smart-item-media img{width:100%;height:100%;object-fit:cover}
+.customer-premium .customer-smart-item-media span{font-size:31px}
+
+
+/* GastroFood menu: verified availability and mobile-first item personalization */
+.gf-menu-empty {
+  margin:20px 14px;
+  padding:34px 20px;
+  text-align:center;
+  background:#fff;
+  border:1px solid #dfede6;
+  border-radius:22px;
+  color:#204638;
+}
+.gf-menu-empty h3 {font-size:1.17rem;font-weight:800;margin:0 0 7px}
+.gf-menu-empty p {font-size:.88rem;line-height:1.55;color:#64776f;margin:0 auto 16px}
+.gf-menu-empty button {
+  min-height:44px;
+  padding:10px 22px;
+  border:1px solid #b8dfce;
+  background:#eff9f4;
+  color:#07684b;
+  font-weight:800;
+  border-radius:12px;
+}
+.gf-menu-customizer-backdrop {
+  position:fixed;
+  inset:0;
+  z-index:3200;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+  background:rgba(10,25,20,.66);
+  -webkit-backdrop-filter:blur(7px);
+  backdrop-filter:blur(7px);
+}
+.gf-menu-customizer-sheet {
+  width:min(100%,520px);
+  max-height:calc(100dvh - 32px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  background:#fff !important;
+  color:#183b2f;
+  border-radius:24px !important;
+  border:1px solid #e0ede6 !important;
+  padding:23px 22px max(22px,env(safe-area-inset-bottom,0px)) !important;
+  box-shadow:0 26px 90px rgba(10,38,25,.25);
+}
+.gf-menu-modifier-option {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  min-height:48px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid #e2ece7;
+  background:#fff;
+  color:#1e3c2f;
+  cursor:pointer;
+  font-size:.86rem;
+  line-height:1.3;
+}
+.gf-menu-modifier-option > div {min-width:0}
+.gf-menu-modifier-option input {min-width:20px;min-height:20px;accent-color:#087653}
+.gf-menu-modifier-option:focus-within {
+  border-color:#087653;
+  box-shadow:0 0 0 2px rgba(8,118,83,.12);
+}
+.gf-menu-customizer-sheet .qty-control button {
+  min-width:44px;
+  min-height:44px;
+  border-radius:12px;
+}
+.gf-menu-customizer-sheet .qty-control button:disabled {opacity:.4;cursor:not-allowed}
+.gf-menu-customizer-sheet textarea {
+  font-size:16px;
+  line-height:1.45;
+  min-height:80px;
+  border-radius:12px;
+}
+.gf-menu-customizer-sheet > button:last-child {
+  min-height:50px;
+  border-radius:13px;
+  font-weight:800;
+}
+@media(max-width:540px) {
+  .gf-menu-customizer-backdrop {align-items:flex-end;padding:0}
+  .gf-menu-customizer-sheet {
+    width:100%;
+    max-height:94dvh;
+    border-radius:25px 25px 0 0 !important;
+    padding:22px 18px max(22px,env(safe-area-inset-bottom,0px)) !important;
+  }
+}
+@media(prefers-reduced-motion:reduce) {
+  .gf-menu-customizer-sheet {transition:none!important;animation:none!important}
+}
+
+
+/* Refined GastroFood cart sheet: explicit pricing and touch-friendly controls. */
+.customer-premium .gf-modern-cart-sheet {
+  border-radius:24px 24px 0 0;
+  box-shadow:0 -20px 70px rgba(12,38,27,.19);
+}
+.customer-premium .gf-modern-cart-item {
+  display:flex;
+  gap:12px;
+  align-items:center;
+  padding:15px 0;
+  border-bottom:1px solid #e2ede6;
+  min-width:0;
+}
+.customer-premium .gf-modern-cart-item .cart-item-info {flex:1;min-width:0}
+.customer-premium .gf-modern-cart-item .cart-item-name {
+  font-weight:800;
+  line-height:1.35;
+  overflow-wrap:anywhere;
+}
+.customer-premium .gf-modern-cart-item .cart-item-price {
+  color:#087653;
+  font-weight:750;
+  font-variant-numeric:tabular-nums;
+  line-height:1.55;
+}
+.customer-premium .gf-modern-cart-actions {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:6px;
+  flex:0 0 auto;
+}
+.customer-premium .gf-modern-cart-actions .qty-control button {
+  min-width:42px;min-height:42px;
+}
+.customer-premium .gf-modern-cart-actions .qty-control button:disabled {
+  opacity:.42;cursor:not-allowed;
+}
+.customer-premium .gf-modern-cart-remove {
+  min-height:31px;
+  padding:4px 10px;
+  border:0;
+  background:transparent;
+  color:#9b3333;
+  font-size:12px;
+  font-weight:750;
+  text-decoration:underline;
+  cursor:pointer;
+}
+.customer-premium .gf-modern-cart-remove:focus-visible {
+  outline:2px solid #087653;outline-offset:2px;border-radius:8px;
+}
+.customer-premium .gf-modern-cart-estimate {
+  font-size:.75rem;
+  color:var(--text-muted);
+  line-height:1.5;
+  margin:10px 0 6px;
+}
+.customer-premium .gf-modern-cart-sheet .cart-empty span {
+  font-size:.83rem;
+  display:block;
+  margin-top:8px;
+  line-height:1.5;
+  color:var(--text-muted);
+}
+@media(max-width:420px) {
+  .customer-premium .gf-modern-cart-item {flex-wrap:wrap}
+  .customer-premium .gf-modern-cart-actions {
+    flex-direction:row;justify-content:space-between;
+    width:100%;padding-left:58px;
+  }
+}
+
+
+/* GastroFood mobile usability baseline: fixed bars, safe areas and keyboard sizes.
+   Presentation only; intentionally does not change order state or pricing. */
+.customer-premium .bottom-nav{
+  padding-left:env(safe-area-inset-left,0px);
+  padding-right:env(safe-area-inset-right,0px);
+}
+.customer-premium .bottom-nav .nav-item{
+  min-width:0;
+  min-height:44px;
+  overflow-wrap:anywhere;
+}
+.customer-premium .bottom-nav .nav-item:focus-visible,
+.customer-premium .customer-fixed-cart-action button:focus-visible,
+.customer-premium .gf-modern-cart-sheet button:focus-visible{
+  outline:3px solid #e77932;
+  outline-offset:2px;
+}
+.customer-premium .gf-modern-cart-sheet{
+  max-height:min(85dvh,calc(100dvh - env(safe-area-inset-top,0px) - 10px));
+}
+.customer-premium .gf-modern-cart-sheet .cart-body{
+  min-height:0;
+  overscroll-behavior:contain;
+}
+@media(max-width:420px){
+  .customer-premium .customer-fixed-cart-action{
+    left:max(12px,env(safe-area-inset-left,0px));
+    right:max(12px,env(safe-area-inset-right,0px));
+    bottom:calc(var(--bottom-bar,64px) + env(safe-area-inset-bottom,0px) + 12px);
+    display:flex;
+    justify-content:center;
+  }
+  .customer-premium .customer-fixed-cart-action button{
+    min-height:48px;
+    justify-content:center;
+    max-width:100%;
+    min-width:min(250px,100%);
+  }
+  .customer-premium .gf-modern-cart-sheet .cart-footer{
+    padding-bottom:max(12px,env(safe-area-inset-bottom,0px));
+  }
+  .customer-premium .bottom-nav .nav-item{
+    font-size:clamp(.58rem,2.45vw,.7rem);
+    letter-spacing:0;
+    padding-inline:2px;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .customer-premium .bottom-nav .nav-item,
+  .customer-premium .bottom-nav .nav-icon,
+  .customer-premium .customer-fixed-cart-action button,
+  .customer-premium .gf-modern-cart-sheet{
+    animation:none!important;
+    transition:none!important;
+  }
+}
+
+
+/* GastroFood map-first delivery tracking: real data, not synthetic movement. */
+.customer-premium .gf-track-map-first{
+  margin:12px 0 18px;
+  border:1px solid #e4e8e2;
+  border-radius:24px;
+  padding:14px;
+  background:#fff;
+  box-shadow:0 12px 34px rgba(22,58,39,.075);
+  min-width:0;
+}
+.customer-premium .gf-track-map-first-heading{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;margin:0 0 12px;
+}
+.customer-premium .gf-track-map-first-heading h2{
+  color:#173d2b;font-size:1.18rem;line-height:1.3;margin:3px 0 0;font-weight:850;
+}
+.customer-premium .gf-track-map-eyebrow{
+  color:#657f72;font-size:.63rem;font-weight:850;letter-spacing:.13em;
+}
+.customer-premium .gf-track-map-eta{
+  display:inline-flex;align-items:center;min-height:34px;
+  padding:7px 11px;border-radius:999px;background:#eaf5ef;
+  color:#0e6544;font-size:.78rem;font-weight:800;
+}
+.customer-premium .gf-track-map-surface{
+  position:relative;overflow:hidden;border-radius:17px;isolation:isolate;
+  background:#edf1eb;
+}
+.customer-premium .gf-track-map-surface .customer-delivery-map{
+  margin:0;
+}
+.customer-premium .gf-track-map-surface .tm-map{
+  height:clamp(260px,46dvh,440px);
+  min-height:260px;
+}
+.customer-premium .gf-track-gps-status{
+  position:relative;
+  z-index:2;
+  padding:9px 12px;
+  background:#f2f7f2;
+  border-top:1px solid #dce8de;
+  font-size:.75rem;color:#345b47;font-weight:700;line-height:1.45;
+  overflow-wrap:anywhere;
+}
+.customer-premium .gf-track-road-unavailable{
+  margin:12px 3px 0;font-size:.77rem;color:#627369;line-height:1.5;
+}
+@media(max-width:420px){
+  .customer-premium .gf-track-map-first{padding:10px;border-radius:19px}
+  .customer-premium .gf-track-map-first-heading{align-items:flex-start;gap:8px}
+  .customer-premium .gf-track-map-first-heading h2{font-size:1.04rem}
+  .customer-premium .gf-track-map-eta{font-size:.7rem}
+  .customer-premium .gf-track-map-surface .tm-map{height:38dvh;min-height:240px}
+}
+
+
+/* Accessible order-status bottom disclosure. Stages come exclusively from server status. */
+.customer-premium .gf-tracking-journey-sheet{
+  border:1px solid #dce8dc;background:#fff;border-radius:22px;
+  margin:14px 0;box-shadow:0 8px 26px rgba(13,60,40,.065);overflow:hidden;
+}
+.customer-premium .gf-tracking-journey-summary{
+  display:flex;align-items:center;gap:12px;position:relative;
+  min-height:76px;padding:19px 18px 14px;cursor:pointer;list-style:none;
+}
+.customer-premium .gf-tracking-journey-summary::-webkit-details-marker{display:none}
+.customer-premium .gf-tracking-journey-summary:focus-visible{outline:3px solid #e77932;outline-offset:-4px}
+.customer-premium .gf-tracking-journey-grip{
+  width:31px;height:5px;border-radius:8px;background:#b8c9bd;
+  position:absolute;top:7px;left:calc(50% - 15px);
+}
+.customer-premium .gf-tracking-journey-heading{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}
+.customer-premium .gf-tracking-journey-heading strong{font-size:1rem;color:#183d2a;font-weight:850}
+.customer-premium .gf-tracking-journey-heading small{font-size:.78rem;color:#65786b;line-height:1.45;overflow-wrap:anywhere}
+.customer-premium .gf-tracking-journey-expand{
+  display:grid;place-items:center;font-size:1.35rem;font-weight:800;
+  width:34px;height:34px;border-radius:12px;background:#eaf5ef;color:#196b48;
+  transition:transform .18s ease;
+}
+.customer-premium .gf-tracking-journey-sheet[open] .gf-tracking-journey-expand{transform:rotate(180deg)}
+.customer-premium .gf-tracking-journey-steps{list-style:none;margin:0;padding:6px 18px 14px}
+.customer-premium .gf-tracking-journey-steps li{display:flex;align-items:flex-start;gap:12px;position:relative;min-height:60px;padding:6px 0 12px}
+.customer-premium .gf-tracking-journey-steps li:not(:last-child):before{
+  content:"";position:absolute;left:15px;top:37px;bottom:-7px;width:2px;background:#e4e9e4;
+}
+.customer-premium .gf-tracking-journey-steps li.completed:not(:last-child):before{background:#1d986b}
+.customer-premium .gf-tracking-step-dot{
+  width:32px;height:32px;flex:0 0 32px;border-radius:50%;
+  display:grid;place-items:center;font-weight:800;font-size:.78rem;
+  background:#f0f2f0;color:#728176;border:1px solid #dfe6e0;
+}
+.customer-premium li.completed .gf-tracking-step-dot{background:#15865d;color:#fff;border-color:#15865d}
+.customer-premium li.current .gf-tracking-step-dot{background:#fff0e6;color:#aa4c1d;border:2px solid #eb8543}
+.customer-premium .gf-tracking-step-content{display:flex;flex-direction:column;flex:1;gap:4px;min-width:0}
+.customer-premium .gf-tracking-step-content strong{font-size:.86rem;color:#254433;line-height:1.4}
+.customer-premium .gf-tracking-step-content small{font-size:.74rem;color:#68776f;line-height:1.5}
+.customer-premium .gf-tracking-step-now{
+  font-size:.68rem;font-weight:800;background:#fff0e6;color:#925019;
+  padding:5px 8px;border-radius:999px;flex-shrink:0;
+}
+.customer-premium .gf-tracking-journey-note{
+  margin:0 18px 18px;border-top:1px solid #edf0ec;padding-top:12px;
+  color:#68786c;font-size:.75rem;line-height:1.55;
+}
+@media(max-width:420px){
+  .customer-premium .gf-tracking-journey-summary{padding-inline:14px}
+  .customer-premium .gf-tracking-journey-steps{padding-inline:14px}
+  .customer-premium .gf-tracking-step-now{font-size:.61rem;padding:4px 6px}
+}
+@media(prefers-reduced-motion:reduce){
+  .customer-premium .gf-tracking-journey-expand{transition:none}
+}
+
+
+/* One contact surface for the actual restaurant and confirmed assigned rider. */
+.customer-premium .gf-tracking-contact-card{
+  margin:14px 0;background:#fff;border:1px solid #dce9df;
+  border-radius:22px;padding:17px;box-shadow:0 9px 26px rgba(20,64,42,.065);
+}
+.customer-premium .gf-tracking-contact-heading{
+  display:flex;justify-content:space-between;align-items:center;
+  gap:12px;margin-bottom:14px;color:#194934;
+}
+.customer-premium .gf-tracking-contact-heading h2{
+  margin:3px 0 0;font-size:1.06rem;line-height:1.35;color:#193d2b;
+}
+.customer-premium .gf-tracking-contact-overline{
+  font-size:.63rem;font-weight:850;letter-spacing:.1em;color:#667d70;
+}
+.customer-premium .gf-tracking-rider-contact,
+.customer-premium .gf-tracking-store-contact{
+  display:flex;align-items:center;flex-wrap:wrap;gap:12px;
+  padding:14px 0;border-top:1px solid #e9efea;
+}
+.customer-premium .gf-tracking-contact-avatar{
+  width:44px;height:44px;flex:0 0 44px;display:grid;place-items:center;
+  font-size:1.4rem;border-radius:14px;background:#e6f5ee;
+}
+.customer-premium .gf-tracking-contact-identity{flex:1;min-width:140px;display:grid;gap:4px}
+.customer-premium .gf-tracking-contact-identity strong{font-size:.89rem;color:#1f4330;overflow-wrap:anywhere}
+.customer-premium .gf-tracking-contact-identity small{font-size:.74rem;line-height:1.5;color:#667a6c;overflow-wrap:anywhere}
+.customer-premium .gf-tracking-contact-buttons{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.customer-premium .gf-tracking-contact-buttons a,
+.customer-premium .gf-tracking-contact-buttons button{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:44px;padding:10px 13px;border-radius:13px;
+  font:inherit;font-size:.76rem;font-weight:800;text-decoration:none;
+  cursor:pointer;color:#126b49;background:#ecf8f0;border:1px solid #c9e9d4;
+}
+.customer-premium .gf-tracking-contact-buttons button{background:#16764d;color:#fff}
+.customer-premium .gf-tracking-contact-buttons small{color:#647469;font-size:.75rem}
+.customer-premium .gf-tracking-contact-note{font-size:.75rem;color:#6c796e;line-height:1.5;margin:2px 0 12px}
+.customer-premium .gf-tracking-share-button{
+  background:transparent;border:1px solid #d3e1d5;color:#33684d;
+  font:inherit;font-size:.78rem;font-weight:800;padding:10px 13px;
+  border-radius:12px;min-height:44px;cursor:pointer;
+}
+.customer-premium .gf-tracking-contact-card :is(a,button):focus-visible{
+  outline:3px solid #e77932;outline-offset:2px;
+}
+@media(max-width:420px){
+  .customer-premium .gf-tracking-contact-card{padding:13px;border-radius:19px}
+  .customer-premium .gf-tracking-contact-buttons{width:100%}
+  .customer-premium .gf-tracking-contact-buttons :is(a,button){flex:1;min-width:0}
+}
+
+
+/* Menu customizer stock messaging, separated from server-authoritative checkout. */
+.customer-premium .gf-menu-remaining-stock{
+  font-size:.78rem;font-weight:750;color:#986018;
+  background:#fff6e7;border:1px solid #f2deba;
+  border-radius:10px;padding:9px 11px;margin:9px 0;
+}
+
+
+/* Checkout never presents an unverified delivery fee as an accepted quote. */
+.customer-premium .gf-checkout-delivery-quote-status{
+  display:flex;flex-direction:column;gap:5px;
+  padding:11px 12px;border-radius:11px;
+  border:1px solid #edd4ae;background:#fff7eb;
+  color:#845720;line-height:1.5;font-size:.78rem;
+}
+.customer-premium .gf-checkout-delivery-quote-status strong{font-weight:800}
+.customer-premium .gf-checkout-delivery-quote-status span{color:#755e3f}
+
+
+/* One-tap customer GPS opt-in, available directly from restaurant discovery. */
+.customer-premium .gf-discovery-use-gps{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:44px;padding:10px 13px;flex:0 0 auto;
+  border:1px solid #b8ddc7;border-radius:13px;background:#eaf8ef;color:#136644;
+  font:inherit;font-size:.79rem;font-weight:800;cursor:pointer;
+}
+.customer-premium .gf-discovery-use-gps:disabled{opacity:.65;cursor:progress}
+.customer-premium .gf-discovery-use-gps:focus-visible{outline:3px solid #e78a47;outline-offset:2px}
+@media(max-width:425px){
+  .customer-premium .restaurants-location-row{gap:8px;flex-wrap:wrap}
+  .customer-premium .gf-discovery-use-gps{width:100%}
+}
+
+.customer-premium .customer-fixed-cart-action button {
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 50px;
+}
+.cart-shortcut-label { display: flex; align-items: center; gap: 6px; }
+.cart-shortcut-label b { border-radius: 12px; padding: 2px 7px; background: rgba(0,0,0,.2); }
+.cart-shortcut-price { display: grid; text-align: end; font-variant-numeric: tabular-nums; }
+.cart-shortcut-price small { font-size: .7rem; font-weight: 500; }
+.ordering-help { max-width: 44rem; margin: auto; padding: 1rem 1rem 6rem; color: var(--text-1); }
+.ordering-help section { border-top: 1px solid var(--border-color); padding: 1rem 0; }
+.ordering-help h2 { font-size: 1.1rem; margin: 0 0 .35rem; }
+.ordering-help p { line-height: 1.55; }
+.ordering-help footer { margin-top: 1rem; color: var(--text-muted); }
+
+.checkout-review-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0 16px; }
+.checkout-review-summary h2 { margin:0; font-size:1.55rem; }
+.checkout-review-summary strong { display:block; font-size:1.25rem; color:var(--brand); }
+.checkout-review-summary div:last-child { text-align:end; }
+
+.checkout-options summary { font-size:1rem; font-weight:700; cursor:pointer; }
+.checkout-options[open] summary { margin-bottom:12px; }

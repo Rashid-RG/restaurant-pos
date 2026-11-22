@@ -12,13 +12,14 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import path from 'path';
 import os from 'os';
 import { buildEscPosReceipt } from '../lib/printer.js';
+import { testCheckoutProof } from './checkout-proof-fixture.js';
 import { normalizePickMeOrder, normalizeUberEatsOrder } from '../lib/aggregators.js';
 
 const TMP_DB = path.join(os.tmpdir(), `gastroflow_ent_${Date.now()}_${Math.random().toString(36).slice(2)}.db`);
 process.env.DATABASE_FILE = TMP_DB;
 process.env.JWT_SECRET = 'test_jwt_secret_enterprise';
 
-const { app, dbReady } = await import('../server.js');
+const { app, dbReady, dbRun } = await import('../server.js');
 const request = (await import('supertest')).default;
 
 beforeAll(async () => {
@@ -101,7 +102,7 @@ describe('Offline Sales Bulk Sync & Deduplication', () => {
     const offlineId = `off_${Date.now()}`;
     const menu = await request(app).get('/api/public/menu');
     const item = menu.body.items[0];
-    const quote = await request(app).post('/api/public/orders').send({ items: [{menuItemId: item.id, quantity: 1}], orderType: 'takeaway', customerName: 'Offline Tester', customerPhone: '0770000000' });
+    const quote = await request(app).post('/api/public/orders').send({ checkoutProof: await testCheckoutProof(dbRun,'default_tenant','0770000000'), items: [{menuItemId: item.id, quantity: 1}], orderType: 'takeaway', customerName: 'Offline Tester', customerPhone: '0770000000' });
     const payload = {
       orders: [
         { offlineId, orderType: 'takeaway', items: [{ menuItemId: item.id, quantity: 1 }], total: quote.body.total, paymentMethod: 'cash', createdAt: Date.now() }

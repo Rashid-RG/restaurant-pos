@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { db, seedDatabase } from '../database/db';
+import { isExpiredStaffSession, restoreStaffSession } from '../utils/staff-session';
+import {revokeStagingInstallationOnLogout} from '../utils/staging-fcm-enrollment';
 
 const DB_VERSION = 1;
 
@@ -30,21 +32,10 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gastroflow_theme') === 'dark');
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('gastroflow_user');
-    const user = saved ? JSON.parse(saved) : null;
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const targetTenant = params.get('tenant') || params.get('tenantId');
-      if (user && targetTenant && user.tenant_id && user.tenant_id !== targetTenant) {
-        // If visiting a store-specific POS URL while logged into another store, clear old session to prompt login
-        localStorage.removeItem('gastroflow_token');
-        localStorage.removeItem('gastroflow_user');
-        return null;
-      }
-    } catch (_) {}
-    return user;
-  });
+  const [currentUser, setCurrentUser] = useState(() => restoreStaffSession(localStorage));
+  const [sessionChecking, setSessionChecking] = useState(true);
+  // Do not erase a valid session merely because a bookmarked tenant URL is stale:
+  // use the server-authenticated user as the authority and update the URL after validation.
   const [activeShift, setActiveShift] = useState(null);
   const [tenantLock, setTenantLock] = useState(null); // null | { status: 'suspended' | 'deleted', storeId?: string, storeName?: string, message?: string }
 
@@ -72,17 +63,72 @@ export const POSProvider = ({ children }) => {
     return () => window.removeEventListener('gastroflow_auth_error', handleGlobalAuthError);
   }, [currentUser]);
 
-  // Refresh server-owned capabilities for saved sessions after an upgrade.
+  // Recover a cached staff session without treating a normal page reload as
+  // logout. Access tokens last 12 hours; an HttpOnly refresh cookie can renew
+  // them for a limited period without exposing a second token to JavaScript.
+  // Permission errors and temporary network outages must not erase login.
   useEffect(() => {
-    const token = localStorage.getItem('gastroflow_token');
-    if (!token) return;
-    let cancelled = false;
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then(async response => { if (!response.ok) return; const data = await response.json();
-        if (!cancelled && data.user) { setCurrentUser(data.user); localStorage.setItem('gastroflow_user', JSON.stringify(data.user)); }
-      }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [currentUser?.id]);
+    let cancelled=false;
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),15000);
+    const originalToken=localStorage.getItem('gastroflow_token');
+    const explicitlySignedOut=localStorage.getItem('gastroflow_signed_out')==='1';
+    const params=new URLSearchParams(window.location.search);
+    const selectedTenant=params.get('tenant')||params.get('tenantId');
+    const tenantHeaders=selectedTenant?{'X-Expected-Tenant-Id':selectedTenant}:{};
+    const installUser=(user,token)=>{
+      if(cancelled)return;
+      if(token)localStorage.setItem('gastroflow_token',token);
+      localStorage.setItem('gastroflow_user',JSON.stringify(user));
+      setCurrentUser(user);
+      if(!selectedTenant&&user.tenant_id){
+        try{
+          const url=new URL(window.location.href);
+          url.searchParams.set('tenant',user.tenant_id);
+          window.history.replaceState({},'',url.toString());
+        }catch{}
+      }
+    };
+    const clearInvalid=()=>{
+      if(cancelled)return;
+      localStorage.removeItem('gastroflow_token');
+      localStorage.removeItem('gastroflow_user');
+      setCurrentUser(null);
+    };
+    const renew=async()=>{
+      const response=await fetch('/api/auth/refresh',{
+        method:'POST',credentials:'same-origin',
+        headers:tenantHeaders,signal:controller.signal,cache:'no-store'
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(cancelled)return;
+      if(response.ok&&payload.token&&payload.user){
+        installUser(payload.user,payload.token);
+      }else if(response.status===401||payload.code==='TENANT_URL_MISMATCH'){
+        clearInvalid();
+      }
+      // Do not erase a session for server failures, billing restrictions,
+      // or unrelated 403 responses.
+    };
+    const check=async()=>{
+      if(!originalToken){if(!explicitlySignedOut)await renew();return;}
+      const response=await fetch('/api/auth/me',{
+        headers:{Authorization:`Bearer ${originalToken}`,...tenantHeaders},
+        signal:controller.signal,cache:'no-store'
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(cancelled||localStorage.getItem('gastroflow_token')!==originalToken)return;
+      if(response.ok&&payload.user){installUser(payload.user);return;}
+      if(payload.code==='TENANT_URL_MISMATCH'){clearInvalid();return;}
+      if(isExpiredStaffSession(response.status,payload))await renew();
+    };
+    check().catch(()=>{/* Offline/waking server: preserve cached identity. */})
+      .finally(()=>{
+        clearTimeout(timeout);
+        if(!cancelled)setSessionChecking(false);
+      });
+    return ()=>{cancelled=true;clearTimeout(timeout);controller.abort();};
+  }, []);
 
   // Database lists
   const [menuItems, setMenuItems] = useState([]);
@@ -259,9 +305,11 @@ export const POSProvider = ({ children }) => {
         throw new Error(errMessage || 'Store deleted.');
       }
       
-      logout();
-      showToast('Session expired — please sign in again.', 'error');
-      throw new Error(errMessage || 'Session expired. Please sign in again.');
+      if (isExpiredStaffSession(response.status, { error: errMessage, code: errCode })) {
+        logout();
+        showToast('Your session expired — please sign in again.', 'error');
+      }
+      throw new Error(errMessage || 'This action is not available for your account.');
     }
     return response;
   };
@@ -274,8 +322,11 @@ export const POSProvider = ({ children }) => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (response.status === 401 || response.status === 403) {
-        logout();
-        showToast('Session expired — please sign in again.', 'error');
+        const error = await response.json().catch(() => ({}));
+        if (isExpiredStaffSession(response.status, error) && localStorage.getItem('gastroflow_token') === token) {
+          logout();
+          showToast('Your session expired — please sign in again.', 'error');
+        }
         return;
       }
       if (response.ok) {
@@ -333,6 +384,7 @@ export const POSProvider = ({ children }) => {
   };
 
   useEffect(() => {
+    if (sessionChecking || !currentUser) return;
     loadAllData(true);
     getActiveShift();
 
@@ -420,19 +472,55 @@ export const POSProvider = ({ children }) => {
       clearInterval(interval);
       if (es) es.close();
     };
-  }, [currentUser]);
+  }, [currentUser, sessionChecking]);
 
   const acceptOnlineOrder = async (orderId, etaMinutes = 20) => {
-    const res = await fetch(`/api/orders/${orderId}/accept`, {
+    const token = localStorage.getItem('gastroflow_token');
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    };
+    const parseResponse = async (response, fallback) => {
+      await handleAuthResponse(response);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = new Error(data.error || data.message || fallback);
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    };
+
+    // Acceptance is a versioned kitchen transition, not the retired
+    // /api/orders/:id/accept endpoint. Fetch the current ticket revision
+    // so concurrent kitchen operators cannot silently overwrite each other.
+    const ticketsResponse = await fetch('/api/kitchen/tickets', { headers });
+    const tickets = await parseResponse(ticketsResponse, 'Unable to load kitchen tickets.');
+    const ticket = Array.isArray(tickets)
+      ? tickets.find((entry) => String(entry.orderId) === String(orderId))
+      : null;
+    if (!ticket) {
+      throw new Error('This order has no active kitchen ticket. Open Kitchen and refresh the board; scheduled orders may not be due yet.');
+    }
+    if (ticket.state !== 'pending') {
+      throw new Error('This order has already moved to ' + ticket.state + '. Refresh Online Orders.');
+    }
+    const minutes = Number(etaMinutes);
+    if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 240) {
+      throw new Error('Kitchen estimate must be between 1 and 240 minutes.');
+    }
+    const retryKey = crypto.randomUUID().replace(/-/g, '');
+    const response = await fetch(`/api/kitchen/tickets/${encodeURIComponent(orderId)}`, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('gastroflow_token')}`
-      },
-      body: JSON.stringify({ etaMinutes })
+      headers,
+      body: JSON.stringify({
+        revision: ticket.revision,
+        state: 'preparing',
+        etaMinutes: minutes,
+        retryKey
+      })
     });
-    await handleAuthResponse(res);
-    if (!res.ok) throw new Error('Failed to accept order');
+    await parseResponse(response, 'Unable to accept the online order.');
     await loadAllData(false);
   };
 
@@ -472,10 +560,12 @@ export const POSProvider = ({ children }) => {
 
   // Auth Operations
   const login = async (username, password) => {
+    const url = new URL(window.location.href);
+    const expectedTenantId = url.searchParams.get('tenant') || url.searchParams.get('tenantId');
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, ...(expectedTenantId ? { expectedTenantId } : {}) })
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -493,25 +583,41 @@ export const POSProvider = ({ children }) => {
       throw new Error(err.error || 'Login failed');
     }
     const data = await response.json();
+    localStorage.removeItem('gastroflow_signed_out');
     localStorage.setItem('gastroflow_token', data.token);
     localStorage.setItem('gastroflow_user', JSON.stringify(data.user));
 
-    // Automatic Tenant URL Redirection: bind URL parameter to logged-in user's tenant_id
-    if (data.user && data.user.tenant_id) {
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.set('tenant', data.user.tenant_id);
-        window.history.replaceState({}, '', url.toString());
-      } catch (_) {}
+    // A tenant-specific POS URL is authoritative. The server already
+    // verified it matches the staff account; redirect only on generic URLs.
+    if (!expectedTenantId && data.user?.tenant_id) {
+      url.searchParams.set('tenant', data.user.tenant_id);
+      window.history.replaceState({}, '', url.toString());
     }
 
     setTenantLock(null);
+    setSessionChecking(false);
     setCurrentUser(data.user);
+    // Open the dedicated platform workspace for the single designated owner only.
+    if (data.user?.isPlatformAdmin === true) setActiveTab('platform');
   };
 
   const logout = () => {
+    // Best effort, device-specific revocation while the old owner's bearer JWT
+    // is still available. This does not block immediate local sign-out.
+    if(typeof window!=='undefined' && window.Capacitor){
+      void revokeStagingInstallationOnLogout({
+        user:currentUser,capacitor:window.Capacitor,
+        origin:window.location.origin,storage:window.localStorage,
+        fetcher:window.fetch.bind(window)
+      }).catch(()=>{});
+    }
+    localStorage.setItem('gastroflow_signed_out','1');
+    // Clear the browser's HttpOnly renewal credential as well as its access
+    // token. A network outage cannot stop immediate local sign-out.
+    void fetch('/api/auth/logout',{method:'POST',credentials:'same-origin',keepalive:true}).catch(()=>{});
     localStorage.removeItem('gastroflow_token');
     localStorage.removeItem('gastroflow_user');
+    setSessionChecking(false);
     setCurrentUser(null);
   };
 
@@ -615,8 +721,25 @@ export const POSProvider = ({ children }) => {
 
   // Settings Actions
   const updateSetting = async (key, value) => {
-    await db.put('settings', { key, value });
-    setSettings((prev) => ({ ...prev, [key]: value }));
+    const expectedTenantId = currentUser?.tenant_id;
+    if (!expectedTenantId) throw new Error('Restaurant session unavailable. Please sign in again.');
+    // The server checks expectedTenantId against the authenticated token. Never
+    // allow an owner action to silently edit the wrong restaurant.
+    const saved = await db.put('settings', { key, value, expectedTenantId });
+    if (saved?.tenantId !== expectedTenantId) {
+      throw new Error('Restaurant mismatch: setting not confirmed. Refresh your account.');
+    }
+    setSettings(prev => ({ ...prev, [key]: value }));
+    return saved;
+  };
+
+  const savePickupPin = async ({ lat, lng }) => {
+    const expectedTenantId = currentUser?.tenant_id;
+    if (!expectedTenantId) throw new Error('Sign in to the restaurant before saving its pickup pin.');
+    const values = { storeLat: String(lat), storeLng: String(lng) };
+    const saved = await db.put('settings', { ...values, expectedTenantId });
+    if (saved?.tenantId !== expectedTenantId) throw new Error('Restaurant session changed. Refresh before editing.');
+    setSettings(previous => ({ ...previous, ...values }));
   };
 
   // Category CRUD
@@ -726,7 +849,8 @@ export const POSProvider = ({ children }) => {
         (c) =>
           c.id === item.id &&
           c.notes === notes &&
-          JSON.stringify(c.modifiers) === JSON.stringify(modifiers)
+          JSON.stringify(c.modifiers) === JSON.stringify(modifiers) &&
+          c.customUnitPrice == null
       );
 
       if (existingIndex > -1) {
@@ -753,6 +877,25 @@ export const POSProvider = ({ children }) => {
         idx === cartItemIndex ? { ...item, quantity: newQuantity } : item
       )
     );
+  };
+
+  const updateCartUnitPrice = (cartItemIndex, price) => {
+    if (!['owner', 'manager'].includes(currentUser?.role)) throw new Error('Only an owner or manager can set a custom price.');
+    // Null restores the original catalog price for this line without editing the menu.
+    if (price !== null && (typeof price !== 'number' || !Number.isFinite(price) || price <= 0 ||
+      price > 10000000 || Math.abs(Math.round(price * 100) - price * 100) > 1e-6)) {
+      throw new Error('Enter a positive price with no more than two decimal places.');
+    }
+    setCart(previous => previous.map((line, index) => {
+      if (index !== cartItemIndex) return line;
+      const baseItem = menuItems.find(item => item.id === line.id);
+      const basePrice = Number(baseItem?.price ?? line.menuPrice ?? line.price);
+      const modifiersTotal = (line.modifiers || line.selectedModifiers || []).reduce((sum, mod) => sum + Number(mod.priceDelta || 0), 0);
+      const normalUnitPrice = Math.round((basePrice + modifiersTotal) * 100) / 100;
+      const custom = price === null ? null : price;
+      return { ...line, menuPrice: basePrice, unitPrice: custom ?? normalUnitPrice,
+        ...(custom === null ? { customUnitPrice: null } : { customUnitPrice: custom }) };
+    }));
   };
 
   const updateCartNotes = (cartItemIndex, notes) => {
@@ -843,7 +986,11 @@ export const POSProvider = ({ children }) => {
       customerPhone: selectedCustomer ? selectedCustomer.phone : (extraOrderData.customerPhone || null),
       deliveryAddress: extraOrderData.deliveryAddress || (selectedCustomer ? selectedCustomer.address : null),
       deliveryFee: extraOrderData.deliveryFee || 0,
-      items: cart.map(item => ({ id: item.id, quantity: item.quantity, notes: item.notes || '', selectedModifiers: item.modifiers || item.selectedModifiers || [] })),
+      items: cart.map(item => ({
+        id: item.id, quantity: item.quantity, notes: item.notes || '',
+        selectedModifiers: item.modifiers || item.selectedModifiers || [],
+        ...(item.customUnitPrice != null ? { customUnitPrice: item.customUnitPrice } : {})
+      })),
       discountType,
       discountValue,
       status: isHold ? 'hold' : 'pending',
@@ -1042,6 +1189,7 @@ export const POSProvider = ({ children }) => {
     <POSContext.Provider
       value={{
         loading,
+        sessionChecking,
         activeTab,
         setActiveTab,
         darkMode,
@@ -1057,6 +1205,7 @@ export const POSProvider = ({ children }) => {
 
         // Settings Actions
         updateSetting,
+        savePickupPin,
 
         // CRUD utilities
         saveCategory,
@@ -1089,6 +1238,7 @@ export const POSProvider = ({ children }) => {
         cart,
         addToCart,
         updateCartQuantity,
+        updateCartUnitPrice,
         updateCartNotes,
         removeFromCart,
         clearCart,

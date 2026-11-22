@@ -1,0 +1,38 @@
+/* Accessible GastroFlow Food promotion carousel; data-driven, no fabricated offers. */
+.gf-promo-region{width:100%;min-width:0;margin:0 0 17px;color:#143a2b}
+.gf-promo-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 1px 12px}
+.gf-promo-header>span{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:900;letter-spacing:.13em;color:#24704d}
+.gf-promo-header>button{display:flex;align-items:center;gap:3px;border:0;background:transparent;color:#086a46;font-size:12px;font-weight:850;cursor:pointer}
+.gf-promo-slider{position:relative;overflow:hidden;isolation:isolate;border-radius:27px;min-height:220px;background:#ecf6e7;touch-action:pan-y}
+.gf-promo-slide{position:absolute;inset:0;display:grid;grid-template-columns:minmax(0,1fr) 39%;background:linear-gradient(128deg,#e5f6e7 0%,#eef7dc 60%,#fff2d5);opacity:0;pointer-events:none;transition:opacity .32s ease;overflow:hidden}
+.gf-promo-slide.is-selected{opacity:1;pointer-events:auto;position:relative;min-height:220px}
+.gf-promo-copy{position:relative;z-index:1;padding:25px 8px 30px 23px;min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center}
+.gf-promo-kicker{display:flex;gap:6px;align-items:center;font-size:10px;font-weight:900;letter-spacing:.11em;color:#16704d;line-height:1.35;text-transform:uppercase}
+.gf-promo-copy h2{font-size:clamp(23px,5.7vw,38px);line-height:1.09;margin:12px 0 8px;letter-spacing:-.05em;color:#14392a;font-weight:900;overflow-wrap:anywhere}
+.gf-promo-copy p{font-size:12px;line-height:1.5;color:#517361;margin:0 0 15px;max-width:34ch}
+.gf-promo-copy>button,.gf-offer-preview>button{display:flex;align-items:center;gap:9px;padding:10px 15px;border:0;border-radius:13px;background:#076947;color:white;font-size:12px;font-weight:850;cursor:pointer;min-height:41px}
+.gf-promo-photo{align-self:center;justify-self:center;width:138%;aspect-ratio:1;border:5px solid #ffffffa6;border-radius:50%;overflow:hidden;background:radial-gradient(circle,#fbf4cd,#b8d9b2);display:grid;place-items:center;box-shadow:0 15px 33px #0a4d3030;transform:translateX(10%)}
+.gf-promo-photo img{height:100%;width:100%;object-fit:cover}
+.gf-promo-photo span{font-size:70px}
+.gf-promo-arrow{position:absolute;z-index:3;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:50%;border:1px solid #cfe2d4;background:#fffffff0;display:grid;place-items:center;cursor:pointer;color:#0c6947}
+.gf-promo-prev{left:3px}.gf-promo-next{right:3px}
+.gf-promo-dots{display:flex;justify-content:center;gap:7px;margin:10px 0 2px}
+.gf-promo-dots button{border:0;border-radius:99px;background:#ccdcd0;width:8px;height:8px;padding:0;cursor:pointer}
+.gf-promo-dots button.is-active{width:25px;background:#0c734f}
+.gf-promo-overlay{position:fixed;inset:0;z-index:10010;display:flex;align-items:flex-end;justify-content:center;padding:8px;background:#14271fa8}
+.gf-promo-modal{width:100%;max-width:520px;max-height:85dvh;overflow-y:auto;background:#f8faf6;border-radius:25px 25px 15px 15px;padding:20px;box-shadow:0 15px 50px #0003}
+.gf-promo-modal-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.gf-promo-modal-heading h2{font-size:23px;margin:0;color:#173c2b}
+.gf-promo-modal-heading button{width:44px;height:44px;display:grid;place-items:center;background:#e7f2e9;border:0;border-radius:13px;color:#145637;cursor:pointer}
+.gf-promo-modal>p{color:#647c6b;font-size:12px;line-height:1.5}
+.gf-promo-offers{display:grid;gap:12px;margin-top:14px}
+.gf-offer-preview{padding:22px;border-radius:22px;background:linear-gradient(125deg,#e9f7e7,#fff2df);border:1px solid #dcead6;display:flex;align-items:flex-start;flex-direction:column;gap:9px}
+.gf-offer-creative{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:850;color:#0b7350;letter-spacing:.08em}
+.gf-offer-preview strong{font-size:23px;line-height:1.16;color:#113a29;letter-spacing:-.04em}
+.gf-offer-preview p{font-size:13px;color:#4c7160;margin:0}
+.gf-offer-store{display:flex;align-items:center;gap:5px;font-size:12px;color:#316b50}
+.gf-promo-later{display:block;margin:15px auto 0;background:none;border:0;min-height:44px;text-decoration:underline;color:#226c4d;cursor:pointer}
+.gf-promo-region button:focus-visible{outline:3px solid #57af7f;outline-offset:3px}
+@media(min-width:680px){.gf-promo-slider,.gf-promo-slide.is-selected{min-height:260px}.gf-promo-copy{padding-left:40px}.gf-promo-copy p{font-size:15px}.gf-promo-copy>button{font-size:14px}}
+@media(max-width:390px){.gf-promo-copy{padding:18px 4px 24px 18px}.gf-promo-copy h2{font-size:23px}.gf-promo-photo{width:151%}.gf-promo-copy>button{padding:9px 11px}}
+@media(prefers-reduced-motion:reduce){.gf-promo-slide{transition:none}}

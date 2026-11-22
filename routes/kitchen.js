@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "node:crypto";
-import { syncKitchen } from "../lib/kitchen.js";
+import { syncKitchen, kitchenPreparationDue } from "../lib/kitchen.js";
 export function createKitchenRouter({
   dbGet,
   dbAll,
@@ -31,7 +31,7 @@ export function createKitchenRouter({
   };
   const ticket = async (id, t) => {
     const row = await dbGet(
-      "SELECT k.*,o.status AS orderStatus,o.paymentStatus,o.diningType,o.orderType,o.tableId,o.customerName,o.acceptedAt,o.etaMinutes,o.timestamp FROM kitchen_tickets k JOIN orders o ON o.id=k.orderId AND o.tenant_id=k.tenant_id WHERE k.orderId=? AND k.tenant_id=?",
+      "SELECT k.*,o.status AS orderStatus,o.paymentStatus,o.diningType,o.orderType,o.tableId,o.customerName,o.acceptedAt,o.etaMinutes,o.timestamp,o.scheduledTime FROM kitchen_tickets k JOIN orders o ON o.id=k.orderId AND o.tenant_id=k.tenant_id WHERE k.orderId=? AND k.tenant_id=?",
       [id, t],
     );
     if (!row) throw fail("Kitchen ticket not found.", 404);
@@ -48,6 +48,14 @@ export function createKitchenRouter({
   router.get(
     "/kitchen/tickets",
     wrap(async (req, res) => {
+      // Only active preparation windows enter the live kitchen queue. Future
+      // scheduled orders remain safely reserved in orders until prep is due.
+      const prepSettings={};
+      for(const [type,key] of [['takeaway','takeawayPrepTime'],['delivery','deliveryPrepTime'],['dine-in','dineInPrepTime']]){
+        const setting=await dbGet('SELECT value FROM settings WHERE tenant_id=? AND key=?',[req.tenantId,key]);
+        prepSettings[type]=Math.max(15,Math.min(180,Number(setting?.value)||30));
+      }
+      const isDue=(order)=>kitchenPreparationDue(order,prepSettings[String(order.orderType||order.diningType||'takeaway')]||30);
       // Only open legacy tickets can be inferred. Never recook historical paid orders.
       await dbRun("BEGIN TRANSACTION");
       try {
@@ -56,6 +64,7 @@ export function createKitchenRouter({
           [req.tenantId],
         );
         for (const o of legacy) {
+          if(!isDue(o))continue;
           const items =
             typeof o.items === "string" ? JSON.parse(o.items || "[]") : [];
           if (!items.length) continue;
@@ -80,12 +89,13 @@ export function createKitchenRouter({
           }
         }
         const ids = await dbAll(
-          "SELECT k.orderId FROM kitchen_tickets k JOIN orders o ON o.id=k.orderId AND o.tenant_id=k.tenant_id WHERE k.tenant_id=? AND k.state NOT IN ('served','cancelled') AND o.status NOT IN ('cancelled','rejected','delivered') ORDER BY k.createdAt",
+          "SELECT k.orderId,o.scheduledTime,o.orderType,o.diningType FROM kitchen_tickets k JOIN orders o ON o.id=k.orderId AND o.tenant_id=k.tenant_id WHERE k.tenant_id=? AND k.state NOT IN ('served','cancelled') AND o.status NOT IN ('cancelled','rejected','delivered') ORDER BY k.createdAt",
           [req.tenantId],
         );
         const rows = [];
-        for (const { orderId } of ids)
-          rows.push(await ticket(orderId, req.tenantId));
+        for (const candidate of ids){
+          if(isDue(candidate))rows.push(await ticket(candidate.orderId, req.tenantId));
+        }
         await dbRun("COMMIT");
         res.json(rows);
       } catch (e) {
@@ -129,7 +139,7 @@ export function createKitchenRouter({
   router.post(
     "/kitchen/tickets/:id",
     wrap(async (req, res) => {
-      const { revision, state, lineId, etaMinutes } = req.body || {};
+      const { revision, state, lineId, etaMinutes, retryKey } = req.body || {};
       if (
         !Number.isSafeInteger(revision) ||
         !["preparing", "ready", "served"].includes(state)
@@ -142,6 +152,8 @@ export function createKitchenRouter({
           etaMinutes > 240)
       )
         throw fail("ETA must be 1 to 240 minutes.");
+      if(retryKey!==undefined && (typeof retryKey!=='string'||!/^[a-zA-Z0-9_-]{16,128}$/.test(retryKey)))
+        throw fail('Provide a valid kitchen retry key.');
       await dbRun("BEGIN TRANSACTION");
       let updated;
       try {
@@ -159,11 +171,33 @@ export function createKitchenRouter({
         )
           throw fail("Ticket is closed. Refresh the board.", 409);
         if (current.orderStatus==='refunded') throw fail('Fully refunded ticket needs manager cancellation or review.',409);
-        if (current.revision !== revision)
+        if (current.revision !== revision) {
+          // A lost HTTP response may make the same authenticated operator
+          // retry an already committed kitchen transition. Accept only the
+          // immediately previous revision and exactly matching last action;
+          // never replay an older or competing update.
+          if (retryKey && current.revision === revision + 1) {
+            const last = await dbGet(
+              "SELECT actorId,action,details FROM kitchen_events WHERE tenant_id=? AND orderId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1",
+              [req.tenantId,current.orderId],
+            );
+            const requestedLine=lineId || "whole_ticket";
+            const sameAction=last?.actorId===req.user.id &&
+              last.action===state && last.details===`retry:${retryKey}:${requestedLine}` &&
+              (lineId
+                ? current.lines.some(line=>line.id===lineId && line.state===state)
+                : current.state===state) &&
+              (etaMinutes===undefined || current.etaMinutes===etaMinutes);
+            if (sameAction) {
+              await dbRun("ROLLBACK");
+              return res.set("Cache-Control","no-store").json(current);
+            }
+          }
           throw fail(
             "Ticket changed on another device. Refresh before acting.",
             409,
           );
+        }
         const lines = lineId
           ? current.lines.filter((x) => x.id === lineId)
           : current.lines;
@@ -231,7 +265,7 @@ export function createKitchenRouter({
             current.orderId,
             req.user.id,
             state,
-            lineId || "whole_ticket",
+            retryKey ? `retry:${retryKey}:${lineId || 'whole_ticket'}` : (lineId || "whole_ticket"),
             now,
           ],
         );

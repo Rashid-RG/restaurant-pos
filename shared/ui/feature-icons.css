@@ -1,1 +1,16 @@
 .feature-icon{display:inline-block;vertical-align:middle;flex-shrink:0;overflow:visible}.feature-icon-active .feature-steam{animation:feature-steam-rise 2.6s ease-in-out infinite;transform-origin:center}.feature-icon-active .feature-steam-two{animation-delay:-.9s}.feature-icon-active .feature-steam-three{animation-delay:-1.7s}.feature-icon-active .feature-spoon{animation:feature-stir 1.8s ease-in-out infinite;transform-origin:37px 30px}.feature-icon-active .feature-flame{animation:feature-warmth 1s ease-in-out infinite alternate;transform-origin:32px 58px}.feature-icon-active .feature-rider{animation:feature-ride 1.2s ease-in-out infinite}.feature-icon-active .feature-speed{animation:feature-steam-rise 1.3s ease-in-out infinite}.feature-icon-active .feature-check{animation:feature-confirm 2.8s ease-in-out infinite;transform-origin:center}@keyframes feature-steam-rise{0%,100%{opacity:.25;transform:translateY(2px)}50%{opacity:1;transform:translateY(-3px)}}@keyframes feature-stir{0%,100%{transform:rotate(-11deg)}50%{transform:rotate(13deg)}}@keyframes feature-warmth{to{transform:scale(.85,1.12);opacity:.65}}@keyframes feature-ride{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}@keyframes feature-confirm{0%,80%,100%{transform:scale(1)}90%{transform:scale(1.12)}}@media(prefers-reduced-motion:reduce){.feature-icon *{animation:none!important;transition:none!important}}
+
+/* Shared stage animation vocabulary: low-cost transforms, no network assets. */
+.feature-icon-active .feature-map-pin{animation:feature-pin-hover 2s ease-in-out infinite;transform-origin:32px 47px}
+.feature-icon-active .feature-pin-pulse{animation:feature-pin-ring 1.9s ease-in-out infinite;transform-origin:32px 58px}
+.feature-icon-active .feature-bag{animation:feature-bag-sway 2.1s ease-in-out infinite;transform-origin:32px 25px}
+.feature-icon-active .feature-served{animation:feature-serve-pop 2.1s ease-in-out infinite;transform-origin:32px 45px}
+.feature-icon-active .feature-spark{animation:feature-spark-glow 1.8s ease-in-out infinite;transform-origin:center}
+.feature-icon-active .feature-success{animation:feature-success-pop 2.4s ease-in-out infinite;transform-origin:32px 32px}
+@keyframes feature-pin-hover{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes feature-pin-ring{0%,100%{opacity:.35;transform:scaleX(.8)}50%{opacity:1;transform:scaleX(1.15)}}
+@keyframes feature-bag-sway{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
+@keyframes feature-serve-pop{0%,100%{transform:scale(1)}50%{transform:scale(1.055)}}
+@keyframes feature-spark-glow{0%,100%{opacity:.5;transform:scale(.87)}50%{opacity:1;transform:scale(1.1)}}
+@keyframes feature-success-pop{0%,100%{transform:scale(1)}45%{transform:scale(1.08)}60%{transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.feature-icon,.feature-icon *{animation:none!important;transition:none!important}}

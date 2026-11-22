@@ -1,3 +1,5 @@
+import { platformPublisher } from '../../../shared/platform-brand.js';
+import { showHostedDriverShortcut } from './utils/native-driver-link-policy.js';
 import { ShoppingBag, Store, Utensils, Package, UserRound, Headphones, Bike, LogIn } from 'lucide-react';
 import { ConnectionStatus } from '../../../shared/ui/Resilience.jsx';
 import React, { useState, useEffect, Component } from 'react';
@@ -6,14 +8,17 @@ import { CartProvider, useCart } from './context/CartContext.jsx';
 import { LanguageProvider, useLang } from './context/LanguageContext.jsx';
 import Toast, { useToast } from './components/Toast.jsx';
 import MenuView from './views/MenuView.jsx';
+import MarketplaceMenu from './views/MarketplaceMenu.jsx';
 import CartCheckoutView from './views/CartCheckoutView.jsx';
+import { useStorefront } from './hooks/useStorefront.js';
 import OrderTrackingView from './views/OrderTrackingView.jsx';
+import OrderConfirmationView from './views/OrderConfirmationView.jsx';
 import ProfileView from './views/ProfileView.jsx';
 import RestaurantsView from './views/RestaurantsView.jsx';
 import LegalPoliciesView from './views/LegalPoliciesView.jsx';
 import SupportView from './views/SupportView.jsx';
 import GastroAiConcierge from './components/GastroAiConcierge.jsx';
-import { setActiveTenant } from './utils/tenant.js';
+import { setActiveTenant, getActiveTenant } from './utils/tenant.js';
 import SystemUpdatePrompt from './components/SystemUpdatePrompt.jsx';
 
 
@@ -21,21 +26,32 @@ import SystemUpdatePrompt from './components/SystemUpdatePrompt.jsx';
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    // Error details are console-only: never display private state or credentials.
+    console.error('[GastroFlow Food startup render error]', error?.name, error?.message, info?.componentStack);
+    if (import.meta.env.MODE === 'native') {
+      // Debug-shell diagnostics for CI inspection; no tokens, URLs or customer data.
+      window.__gastrofoodNativeRenderFailure = String(error?.name || 'Error') + ': ' + String(error?.message || 'Unknown render error').slice(0, 280);
+    }
+  }
   render() {
     if (this.state.error) return (
-      <div style={{ padding: 24, fontFamily: 'monospace', color: '#c00', background: '#fff0f0', minHeight: '100dvh' }}>
-        <h2>⚠ App Error</h2>
-        <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', marginTop: 12 }}>
-          {this.state.error?.message}{'\n\n'}{this.state.error?.stack}
-        </pre>
-      </div>
+      <main className="customer-error-screen" role="alert" aria-label="GastroFlow Food startup error">
+        <div className="customer-error-panel">
+          <div className="customer-error-symbol" aria-hidden="true">!</div>
+          <p className="customer-eyebrow">WE COULDN'T LOAD THIS SCREEN</p>
+          <h1>Something went wrong</h1>
+          <p>We couldn't display this page. Your order may already have been submitted, so check tracking before placing another order.</p>
+          <button className="btn btn-brand" onClick={() => window.location.reload()}>Try again</button>
+          <a href={import.meta.env.BASE_URL + '?view=track'}>Check an existing order</a>
+        </div>
+      </main>
     );
     return this.props.children;
   }
 }
 
-
-function CartSheet({ onCheckout }) {
+function CartSheet({ onEdit, onCheckout, store, canOrder }) {
   const { items, cartOpen, setCartOpen, addItem, removeItem, deleteItem, subtotal, totalItems, rates } = useCart();
   // Use the same formula as CartCheckoutView so the cart sidebar and checkout
   // page show a consistent total. Previously CartSheet used subtotal * 1.10
@@ -47,21 +63,23 @@ function CartSheet({ onCheckout }) {
   if (!cartOpen) return null;
   return (
     <>
-      <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} />
-      <div className={`cart-sheet ${cartOpen ? 'open' : ''}`} role="dialog" aria-modal="true" aria-label="Your cart">
+      <div className={`cart-backdrop ${cartOpen ? 'open' : ''}`} onClick={() => setCartOpen(false)} aria-hidden="true" />
+      <div className={`cart-sheet ${cartOpen ? 'open' : ''} gf-modern-cart-sheet`} role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="cart-sheet-handle" />
         <div className="cart-sheet-header">
-          <h2>🛒 Cart · {totalItems} items</h2>
+          <div><h2>🛒 Cart · {totalItems} items</h2>
+            <p className="customer-cart-store-label">Order from: <strong>{store.name || 'Select a restaurant'}</strong></p>
+          </div>
           <button aria-label="Close cart" className="cart-close-btn" onClick={() => setCartOpen(false)}>✕</button>
         </div>
         <div className="cart-body">
           {items.length === 0 ? (
             <div className="cart-empty">
               <div className="empty-icon">🛒</div>
-              <p>Your cart is empty!</p>
+              <p>Your cart is empty</p><span>Explore the menu and add something delicious.</span>
             </div>
           ) : items.map(item => (
-            <div key={item.cartId} className="cart-item">
+            <div key={item.cartId} className="cart-item gf-modern-cart-item">
               <div className="cart-item-emoji">
                 {item.imageUrl ? (
                   <img src={item.imageUrl} alt={item.name} loading="lazy"
@@ -73,7 +91,7 @@ function CartSheet({ onCheckout }) {
                 <div className="cart-item-name">{item.name}</div>
                 {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                    {item.selectedModifiers.map(m => `+ ${m.name}`).join(', ')}
+                    {item.selectedModifiers.map(m => '+ ' + String(m.name || '')).join(', ')}
                   </div>
                 )}
                 {item.notes && (
@@ -81,26 +99,33 @@ function CartSheet({ onCheckout }) {
                     Note: "{item.notes}"
                   </div>
                 )}
-                <div className="cart-item-price">Rs. {item.unitPrice.toFixed(2)} each</div>
+                <div className="cart-item-price">Rs. {Number(item.unitPrice).toFixed(2)} each · Rs. {(Number(item.unitPrice)*Number(item.qty)).toFixed(2)} total</div>
               </div>
-              <div className="qty-control">
-                <button className="dec" onClick={() => removeItem(item.cartId)}>−</button>
-                <span className="qty">{item.qty}</span>
-                <button className="inc" onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+              <div className="gf-modern-cart-actions">
+                <div className="qty-control">
+                  <button type="button" className="dec" aria-label={'Remove one ' + item.name} disabled={item.qty<1} onClick={() => removeItem(item.cartId)}>−</button>
+                  <span className="qty" aria-live="polite">{item.qty}</span>
+                  <button type="button" className="inc" aria-label={'Add one ' + item.name} disabled={!canOrder || item.isAvailable === false || item.isAvailable === 0 || (item.stock!=null && items.filter(i=>i.id===item.id).reduce((n,i)=>n+Number(i.qty),0)>=Number(item.stock))} onClick={() => addItem(item, 1, item.selectedModifiers, item.notes)}>+</button>
+                </div>
+                <button type="button" className="gf-modern-cart-remove" disabled={!canOrder} onClick={() => onEdit(item)}>Edit</button>
+                <button type="button" className="gf-modern-cart-remove" aria-label={'Remove ' + item.name + ' from cart'} onClick={()=>deleteItem(item.cartId)}>Remove</button>
               </div>
             </div>
           ))}
         </div>
         {items.length > 0 && (
           <div className="cart-footer">
+            {!canOrder && <p role="status" className="customer-cart-closed-message">{store.status === 'closed' ? 'This restaurant is closed for online orders. Your cart is saved.' : 'Store availability is not confirmed. Select an open restaurant or reconnect.'}</p>}
             <div className="cart-summary-row"><span>Subtotal</span><span>Rs. {subtotal.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Service charge ({rates.serviceChargeRate}%)</span><span>Rs. {serviceCharge.toFixed(2)}</span></div>
             <div className="cart-summary-row"><span>Tax ({rates.taxRate}%)</span><span>Rs. {tax.toFixed(2)}</span></div>
-            <div className="cart-summary-row total"><span>Est. Total</span><span>Rs. {total.toFixed(2)}</span></div>
+            <div className="cart-summary-row total"><span>Estimated total</span><span>Rs. {total.toFixed(2)}</span></div>
+            <p className="gf-modern-cart-estimate">Final prices, fees and item availability are confirmed by the restaurant at checkout. Delivery fees depend on your address.</p>
             <button
               className="btn btn-brand"
               style={{ marginTop: 12 }}
-              onClick={() => { setCartOpen(false); onCheckout && onCheckout(); }}
+              disabled={!canOrder}
+              onClick={() => { if (!canOrder) return; setCartOpen(false); onCheckout && onCheckout(); }}
             >
               Go to Checkout · Rs. {total.toFixed(2)}
             </button>
@@ -120,6 +145,8 @@ function InstallPrompt() {
   const [showSteps, setShowSteps] = useState(false);
 
   useEffect(() => {
+    // Native shells are already installed; do not recommend Add to Home Screen.
+    if (import.meta.env.MODE === 'native') return;
     // Check if already in standalone/installed mode
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
     if (isStandalone) return;
@@ -206,12 +233,21 @@ function InstallPrompt() {
 }
 
 // ── Inner App (needs context) ────────────────────────────────────────
-function InnerApp() {
-  const [view, setView] = useState('menu');
+function InnerApp({ switchRestaurant }) {
+  const [view, setView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tenant') ? 'store-menu' : 'restaurants';
+  });
   const [trackingOrderId, setTrackingOrderId] = useState(null);
+  const [confirmedOrderId,setConfirmedOrderId]=useState(()=>{
+    const params=new URLSearchParams(window.location.search);
+    return params.get('view')==='confirmation'?params.get('order'):null;
+  });
+  const [aiCustomize, setAiCustomize] = useState(null);
   const [resetToken, setResetToken] = useState(null);
   const { customer, loading: authLoading } = useCustomerAuth();
-  const { items, totalItems, setCartOpen } = useCart();
+  const { items, totalItems, subtotal, setCartOpen, cartOpen } = useCart();
+  const { store, canOrder, refreshStore } = useStorefront();
   const { messages, toast } = useToast();
   const { t, lang, setLang, languages } = useLang();
 
@@ -219,6 +255,7 @@ function InnerApp() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const track = params.get('track');
+    const confirmationId=params.get('view')==='confirmation'?params.get('order'):null;
     const reset = params.get('reset');
     const legal = params.get('legal') || params.get('policies');
     const viewParam = params.get('view') || params.get('page');
@@ -230,10 +267,13 @@ function InnerApp() {
       toast && toast(`🪑 Seated at Table #${table}! Menu loaded for table order.`, 'success');
     }
     if (tenant) {
-      setActiveTenant(tenant);
+      switchRestaurant(tenant);
     }
 
-    if (track) {
+    if (confirmationId){
+      setConfirmedOrderId(confirmationId);
+      setView('confirmation');
+    } else if (track) {
       setTrackingOrderId(track);
       setView('track');
     } else if (reset) {
@@ -241,24 +281,48 @@ function InnerApp() {
       setView('account');
     } else if (legal) {
       setView('legal');
-    } else if (viewParam && ['menu', 'restaurants', 'checkout', 'track', 'account', 'support', 'legal'].includes(viewParam)) {
-      setView(viewParam);
+    } else if (viewParam && ['menu', 'store-menu', 'restaurants', 'checkout', 'track', 'confirmation', 'account', 'support', 'legal'].includes(viewParam)) {
+      // Existing restaurant-specific share links remain compatible.
+      setView(viewParam === 'menu' && tenant ? 'store-menu' : viewParam);
     }
 
     const handlePopState = () => {
       const p = new URLSearchParams(window.location.search);
-      const v = p.get('view') || p.get('page') || 'menu';
-      setView(v);
+      setAiCustomize(null);
+      if (p.get('tenant') && p.get('tenant') !== getActiveTenant()) switchRestaurant(p.get('tenant'));
+      const v = p.get('view') || p.get('page') || (p.get('tenant') ? 'store-menu' : 'restaurants');
+      setView(v === 'menu' && p.get('tenant') ? 'store-menu' : v);
+      setTrackingOrderId(v === 'track' ? p.get('track') : null);
+      setConfirmedOrderId(v === 'confirmation' ? p.get('order') : null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const navigate = (v, extraParams = {}) => {
+    // Keep the selected tracking order in sync with SPA navigation.
+    // Clearing a tracking selection should display the manual/private-link form
+    // rather than leaking the previous customer's order.
+    if (v === 'track') setTrackingOrderId(extraParams.track ? String(extraParams.track) : null);
+    if (v === 'confirmation') setConfirmedOrderId(extraParams.order ? String(extraParams.order) : null);
+    setAiCustomize(null);
+    if (v === 'store-menu' && extraParams.customize) {
+      setAiCustomize({ itemId: String(extraParams.customize), quantity: Number(extraParams.qty) || 1, tenantId: String(extraParams.tenant || ''), requestId: Date.now() });
+    }
     setView(v);
+    // Mobile tab switches must start at the new screen's top, not preserve
+    // the previous screen's scroll offset (which can show an empty viewport).
+    window.scrollTo(0, 0);
+    const main = document.getElementById('customer-main');
+    if (main) main.scrollTop = 0;
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('view', v);
+      // Once the customer navigates away, refresh must open the current screen.
+      for (const param of ['legal','policies','page','customize','qty','supportOrder']) url.searchParams.delete(param);
+      if (v !== 'track') url.searchParams.delete('track');
+      if (v !== 'confirmation') url.searchParams.delete('order');
+      if (v !== 'account') url.searchParams.delete('reset');
       Object.entries(extraParams).forEach(([k, val]) => {
         if (val !== null && val !== undefined) url.searchParams.set(k, val);
         else url.searchParams.delete(k);
@@ -267,6 +331,24 @@ function InnerApp() {
     } catch (_) {}
   };
 
+
+  function openRestaurant(restaurant, dish, orderType = null) {
+    if (!restaurant?.id) return;
+    if (totalItems && restaurant.id !== getActiveTenant() &&
+        !window.confirm(`Open ${restaurant.name}? Your current cart will stay with its restaurant.`)) return;
+    const preferenceKey = 'gastroflow_order_mode:' + restaurant.id;
+    if (orderType) sessionStorage.setItem(preferenceKey, orderType);
+    else sessionStorage.removeItem(preferenceKey);
+    navigate('store-menu', {tenant: restaurant.id, group: null, track: null, customize: dish?.id, qty: dish ? 1 : null});
+    switchRestaurant(restaurant.id);
+  }
+
+  function reviewPastDish(item, cartLine = null) {
+    const tenant = getActiveTenant();
+    navigate('store-menu', {tenant, group: null, customize: item.menuItemId, qty: 1});
+    setAiCustomize({itemId: String(item.menuItemId), tenantId: tenant, quantity: item.quantity,
+      previousNotes: item.notes || '', previousModifiers: item.selectedModifiers || [], previousPrice: item.price, cartLine, reorder: true, requestId: Date.now()});
+  }
 
   // Redirect to the standalone GastroDriver PWA. Dev: customer runs on :3001, driver on :3002.
   // Production: set VITE_DRIVER_URL to the driver app's host.
@@ -279,12 +361,14 @@ function InnerApp() {
   };
 
   const handleOrderPlaced = (orderId) => {
-    setTrackingOrderId(orderId);
-    navigate('track',{track:orderId,group:null});
+    // An acknowledged order should not instantly dismiss its receipt. The
+    // customer explicitly chooses when to open live tracking.
+    if(!orderId)return;
+    navigate('confirmation',{order:String(orderId),group:null});
   };
 
   return (
-    <div className="app-shell"><ConnectionStatus/>
+    <div className={`app-shell customer-premium ${view === 'account' && !customer ? 'customer-auth-route' : ''}`}><ConnectionStatus/>
       <Toast messages={messages} />
       <InstallPrompt />
       <SystemUpdatePrompt />
@@ -292,7 +376,7 @@ function InnerApp() {
 
 
       {/* Top Header */}
-      <header className="top-header">
+      <header className="top-header" role="banner">
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexShrink: 1 }}>
           {view !== 'restaurants' && (
             <button
@@ -339,9 +423,9 @@ function InnerApp() {
           <button className="icon-btn" onClick={() => navigate('support')} title="Customer Support Desk" style={{ fontSize: '1.1rem', background: '#3b82f620', border: '1px solid #3b82f650' }}>
             <Headphones size={18}/>
           </button>
-          <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
+          {showHostedDriverShortcut(import.meta.env.MODE) && <button className="icon-btn" onClick={openDriverApp} title="Open Driver Rider Portal" style={{ fontSize: '1.1rem', background: '#10b98120', border: '1px solid #10b98150' }}>
             <Bike size={18}/>
-          </button>
+          </button>}
           <select
             className="lang-select"
             value={lang}
@@ -364,114 +448,73 @@ function InnerApp() {
       </header>
 
       {/* Main Content */}
-      <main className="main-content">
+      <main className="main-content" id="customer-main">
         {view === 'restaurants' && (
           <RestaurantsView
-            onSelectRestaurant={(rest) => {
-              if (rest && rest.id) setActiveTenant(rest.id);
-              setView('menu');
-            }}
+            onSelectRestaurant={openRestaurant}
             toast={toast}
           />
         )}
-        {view === 'menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} />}
-        {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} />}
-        {view === 'track' && <OrderTrackingView orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
-        {view === 'account' && <ProfileView toast={toast} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
-        {view === 'support' && <SupportView onBack={() => navigate('menu')} toast={toast} />}
-        {view === 'legal' && <LegalPoliciesView onBack={() => navigate('menu')} />}
+        {view === 'menu' && <MarketplaceMenu onChooseStore={openRestaurant} />}
+        {view === 'store-menu' && <MenuView onNavigate={navigate} onOrderPlaced={handleOrderPlaced} toast={toast} aiCustomize={aiCustomize} />}
+        {view === 'checkout' && <CartCheckoutView onOrderPlaced={handleOrderPlaced} onNavigate={navigate} toast={toast} store={store} canOrder={canOrder} refreshStore={refreshStore} />}
+        {view === 'confirmation' && <OrderConfirmationView orderId={confirmedOrderId} onTrack={()=>navigate('track',{track:confirmedOrderId,group:null})} onBrowse={()=>navigate('restaurants')}/>}
+        {view === 'track' && <OrderTrackingView onSupport={id => navigate('support', {supportOrder:id})} onSelectOrder={track => navigate('track', {track})} orderId={trackingOrderId} onBack={() => navigate('menu')} toast={toast} />}
+        {view === 'account' && <ProfileView onReviewDish={reviewPastDish} toast={toast} onBack={() => navigate('restaurants')} resetToken={resetToken} onResetHandled={() => setResetToken(null)} />}
+        {view === 'support' && <SupportView initialOrderId={new URLSearchParams(window.location.search).get('supportOrder')} store={store} onBack={() => navigate('menu')} toast={toast} />}
+        {view === 'legal' && <LegalPoliciesView store={store} onSupport={() => navigate('support')} onBack={() => navigate('menu')} />}
 
-        {/* ── Signature Footer & Gateway Legal Policies ── */}
-        <footer style={{
-          padding: '24px 16px 44px',
-          textAlign: 'center',
-          borderTop: '1px solid var(--border-color)',
-          background: 'var(--surface-1, rgba(0,0,0,0.02))',
-          marginTop: 40,
-          fontSize: '0.78rem',
-          color: 'var(--text-muted)'
-        }}>
-          <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-1)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <img src={`${import.meta.env.BASE_URL}food-logo.svg`} alt="GastroFood Logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
-            <span>GastroFlow Bistro & Marketplace Platform</span>
+        {view === 'restaurants' && (
+          <div className="customer-mobile-policy-link">
+            <button type="button" onClick={() => navigate('legal')}>
+              Ordering, refunds & delivery help
+            </button>
+            <span>GastroFlow Food · {platformPublisher}</span>
           </div>
-
-          {/* Professional Policy Pill Grid */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px 12px', marginBottom: 16 }}>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              📄 Terms of Service
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              🔒 Privacy Policy
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              💸 Refund Policy
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-1)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600 }}
-            >
-              🚚 Delivery Tariffs
-            </button>
-            <button
-              onClick={() => navigate('legal')}
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--brand)', padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 700 }}
-            >
-              💳 Merchant Compliance
-            </button>
-          </div>
-
-          {/* Signature & Founder Rights */}
-          <div style={{ padding: '12px 16px', background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border-color)', maxWidth: 460, margin: '0 auto 12px' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-1)', fontWeight: 700 }}>
-              Crafted & Engineered by <strong style={{ color: 'var(--brand)' }}>RS Technologies</strong> 🇱🇰
-            </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-              Owner & Founder: <strong style={{ color: 'var(--text-1)' }}>Mohammed Rashid</strong>
-            </div>
-          </div>
-
-          <div style={{ fontSize: '0.68rem', opacity: 0.6, marginTop: 4 }}>
-            © {new Date().getFullYear()} RS Technologies. All rights reserved. Registered in Sri Lanka.
-          </div>
-        </footer>
+        )}
       </main>
 
       {/* Global 24/7 GastroAI Concierge Assistant */}
       <GastroAiConcierge onNavigate={navigate} cartItems={items} />
 
+      {/* Cart shortcut sits outside the animated menu view, so scrolling
+          cannot move it under the fixed bottom navigation. */}
+      {view === 'store-menu' && totalItems > 0 && !cartOpen && (
+        <div className="customer-fixed-cart-action">
+          <button type="button" onClick={() => setCartOpen(true)}>
+            <ShoppingBag size={19}/>
+            <span className="cart-shortcut-label">{t('viewCart')} <b>{totalItems}</b></span>
+            <span className="cart-shortcut-price"><small>{t('subtotal')}</small>Rs. {subtotal.toFixed(2)}</span>
+          </button>
+        </div>
+      )}
+
       {/* Cart Sheet */}
-      <CartSheet onCheckout={() => navigate('checkout')} />
+      <CartSheet onEdit={line => {
+        setCartOpen(false);
+        reviewPastDish({menuItemId: line.id, quantity: line.qty, notes: line.notes}, line);
+      }} onCheckout={() => navigate('checkout')} store={store} canOrder={canOrder} />
 
       {/* Bottom Navigation */}
-      <nav className="bottom-nav">
-        <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} onClick={() => navigate('restaurants')}>
+      <nav className="bottom-nav" aria-label="Customer app navigation">
+        <button className={`nav-item ${view === 'restaurants' ? 'active' : ''}`} aria-current={view==='restaurants'?'page':undefined} onClick={() => navigate('restaurants')}>
           <span className="nav-icon"><Store size={21}/></span>
-          Stores
+          {t('navStores')}
         </button>
-        <button className={`nav-item ${view === 'menu' ? 'active' : ''}`} onClick={() => navigate('menu')}>
+        <button className={`nav-item ${view === 'menu' || view === 'store-menu' ? 'active' : ''}`} aria-current={view==='menu'||view==='store-menu'?'page':undefined} onClick={() => navigate('menu', {tenant: null, group: null})}>
           <span className="nav-icon"><Utensils size={21}/></span>
-          {t('navMenu')}
+          {t('navDishes')}
         </button>
-        <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} onClick={() => navigate('checkout')}>
+        <button className={`nav-item ${view === 'checkout' ? 'active' : ''}`} aria-current={view==='checkout'?'page':undefined} onClick={() => navigate('checkout')}>
           <span className="nav-icon"><ShoppingBag size={21}/></span>
           {t('navCart')}
           {totalItems > 0 && <span className="badge" style={{ position: 'static', fontSize: '0.6rem', padding: '1px 5px' }}>{totalItems}</span>}
         </button>
-        <button className={`nav-item ${view === 'track' ? 'active' : ''}`} onClick={() => navigate('track')}>
+        <button className={`nav-item ${view === 'track' || view === 'confirmation' ? 'active' : ''}`} aria-current={view==='track'||view==='confirmation'?'page':undefined} onClick={() => navigate('track')}>
           <span className="nav-icon"><Package size={21}/></span>
-          {t('navTrack')}
+          {t('navOrders')}
         </button>
-        <button className={`nav-item ${view === 'account' ? 'active' : ''}`} onClick={() => navigate('account')}>
+        <button className={`nav-item ${view === 'account' ? 'active' : ''}`} aria-current={view==='account'?'page':undefined} onClick={() => navigate('account')}>
           <span className="nav-icon"><UserRound size={21}/></span>
           {customer ? t('navAccount') : t('navSignIn')}
         </button>
@@ -482,12 +525,27 @@ function InnerApp() {
 
 // ── Root App ────────────────────────────────────────────────────────
 export default function App() {
+  // Select tenant synchronously before auth/cart child effects load any data.
+  const [tenantId, setTenantId] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('tenant');
+    const selected = fromUrl || getActiveTenant() || 'default_tenant';
+    setActiveTenant(selected);
+    return selected;
+  });
+  const switchRestaurant = (id) => {
+    if (!id || id === tenantId) return;
+    setActiveTenant(id);
+    // Restaurant identity changes require fresh customer identity and cart scopes.
+    localStorage.removeItem('gastroflow_dinein_table');
+    localStorage.removeItem('gastroflow_table_number');
+    setTenantId(id);
+  };
   return (
     <ErrorBoundary>
       <LanguageProvider>
-        <CustomerAuthProvider>
-          <CartProvider>
-            <InnerApp />
+        <CustomerAuthProvider key={tenantId}>
+          <CartProvider key={tenantId} tenantId={tenantId}>
+            <InnerApp key={tenantId} switchRestaurant={switchRestaurant} />
           </CartProvider>
         </CustomerAuthProvider>
       </LanguageProvider>

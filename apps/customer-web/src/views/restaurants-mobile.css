@@ -1,0 +1,60 @@
+/* Android/iPhone discovery layout fixes, scoped away from POS. */
+.gastrofood-discovery { min-width:0; width:100%; box-sizing:border-box; overflow-x:clip; }
+.gastrofood-discovery *, .gastrofood-discovery *::before, .gastrofood-discovery *::after { box-sizing:border-box; }
+.gastrofood-discovery .stores-modern-search, .gastrofood-discovery .stores-modern-search input { min-width:0; max-width:100%; }
+.gastrofood-discovery .gf-mobile-sort-tabs, .gastrofood-discovery .gf-mobile-cuisine-tabs {
+  display:flex; width:100%; min-width:0; max-width:100%; overflow-x:auto !important;
+  overflow-y:hidden !important; flex-wrap:nowrap !important; -webkit-overflow-scrolling:touch;
+  overscroll-behavior-inline:contain; scrollbar-width:none; scroll-snap-type:x proximity;
+}
+.gastrofood-discovery .gf-mobile-sort-tabs::-webkit-scrollbar,
+.gastrofood-discovery .gf-mobile-cuisine-tabs::-webkit-scrollbar { display:none; }
+.gastrofood-discovery .gf-mobile-sort-tabs > button,
+.gastrofood-discovery .gf-mobile-cuisine-tab {
+  flex:0 0 auto !important; min-width:max-content; max-width:none; scroll-snap-align:start; line-height:1.2;
+}
+.gastrofood-discovery .gf-mobile-cuisine-tab {
+  display:inline-flex !important; flex-direction:row !important; align-items:center !important;
+  justify-content:center; gap:8px !important; min-height:46px; padding:8px 12px !important;
+}
+.gastrofood-discovery .gf-mobile-cuisine-icon {
+  display:inline-flex; position:static; flex:0 0 24px; width:24px; height:26px;
+  align-items:center; justify-content:center; font-size:20px; line-height:1;
+  white-space:nowrap; transform:none;
+}
+.gastrofood-discovery .gf-mobile-cuisine-label {
+  display:inline-block; position:static; flex:0 0 auto; min-width:max-content;
+  white-space:nowrap; overflow:visible; text-overflow:clip; transform:none;
+}
+.gastrofood-discovery .gastrofood-restaurant-card { min-width:0; position:relative; isolation:isolate; }
+.gastrofood-discovery .gf-mobile-restaurant-banner { isolation:isolate; overflow:hidden; }
+.gastrofood-discovery .gf-mobile-restaurant-details { min-width:0; position:relative; }
+.gastrofood-discovery .gastrofood-store-name { min-width:0; overflow-wrap:anywhere; }
+@media (max-width:600px) {
+  .gastrofood-discovery {
+    padding-inline:12px !important;
+    padding-bottom:calc(100px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .gastrofood-discovery .stores-quick-filters { display:flex; flex-wrap:wrap; gap:8px; max-width:100%; }
+  .gastrofood-discovery .stores-quick-filters > button { min-width:0; max-width:100%; font-size:.82rem; }
+  .gastrofood-discovery .gf-mobile-sort-tabs > button { min-height:42px; }
+  .gastrofood-discovery .gf-mobile-cuisine-tabs { gap:8px !important; margin-bottom:16px !important; }
+  .gastrofood-discovery .restaurants-result-grid { grid-template-columns:minmax(0,1fr) !important; }
+  .gastrofood-discovery .gastrofood-result-count { flex-shrink:0; margin-left:8px; }
+}
+
+.discovery-heading { margin: 12px 0; }
+.discovery-heading h1 { color: var(--text-1); font-size: clamp(1.55rem, 4vw, 2rem); line-height: 1.15; margin: 0; }
+.discovery-heading p { color: var(--text-muted); margin: 5px 0 0; }
+.discovery-filters { border-block-end: 1px solid var(--border-color); margin-bottom: 18px; }
+.discovery-filters summary { display: flex; align-items: center; gap: 8px; min-height: 46px; color: var(--text-1); cursor: pointer; font-weight: 700; }
+.discovery-filters summary::after { content: '▾'; margin-inline-start: auto; }
+.discovery-filters[open] summary::after { transform: rotate(180deg); }
+.discovery-filters summary small { color: var(--brand); }
+
+.store-mode-switch { display:flex; gap:4px; padding:4px; border-radius:14px; background:var(--surface-2); margin-block:12px 4px; }
+.store-mode-switch button { flex:1; min-height:44px; font:inherit; font-weight:700; border:0; border-radius:10px; color:var(--text-1); background:transparent; cursor:pointer; }
+.store-mode-switch button[aria-pressed=true] { background:#176849; color:white; }
+.store-services { display:flex; flex-wrap:wrap; gap:6px; margin-block:8px; }
+.store-services span { padding:4px 8px; border-radius:6px; color:var(--text-muted); background:var(--surface-2); font-size:.76rem; font-weight:650; }
+.store-services span[data-available=true] { background:#e2f4e9; color:#195c39; }

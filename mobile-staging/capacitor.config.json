@@ -1,0 +1,23 @@
+{
+  "appId": "com.gastroflow.app.staging",
+  "appName": "GastroFlow Staging",
+  "webDir": "../dist",
+  "server": {
+    "url": "https://gastroflow-staging.onrender.com",
+    "cleartext": false
+  },
+  "plugins": {
+    "FirebaseMessaging": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  },
+  "experimental": {
+    "ios": {
+      "spm": {
+        "packageOptions": {
+          "@capacitor-firebase/messaging": { "symlink": true }
+        }
+      }
+    }
+  }
+}

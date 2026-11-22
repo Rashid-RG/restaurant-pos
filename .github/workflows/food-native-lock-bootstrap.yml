@@ -1,0 +1,374 @@
+name: GastroFlow Food native dependency lock bootstrap
+
+# This workflow resolves customer-only native dependencies on a GitHub runner
+# and uploads a reviewed lockfile candidate. It never commits, deploys, signs,
+# runs against Turso or edits the root POS package-lock.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/production-readiness
+    paths:
+      - 'apps/customer-web/package.json'
+      - 'apps/customer-web/vite.config.js'
+      - 'scripts/probe-food-native-cors.mjs'
+      - 'apps/customer-web/src/**'
+      - 'shared/ui/**'
+      - 'apps/customer-web/package-lock.json'
+      - 'scripts/verify-food-native-lock.mjs'
+      - 'scripts/harden-food-android.mjs'
+      - 'scripts/generate-food-android-branding.py'
+      - 'scripts/audit-food-android-apk.py'
+      - 'scripts/check-food-android-webview.mjs'
+      - 'apps/customer-web/public/food-logo.png'
+      - '.github/workflows/food-native-lock-bootstrap.yml'
+
+concurrency:
+  group: gastrofood-native-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lockfile-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Preserve POS lockfile checksum
+        run: sha256sum package-lock.json > "$RUNNER_TEMP/pos-lock.sha256"
+      - name: Resolve customer-only lockfile without installing or executing dependency scripts
+        working-directory: apps/customer-web
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Verify exact customer Capacitor dependencies and lockfile
+        run: node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+      - name: Ensure POS lockfile has not changed
+        run: sha256sum -c "$RUNNER_TEMP/pos-lock.sha256"
+      - name: Upload customer-only lockfile candidate for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-customer-package-lock-candidate
+          path: apps/customer-web/package-lock.json
+          if-no-files-found: error
+          retention-days: 14
+
+  android-source-candidate:
+    needs: lockfile-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Download verified customer lockfile candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: gastrofood-customer-package-lock-candidate
+          path: apps/customer-web
+      - name: Check customer package lock consistency
+        run: node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+      - name: Install exact customer native dependencies
+        working-directory: apps/customer-web
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+      - name: Install root web build dependencies without changing POS lock
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+      - name: Build customer packaged web assets for staging API
+        env:
+          VITE_NATIVE_API_ORIGIN: https://gastroflow-staging.onrender.com
+        run: npm run customer:native:build
+      - name: Create or reuse only the isolated customer Android project
+        working-directory: apps/customer-web
+        run: |
+          set -euo pipefail
+          if test -f android/app/build.gradle; then
+            echo "Using committed GastroFlow Food Android source; never overwrite it with cap add"
+            grep -F 'applicationId "com.rstechnologies.gastrofood"' android/app/build.gradle
+          else
+            npm run native:add:android
+          fi
+      - name: Apply foreground GPS permission requirements
+        working-directory: apps/customer-web
+        run: npm run native:permissions:android
+      - name: Sync packaged assets into customer Android project
+        working-directory: apps/customer-web
+        run: npm run native:sync:android
+      - name: Install isolated Android branding image tooling
+        run: python3 -m pip install --disable-pip-version-check Pillow==11.3.0
+      - name: Generate GastroFlow Food adaptive icons, launcher assets and splash screen
+        run: python3 scripts/generate-food-android-branding.py
+      - name: Verify all launcher and splash resources were generated
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          base=Path('apps/customer-web/android/app/src/main/res')
+          for density in ['mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi']:
+              for name in ['ic_launcher.png','ic_launcher_round.png','ic_launcher_foreground.png']:
+                  target=base/f'mipmap-{density}'/name
+                  assert target.is_file(),f'Missing GastroFood {target}'
+                  with Image.open(target) as im:
+                      im.verify()
+          splashes=list(base.glob('drawable*/splash.png'))
+          assert splashes,'No customer splash resources generated'
+          for p in splashes:
+              with Image.open(p) as im: im.verify()
+          print('Verified customer Android brand icon and splash resource files')
+          PY
+      - name: Disable Android backups of customer app private data
+        working-directory: apps/customer-web
+        run: npm run native:harden:android
+      - name: Confirm Android backup disabled and customer app identity
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          p=Path('apps/customer-web/android/app/src/main/AndroidManifest.xml')
+          app=ET.parse(p).getroot().find('application')
+          assert app is not None
+          assert app.attrib.get('{http://schemas.android.com/apk/res/android}allowBackup')=='false'
+          gradle=Path('apps/customer-web/android/app/build.gradle').read_text()
+          assert 'applicationId "com.rstechnologies.gastrofood"' in gradle
+          print('Customer Android app identity and backup policy verified')
+          PY
+      - name: Prepare Java 21 for Android Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Prepare Android 36 SDK from runner command-line tools
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+          test -n "${ANDROID_HOME:-}"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -Vr | head -n 1)"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || test "${PIPESTATUS[1]}" = 0
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          test -f "$ANDROID_HOME/platforms/android-36/android.jar"
+      - name: Cache verified Gradle wrapper and dependencies
+        uses: gradle/actions/setup-gradle@v4
+      - name: Compile test-only GastroFlow Food Android debug APK with bounded Maven retry
+        working-directory: apps/customer-web/android
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if bash ./gradlew :app:assembleDebug --no-daemon --stacktrace; then
+              echo "Android debug compile successful on attempt $attempt"
+              exit 0
+            fi
+            if [ "$attempt" -ge 3 ]; then
+              echo "Gradle failed after three attempts; check Maven/Google repository limits and compiler logs."
+              exit 1
+            fi
+            echo "Gradle attempt $attempt failed (possibly transient Maven HTTP 429); retrying."
+            sleep $((attempt * 25))
+          done
+      - name: Verify compiled Android debug APK identity and signing
+        run: |
+          set -euo pipefail
+          APK=apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.rstechnologies.gastrofood'"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
+      - name: Audit debug APK packaged assets and staging-only API
+        run: python3 scripts/audit-food-android-apk.py apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload test-only Android debug APK (not release signed)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-android-debug-apk
+          path: apps/customer-web/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Android source candidate for review (no signing or deployment)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-android-source-candidate
+          path: apps/customer-web/android/
+          if-no-files-found: error
+          retention-days: 14
+
+  commit-verified-customer-lock:
+    needs: [lockfile-candidate, android-source-candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # Commit the reviewed, pinned lockfile to the *existing* branch only.
+    # GITHUB_TOKEN commits do not trigger new push workflows; no deployment.
+    if: github.ref == 'refs/heads/codex/production-readiness'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/production-readiness
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Keep original root POS lock checksum
+        run: sha256sum package-lock.json > "$RUNNER_TEMP/root-pos-lock.sha256"
+      - name: Download successfully built customer lockfile
+        uses: actions/download-artifact@v4
+        with:
+          name: gastrofood-customer-package-lock-candidate
+          path: apps/customer-web
+      - name: Verify customer lock and enforce no POS mutation
+        run: |
+          node scripts/verify-food-native-lock.mjs apps/customer-web/package.json apps/customer-web/package-lock.json
+          sha256sum -c "$RUNNER_TEMP/root-pos-lock.sha256"
+          test "$(git diff --name-only | grep -v '^apps/customer-web/package-lock.json$' | wc -l)" -eq 0
+      - name: Commit customer-only verified lockfile if changed
+        run: |
+          set -euo pipefail
+          git add -- apps/customer-web/package-lock.json
+          if git diff --cached --quiet; then
+            echo "Customer lockfile already synchronized"
+            exit 0
+          fi
+          test "$(git diff --cached --name-only)" = "apps/customer-web/package-lock.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(food-native): lock verified isolated Capacitor 8.6.2 dependencies [skip ci]"
+          git push origin HEAD:codex/production-readiness
+
+  android-emulator-launch-smoke:
+    needs: android-source-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the verified test-only APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gastrofood-android-debug-apk
+          path: native-smoke/
+      - name: Verify downloaded debug APK artifact exists
+        run: test -s native-smoke/app-debug.apk
+      - name: Enable KVM acceleration for Android emulator
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+      - name: Launch GastroFlow Food on a clean emulator (no login or test orders)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          target: google_apis
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r native-smoke/app-debug.apk
+            adb shell am start -W -n com.rstechnologies.gastrofood/.MainActivity
+            sleep 15
+            adb shell pidof com.rstechnologies.gastrofood
+            adb shell dumpsys activity activities | grep -F com.rstechnologies.gastrofood
+            adb shell screencap -p /sdcard/gastrofood-startup.png
+            adb pull /sdcard/gastrofood-startup.png gastrofood-startup.png
+            test -s gastrofood-startup.png
+            adb logcat -d -v brief -s chromium:* cr_Console:* AndroidRuntime:* > gastrofood-emulator-console.txt || true
+            # android-emulator-runner starts each script line in a new shell.
+            # Do not split a shell variable assignment and its use across lines.
+            adb shell pidof com.rstechnologies.gastrofood
+            adb forward tcp:9222 "localabstract:webview_devtools_remote_$(adb shell pidof com.rstechnologies.gastrofood | tr -cd '[:digit:]')"
+            node scripts/check-food-android-webview.mjs
+            echo "GastroFlow Food Android startup UI accepted"
+      - name: Upload Android emulator screenshot and browser console for visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gastrofood-android-emulator-startup
+          path: |
+            gastrofood-startup.png
+            gastrofood-emulator-console.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  commit-reviewed-android-source:
+    needs: [commit-verified-customer-lock, android-emulator-launch-smoke]
+    if: github.ref == 'refs/heads/codex/production-readiness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/production-readiness
+          persist-credentials: true
+      - name: Capture root POS lock checksum
+        run: sha256sum package-lock.json > "$RUNNER_TEMP/root-lock.sha256"
+      - name: Download reviewed Android source candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: gastrofood-android-source-candidate
+          path: apps/customer-web/android
+      - name: Verify native source identity, backup isolation and branded launcher
+        run: |
+          set -euo pipefail
+          test -f apps/customer-web/android/gradlew
+          grep -F 'applicationId "com.rstechnologies.gastrofood"' apps/customer-web/android/app/build.gradle
+          grep -F 'android:allowBackup="false"' apps/customer-web/android/app/src/main/AndroidManifest.xml
+          test -s apps/customer-web/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          test -s apps/customer-web/android/app/src/main/assets/public/index.html
+          sha256sum -c "$RUNNER_TEMP/root-lock.sha256"
+          if find apps/customer-web/android -type f \( -iname '*.jks' -o -iname '*.keystore' -o -name 'google-services.json' -o -name 'local.properties' \) | grep .; then
+            echo "Refusing to commit native signing keys, services config or local machine paths"
+            exit 1
+          fi
+      - name: Exclude generated build and local machine files
+        run: |
+          cat > apps/customer-web/android/.gitignore <<'EOF'
+          .gradle/
+          .idea/
+          local.properties
+          **/build/
+          captures/
+          *.jks
+          *.keystore
+          google-services.json
+          EOF
+      - name: Commit ONLY isolated customer Android source if changed
+        run: |
+          set -euo pipefail
+          git add -- apps/customer-web/android
+          if git diff --cached --quiet; then
+            echo "Native Android source already synchronized"
+            exit 0
+          fi
+          if git diff --cached --name-only | grep -v '^apps/customer-web/android/'; then
+            echo "Blocked unrelated staged paths"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(food-native): check in verified isolated Android source and GastroFood branding [skip ci]"
+          git push origin HEAD:codex/production-readiness
+
+  native-staging-cors-diagnostic:
+    # Read-only OPTIONS requests, no credentials, no database changes.
+    # Diagnostic is deliberately non-gating until staging native CORS is approved.
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Report Android/iOS native CORS readiness (no configuration changes)
+        run: node scripts/probe-food-native-cors.mjs
