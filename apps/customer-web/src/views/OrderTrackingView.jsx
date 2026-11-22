@@ -7,6 +7,7 @@ import { useLang } from '../context/LanguageContext.jsx';
 import { useCustomerAuth } from '../context/CustomerAuthContext.jsx';
 import { selectTrackableOrders } from '../utils/gastromate-tracking.js';
 import CustomerTripScreen from '../components/CustomerTripScreen.jsx';
+import {orderPriceBreakdown} from '../utils/order-price-breakdown.js';
 import RiderChatSheet from '../components/RiderChatSheet.jsx';
 import DeliveryPulseCard from '../components/DeliveryPulseCard.jsx';
 import {contactLinks} from '../utils/contact-actions.js';
@@ -551,6 +552,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
   const riderAssigned=isDelivery && !isCancelled && !isDone && Boolean(order?.driver?.id || order?.driverId || dispatchStatus?.driverId);
   const riderContact=riderAssigned ? contactLinks(order?.driver?.phone || order?.driverPhone) : null;
   const displayRiderName=order?.driver?.name && !/^drv[_ -]?[a-f0-9-]{12,}$/i.test(order.driver.name) ? order.driver.name : 'Your delivery rider';
+  const orderPricing=orderPriceBreakdown(order||{});
   const trackingIsLive=Boolean(streamConnected && hasRecentUpdates);
   const stageNumber=actualProgress.done?actualProgress.steps.length:Math.max(1,actualProgress.currentIndex+1);
 
@@ -832,6 +834,7 @@ export default function OrderTrackingView({ orderId, onSupport, onSelectOrder, o
               ))}
             </div>
 
+            {orderPricing.lines.length>0 && <div aria-label="Order price breakdown" style={{borderTop:'1px solid var(--border-color)',paddingTop:10,marginTop:10}}>{orderPricing.lines.map((line,i)=><div key={i} className="flex-between" style={{fontSize:'.82rem',padding:'5px 0'}}><span>{line.label}</span><strong>{line.amount<0?'−':''}Rs. {Math.abs(line.amount).toFixed(2)}</strong></div>)}</div>}
             <div className="flex-between" style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border-color)', fontWeight: 800, fontSize: '1rem' }}>
               <span>{tr.totalAmount}</span>
               <span style={{ color: 'var(--brand)' }}>Rs. {Number(order.total || 0).toFixed(2)}</span>
