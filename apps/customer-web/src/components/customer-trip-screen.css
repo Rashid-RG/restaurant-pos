@@ -36,3 +36,13 @@ dialog.gf-trip-screen {
 @media(max-width:600px){dialog.gf-trip-screen {width:100%;height:100dvh;border-radius:0}}
 .gf-trip-map-state:not(:empty) {position:absolute;bottom:26px;left:10px;max-width:calc(100% - 80px);z-index:500;background:#fffffff2;border-radius:8px;padding:5px 8px;color:#484848;font-size:11px;line-height:1.35;pointer-events:none}
 .gf-trip-map .leaflet-control-attribution {margin-bottom:9px}
+
+/* A quiet pulse identifies the current confirmed step without inventing progress. */
+.gf-trip-progress span[data-current=true] {position:relative;overflow:hidden;border-radius:5px}
+.gf-trip-progress span[data-current=true]::after {content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,#f4cb76,transparent);animation:gf-trip-stage-pulse 2.1s ease-in-out infinite;transform:translateX(-100%)}
+@keyframes gf-trip-stage-pulse {to {transform:translateX(100%)}}
+.gf-trip-portrait {overflow:hidden;flex-shrink:0}
+.gf-trip-portrait img {width:100%;height:100%;object-fit:cover}
+.gf-trip-rider strong {text-transform:none}
+.gf-trip-rider small {margin-top:4px;font-size:11px;color:#666;text-transform:none}
+@media (prefers-reduced-motion:reduce) {.gf-trip-progress span[data-current=true]::after {animation:none;display:none}}
